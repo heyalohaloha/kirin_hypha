@@ -32,4 +32,6 @@ std::optional<CueLevel> readCueLevel (const juce::File& root, const RuntimeWorks
 // C の A 側の窓の長さ（10 Hz のブロック数）：Cue と同じ長さ。10 秒より短い Cue は 10 秒
 // （短い窓の音量は揺れる）、長い Cue はメーター履歴の 10 分まで。
 int cueWindowBlocks (std::int64_t cueStartSample, std::int64_t cueEndSample, std::int64_t sampleRateHz) noexcept;
+// Cue の長さ（10 Hz のブロック数）。図の A の窓の CUE が使う。MATCH と違って短い Cue も丸めない（上限は同じ 10 分）。
+int cueLengthBlocks (std::int64_t cueStartSample, std::int64_t cueEndSample, std::int64_t sampleRateHz) noexcept;
 }

@@ -1,6 +1,7 @@
 #include "HyphaReferenceComponent.h"
 
 #include "HyphaMainFrame.h"
+#include "HyphaReferenceBalance.h"
 #include "HyphaReferenceVisuals.h"
 
 namespace hypha::reference_ui
@@ -107,6 +108,8 @@ void Component::resized()
     observationArea = area.reduced (main_frame::insetFor (presentationContext), main_frame::insetFor (presentationContext));
     comparisonView.setBounds (observationArea);
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
+    balanceBounds = area.withTrimmedTop (panelGap()).withTrimmedLeft (songList.getWidth() + 6);
+    layoutAWindowControls();
     // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
     if (statusStrip.getParentComponent() == this)
     {
@@ -116,6 +119,38 @@ void Component::resized()
     }
     statusStrip.resized();
     layoutSelectionReadouts();
+}
+
+void Component::configureAWindowControls()
+{
+    for (size_t index = 0; index < aWindowControls.size(); ++index)
+    {
+        auto& control = aWindowControls[index];
+        control.setComponentID ("reference-a-window-" + juce::String (static_cast<int> (index)));
+        control.onChoose = [this] (AWindowControl::Target opened, AWindowControl::Choice choice) { if (onSelectAWindow) onSelectAWindow (opened, choice); };
+        control.onReset = [this] (AWindowControl::Target opened) { if (onResetAWindow) onResetAWindow (opened); };
+        addChildComponent (control);
+    }
+}
+
+// A の窓を選ぶボタンは、A の窓の線を描く図の凡例の上にだけ出す：B の Balance（300%）と、C の Cue の図（200% と 300%）。
+void Component::layoutAWindowControls()
+{
+    std::array<juce::Rectangle<int>, 3> areas {};
+    if (detailedLayout() && ! guideShown && ! isBlindSession (current.blindPhase) && ! comparisonView.isVisible())
+    {
+        if (songList.isVisible()) areas[0] = referenceBalanceAWindowArea (balanceBounds.toFloat(), current, presentationContext);
+        else if (! (checkPage() && listeningCheck()))
+            areas = referenceAWindowAreas (observationArea.toFloat(), current, presentationContext);
+    }
+    for (size_t index = 0; index < aWindowControls.size(); ++index)
+    {
+        auto& control = aWindowControls[index];
+        control.setChoice (current.aWindows.of (current.comparisonSlot));
+        control.setTarget (current.aWindowTarget);
+        control.setBounds (areas[index]);
+        control.setVisible (! areas[index].isEmpty());
+    }
 }
 
 juce::Rectangle<int> Component::observationWindowBounds() const noexcept

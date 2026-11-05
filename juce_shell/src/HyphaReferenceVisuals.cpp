@@ -1,4 +1,5 @@
 #include "HyphaReferenceVisuals.h"
+#include "HyphaReferenceAWindowControl.h"
 #include "HyphaReferenceChartReading.h"
 #include "HyphaReferenceWindowMaterial.h"
 
@@ -33,11 +34,12 @@ void panel (juce::Graphics& g, juce::Rectangle<float> area)
 juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area,
                                   const juce::String& heading,
                                   const juce::String& detail,
-                                  presentation::Context presentation, juce::Rectangle<float> window)
+                                  presentation::Context presentation, juce::Rectangle<float> window,
+                                  int legendFirstExtra = 0)
 {
     panel (g, area);
     window_material::paintInterior (g, window, area);
-    paintReferenceHeader (g, area, heading, detail, presentation);
+    paintReferenceHeader (g, area, heading, detail, presentation, legendFirstExtra);
     auto chart = area.reduced (10.0f, 8.0f);
     g.setColour (COL_MUTED.withAlpha (0.10f));
     for (int line = 1; line < 4; ++line)
@@ -157,7 +159,9 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     // C の Cue の値があれば「Cue 対 A の同じ長さの直近」を同じ定義・同じ音量で比べる。
     if (state.separateComparisons && state.comparisonSlot == 2 && state.cueKirin)
     {
-        const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation, window);
+        const juce::String heading = lowOnly ? "LOW FREQUENCY" : "SPECTRUM";
+        const auto cueArea = chartArea (g, bounds, heading, cueChartLegend (bounds, heading, state, presentation), presentation, window,
+                                        AWindowControl::arrowWidth);
         paintFrequencyTicks (g, cueArea, minimumHz, maximumHz, presentation);  // どこが何 Hz か（2026-10-04）
         if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz, presentation)) return true;
         unavailable (g, cueArea, presentation);
@@ -378,6 +382,25 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
     else if (binding == "transient") drawTransient (g, area, state, presentation, window);
     else drawTimeline (g, area, state, binding, presentation, window);
 }
+}
+
+std::array<juce::Rectangle<int>, 3> referenceAWindowAreas (juce::Rectangle<float> area, const State& state,
+                                                           presentation::Context presentation)
+{
+    std::array<juce::Rectangle<int>, 3> areas {};
+    if (! configuredReferenceViewsFit (area, state) || ! state.separateComparisons || state.comparisonSlot != 2 || ! state.cueKirin)
+        return areas;
+    const auto count = std::min<size_t> (3, state.viewBindings.size());
+    const auto cells = referenceVisualCells (area, static_cast<int> (count), state.presentationLayout);
+    for (size_t index = 0; index < count; ++index)
+    {
+        const auto& binding = state.viewBindings[index];
+        if (binding != "spectrum_full" && binding != "spectrum_low") continue;
+        const juce::String heading = binding == "spectrum_low" ? "LOW FREQUENCY" : "SPECTRUM";
+        areas[index] = referenceHeaderFirstCell (cells[index], heading, cueChartLegend (cells[index], heading, state, presentation),
+                                                 presentation, AWindowControl::arrowWidth);
+    }
+    return areas;
 }
 
 bool configuredReferenceViewsFit (juce::Rectangle<float> area, const State& state) noexcept

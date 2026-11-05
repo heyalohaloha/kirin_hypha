@@ -19,9 +19,9 @@ inline constexpr const char* attack = "Attack: how far each moment's peak stands
 inline constexpr const char* timeLines = "The first fact over the last 30 seconds: A gold, V cyan, scaled to the lines.";
 
 // スペクトルと 4 帯域（HyphaReferenceCueSummary.cpp・HyphaReferenceVersionPage.cpp・HyphaReferenceBalance.cpp）。
-inline constexpr const char* cueSpectrum = "Spectrum of C's Cue and the same length of recent A, with C at the level it plays at.";
+inline constexpr const char* cueSpectrum = "Spectrum of C's Cue with its target range, and A over the chosen window, with C at its playing level.";
 inline constexpr const char* versionSpectrum = "Spectrum of A and V over the same aligned section, with V at the level it plays at.";
-inline constexpr const char* balance = "Balance: A's last 10 seconds, the chosen song and the Reference range, at B's level.";
+inline constexpr const char* balance = "Balance: A over the chosen window, the chosen song and the target range, at B's level.";
 inline constexpr const char* blauert = "Blauert's bands: A's 1 kHz against 300-400 Hz and 3-4 kHz, bands tied to sensed distance.";
 inline constexpr const char* cueBands = "Four bands: how much more or less A has than C in each band, after matching level.";
 inline constexpr const char* versionBands = "Four bands: how much more or less A has than V in each band, over the same section.";

@@ -267,6 +267,29 @@ bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
    #endif
 }
 
+bool KirinHyphaProcessorBase::selectReferenceAWindow (hypha::reference_audition::AWindowTarget target,
+                                                      hypha::reference_audition::AWindowChoice choice)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectAWindow (target, choice);
+   #else
+    juce::ignoreUnused (target, choice);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::resetReferenceAWindow (hypha::reference_audition::AWindowTarget target)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->resetAWindow (target);
+   #else
+    juce::ignoreUnused (target);
+    return false;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::requestReferenceRecovery()
 {
     refreshLicenseForUserAction();

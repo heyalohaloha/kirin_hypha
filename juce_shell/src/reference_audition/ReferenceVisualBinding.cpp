@@ -29,6 +29,8 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.sourceCueStartSample = visualSourceCueStart;
     result.sourceCueEndSample = visualSourceCueEnd;
     result.matchWindowBlocks = trackingEnabled.load (std::memory_order_acquire) ? liveWindowBlocks : currentSnapshot.cueWindowBlocks;
+    result.cueLengthBlocks = currentSnapshot.cueLengthBlocks;
+    result.aDisplayWindowBlocks = result.matchWindowBlocks;  // B・C は利用者の選択で置き換える（ReferenceComparisonController）
     const auto generation = mappingGeneration.load (std::memory_order_acquire);
     result.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
     result.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);

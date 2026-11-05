@@ -24,6 +24,11 @@ void KirinHyphaEditor::configureReferenceAudition()
     scaleRoot.addChildComponent (referenceAccessView);
     referenceView.onSelectA = [this] { referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0; processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
+    // 開いている間に役や状態が替わったリストの回答は断られる（何も変えず、変わっていないと言う）。
+    referenceView.onSelectAWindow = [this] (auto target, auto choice)
+    { if (! processorRef.selectReferenceAWindow (target, choice)) showToast ("A window was not changed"); };
+    referenceView.onResetAWindow = [this] (auto target)
+    { if (! processorRef.resetReferenceAWindow (target)) showToast ("A window was not changed"); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
     wireReferenceRoles();
     referenceView.onSelectB = [this]
@@ -275,6 +280,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     state.visualPositionSeconds = runtime.visualPositionSeconds;
     state.visualPreferences = runtime.visualPreferences;
+    if (runtime.visualPreferences) state.aWindows = runtime.visualPreferences->aWindows();
+    state.aWindowTarget = runtime.aWindowTarget;
     state.profiles = runtime.profiles;
     state.candidatePreparationPending = checkSelection.candidatePreparationStatus == "pending";
     if (observatoryDomain == hypha::observatory::Domain::reference)

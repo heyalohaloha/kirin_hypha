@@ -56,6 +56,14 @@ const Entry entries[] = {
     { "ON PLAY / C %1 dB", u8"鳴らすとき / C %1 dB" },
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
+    { "A LAST %1", u8"A直近%1" },  // 1 分から（A LAST 4:05）
+    // A の窓を選ぶリスト（HyphaReferenceAWindowControl.h）。3 S・10 S・30 S・CUE・ALL は英語のまま。
+    { "A WINDOW", u8"Aの窓" },
+    { "A window", u8"Aの窓" },
+    { "A window: %1", u8"Aの窓：%1" },
+    { "RESET A WINDOW", u8"Aの窓をリセット" },
+    { "Choose how much of A the line shows. The sound and MATCH do not change.",
+      u8"Aの線に使う長さを選びます。音とMATCHは変わりません。" },
     { "A %1 / %2 S", u8"A %1 / %2秒" },
     // 2026-10-04：図の凡例の比べる側（「A直近10秒 / Bサビ」の形）。B は鳴らす部分の時刻を添える。
     { "B CHORUS %1", u8"Bサビ %1" },
@@ -69,7 +77,8 @@ const Entry entries[] = {
     { "C LOUDEST 30 S", u8"C最も大きい30秒" },
     { "C CUE", u8"CのCue" },
     { "C WHOLE", u8"C曲全体" },
-    { "REFERENCE RANGE", u8"Reference の範囲" },  // Reference のセットの曲の p10〜p90 の帯
+    { "TARGET RANGE", u8"目標の範囲" },  // B は Reference のセットの曲の帯、C は Cue の p10〜p90 の帯
+    { "TARGET %1 TO %2", u8"目標 %1〜%2" },  // 図を指したときの読み
     // Blauert の帯（HyphaReferenceBlauertZones.h）：300-400 Hz・3-4 kHz に対する 1 kHz 付近の高さを、A を主語に。
     { u8"1k vs 300-400·3-4k", u8"300-400·3-4kに対する1k" },
     // 比べる側との差は A を主語に言葉で（HyphaReferenceAComparison.h。2026-10-04）。
@@ -160,12 +169,12 @@ const Entry entries[] = {
       u8"Attack：PeakがLUFS-Mからどれだけ突き出るか。詰めると小さくなる。" },
     { "The first fact over the last 30 seconds: A gold, V cyan, scaled to the lines.",
       u8"最初の項目の直近30秒の動き。Aは金、Vは水色。縦軸は線の値の範囲。" },
-    { "Spectrum of C's Cue and the same length of recent A, with C at the level it plays at.",
-      u8"CのCueと、同じ長さのAの直近のSpectrum。Cは鳴らす音量に合わせる。" },
+    { "Spectrum of C's Cue with its target range, and A over the chosen window, with C at its playing level.",
+      u8"CのCueとその目標の範囲、選んだ窓のAのSpectrum。Cは鳴らす音量に合わせる。" },
     { "Spectrum of A and V over the same aligned section, with V at the level it plays at.",
       u8"位置合わせで対応したAとVの同じ区間のSpectrum。Vは鳴らす音量で並べます。" },
-    { "Balance: A's last 10 seconds, the chosen song and the Reference range, at B's level.",
-      u8"Balance：Aの直近10秒、選んだ曲、Reference の範囲。Bは鳴らす音量で並べます。" },
+    { "Balance: A over the chosen window, the chosen song and the target range, at B's level.",
+      u8"Balance：選んだ窓のA、選んだ曲、目標の範囲。Bは鳴らす音量で並べます。" },
     { "Blauert's bands: A's 1 kHz against 300-400 Hz and 3-4 kHz, bands tied to sensed distance.",
       u8"Blauertの帯：300-400・3-4 kHzに対する1 kHzの高さ。距離感に関わる。" },
     { "Four bands: how much more or less A has than C in each band, after matching level.",

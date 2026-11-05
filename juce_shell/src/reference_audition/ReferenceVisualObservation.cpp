@@ -1,6 +1,7 @@
 #include "ReferenceVisualObservation.h"
 #include "ReferenceTestCommitObserver.h"
 #include "ReferenceVisualAudio.h"
+#include "ReferenceVisualPreferences.h"
 #include <algorithm>
 #include <cmath>
 namespace hypha::reference_audition
@@ -67,8 +68,8 @@ std::shared_ptr<const VisualTimeline> VisualObservation::snapshot() const
 { const juce::ScopedLock lock (snapshotLock); return published; }
 void VisualObservation::publish()
 {
-    // その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
-    timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
+    // 図の窓の A の要約（窓を替えても測ったものは捨てず、覚えている分から集計し直す）。
+    timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.aDisplayWindowBlocks, 1, aWindowMaximumBlocks));
     timeline.aPairKirin = pairAMeter.window (300);
     timeline.aTicks = aTickMeter.bins();
     timeline.aTickChannels = aTickMeter.channels();
@@ -106,7 +107,7 @@ bool VisualObservation::resetMeters()
 // 入力）は測らずに窓を捨てる（K 特性のフィルタの状態や FFT に NaN を残さない）。
 void VisualObservation::consumeKirin (const Block& block, int rate)
 {
-    if (! kirinMeter.configuredFor (rate, block.channels) && ! kirinMeter.configure (rate, block.channels, 6'000))
+    if (! kirinMeter.configuredFor (rate, block.channels) && ! kirinMeter.configure (rate, block.channels, aWindowMaximumBlocks))
         return;
     if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
     if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
@@ -114,7 +115,7 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
     if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity)
     { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); }
     kirinDiscontinuity = block.discontinuity;
-    kirinMeter.push (block.pcm.data(), block.frames);
+    if (! aWindowCatchingUp) kirinMeter.push (block.pcm.data(), block.frames);
     printMeter.push (block.pcm.data(), block.frames);
     aTickMeter.push (block.pcm.data(), block.frames, rate, block.channels);
     printEndSample = block.position + block.frames;
@@ -194,12 +195,20 @@ void VisualObservation::run()
         bool visible = false; int rate = 0, channels = 0;
         { const juce::ScopedLock lock (controlLock); visible = presented; rate = configuredRate; channels = configuredChannels; }
         runRate = rate; runChannels = channels;
+        if (const auto resets = aWindowResets.load (std::memory_order_acquire); resets != aWindowResetsDone)
+        {
+            aWindowResetsDone = resets; kirinMeter.reset(); dirty = true;
+            // 今の受け口の中身はどれも押す前か押した直後の音。読みがこの位置へ届くまで A の線に入れない。
+            aWindowBoundary = writeIndex.load (std::memory_order_acquire);
+            aWindowCatchingUp = aWindowBoundary != readIndex.load (std::memory_order_relaxed);
+        }
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
             { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); printMeter.reset(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
+            aWindowCatchingUp = false;
             wait (100); continue;
         }
         ReferenceAnalysis::Lease job;
@@ -232,6 +241,7 @@ void VisualObservation::run()
                 timeline.binding.matched = next.matched;
                 dirty = true;
             }
+            dirty = dirty || timeline.binding.aDisplayWindowBlocks != next.aDisplayWindowBlocks;  // 今ある分で集計し直す
             if (bindingChanged)
             {
                 clearMeters(); timeline.binding = next; timeline.bins.clear(); timeline.hop = 0;
@@ -296,6 +306,7 @@ void VisualObservation::run()
             if (decoded && analysis->current(job) && block.generation == generation.load (std::memory_order_acquire)) consumePair (block);
             else if (timeline.pairedObserving) clearMeters();
             readIndex.store ((read + 1) % queueSize, std::memory_order_release);
+            if ((read + 1) % queueSize == aWindowBoundary) aWindowCatchingUp = false;
             KIRIN_REFERENCE_COMMIT_FOR_TEST();
         }
         const auto now = juce::Time::getMillisecondCounterHiRes();

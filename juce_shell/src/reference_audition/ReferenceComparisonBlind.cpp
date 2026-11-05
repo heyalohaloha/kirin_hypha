@@ -36,6 +36,7 @@ bool ReferenceComparisonController::beginBlindGuard()
         blindGuardOwned = true;
         blindSessionOpen.store (true, std::memory_order_release);
     }
+    advanceAWindowEpoch();
     clearPendingAudition();
     return true;
 }
@@ -71,12 +72,15 @@ void ReferenceComparisonController::releaseVersionBlindGuard()
 bool ReferenceComparisonController::reserveLocalBlind (output_owner::Activity activity)
 {
     const auto outside = external();
-    const juce::ScopedLock lock (gateLock);
-    if (closing || output_owner::decide (activity, outside | ownStatesLocked()).refused()
-        || ! blindSlot.reserve (BlindOwner::local)) return false;
-    localBlindOwned = true; localBlindEpoch = 0;
-    visual.pauseAdmission();
-    refreshObservation();
+    {
+        const juce::ScopedLock lock (gateLock);
+        if (closing || output_owner::decide (activity, outside | ownStatesLocked()).refused()
+            || ! blindSlot.reserve (BlindOwner::local)) return false;
+        localBlindOwned = true; localBlindEpoch = 0;
+        visual.pauseAdmission();
+        refreshObservation();
+    }
+    advanceAWindowEpoch();
     return true;
 }
 

@@ -24,6 +24,7 @@ struct ReferenceComparisonSettings
     bool versionAuto = false;                   // V の Version は AUTO が選んだ（AUTO が選び直せる）
     juce::String songSetId;                     // 選んでいる B SET
     VisualViewChoice visualView;
+    AWindowChoices aWindows;                    // B・C の図の A の線の窓
     int viewedSlot = 2;
     // 2026-10-04：A の取り込み（ACapture）と Tonal の表示（ReferenceTonal）は書かず、古い版が残したものは読み飛ばす。
     void write (juce::XmlElement& parent) const
@@ -38,7 +39,7 @@ struct ReferenceComparisonSettings
             child->setAttribute ("candidate", choice.candidateId);
             child->setAttribute ("cue", choice.cueId);
         };
-        append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml);
+        append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml); aWindows.write (*xml);
         if (safeId (songSetId)) xml->getChildByName ("REF")->setAttribute ("set", songSetId);
         if (versionAuto && version.candidateId.isNotEmpty()) xml->getChildByName ("B")->setAttribute ("auto", true);
     }
@@ -55,6 +56,7 @@ struct ReferenceComparisonSettings
             return choice.valid() ? choice : ReferenceChoice {};
         };
         result.visualView = VisualViewChoice::read (*xml);
+        result.aWindows = AWindowChoices::read (*xml);
         result.version = readChoice ("B"); result.check = readChoice ("C"); result.reference = readChoice ("REF");
         if (result.version.candidateId.isEmpty()) result.version = {};
         if (const auto* versionXml = xml->getChildByName ("B"))

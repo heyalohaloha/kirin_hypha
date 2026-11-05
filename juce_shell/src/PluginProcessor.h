@@ -132,7 +132,7 @@ public:
     bool selectReferenceCandidate (const juce::String&);
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
-    bool selectReferenceVisualSlot (int);
+    bool selectReferenceVisualSlot (int); bool selectReferenceAWindow (hypha::reference_audition::AWindowTarget, hypha::reference_audition::AWindowChoice); bool resetReferenceAWindow (hypha::reference_audition::AWindowTarget);
     bool requestReferenceRecovery();
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,

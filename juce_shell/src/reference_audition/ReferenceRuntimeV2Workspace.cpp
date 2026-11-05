@@ -400,6 +400,7 @@ namespace hypha::reference_audition
                 next.cuePart = level->part;
             }
         next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
+        next.cueLengthBlocks = cueLengthBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
         if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // C の画面の Cue の時間軸
         {
             next.cueStartSeconds = static_cast<double> (cue->startSample) / static_cast<double> (cue->sampleRateHz);

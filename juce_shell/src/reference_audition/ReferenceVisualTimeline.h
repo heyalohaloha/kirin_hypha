@@ -26,6 +26,9 @@ struct VisualBinding
     // Cue の範囲（元の音の rate の sample）。選択と同じく key に入り、替われば A と V の窓を作り直す。
     std::int64_t sourceCueStartSample = 0, sourceCueEndSample = 0;
     int matchWindowBlocks = 100; // その役の A 側の窓（100 ms のブロック数。C は Cue と同じ長さ）
+    int cueLengthBlocks = 100;   // その役の Cue の長さ（100 ms のブロック数。MATCH の下限 10 秒を掛けない）
+    // 図の A の線の窓（観測スレッドが集計に使う）。見せ方だけなので key に入れず、変えても測ったものは捨てない。
+    int aDisplayWindowBlocks = 100;
     double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN(); // 鳴っている Cue の位置（ループは折り返す）
 };
 struct VisualPairBin
@@ -37,7 +40,7 @@ struct VisualTimeline
 {
     VisualBinding binding;
     std::vector<VisualPairBin> bins;
-    std::shared_ptr<const KirinSpectrumWindow> aKirin; // A の直近の窓（Kirin OS の Cue と同じ定義）
+    std::shared_ptr<const KirinSpectrumWindow> aKirin; // A の直近の窓（Kirin OS の Cue と同じ定義。長さは binding.aDisplayWindowBlocks）
     // 2026-10-04：範囲の帯。A の直近 60 秒までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aTicks;
     int aTickChannels = 0;

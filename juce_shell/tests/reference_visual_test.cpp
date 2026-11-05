@@ -10,9 +10,12 @@
 #include <thread>
 #include <ctime>
 #include "ReferenceVisualAudioParity.h"
+#include "ReferenceAWindowRuntimeTest.h"
 void testReferenceVisual (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
 {
+    testAWindowTargets (sandbox);
+    testAWindowResetRing();
     const auto root = sandbox.getChildFile ("visual"); require (root.createDirectory().wasOk(), "visual fixture directory");
     const auto file = root.getChildFile ("same-song.wav");
     const auto fixture = makeWholeSongFixture (root, file, "recording-visual", "version-visual");
@@ -99,6 +102,45 @@ void testReferenceVisual (const juce::File& sandbox)
     const auto regained = observation.snapshot();
     require (regained->pass == measured->pass && regained->bins.size() == 80 && regained->bins[39].pass == measured->bins[39].pass,
              "a gain change keeps the measured bins and pass");
+    // 図の A の窓を替えても測ったものは捨てず、今ある分で集計し直す（止まっていても次の publish で出る）。何を測るか（key）は同じ。
+    require (measured->aKirin && measured->aKirin->frames == 40, "the A window holds what was fed");
+    { const std::lock_guard<std::mutex> lock (mapLock); map.aDisplayWindowBlocks = 30; }
+    require (wait ([] (const auto& state) { return state.aKirin && state.aKirin->wantedFrames == 30; }), "a shorter A window reaches the display");
+    { const std::lock_guard<std::mutex> lock (mapLock); map.aDisplayWindowBlocks = 20; }  // 3 秒未満の Cue も伸ばさない（線は画面が出さない）
+    require (wait ([] (const auto& state) { return state.aKirin && state.aKirin->wantedFrames == 20 && state.aKirin->frames == 20; }),
+             "a short Cue sums only its own length");
+    { const std::lock_guard<std::mutex> lock (mapLock); map.aDisplayWindowBlocks = ref::aWindowMaximumBlocks; }
+    require (wait ([] (const auto& state) { return state.aKirin && state.aKirin->wantedFrames == ref::aWindowMaximumBlocks; }), "ALL reaches the display");
+    const auto widened = observation.snapshot();
+    require (widened->aKirin->frames == 40 && widened->pass == measured->pass && widened->bins[39].pass == measured->bins[39].pass
+                 && widened->binding.matchWindowBlocks == measured->binding.matchWindowBlocks,
+             "changing A's window drops nothing and leaves the MATCH window alone");
+    // RESET は A の窓だけを捨てる（観測スレッドで）。V の比較・範囲の帯・指紋は残す。
+    observation.resetAWindow();
+    require (wait ([] (const auto& state) { return ! state.aKirin; }), "RESET drops A's window");
+    const auto emptied = observation.snapshot();
+    require (emptied->pass == measured->pass && emptied->bins[39].pass == measured->bins[39].pass && emptied->aTicks && emptied->aFingerprint,
+             "RESET keeps V's comparison, the range strips and the fingerprint");
+    feed (40);
+    require (wait ([] (const auto& state) { return state.aKirin && state.aKirin->frames == 1; }), "A's window starts again from the next sound");
+    // 観測が遅れて受け口に押す前の塊が残っていても、RESET の後の A の線には入らない。範囲の帯は続く。
+    const auto ticksBefore = observation.snapshot()->aTicks->size();
+    blockBinding = true;
+    hypha::tests::reference_control::await ([&] { return entered.load(); });
+    require (entered, "the observation thread is held behind the queue");
+    for (int bin = 41; bin < 44; ++bin)
+    {
+        for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, bin * 4800, 4800);
+        enqueueInput (input, 24000 + bin * 4800, true);
+    }
+    observation.resetAWindow();
+    blockBinding = false; entered = false;
+    hypha::tests::reference_control::await ([&] { return ! (observation.pendingInput()); });
+    require (wait ([&] (const auto& state) { return state.aTicks && state.aTicks->size() >= ticksBefore + 3; }), "the range strips keep the held-back blocks");
+    require (wait ([] (const auto& state) { return ! state.aKirin; }), "the blocks from before RESET never reach A's window");
+    feed (44);
+    require (wait ([] (const auto& state) { return state.aKirin && state.aKirin->frames == 1; }), "the first block after RESET starts A's window");
+    { const std::lock_guard<std::mutex> lock (mapLock); map.aDisplayWindowBlocks = 100; }
     { const std::lock_guard<std::mutex> lock (mapLock); map.key = "verified-map-2"; }
     require (wait ([&] (const auto& state) { return state.binding.key == "verified-map-2" && state.pass != measured->pass
                                                     && state.bins[39].pass == 0; }),
@@ -220,4 +262,46 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
     });
     std::cout << "Reference complete runtime observed " << covered << " / 80 waveform bins\n";
     require (covered >= 75, "verified library and live A feed the complete comparison view");
+    // 図の A の窓を替えても、MATCH・追従の窓は変わらない。B・C は別に覚え、V には効かない。
+    const auto viewed = controller.snapshot().comparisonSlot;
+    const auto windowOfA = [&] (int blocks)
+    {
+        bool reached = false;
+        hypha::tests::reference_control::await ([&] {
+            const auto state = controller.snapshot();
+            reached = state.visualTimeline && state.visualTimeline->aKirin && state.visualTimeline->aKirin->wantedFrames == blocks;
+            return reached;
+        }, "the A window must reach the display");
+        return reached;
+    };
+    const auto matchWindows = [&] { return std::array { controller.liveWindowBlocks (1), controller.liveWindowBlocks (2), controller.liveWindowBlocks (3) }; };
+    const auto before = matchWindows();
+    const auto target = [&] { return controller.snapshot().aWindowTarget; };
+    require (controller.selectVisualSlot (2) && controller.selectAWindow (target(), ref::AWindowChoice::seconds3) && windowOfA (30), "C's window reaches the A line");
+    const auto openedOnC = target();
+    require (controller.selectVisualSlot (3) && windowOfA (100), "B keeps its own window");
+    // 開いたまま役が替わったリストの回答は、どちらの役も替えない。RESET も同じ。
+    require (! controller.selectAWindow (openedOnC, ref::AWindowChoice::all) && ! controller.resetAWindow (openedOnC), "an answer from before the role changed is dropped");
+    require (controller.savedSettings().aWindows.check == ref::AWindowChoice::seconds3 && windowOfA (100), "the dropped answer changed nothing");
+    require (controller.selectAWindow (target(), ref::AWindowChoice::all) && windowOfA (ref::aWindowMaximumBlocks), "B's window reaches the A line");
+    require (matchWindows() == before, "the A window leaves the MATCH and tracking windows alone");
+    require (! controller.selectAWindow ({ 1, target().epoch }, ref::AWindowChoice::all), "V has no A window");
+    const auto saved = controller.savedSettings().aWindows;
+    require (saved.check == ref::AWindowChoice::seconds3 && saved.reference == ref::AWindowChoice::all, "each role saves its window");
+    juce::XmlElement stateXml ("State");
+    controller.savedSettings().write (stateXml);
+    const auto restored = ref::ReferenceComparisonSettings::read (stateXml).aWindows;
+    require (restored.check == saved.check && restored.reference == saved.reference, "the windows round trip through the project state");
+    controller.selectAWindow (target(), ref::AWindowChoice::seconds10);
+    controller.selectVisualSlot (2);
+    controller.selectAWindow (target(), ref::AWindowChoice::cue);
+    require (controller.resetAWindow (target()), "RESET takes the current target");
+    bool emptied = false;
+    hypha::tests::reference_control::await ([&] {
+        const auto state = controller.snapshot();
+        emptied = state.visualTimeline && ! state.visualTimeline->aKirin;
+        return emptied;
+    }, "RESET must reach the display");
+    require (emptied, "RESET drops A's window through the observation thread");
+    controller.selectVisualSlot (viewed);
 }

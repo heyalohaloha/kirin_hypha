@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include <array>
 #include <cmath>
+#include <cstdint>
 namespace hypha::reference_audition
 {
 struct VisualViewChoice
@@ -27,14 +29,111 @@ struct VisualViewChoice
         return result.valid() ? result : VisualViewChoice {};
     }
 };
+// B・C の図の A の線の窓。変えるのは A の見せ方だけで、MATCH・追従の窓（matchWindowBlocks）とは別に持つ。
+enum class AWindowChoice { seconds3, seconds10, seconds30, cue, all };
+inline constexpr std::array<AWindowChoice, 5> aWindowOptions { AWindowChoice::seconds3, AWindowChoice::seconds10,
+    AWindowChoice::seconds30, AWindowChoice::cue, AWindowChoice::all };
+inline constexpr int aWindowMaximumBlocks = 6'000;  // A を覚えておく上限（100 ms × 6,000 = 10 分）
+
+inline const char* aWindowLabel (AWindowChoice choice) noexcept
+{
+    switch (choice)
+    {
+        case AWindowChoice::seconds3: return "3 S";
+        case AWindowChoice::seconds10: return "10 S";
+        case AWindowChoice::seconds30: return "30 S";
+        case AWindowChoice::cue: return "CUE";
+        case AWindowChoice::all: break;
+    }
+    return "ALL";
+}
+
+// リストを開いたときの役と操作の世代。回答はこれに結び、役の切替・復元・形式の変更・Blind の開始の前に開いたリストの
+// 回答を捨てる（ReferenceComparisonController::aWindowTargetCurrent）。
+struct AWindowTarget
+{
+    int slot = 0;
+    std::uint64_t epoch = 0;
+};
+
+// `cueBlocks` はその役の Cue の長さ（100 ms のブロック数）。MATCH の下限 10 秒は掛けない。
+inline int displayWindowBlocks (AWindowChoice choice, int cueBlocks) noexcept
+{
+    switch (choice)
+    {
+        case AWindowChoice::seconds3: return 30;
+        case AWindowChoice::seconds10: return 100;
+        case AWindowChoice::seconds30: return 300;
+        case AWindowChoice::cue: return cueBlocks;
+        case AWindowChoice::all: break;
+    }
+    return aWindowMaximumBlocks;
+}
+
+// 役ごとの窓。既定は B が 10 秒、C が Cue の長さで、既定のままなら state に書かない。
+struct AWindowChoices
+{
+    AWindowChoice reference = AWindowChoice::seconds10, check = AWindowChoice::cue;
+    AWindowChoice of (int slot) const noexcept { return slot == 3 ? reference : check; }
+    void write (juce::XmlElement& parent) const
+    {
+        const AWindowChoices standard;
+        if (reference == standard.reference && check == standard.check) return;
+        auto* windows = parent.createNewChildElement ("AWindow");
+        if (reference != standard.reference) windows->setAttribute ("ref", stateName (reference));
+        if (check != standard.check) windows->setAttribute ("check", stateName (check));
+    }
+    static AWindowChoices read (const juce::XmlElement& parent)
+    {
+        AWindowChoices result;
+        if (const auto* windows = parent.getChildByName ("AWindow"))
+        {
+            result.reference = fromState (windows->getStringAttribute ("ref"), result.reference);
+            result.check = fromState (windows->getStringAttribute ("check"), result.check);
+        }
+        return result;
+    }
+private:
+    static const char* stateName (AWindowChoice choice) noexcept
+    {
+        switch (choice)
+        {
+            case AWindowChoice::seconds3: return "3s";
+            case AWindowChoice::seconds10: return "10s";
+            case AWindowChoice::seconds30: return "30s";
+            case AWindowChoice::cue: return "cue";
+            case AWindowChoice::all: break;
+        }
+        return "all";
+    }
+    static AWindowChoice fromState (const juce::String& text, AWindowChoice fallback) noexcept
+    {
+        for (const auto option : aWindowOptions)
+            if (text == stateName (option)) return option;
+        return fallback;
+    }
+};
+
 // Non-RT preferences survive editor close; source observations never do.
 class VisualPreferences final
 {
 public:
     VisualViewChoice get() const { const juce::ScopedLock lock (mutex); return choice; }
     void set (VisualViewChoice value) { const juce::ScopedLock lock (mutex); choice = value.valid() ? std::move (value) : VisualViewChoice {}; }
+    AWindowChoices aWindows() const { const juce::ScopedLock lock (mutex); return windows; }
+    void setAWindows (AWindowChoices value) { const juce::ScopedLock lock (mutex); windows = value; }
+    // 変わったら true。
+    bool setAWindow (int slot, AWindowChoice value)
+    {
+        const juce::ScopedLock lock (mutex);
+        auto& held = slot == 3 ? windows.reference : windows.check;
+        if (held == value) return false;
+        held = value;
+        return true;
+    }
 private:
     mutable juce::CriticalSection mutex;
     VisualViewChoice choice;
+    AWindowChoices windows;
 };
 }

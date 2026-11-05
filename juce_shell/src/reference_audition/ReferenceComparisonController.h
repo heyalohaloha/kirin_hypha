@@ -39,6 +39,11 @@ public:
     bool selectCandidate (const juce::String&);
     bool selectCue (const juce::String&);
     bool selectVisualSlot (int); // Display only; never changes the audible source or gain.
+    // B（slot 3）・C（slot 2）の図の A の線の窓。見せ方だけで、音・MATCH・追従の窓は変えない。
+    // 開いたリストの回答は、開いたときの役と世代（AWindowTarget）のままのときだけ受ける。確かめて書くまでを selectionLock の
+    // 中で行うので、別のスレッドから来る restoreSettings と交差しても、復元した値を古い回答が上書きしない。
+    bool selectAWindow (AWindowTarget, AWindowChoice);
+    bool resetAWindow (AWindowTarget);
     bool retryPresetSelection();
     bool retryCandidatePreparation();
     bool requestRecovery();
@@ -79,7 +84,7 @@ public:
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
     // 直前の block で実際に出力を持った役（1 V、2 C、3 B、無ければ 0）。選択ではなく鳴った事実（2026-10-18）。
     int outputSlot() const noexcept { return renderedSlot.load (std::memory_order_relaxed); }
-    // A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。
+    // A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。図の窓の選択では変わらない。
     int liveWindowBlocks (int slot) const;
     int pendingLiveWindowBlocks() const;
     // 利用者が B／C を選んだまま（停止のあいだも）。戻す保留を立てるために timer を回し続ける。
@@ -117,6 +122,8 @@ private:
     void releaseVersionBlindGuard();
     void refreshObservation();
     RuntimeV2Controller& viewed() noexcept;
+    bool aWindowTargetCurrent (AWindowTarget) const;  // selectionLock を持って呼ぶ
+    void advanceAWindowEpoch();                       // gateLock の外で呼ぶ
     bool trialActive() const;
     void clearPendingAudition();
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
@@ -177,6 +184,7 @@ private:
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
+    std::uint64_t aWindowEpoch = 1;  // selectionLock：役の切替・復元・形式の変更・Blind の開始で進める（AWindowTarget）
     std::atomic<int> renderedSlot { 0 };  // Audio Thread が store だけする（outputSlot）
     std::atomic<bool> versionChosen { false };
     bool versionAuto = false; // selectionLock：V の Version は AUTO が選んだ（利用者が選ぶと false）
@@ -184,6 +192,7 @@ private:
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 }, rScratch { 2, 8192 };
     HeldAttenuation heldA;  // 承認して A（POST の出力全体）を下げている量。RETURN まで保つ
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
+    std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();  // 観測スレッドが読むので visual より先に作る
     RuntimeV2Controller version, check, reference;
     VisualObservation visual;
     // A を観測スレッドへ渡す（Audio Thread）。aFeed：見せていて Blind の外のときだけ渡す。aWriters：片付けで、Audio Thread が
@@ -192,6 +201,5 @@ private:
     std::atomic<bool> aFeed { false };
     std::atomic<int> aWriters { 0 };
     BlindSlot blindSlot;  // VERSION BLIND とローカル Blind は 1 つだけ
-    std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();
 };
 }
