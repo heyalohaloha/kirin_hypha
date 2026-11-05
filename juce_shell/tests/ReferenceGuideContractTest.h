@@ -121,6 +121,10 @@ inline void verifySourceStepReasons()
     b->auditionPages = AuditionPageState::waiting;
     reference_ui::runtime_view::setSourceSteps (state, comparison);
     require (state.versionStep == reference_ui::SourceStep::loadingAudio, "only mapped page starvation uses the page notice budget");
+    b->auditionPages = AuditionPageState::outsideSource;
+    reference_ui::runtime_view::setSourceSteps (state, comparison);
+    require (state.versionStep == reference_ui::SourceStep::outsideVersion,
+             "a playhead where V has no audio says so instead of loading");
     b->auditionBuffered = true;
     c->auditionOutsideCue = true;
     reference_ui::runtime_view::setSourceSteps (state, comparison);

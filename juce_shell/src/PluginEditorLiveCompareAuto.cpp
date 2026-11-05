@@ -9,14 +9,16 @@
 // Stage 3, AUTO (plan 6.2, INV-LC16). After an explicit MATCH, PRE's gain may follow POST's loudness:
 // every second of proven playback the latest window is measured again, and PRE moves to the new
 // match, ramped over 50 ms on the Audio Thread, once it is 0.5 dB or more away. AUTO keeps the
-// ceiling the MATCH approved, never moves POST, and never strays more than 6 dB from that MATCH; it
-// stops and says why instead. Silence or a failed measurement changes nothing. AUTO never reaches
-// Blind: PIN, END and the end of the session stop it. The values are the plan's experimental ones
-// until listening decides them; the screen names the tolerance.
+// ceiling the MATCH approved, never moves POST, and never strays more than 6 dB from that MATCH; at
+// a limit it stays there, keeps following and says how far PRE is from the match. Silence or a failed
+// measurement changes nothing. AUTO never reaches Blind: PIN, END and the end of the session stop it.
+// The values are the plan's experimental ones until listening decides them; the screen names the
+// tolerance.
 namespace
 {
 namespace ui = hypha::ui_contract;
 using hypha::live_compare::FollowAction;
+using hypha::live_compare::FollowLimit;
 }
 
 void KirinHyphaEditor::chooseLiveCompareFollow()
@@ -65,6 +67,7 @@ void KirinHyphaEditor::handleLiveCompareFollowChoice (int result)
         {
             liveCompareAuto.on = true;
             liveCompareAuto.hiddenStopNoticePending = false;
+            liveCompareAuto.limit = FollowLimit::none;
             liveCompareAuto.nextAt = nowSecs() + hypha::live_compare::followIntervalSeconds;
             showToast ("AUTO on: within 0.5 dB");
         });
@@ -81,39 +84,33 @@ void KirinHyphaEditor::stopLiveCompareAuto (const juce::String& notice)
 
 // Message thread, from the refresh. A held content offset, a block that is not proven or a window
 // that does not measure leaves the gain where it is.
-bool KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& status, double now)
+void KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& status, double now)
 {
     auto& a = liveCompareAuto;
     if (! a.on)
-        return false;
+        return;
     if (! status.active || status.finishing || liveBlindOpen || (!status.matched && !status.matchHeld) || status.matchLimited
         || status.interrupted)
     {
         a.on = false;
-        return false;
+        return;
     }
     if (status.contentHeld || status.compensationOff || ! status.matchReady
         || status.observation != hypha::live_compare::RecoveryReason::none
         || status.verdict != hypha::live_compare::Verdict::accepted || now < a.nextAt)
-        return false;
+        return;
     a.nextAt = now + hypha::live_compare::followIntervalSeconds;
     const double heldDb = status.postTarget > 0.0f ? 20.0 * std::log10 (status.postTarget) : 0.0;
     const double currentDb = status.gain > 0.0f ? 20.0 * std::log10 (status.gain) : 0.0;
-    const auto step = hypha::live_compare::followStep (processorRef.measureLiveCompare(), heldDb, a.approvedPreDb,
-                                                       a.ceilingDbtp, currentDb);
-    if (step.action == FollowAction::stopCeiling)
-    {
-        stopLiveCompareAuto ("AUTO stopped: TP ceiling");
-        return true;
-    }
-    else if (step.action == FollowAction::stopReach)
-    {
-        stopLiveCompareAuto ("AUTO stopped: over 6 dB");
-        return true;
-    }
-    else if (step.action == FollowAction::move)
-        processorRef.followLiveCompareGain (step.preGainDb);
-    return false;
+    const auto measured = processorRef.measureLiveCompare();
+    if (! measured.ok())
+        return; // silence keeps the gain and what the line says
+    const auto step = hypha::live_compare::followStep (measured, heldDb, a.approvedPreDb, a.ceilingDbtp, currentDb, a.peakDbtp);
+    a.limit = step.limit;
+    a.shortDb = step.shortDb;
+    a.peakDbtp = step.peakDbtp;
+    if (step.action == FollowAction::move && ! processorRef.followLiveCompareGain (step.preGainDb))
+        a.limit = FollowLimit::none; // the session refused the step: the amount above never happened
 }
 
 #endif

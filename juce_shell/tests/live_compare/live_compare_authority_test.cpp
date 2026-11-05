@@ -46,7 +46,7 @@ struct ActionFixture
         {
             autoOn = false;
             notice = "AUTO stopped";
-            fault = true; // followStep may stop without changing MATCH, epoch or history
+            fault = true; // a refresh may stop AUTO without changing MATCH, epoch or history
         }
         return fault;
     }

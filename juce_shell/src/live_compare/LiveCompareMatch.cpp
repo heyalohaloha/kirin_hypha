@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace hypha::live_compare
@@ -50,6 +51,7 @@ MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
         plan.failure = MatchFailure::invalidPlan;
         return plan;
     }
+    plan.prePeakDbtp = result.prePeakDbtp;
     plan.generation = result.generation;
     plan.generationBound = result.generationBound;
     plan.proof = result.proof; plan.preRun = result.preRun; plan.proofBound = result.proofBound;
@@ -91,21 +93,34 @@ MatchFailure validateMatchPlan (const MatchPlan& plan, MatchChoice choice) noexc
 }
 
 FollowStep followStep (const MatchResult& result, double heldPostDb, double approvedPreDb, double ceilingDbtp,
-                       double currentPreDb) noexcept
+                       double currentPreDb, double peakSoFarDbtp) noexcept
 {
     FollowStep step;
-    if (! result.ok())
+    step.peakDbtp = peakSoFarDbtp;
+    if (! result.ok() || ! std::isfinite (result.measuredDb) || ! std::isfinite (result.prePeakDbtp)
+        || ! std::isfinite (heldPostDb) || ! std::isfinite (approvedPreDb) || ! std::isfinite (ceilingDbtp)
+        || ! std::isfinite (currentPreDb) || ! (peakSoFarDbtp < std::numeric_limits<double>::infinity()))
         return step;
+    step.peakDbtp = std::max (peakSoFarDbtp, result.prePeakDbtp);
     const double needed = result.measuredDb + std::min (0.0, heldPostDb);
-    if (result.prePeakDbtp + needed > ceilingDbtp + 1.0e-9)
-        step.action = FollowAction::stopCeiling;
-    else if (std::fabs (needed - approvedPreDb) > followReachDb)
-        step.action = FollowAction::stopReach;
-    else if (std::fabs (needed - currentPreDb) >= followToleranceDb)
+    const double ranged = std::clamp (needed, -maximumMatchDb, maximumMatchDb);
+    const double lowest = std::max (approvedPreDb - followReachDb, -maximumMatchDb);
+    const double highest = std::min (approvedPreDb + followReachDb, maximumMatchDb);
+    const double reached = std::clamp (ranged, std::min (lowest, highest), highest);
+    // The ceiling wins over the reach: a loud passage may take PRE lower than the reach allows.
+    const double ceilingGain = ceilingDbtp - step.peakDbtp;
+    const double target = std::max (std::min (reached, ceilingGain), -maximumMatchDb);
+    if (target < reached - 1.0e-9 && target < needed - 1.0e-9) step.limit = FollowLimit::ceiling;
+    else if (std::fabs (ranged - needed) > 1.0e-9) step.limit = FollowLimit::range;
+    else if (std::fabs (target - needed) > 1.0e-9) step.limit = FollowLimit::reach;
+    const bool overCeiling = currentPreDb > ceilingGain + 1.0e-9;
+    if (overCeiling || std::fabs (target - currentPreDb) >= followToleranceDb)
     {
         step.action = FollowAction::move;
-        step.preGainDb = needed;
+        step.preGainDb = target;
     }
+    if (step.limit != FollowLimit::none)
+        step.shortDb = needed - (step.action == FollowAction::move ? target : currentPreDb);
     return step;
 }
 

@@ -32,12 +32,14 @@ bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
         || liveCompare.completion.command() != liveCompare.finishServiced || liveCompare.blindScope != 0;
 }
 
-StartResult KirinHyphaProcessorBase::beginLiveBlind()
+StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t> pressedTicket)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     using Phase = hypha::local_blind::ProductSessionPhase;
-    const auto permission = liveCompare.authority.ticket();
+    const auto permission = pressedTicket.value_or (liveCompare.authority.ticket());
     serviceLiveCompare();
+    if (permission != liveCompare.authority.ticket())
+        return StartResult::notReady;  // a restore or pair change since the press, checked under the pair lock
     if (! liveCompareSupported() || ! localBlindProductSupported()) return StartResult::unsupportedLayout;
     const auto admission = liveCompareAdmission (true);
     if (admission != StartResult::started) return admission;
@@ -47,7 +49,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
     const bool startedHere = ! liveCompare.sessionActive.load (std::memory_order_acquire);
     if (startedHere)
     {
-        const auto result = startLiveCompare();
+        const auto result = startLiveCompare (pressedTicket);
         if (result != StartResult::started) return result;
     }
    #if ! KIRIN_HYPHA_PRE_DISPLAY

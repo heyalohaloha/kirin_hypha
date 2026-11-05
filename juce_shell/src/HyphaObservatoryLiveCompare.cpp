@@ -169,7 +169,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     livePostButton.setTooltip (postHelp);
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
     const juce::String matchHelp = state.following
-        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO"
+        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO"
         : state.matchLimited
         ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
         : state.matched ? "Press to MATCH again or to let PRE follow POST (AUTO)"
@@ -186,11 +186,12 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 }
 
 // Out of a session, an approved POST attenuation stays until RETURN, which names how much POST
-// rises and stays reachable at every size (INV-LC14). Blind waits for it; LISTEN can reopen a
+// rises and stays reachable at every size (INV-LC14). BLIND returns it first; LISTEN can reopen a
 // session that keeps it.
 bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
 {
-    localBlindButton.setVisible (false);
+    localBlindButton.setVisible (localBlindEntryEnabled && liveCompareState.blindAvailable);
+    localBlindButton.setEnabled (liveCompareState.blindAvailable && ! keepActive);
     liveReturnButton.setStatusOnly (false);
     liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
     liveReturnButton.setTooltip (liveReturnButton.getDescription());
@@ -198,7 +199,8 @@ bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
     juce::Array<juce::Button*> everything;
     for (auto* button : { static_cast<juce::Button*> (&hybridVuButton), static_cast<juce::Button*> (&stopButton),
                           static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveReturnButton),
-                          static_cast<juce::Button*> (&liveCompareButton), static_cast<juce::Button*> (&operationsButton) })
+                          static_cast<juce::Button*> (&liveCompareButton), static_cast<juce::Button*> (&localBlindButton),
+                          static_cast<juce::Button*> (&operationsButton) })
         if (button == &liveReturnButton || button->isVisible())
             everything.add (button);
     const std::array<juce::Array<juce::Button*>, 3> sets {
@@ -227,7 +229,7 @@ bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
     }
     for (auto* button : { static_cast<juce::Button*> (&hybridVuButton), static_cast<juce::Button*> (&stopButton),
                           static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveCompareButton),
-                          static_cast<juce::Button*> (&operationsButton) })
+                          static_cast<juce::Button*> (&localBlindButton), static_cast<juce::Button*> (&operationsButton) })
         button->setVisible (chosen->contains (button));
     liveReturnButton.setButtonText (returnText);
     liveReturnButton.setTitle (returnText);

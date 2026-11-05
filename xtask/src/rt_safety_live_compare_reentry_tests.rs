@@ -147,7 +147,7 @@ fn live_action_boundary_separates_old_history_from_new_success_faults() {
     let refresh = function_body(editor, "bool KirinHyphaEditor::refreshLiveCompare");
     assert!(refresh.contains("return newFault"));
     assert!(refresh.contains("monitorLiveCompareOffset (status, now) || newFault"));
-    assert!(refresh.contains("followLiveCompare (status, now) || newFault"));
+    assert!(refresh.contains("followLiveCompare (status, now);"));
     assert!(refresh.contains("if (newFault) liveCompareAuto.on = false"));
     let apply = function_body(editor, "void KirinHyphaEditor::applyLiveCompareChoice");
     assert!(apply.contains("performAction") && apply.contains("generation, true"));

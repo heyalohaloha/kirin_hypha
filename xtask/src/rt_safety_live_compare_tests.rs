@@ -360,10 +360,10 @@ fn live_compare_pin_keeps_one_range_through_blind_admission_without_an_entry() {
 // last explicit MATCH), ramps it on the Audio Thread, and stops wherever the session or Blind starts.
 #[test]
 fn live_compare_auto_follows_pre_only_within_the_approved_point() {
-    let follow = function_body(EDITOR_AUTO_CPP, "bool KirinHyphaEditor::followLiveCompare");
+    let follow = function_body(EDITOR_AUTO_CPP, "void KirinHyphaEditor::followLiveCompare");
     assert!(follow.contains("hypha::live_compare::followStep ("));
     assert!(follow.contains("a.ceilingDbtp"));
-    assert!(follow.contains("processorRef.followLiveCompareGain (step.preGainDb);"));
+    assert!(follow.contains("processorRef.followLiveCompareGain (step.preGainDb)"));
     for forbidden in [
         "applyLiveCompareMatch",
         "returnLiveComparePostToNormal",

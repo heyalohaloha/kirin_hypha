@@ -31,6 +31,7 @@ enum class SourceStep
     verifyingSource,
     loadingAudio,
     outsideCue,
+    outsideVersion,         // the playhead is where this Version has no audio
     preparing,
     openKirinOs,            // Kirin OS is closed
     rankSet,                // B: no B set is ranked for Hypha in Kirin OS

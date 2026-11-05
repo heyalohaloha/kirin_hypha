@@ -52,7 +52,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.detail = explanation;
     screen.sourceOne = revealed ? (current.trial.firstPre ? "1: PRE" : "1: POST") : "SOURCE 1";
     screen.sourceTwo = revealed ? (current.trial.firstPre ? "2: POST" : "2: PRE") : "SOURCE 2";
-    screen.sourcesShown = screen.sourceOneEnabled = screen.sourceTwoEnabled = live;
+    screen.sourceOneEnabled = screen.sourceTwoEnabled = live;
+    // Before the first source is ready the two buttons stand unlit, so the screen is not END alone.
+    screen.sourcesShown = live || (! screen.guidanceShown && (current.stage == Stage::preparing || current.stage == Stage::settling));
     screen.audible = current.trial.selected; // selected button, not an audio receipt
     screen.revealShown = live && ! revealed;
     screen.revealEnabled = current.trial.played == 3;

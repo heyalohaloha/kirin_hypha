@@ -353,7 +353,7 @@ void verifyLiveCompareFooterContract()
                                     "B plays from REF: press A there to listen",
                                     "C plays from REF: press A there to listen",
                                     "V plays from REF: press A there to listen", "AUTO on: within 0.5 dB", "AUTO off",
-                                    "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB",
+                                    "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter",
                                     "Delay compensation is off in Pro Tools" })
         {
             post.setFeedback (notice);
@@ -404,7 +404,7 @@ void verifyLiveCompareFooterContract()
     }
     state = {};
     state.entryEnabled = true;
-    state.postHeldTenthsDb = -70;
+    state.postHeldTenthsDb = -70; state.blindAvailable = true;  // BLIND returns POST first (INV-LC14)
     post.setLiveCompareFooter (state);
     for (const auto preset : observatory::sizePresets)
     {
@@ -413,12 +413,12 @@ void verifyLiveCompareFooterContract()
                      && returnButton->getButtonText() == "RETURN +7.0 dB"
                      && post.getLocalBounds().contains (returnButton->getBounds()),
                  "RETURN stays reachable and reads whole at every size");
-        require (! blind->isVisible() && ! postButton->isVisible(), "Blind waits for RETURN; no session controls");
+        require (! postButton->isVisible() && (! blind->isVisible() || ! blind->getBounds().intersects (returnButton->getBounds())), "BLIND beside RETURN; no session controls");
         if (preset.width >= 600)
-            require (returnButton->getButtonText() == "RETURN +7.0 dB" && entry->isVisible()
-                         && ! returnButton->getBounds().intersects (entry->getBounds()),
-                     "the large rail names the rise and keeps LISTEN");
+            require (returnButton->getButtonText() == "RETURN +7.0 dB" && entry->isVisible() && blind->isVisible()
+                         && ! returnButton->getBounds().intersects (entry->getBounds()), "the large rail names the rise and keeps LISTEN");
     }
+    post.setKeepActive (true); require (! blind->isEnabled(), "Keep holds BLIND while POST is lowered"); post.setKeepActive (false);
     returnButton->onClick();
     require (returned == 1, "RETURN reaches the editor");
     for (auto language : { i18n::Language::english, i18n::Language::japanese })

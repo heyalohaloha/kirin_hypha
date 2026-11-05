@@ -19,7 +19,8 @@ KirinHyphaEditor::~KirinHyphaEditor()
         // with the processor and a window of the same LISTEN continues it (INV-LC16). The rest is
         // keyed to the LISTEN and the restore and pair ticket: a loop wrap or a playback gap keeps it.
         processorRef.liveCompareAutoRest() = { liveCompareAuto.on, liveCompareAuto.approvedPreDb,
-            liveCompareAuto.ceilingDbtp, processorRef.liveCompareListenSession(), processorRef.restoreOrPairTicket() };
+            liveCompareAuto.ceilingDbtp, processorRef.liveCompareListenSession(), processorRef.restoreOrPairTicket(),
+            liveCompareAuto.peakDbtp, liveCompareAuto.matchKnown };
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY

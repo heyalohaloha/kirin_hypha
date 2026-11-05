@@ -114,6 +114,7 @@ const Entry entries[] = {
     { "POST back to normal", u8"POSTを通常の音量に戻しました" },
     { "Press RETURN first", u8"先にRETURNを押してください" },
     { "Returning POST to normal, then LISTEN", u8"POSTを通常に戻してからLISTENします" },
+    { "Returning POST to normal, then BLIND", u8"POSTを通常に戻してからBLINDします" },
     { "MATCH waits until A has played the Cue length (up to 30 s).", u8"Aがたまり次第MATCHします（最長30秒）" },
     // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
     { "LISTEN is restoring; try again in a moment", u8"LISTENを戻しています。少し待ってください" },
@@ -128,8 +129,11 @@ const Entry entries[] = {
     { "AUTO off", u8"AUTOを止めました" },
     { "AUTO not started: MATCH pending", u8"AUTO未開始：MATCH確認待ち" },
     { "AUTO not started: PRE timing pending", u8"AUTO未開始：PREの時刻確認待ち" },
-    { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
-    { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
+    { "AUTO at TP ceiling: PRE %1 dB quieter", u8"AUTOはTP上限まで：PREが%1 dB小さい" },
+    { "AUTO 6 dB from MATCH: PRE %1 dB quieter", u8"AUTOはMATCHから6 dBまで：PREが%1 dB小さい" },
+    { "AUTO 6 dB from MATCH: PRE %1 dB louder", u8"AUTOはMATCHから6 dBまで：PREが%1 dB大きい" },
+    { "AUTO at 24 dB: PRE %1 dB quieter", u8"AUTOは24 dBまで：PREが%1 dB小さい" },
+    { "AUTO at 24 dB: PRE %1 dB louder", u8"AUTOは24 dBまで：PREが%1 dB大きい" },
     { "AUTO stopped: editor hidden", u8"AUTO停止：画面が非表示" },
 };
 }

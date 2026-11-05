@@ -928,7 +928,7 @@ Integrated loudness from Kirin OS (the whole song when the Cue has no value); V 
 aligned V content over the same window. Following never raises the copy above
 max(−1 dBTP, A's maximum true peak, the source's maximum true peak): at the ceiling it stays there,
 keeps following and says how far under A it plays. It never moves more than 6 dB from the gain of
-the MATCH you started (as AUTO in the live PRE/POST compare); at that limit it stops, keeps the
+the MATCH you started (the same range as AUTO in the live PRE/POST compare); at that limit it stops, keeps the
 current gain and says so, once while you listen to the same role. C compares A's gated loudness over
 the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated loudness. Pressing C
 plays it at once, matched to the A heard so far, and when A has played for the Cue's length (at most
@@ -947,7 +947,7 @@ roles, until RETURN in the footer; RETURN stops the role and raises A over half 
 readouts then name the gain against the lowered A, and RETURN in the footer says how far A is lowered
 (the status line says it below 150 %, where the footer has no RETURN).
 Offline renders and host bypass are never lowered, and the measurements and Record are taken before
-it. While A is lowered, the live PRE/POST compare and Blind wait for RETURN, so POST is never lowered
+it. While A is lowered, pressing LISTEN or BLIND returns it first and then starts, so POST is never lowered
 twice.
 
 **One comparison takes POST at a time.** Every button and every internal start asks the same rule:
@@ -1220,10 +1220,12 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
 4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
-   MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
+   MATCH and moves PRE at most 6 dB from that MATCH, except lower when the ceiling needs it. At a
+   limit PRE stays there, AUTO keeps following, and the status line says how far PRE is from POST.
+   After a loud passage PRE stays down until the next MATCH, so the level does not pump. Silence
    changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END.
-   Hiding the editor also stops AUTO and holds its last gain; the next time you show the editor,
-   it reports the stop. Select AUTO again explicitly to resume following. These values are
+   Hiding the editor rests AUTO at its last gain. It continues from the same MATCH when you show the
+   editor again in the same LISTEN; if it cannot, the editor says it stopped. These values are
    experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,

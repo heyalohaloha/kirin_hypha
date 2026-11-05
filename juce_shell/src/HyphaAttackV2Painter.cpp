@@ -122,7 +122,7 @@ juce::String caption (const State& state)
     if (p.previousReadout)
     {
         const auto& previous = *p.previousReadout;
-        return "Previous / " + band + (previous.target == KIRIN_TARGET_DELTA ? juce::String::fromUTF8 (u8" Δ ") : " POST ")
+        return "HOLD / " + band + (previous.target == KIRIN_TARGET_DELTA ? juce::String::fromUTF8 (u8" Δ ") : " POST ")
             + juce::String (previous.count) + words (" hits", u8"打");
     }
     const auto target = state.target == KIRIN_TARGET_DELTA ? juce::String::fromUTF8 (u8"Δ") : juce::String ("POST");
