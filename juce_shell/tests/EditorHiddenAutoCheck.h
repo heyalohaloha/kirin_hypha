@@ -8,12 +8,14 @@ struct HiddenAutoAccess {};
 void enableHiddenAuto (KirinHyphaEditor&, HiddenAutoAccess);
 bool hiddenAutoOn (const KirinHyphaEditor&, HiddenAutoAccess);
 bool hiddenAutoNotice (const KirinHyphaEditor&, HiddenAutoAccess);
+double& hiddenAutoPeak (KirinHyphaEditor&, HiddenAutoAccess);
 template <auto Member> struct HiddenAutoMember
 {
     friend void enableHiddenAuto (KirinHyphaEditor& e, HiddenAutoAccess) { (e.*Member).on = true; }
     friend bool hiddenAutoOn (const KirinHyphaEditor& e, HiddenAutoAccess) { return (e.*Member).on; }
     friend bool hiddenAutoNotice (const KirinHyphaEditor& e, HiddenAutoAccess)
     { return (e.*Member).hiddenStopNoticePending; }
+    friend double& hiddenAutoPeak (KirinHyphaEditor& e, HiddenAutoAccess) { return (e.*Member).peakDbtp; }
 };
 template struct HiddenAutoMember<&KirinHyphaEditor::liveCompareAuto>;
 struct HiddenTimer
@@ -24,7 +26,7 @@ struct HiddenTimer
 template struct PrivateAccess<HiddenTimer, &KirinHyphaEditor::timerCallback>;
 struct FollowWaiting
 {
-    using Type = bool (KirinHyphaEditor::*) (const live_compare::Status&, double);
+    using Type = void (KirinHyphaEditor::*) (const live_compare::Status&, double);
     friend Type privateMember (FollowWaiting);
 };
 template struct PrivateAccess<FollowWaiting, &KirinHyphaEditor::followLiveCompare>;
@@ -48,6 +50,8 @@ struct WaitKeepPair { using Type = juce::String KirinHyphaEditor::*; friend Type
 template struct PrivateAccess<WaitKeepPair, &KirinHyphaEditor::keepPreWaitPair>;
 struct WaitListenUntil { using Type = double KirinHyphaEditor::*; friend Type privateMember (WaitListenUntil); };
 template struct PrivateAccess<WaitListenUntil, &KirinHyphaEditor::liveCompareStartAfterReturnUntil>;
+struct WaitListenBlind { using Type = bool KirinHyphaEditor::*; friend Type privateMember (WaitListenBlind); };
+template struct PrivateAccess<WaitListenBlind, &KirinHyphaEditor::liveCompareStartAfterReturnBlind>;
 struct WaitListenKey { using Type = juce::String KirinHyphaEditor::*; friend Type privateMember (WaitListenKey); };
 template struct PrivateAccess<WaitListenKey, &KirinHyphaEditor::liveCompareStartAfterReturnKey>;
 struct WaitMatchUntil { using Type = double KirinHyphaEditor::*; friend Type privateMember (WaitMatchUntil); };
@@ -128,6 +132,11 @@ inline void verifyWaitingRequests()
              "a LISTEN press for another pair is dropped without starting LISTEN");
     require (e->*privateMember (WaitMatchUntil {}) <= 0.0 && (e->*privateMember (HiddenToast {})).isEmpty(),
              "a MATCH for another C is dropped without matching");
+    e->*privateMember (WaitListenBlind {}) = true;
+    e->*privateMember (WaitListenUntil {}) = now() + 5.0; e->*privateMember (WaitListenKey {}) = "another PRE|"; tick();
+    require (e->*privateMember (WaitListenUntil {}) <= 0.0 && processor.liveBlindStatus().stage == live_compare::BlindStage::idle,
+             "a BLIND press for another pair is dropped without starting BLIND");
+    e->*privateMember (WaitListenBlind {}) = false;
     // Hiding the window drops every press that has not started.
     e->*privateMember (WaitKeepSince {}) = now(); e->*privateMember (WaitListenUntil {}) = now() + 5.0;
     e->*privateMember (WaitMatchUntil {}) = now() + 5.0;
@@ -182,14 +191,14 @@ inline void verifyHiddenAutoStops()
     waiting.active = true; waiting.matched = false; waiting.matchHeld = true;
     waiting.matchReady = false; waiting.verdict = live_compare::Verdict::calibrating;
     enableHiddenAuto (*editor, {});
-    require (! (editor->*privateMember (FollowWaiting {})) (waiting, 1000.0)
-             && hiddenAutoOn (*editor, {}) && processor.liveCompareStatus().gain == before.gain
+    (editor->*privateMember (FollowWaiting {})) (waiting, 1000.0);
+    require (hiddenAutoOn (*editor, {}) && processor.liveCompareStatus().gain == before.gain
              && processor.liveCompareStatus().postTarget == before.postTarget,
              "AUTO waits without moving gain until timing is verified");
     waiting.matchReady = true; waiting.verdict = live_compare::Verdict::accepted;
     waiting.observation = live_compare::RecoveryReason::clockMissing;
-    require (! (editor->*privateMember (FollowWaiting {})) (waiting, 1000.0)
-             && hiddenAutoOn (*editor, {}) && processor.liveCompareStatus().gain == before.gain
+    (editor->*privateMember (FollowWaiting {})) (waiting, 1000.0);
+    require (hiddenAutoOn (*editor, {}) && processor.liveCompareStatus().gain == before.gain
              && processor.liveCompareStatus().postTarget == before.postTarget,
              "an unverified observation cannot move AUTO gain");
     enableHiddenAuto (*editor, {});

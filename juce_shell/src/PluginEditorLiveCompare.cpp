@@ -116,6 +116,7 @@ void KirinHyphaEditor::configureLiveCompare()
                     liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
                     liveCompareStartAfterReturnKey = waitingPairKey();
                     liveCompareStartAfterReturnTicket = pressTicket;
+                    liveCompareStartAfterReturnBlind = false;
                     showToast ("Returning POST to normal, then LISTEN");
                     return;
                 }
@@ -133,11 +134,14 @@ void KirinHyphaEditor::configureLiveCompare()
     // playback gaps move sessionGeneration, not the LISTEN; a rest that cannot continue says so.
     const auto rest = std::exchange (processorRef.liveCompareAutoRest(), {});
     const auto current = processorRef.liveCompareStatus();
-    if (isPost && rest.on && current.active && ! current.finishing
+    if (isPost && (rest.on || rest.matchKnown) && current.active && ! current.finishing
         && rest.session == processorRef.liveCompareListenSession() && rest.ticket == processorRef.restoreOrPairTicket()
         && (current.matched || current.matchHeld) && ! current.matchLimited)
-        liveCompareAuto = { true, false, rest.approvedPreDb, rest.ceilingDbtp,
-                            nowSecs() + hypha::live_compare::followIntervalSeconds };
+    {
+        liveCompareAuto = { rest.on, false, rest.approvedPreDb, rest.ceilingDbtp,
+                            nowSecs() + hypha::live_compare::followIntervalSeconds, rest.matchKnown };
+        liveCompareAuto.peakDbtp = rest.peakDbtp;
+    }
     else if (isPost && rest.on)
         liveCompareAuto.hiddenStopNoticePending = true;
     // Once matched, MATCH offers MATCH again and AUTO (INV-LC16); the first MATCH measures at once.
@@ -252,6 +256,9 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
             // AUTO keeps this explicit MATCH's point; it cannot follow a TP LIMIT.
             liveCompareAuto.approvedPreDb = choice == MatchChoice::lowerPost ? 0.0 : plan.preGainDb;
             liveCompareAuto.ceilingDbtp = plan.ceilingDbtp;
+            liveCompareAuto.limit = hypha::live_compare::FollowLimit::none;
+            liveCompareAuto.peakDbtp = plan.prePeakDbtp;
+            liveCompareAuto.matchKnown = true;
             liveCompareAuto.nextAt = nowSecs() + 1.0;
             liveCompareAuto.on = liveCompareAuto.on && ! liveCompareLimited;
             return hypha::live_compare_ui::ActionOutcome::success;
@@ -301,6 +308,9 @@ bool KirinHyphaEditor::refreshLiveCompare()
         {
             liveCompareAuto.approvedPreDb = pendingPlan.preGainDb;
             liveCompareAuto.ceilingDbtp = pendingPlan.ceilingDbtp;
+            liveCompareAuto.limit = hypha::live_compare::FollowLimit::none;
+            liveCompareAuto.peakDbtp = pendingPlan.prePeakDbtp;
+            liveCompareAuto.matchKnown = true;
             showToast ("MATCH: PRE " + signedDb (pendingPlan.preGainDb));
         }
     }
@@ -344,13 +354,15 @@ bool KirinHyphaEditor::refreshLiveCompare()
                 + (why == hypha::live_compare::RecoveryReason::cycleUnverified ? "" : "."), next };
     }
     if (newFault) liveCompareAuto.on = false;
-    newFault = followLiveCompare (status, now) || newFault;
+    followLiveCompare (status, now);
+    if (liveCompareWarning.isEmpty() && liveCompareAuto.on)
+        liveCompareWarning = juce::String (hypha::live_compare_ui::autoLimitNotice (liveCompareAuto.limit, liveCompareAuto.shortDb));
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));
     footer.active = status.active;
     footer.finishing = status.finishing;
-    footer.blindAvailable = processorRef.liveCompareAdmission (true) == StartResult::started;
+    footer.blindAvailable = hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true));
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = false; // selected PRE remains selected during quiet timing recovery
     footer.contentHeld = status.active && status.contentHeld;
@@ -369,14 +381,15 @@ bool KirinHyphaEditor::refreshLiveCompare()
 }
 
 
-// INV-LC14 (2026-10-31): the LISTEN press waits while POST returns to normal and starts once it is back.
+// INV-LC14 (2026-10-31): the LISTEN or BLIND press waits while POST returns to normal and starts once it is back.
 void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
 {
     if (liveCompareStartAfterReturnUntil <= 0.0) return;
     // Deadline, target and other activities first; only then may the press start LISTEN. The role its own
     // RETURN still fades out is not another comparison (the audio start guard is unchanged).
     using hypha::live_compare_ui::StartAfterReturn;
-    const auto admission = processorRef.liveCompareAdmission (false);
+    const bool blind = liveCompareStartAfterReturnBlind;
+    const auto admission = processorRef.liveCompareAdmission (blind);
     const auto next = hypha::live_compare_ui::whileReturning (admission, processorRef.referenceOwnOutputStates());
     if (waitingPairKey() != liveCompareStartAfterReturnKey || processorRef.liveCompareStatus().active
         || next == StartAfterReturn::drop || localBlindOpen || liveBlindOpen)
@@ -392,6 +405,11 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
     }
     if (next != StartAfterReturn::start) return;
     liveCompareStartAfterReturnUntil = 0.0;
+    if (blind)
+    {
+        openLiveBlind (liveCompareStartAfterReturnTicket);
+        return;
+    }
     liveCompareStartPressed = liveCompareStartAfterReturnTicket;  // the processor checks it under the pair lock
     if (observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();
     liveCompareStartPressed.reset();

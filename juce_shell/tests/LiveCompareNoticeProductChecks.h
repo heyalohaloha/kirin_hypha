@@ -355,13 +355,17 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     host.setVisible (true); r.advance (0.03);
     require (hiddenAutoOn (*r.editor, {}) && r.view().feedback() != "AUTO stopped: editor hidden",
              "shown again, AUTO continues");
+    hiddenAutoPeak (*r.editor, {}) = 12.0;  // louder than the fixture, so no window replaces it
     host.removeChildComponent (r.editor.get());
     r.close(); r.advance (0.1); r.open(); r.advance (0.1);
-    require (hiddenAutoOn (*r.editor, {}) && r.post->liveCompareStatus().active,
-             "a reopened window continues the AUTO of the same LISTEN");
+    require (hiddenAutoOn (*r.editor, {}) && r.post->liveCompareStatus().active && hiddenAutoPeak (*r.editor, {}) == 12.0,
+             "a reopened window continues the AUTO of the same LISTEN and keeps its loudest PRE");
     verifyClosedAutoAcrossTimeline (r);
     (r.editor.get()->*privateMember (NoticeFollowChoice {})) (2);
     require (! hiddenAutoOn (*r.editor, {}), "Stop AUTO ends the continued AUTO");
+    r.close(); r.advance (0.1); r.open(); r.advance (0.1);
+    require (! hiddenAutoOn (*r.editor, {}) && hiddenAutoPeak (*r.editor, {}) == 12.0,
+             "a stopped AUTO keeps its MATCH and loudest PRE across a reopen");
     r.editor.get()->*privateMember (HiddenToastUntil {}) = 0.0; r.advance (0.03); // let "AUTO off" pass
     // 2026-10-13 decision: a short stop plays POST silently; only a wait beyond 3 seconds explains
     // the cause and how to return.

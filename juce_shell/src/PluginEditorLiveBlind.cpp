@@ -35,14 +35,26 @@ void KirinHyphaEditor::configureLiveBlind()
     };
 }
 
-void KirinHyphaEditor::openLiveBlind()
+void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
 {
     if (localBlindOpen || liveBlindOpen) return;
-    liveCompareAuto = {}; // freeze the last explicit MATCH; AUTO never enters Blind
-    const auto result = processorRef.beginLiveBlind();
+    const auto result = processorRef.beginLiveBlind (waitedTicket);
     if (result != StartResult::started)
     {
         refreshLiveCompare(); // acknowledge older transitions before this direct refusal
+        if (waitedTicket && processorRef.restoreOrPairTicket() != *waitedTicket)
+            return;  // restored or re-paired since the press: the press is dropped, not refused
+        // INV-LC14: the same RETURN as LISTEN, then BLIND on this press.
+        if (! waitedTicket && hypha::live_compare_ui::onStartPressed (result) == hypha::live_compare_ui::StartAfterReturn::returnFirst)
+        {
+            observatoryView.onLiveCompareReturn();
+            liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
+            liveCompareStartAfterReturnKey = waitingPairKey();
+            liveCompareStartAfterReturnTicket = processorRef.restoreOrPairTicket();
+            liveCompareStartAfterReturnBlind = true;
+            showToast ("Returning POST to normal, then BLIND");
+            return;
+        }
         if (hypha::live_compare_ui::startNeedsPreChoice (result))
         {
             if (result == StartResult::preUnavailable) showToast (hypha::live_compare_ui::preUnavailableNotice());
@@ -55,6 +67,7 @@ void KirinHyphaEditor::openLiveBlind()
                                                             : "BLIND COMPARE COULD NOT START");
         return;
     }
+    liveCompareAuto = {}; // freeze the last explicit MATCH; AUTO never enters Blind
     liveBlindOpen = true;
     juce::PopupMenu::dismissAllActiveMenus();
     // Isolate every measurement, tooltip and accessibility sibling BEFORE publishing an anonymous source.
@@ -105,7 +118,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         menu.addItem (43, "POST", ! live.finishing);
     }
     if (observatoryView.localBlindEntryAvailable())
-        menu.addItem (23, "BLIND", ! keepActive && processorRef.liveCompareAdmission (true) == StartResult::started);
+        menu.addItem (23, "BLIND", ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)));
 }
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)

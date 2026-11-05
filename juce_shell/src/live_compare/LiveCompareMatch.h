@@ -52,6 +52,7 @@ struct MatchPlan
     double lowerPostGainDb = 0.0;             // approved: PRE at 0 dB, POST at this
     double limitedPreGainDb = 0.0;            // declined: PRE at this, POST held
     double ceilingDbtp = 0.0;
+    double prePeakDbtp = 0.0;                 // the window MATCH measured; AUTO's loudest PRE starts here
     std::uint64_t generation = 0;
     bool generationBound = false;
     std::uint64_t proof = 0, preRun = 0;
@@ -78,23 +79,34 @@ constexpr double followReachDb = 6.0;
 
 enum class FollowAction : std::uint8_t
 {
-    keep,        // within the tolerance, or nothing measured (silence keeps the gain)
-    move,        // PRE moves to preGainDb
-    stopCeiling, // PRE would pass the ceiling the MATCH approved; AUTO never raises it
-    stopReach    // PRE would move more than followReachDb from the MATCH
+    keep, // within the tolerance, or nothing measured (silence keeps the gain)
+    move  // PRE moves to preGainDb
+};
+
+// What holds PRE short of the match. AUTO goes to the limit and keeps following.
+enum class FollowLimit : std::uint8_t
+{
+    none,
+    ceiling, // the ceiling the MATCH approved; AUTO never raises it
+    reach,   // followReachDb from the MATCH
+    range    // maximumMatchDb, the most any MATCH applies
 };
 
 struct FollowStep
 {
     FollowAction action = FollowAction::keep;
     double preGainDb = 0.0;
+    FollowLimit limit = FollowLimit::none;
+    double shortDb = 0.0; // the match minus the gain PRE ends on: above 0, PRE stays quieter than POST
+    double peakDbtp = 0.0; // the loudest PRE so far; keep it for the next step
 };
 
 // One AUTO step from a fresh measurement on the POST basis: PRE takes the difference that remains
 // with POST at its approved attenuation (heldPostDb, 0 or below). approvedPreDb and ceilingDbtp are
-// the last explicit MATCH's; POST never moves.
+// the last explicit MATCH's; POST never moves. peakSoFarDbtp is the loudest PRE since that MATCH: the
+// ceiling holds PRE down from it, so a quiet window does not raise PRE back up.
 FollowStep followStep (const MatchResult&, double heldPostDb, double approvedPreDb, double ceilingDbtp,
-                       double currentPreDb) noexcept;
+                       double currentPreDb, double peakSoFarDbtp) noexcept;
 
 // Non-RT (message thread). Aligns the latest window of POST's input history with PRE's ring through
 // the proven K and measures it with the Local Blind gain policies (BS.1770 loudness, cue true peak).

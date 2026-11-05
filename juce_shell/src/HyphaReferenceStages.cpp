@@ -56,6 +56,10 @@ const std::array<Stage, stageCount> stages { {
     { K::unable, W::none, "OUTSIDE %1 CUE / MOVE OR CHOOSE LONGER CUE", "", "Outside Cue; move or choose longer Cue",
       "This playhead is outside %1's Cue",
       "Move to the comparison passage, or choose a longer or looping Cue in Kirin OS. A stays live." },
+    // outsideVersion
+    { K::unable, W::none, "OUTSIDE %1 / MOVE THE PLAYHEAD", "", "Outside this Version; move the playhead",
+      "This playhead is outside %1",
+      "Move the playhead to where this Version has audio. A stays live." },
     // preparing
     { K::waiting, W::preparation, "PREPARING %1 / WAIT A MOMENT", "CHECKING",
       "Preparing", "Preparing %1", "This takes a moment." },

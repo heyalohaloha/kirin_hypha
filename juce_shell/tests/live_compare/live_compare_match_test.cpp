@@ -1,3 +1,4 @@
+#include "../../src/HyphaLiveCompareActionResult.h"
 #include "../../src/live_compare/LiveCompareMatch.h"
 #include "../../src/live_compare/LiveCompareOffset.h"
 #include "live_compare_offset_test.h"
@@ -292,7 +293,7 @@ static void aJumpNeedsTwoAgreeingEstimates()
 // INV-LC16: AUTO moves PRE only beyond 0.5 dB, never past the ceiling the MATCH approved (a louder
 // window's own ceiling does not raise it), never more than 6 dB from the MATCH, keeps POST's
 // approved attenuation, and changes nothing when a window does not measure.
-static void autoFollowsWithinReachAndStopsAtTheCeiling()
+static void autoFollowsToTheLimitAndKeepsGoing()
 {
     const auto measured = [] (double db, double prePeak, double ceiling)
     {
@@ -304,16 +305,67 @@ static void autoFollowsWithinReachAndStopsAtTheCeiling()
         return r;
     };
     const auto step = [] (const MatchResult& r, double held, double current)
-    { return followStep (r, held, -6.0, -1.0, current); };
+    { return followStep (r, held, -6.0, -1.0, current, -100.0); };
     require (step (measured (-6.4, -10.0, -1.0), 0.0, -6.0).action == FollowAction::keep, "0.4 dB off stays");
     const auto moved = step (measured (-6.6, -10.0, -1.0), 0.0, -6.0);
     require (moved.action == FollowAction::move && std::fabs (moved.preGainDb + 6.6) < 1.0e-9, "0.6 dB off moves PRE to the match");
     const auto held = step (measured (-6.0, -10.0, -1.0), -3.0, -6.0);
     require (held.action == FollowAction::move && std::fabs (held.preGainDb + 9.0) < 1.0e-9,
              "PRE takes what remains with POST at its approved attenuation");
-    require (step (measured (-12.5, -10.0, -1.0), 0.0, -6.0).action == FollowAction::stopReach, "6.5 dB from MATCH stops");
-    require (step (measured (-0.5, -0.3, 2.0), 0.0, -6.0).action == FollowAction::stopCeiling,
-             "a louder window's ceiling never raises the approved one");
+    // At a limit AUTO goes there, keeps following and says how far PRE is from the match.
+    const auto below = step (measured (-12.5, -10.0, -1.0), 0.0, -6.0);
+    require (below.action == FollowAction::move && std::fabs (below.preGainDb + 12.0) < 1.0e-9
+             && below.limit == FollowLimit::reach && std::fabs (below.shortDb + 0.5) < 1.0e-9,
+             "6.5 dB below the MATCH goes to 6 dB and says PRE is 0.5 dB louder");
+    const auto above = step (measured (0.5, -10.0, -1.0), 0.0, -6.0);
+    require (above.action == FollowAction::move && std::fabs (above.preGainDb) < 1.0e-9
+             && above.limit == FollowLimit::reach && std::fabs (above.shortDb - 0.5) < 1.0e-9,
+             "6.5 dB above the MATCH goes to 6 dB and says PRE is 0.5 dB quieter");
+    const auto ceiling = step (measured (-0.5, -0.3, 2.0), 0.0, -6.0);
+    require (ceiling.action == FollowAction::move && std::fabs (ceiling.preGainDb + 0.7) < 1.0e-9
+             && ceiling.limit == FollowLimit::ceiling && std::fabs (ceiling.shortDb - 0.2) < 1.0e-9,
+             "a louder window's ceiling never raises the approved one: PRE stops under it");
+    const auto stay = step (measured (0.5, -10.0, -1.0), 0.0, -0.3);
+    require (stay.action == FollowAction::keep && stay.limit == FollowLimit::reach
+             && std::fabs (stay.shortDb - 0.8) < 1.0e-9,
+             "within the tolerance of the limit PRE stays and the line counts from where it is");
+    const auto loudPassage = step (measured (-4.8, 4.0, -1.0), 0.0, -4.8);
+    require (loudPassage.action == FollowAction::move && std::fabs (loudPassage.preGainDb + 5.0) < 1.0e-9
+             && loudPassage.limit == FollowLimit::ceiling,
+             "PRE never stays above the ceiling even within the tolerance");
+    const auto beyond = followStep (measured (-2.0, 7.0, -1.0), 0.0, 2.0, -1.0, 2.0, -100.0);
+    require (beyond.action == FollowAction::move && std::fabs (beyond.preGainDb + 8.0) < 1.0e-9
+             && beyond.limit == FollowLimit::ceiling,
+             "the ceiling wins over the reach");
+    // A quiet window after a loud one does not raise PRE back up: the ceiling keeps the loudest peak.
+    const auto loud = followStep (measured (6.0, -4.0, -1.0), 0.0, 3.0, -1.0, 6.0, -7.0);
+    require (loud.action == FollowAction::move && std::fabs (loud.preGainDb - 3.0) < 1.0e-9
+             && std::fabs (loud.peakDbtp + 4.0) < 1.0e-9, "the loud window sets the peak");
+    const auto quietAgain = followStep (measured (6.0, -7.0, -1.0), 0.0, 3.0, -1.0, 3.0, loud.peakDbtp);
+    require (quietAgain.action == FollowAction::keep && std::fabs (quietAgain.peakDbtp + 4.0) < 1.0e-9
+             && quietAgain.limit == FollowLimit::ceiling && std::fabs (quietAgain.shortDb - 3.0) < 1.0e-9,
+             "the next quiet window keeps PRE where it is");
+    // Past the +/-24 dB any MATCH applies PRE stays at 24 dB: the session would refuse more.
+    const auto floor = followStep (measured (-36.0, -60.0, -1.0), 0.0, -24.0, -1.0, -24.0, -100.0);
+    require (floor.action == FollowAction::keep && floor.limit == FollowLimit::range
+             && std::fabs (floor.shortDb + 12.0) < 1.0e-9, "24 dB holds PRE and the line counts from there");
+    for (const double bad : { std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity() })
+    {
+        require (step (measured (bad, -10.0, -1.0), 0.0, -6.0).action == FollowAction::keep
+                 && step (measured (-6.6, bad, -1.0), 0.0, -6.0).action == FollowAction::keep
+                 && step (measured (-6.6, -10.0, -1.0), bad, -6.0).action == FollowAction::keep
+                 && followStep (measured (-6.6, -10.0, -1.0), 0.0, -6.0, bad, -6.0, -100.0).action == FollowAction::keep
+                 && followStep (measured (-6.6, -10.0, -1.0), 0.0, bad, -1.0, -6.0, -100.0).action == FollowAction::keep
+                 && step (measured (-6.6, -10.0, -1.0), 0.0, bad).action == FollowAction::keep
+                 && followStep (measured (-6.6, -10.0, -1.0), 0.0, -6.0, -1.0, -6.0, bad).action == FollowAction::keep,
+                 "a value that is not finite keeps the gain");
+    }
+    require (hypha::live_compare_ui::autoLimitNotice (FollowLimit::range, -12.0) == "AUTO at 24 dB: PRE 12.0 dB louder"
+             && hypha::live_compare_ui::autoLimitNotice (FollowLimit::none, 3.0).empty()
+             && hypha::live_compare_ui::autoLimitNotice (FollowLimit::reach, 0.5).empty()
+             && hypha::live_compare_ui::autoLimitNotice (FollowLimit::ceiling, 2.34) == "AUTO at TP ceiling: PRE 2.3 dB quieter"
+             && hypha::live_compare_ui::autoLimitNotice (FollowLimit::reach, -1.0) == "AUTO 6 dB from MATCH: PRE 1.0 dB louder",
+             "the line says the amount past the tolerance and which limit holds PRE");
     MatchResult quiet;
     quiet.failure = MatchFailure::notEnoughSignal;
     require (step (quiet, 0.0, -6.0).action == FollowAction::keep, "silence keeps the gain");
@@ -382,7 +434,7 @@ int main()
     unprovenOrShortWindowsAreRefused();
     measurementProofNeverBridgesAnUnverifiedBlock();
     theMappingShowsAnUnreportedDelay();
-    autoFollowsWithinReachAndStopsAtTheCeiling();
+    autoFollowsToTheLimitAndKeepsGoing();
     hypha::tests::verifyOffsetConfidence (require);
     weakPeaksNeverHoldPost();
     aJumpNeedsTwoAgreeingEstimates();

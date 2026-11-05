@@ -151,6 +151,17 @@ void verifyHybridVuContract()
             KIRIN_HYBRID_VU_REQUIRE (differentPixels (manualImage, recordingImage) > 12);
             KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
             KIRIN_HYBRID_VU_REQUIRE (differentPixels (manualImage, render (view)) == 0);
+            {
+                // A comparison keeps its buttons: recording does not cover them with the VU.
+                observatory::View listening (role);
+                observatory::LiveCompareFooter footer;
+                footer.active = true;
+                listening.setLiveCompareFooter (footer);
+                listening.setHostRecording (true);
+                KIRIN_HYBRID_VU_REQUIRE (! listening.hybridVuVisible());
+                listening.setLiveCompareFooter ({});
+                KIRIN_HYBRID_VU_REQUIRE (listening.hybridVuVisible());
+            }
             clearButton->onClick();
             KIRIN_HYBRID_VU_REQUIRE (clearCallback);
             observatory::View reopened (role);

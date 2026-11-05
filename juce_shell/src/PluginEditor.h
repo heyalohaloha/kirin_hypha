@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <array>
+#include <limits>
 #include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -190,7 +191,7 @@ private:
     void configureLiveBlind();
     void addLiveCompareMenu (juce::PopupMenu&, bool keepActive);
     bool handleLiveCompareMenu (int result);
-    void openLiveBlind();
+    void openLiveBlind (std::optional<std::uint64_t> waitedTicket = std::nullopt);
     void refreshLiveBlind();
     void configureLiveCompare();
     bool refreshLiveCompare(); // true only when this refresh published a new fault notification
@@ -201,10 +202,11 @@ private:
     void chooseLiveCompareFollow();
     void handleLiveCompareFollowChoice (int result);
     void handleLiveCompareMatchChoice (const hypha::live_compare::MatchPlan&, int result);
-    bool followLiveCompare (const hypha::live_compare::Status&, double now);
+    void followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
     double liveCompareStartAfterReturnUntil = 0.0;  // INV-LC14：RETURN してから始める LISTEN の押し
     juce::String liveCompareStartAfterReturnKey;     // 押したときの組み（PRE が替われば捨てる）
+    bool liveCompareStartAfterReturnBlind = false;   // その押しが BLIND（false は LISTEN）
     std::uint64_t liveCompareStartAfterReturnTicket = 0;     // 押したときの復元・組みの世代（開始の入口まで渡す）
     std::optional<std::uint64_t> liveCompareStartPressed;    // 待たせた押しを始めるあいだだけ持つ
     void serviceLiveCompareStartAfterReturn();
@@ -371,6 +373,9 @@ private:
     {
         bool on = false, hiddenStopNoticePending = false;
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
+        bool matchKnown = false;  // approvedPreDb and ceilingDbtp hold this LISTEN's MATCH
+        hypha::live_compare::FollowLimit limit = hypha::live_compare::FollowLimit::none;
+        double shortDb = 0.0, peakDbtp = -std::numeric_limits<double>::infinity();
     };
     LiveCompareAuto liveCompareAuto;
     hypha::reference_ui::TrackingStopNotice referenceTrackingStop;  // 追従が止まった知らせ（同じ役の同じ試みで一度）

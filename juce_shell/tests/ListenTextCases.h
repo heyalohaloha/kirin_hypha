@@ -64,8 +64,8 @@ inline std::vector<Notice> notices()
         "Mono / stereo only", "PRE not running; choose again", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
         "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
-        "Press RETURN first", "Returning POST to normal, then LISTEN", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
-        "AUTO off", "AUTO stopped: editor hidden", "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB", "Delay compensation is off in Pro Tools",
+        "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
+        "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
         "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
     for (const auto* db : { "-24.00", "0.00", "+24.00" })
     {

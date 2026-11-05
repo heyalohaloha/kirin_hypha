@@ -167,6 +167,6 @@ struct ProcessorState
     AaxGroupMembership aaxGroup;                  // INV-LC9: the host's AAX instance group
     // INV-LC16: AUTO rests while no window shows it (message thread only); the same session continues it.
     // The rest is bound to the LISTEN (listenSession) and to the restore and pair ticket, not to sessionGeneration.
-    struct AutoRest { bool on = false; double approvedPreDb = 0.0, ceilingDbtp = 0.0; std::uint64_t session = 0, ticket = 0; } autoRest;
+    struct AutoRest { bool on = false; double approvedPreDb = 0.0, ceilingDbtp = 0.0; std::uint64_t session = 0, ticket = 0; double peakDbtp = 0.0; bool matchKnown = false; } autoRest;
 };
 }

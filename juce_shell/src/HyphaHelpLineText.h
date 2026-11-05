@@ -60,7 +60,7 @@ inline constexpr std::array<Shortened, 11> footer {{
     { "End Blind Compare and return to live A. / END returns to A", "End Blind Compare and return to live A." },
     { "Start a separate Version Blind trial. Check Preset settings and facts are hidden.",
       "Start a separate Version Blind trial." },
-    { "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO",
+    { "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO",
       "AUTO: PRE follows POST loudness. Press to rematch" },
     { "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
       "MATCH stopped at the true-peak ceiling" },

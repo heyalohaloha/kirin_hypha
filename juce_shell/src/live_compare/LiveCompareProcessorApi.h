@@ -42,7 +42,7 @@ bool takeLiveComparePreWait() noexcept;
 bool serviceLiveCompare();
 void finishLiveCompare();
 bool liveCompareNeedsService() const noexcept;
-hypha::live_compare::StartResult beginLiveBlind();
+hypha::live_compare::StartResult beginLiveBlind (std::optional<std::uint64_t> pressedTicket = std::nullopt);
 void serviceLiveBlind();
 bool approveLiveBlindMatch (std::uint64_t generation);
 hypha::live_compare::LiveBlindStatus liveBlindStatus() const;

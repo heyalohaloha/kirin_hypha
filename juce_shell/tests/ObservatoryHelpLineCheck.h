@@ -127,7 +127,7 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
              "Listen to PRE, the input of this chain, at the level MATCH set",
              "Listen to PRE, the input of this chain. MATCH levels it to POST",
              "Listen to POST, lowered by the attenuation you approved", "Listen to POST, the output of this chain",
-             "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO",
+             "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO",
              "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
              "Press to MATCH again or to let PRE follow POST (AUTO)",
              "Match PRE to POST loudness over the latest four seconds", "NOTE requires Kirin OS",

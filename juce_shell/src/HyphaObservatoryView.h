@@ -218,6 +218,7 @@ public:
         return ! measurementOnlySurround && ! manualHybridVuSelected
             && recordingHybridVuRequested() && ! captureFrame;
     }
+    bool footerControlsInUse() const noexcept { return stopButton.isVisible() || liveCompareState.active; } // keep them in view
     bool hybridVuVisible() const noexcept
     {
         return ! measurementOnlySurround
@@ -349,8 +350,7 @@ private:
     void paintHybridVu (juce::Graphics&);
     bool recordingHybridVuRequested() const noexcept
     {
-        return hostRecording && hybridVuOnRecordEnabled
-            && ! hybridVuDismissedForCurrentRecording;
+        return hostRecording && hybridVuOnRecordEnabled && ! liveCompareState.active && ! hybridVuDismissedForCurrentRecording;
     }
     void updateControls();
     SizePreset currentPreset() const noexcept;

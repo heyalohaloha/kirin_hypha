@@ -122,6 +122,8 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
                  : slot.auditionOutsideCue ? SourceStep::outsideCue
                   : slot.auditionBuffered ? SourceStep::ready
                  : slot.sourceKind == "work_version"
+                     && slot.auditionPages == reference_audition::AuditionPageState::outsideSource ? SourceStep::outsideVersion
+                 : slot.sourceKind == "work_version"
                      && (slot.auditionPages == reference_audition::AuditionPageState::positionUnknown
                          || slot.auditionPages == reference_audition::AuditionPageState::mappingUnstable)
                      ? SourceStep::preparing : SourceStep::loadingAudio;

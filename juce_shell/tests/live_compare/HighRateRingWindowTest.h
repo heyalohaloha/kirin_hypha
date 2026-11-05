@@ -57,7 +57,7 @@ void verifyHighRateRingWindows (Require require)
             require (std::abs (pin.post.front() - pin.pre.front() * 0.5f) < 1.0e-7f
                      && std::abs (pin.post.back() - pin.pre.back() * 0.5f) < 1.0e-7f,
                      "PIN endpoints retain the corresponding PRE and POST signal");
-            const auto follow = followStep (match, 0.0, match.measuredDb, match.ceilingDbtp, 0.0);
+            const auto follow = followStep (match, 0.0, match.measuredDb, match.ceilingDbtp, 0.0, -100.0);
             require (follow.action == FollowAction::move
                      && std::abs (follow.preGainDb - match.measuredDb) < 1.0e-9,
                      "AUTO consumes the same valid high-rate MATCH");
