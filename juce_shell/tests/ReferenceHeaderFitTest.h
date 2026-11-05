@@ -19,7 +19,7 @@ inline void verifyChartHeader (juce::Rectangle<float> cell, presentation::Contex
                        juce::roundToInt (cell.getBottom()) + 1, true);
     juce::Graphics g (image);
     const auto full = cell;
-    reference_ui::paintReferenceHeader (g, cell, "LOW FREQUENCY", detail, context);
+    reference_ui::paintReferenceHeader (g, cell, "LOW FREQUENCY", detail, context, reference_ui::AWindowControl::arrowWidth);
     for (const auto& label : reference_ui::referenceLegendParts (detail))
     {
         const auto translated = text_style::shownText (label);
@@ -64,7 +64,8 @@ inline void verifyHeaderLayouts (reference_ui::Component& panel, reference_ui::S
         {
             const auto cells = reference_ui::referenceVisualCells (area, count, layout);
             for (int index = 0; index < count; ++index)
-                verifyChartHeader (cells[static_cast<size_t> (index)], context, reference_ui::cueSpectrumLegend (state));
+                verifyChartHeader (cells[static_cast<size_t> (index)], context,
+                                   reference_ui::cueChartLegend (cells[static_cast<size_t> (index)], "LOW FREQUENCY", state, context));
         }
     }
     // A source label can exceed one row at a narrow capacity boundary. Exercise

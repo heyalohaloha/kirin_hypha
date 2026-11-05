@@ -130,6 +130,7 @@ Component::Component()
     addChildComponent (statusStrip);
     configureRoles();
     configureCheckPage();
+    configureAWindowControls();
 }
 
 void Component::mouseMove (const juce::MouseEvent& event)
@@ -344,7 +345,7 @@ void Component::paint (juce::Graphics& g)
     if (detailedLayout())
     {
         area = paintCheckFooter (g, area);  // C の画面の 4 帯域と Cue の時間軸
-        if (songList.isVisible()) paintReferenceBalance (g, area.withTrimmedLeft (songList.getWidth() + 6).toFloat(), current, presentationContext);
+        if (songList.isVisible()) paintReferenceBalance (g, balanceBounds.toFloat(), current, presentationContext);
         else if (!comparisonView.isVisible() && checkPage() && listeningCheck())
             paintListeningPanel (g, area);  // 耳で聴き比べる Check（C−A がいつも 0.0 の箱を出していた）
         else if (!comparisonView.isVisible()

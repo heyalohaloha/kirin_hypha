@@ -47,9 +47,14 @@ std::optional<CueLevel> readCueLevel (const juce::File& root, const RuntimeWorks
 
 int cueWindowBlocks (std::int64_t cueStartSample, std::int64_t cueEndSample, std::int64_t sampleRateHz) noexcept
 {
+    return std::max (cueLengthBlocks (cueStartSample, cueEndSample, sampleRateHz), liveWindowBlocks);
+}
+
+int cueLengthBlocks (std::int64_t cueStartSample, std::int64_t cueEndSample, std::int64_t sampleRateHz) noexcept
+{
     constexpr std::int64_t historyBlocks = 6'000;  // 10 Hz のメーター履歴の長さ（10 分）
     if (sampleRateHz <= 0 || cueEndSample <= cueStartSample) return liveWindowBlocks;
     const auto blocks = (cueEndSample - cueStartSample) * 10 / sampleRateHz;
-    return static_cast<int> (std::clamp<std::int64_t> (blocks, liveWindowBlocks, historyBlocks));
+    return static_cast<int> (std::clamp<std::int64_t> (blocks, 1, historyBlocks));
 }
 }

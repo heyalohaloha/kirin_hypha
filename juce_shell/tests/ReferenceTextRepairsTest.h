@@ -112,13 +112,13 @@ inline void verifyLegends (bool check)
             }
             else
             {
-                requireWhole (drawn, "REFERENCE RANGE");
+                requireWhole (drawn, "TARGET RANGE");
                 requireWhole (drawn, "B CHORUS 1:02-1:24");
                 state.songFacts.front().part = reference_audition::CuePart::loudest;
                 panel.setState (state);
                 const auto longer = a_direction::drawnTexts (panel);
                 requireWhole (longer, "B LOUDEST 30 S 1:02-1:24");
-                requireWhole (longer, "REFERENCE RANGE");
+                requireWhole (longer, "TARGET RANGE");
             }
         }
     }

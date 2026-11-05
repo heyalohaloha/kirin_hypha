@@ -2,7 +2,9 @@
 #include "HyphaReferenceChartReading.h"
 
 #include "HyphaReferenceAComparison.h"
+#include "HyphaReferenceAWindowControl.h"
 #include "HyphaReferenceBlauertZones.h"
+#include "HyphaReferenceLegend.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceHelp.h"
 #include "HyphaReferenceHelpText.h"
@@ -71,6 +73,7 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     juce::Path band, median;
     std::vector<juce::Point<float>> lower;
     bool started = false;
+    // 目標の範囲（Cue の p10〜p90）。線より先に薄く敷く。
     for (size_t index = 0; index < cue.centersHz.size(); ++index)
     {
         const auto hz = cue.centersHz[index];
@@ -86,7 +89,7 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     paintBlauertZones (g, area, minimumHz, maximumHz);  // Blauert の帯（2026-10-04）
     for (auto it = lower.rbegin(); it != lower.rend(); ++it) band.lineTo (*it);
     band.closeSubPath();
-    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.10f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.14f));
     g.fillPath (band);
     // A を太く下に、C を細く上に（同じ値でも両方見える。2026-10-04）。
     const bool aReady = kirinComparable (state) && state.aKirin->frames >= minimumAFrames;
@@ -112,8 +115,11 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
                                       0.0, minimumHz, maximumHz));
     curves.push_back (drawnCurve ("C", COL_SPECTRUM_DELTA, cue.centersHz, cue.medianDb, shift,
                                   minimumHz, maximumHz));
+    const ReadRange range { drawnCurve ("", COL_NORMAL, cue.centersHz, cue.p10Db, shift, minimumHz, maximumHz),
+                            drawnCurve ("", COL_NORMAL, cue.centersHz, cue.p90Db, shift, minimumHz, maximumHz),
+                            blauertShown (minimumHz, maximumHz) ? blauertReadoutHeight : 0.0f };
     paintChartReading (g, area, minimumHz, maximumHz, state.chartPointer, curves,
-                       [area] (float level) { return dbY (level, area); }, context);
+                       [area] (float level) { return dbY (level, area); }, context, &range);
     if (aReady)  // 曲の中の帯どうしの差なので、音量を合わせていなくても出せる
         paintBlauertReadout (g, area, 'C', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
                                                          cue.centersHz, cue.medianDb),
@@ -121,13 +127,28 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     return true;
 }
 
-juce::String cueSpectrumLegend (const State& state)
+juce::String aWindowLegend (int frames)
+{
+    const auto seconds = juce::roundToInt (frames / 10.0);
+    return seconds < 60 ? "A LAST " + juce::String (seconds) + " S" : "A LAST " + clock (seconds);
+}
+
+juce::String cueSpectrumLegend (const State& state, bool targetRange)
 {
     const bool aReady = kirinComparable (state) && state.aKirin->frames >= minimumAFrames;
-    const auto a = aReady ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING");
+    const auto a = aReady ? aWindowLegend (state.aKirin->frames) : juce::String ("A WAITING");
     const auto nan = std::numeric_limits<double>::quiet_NaN();
     return a + " / " + cuePartLegend ("C", state.cuePart, nan, nan, false)
+        + (targetRange ? juce::String (" / ") + targetRangeLegend : juce::String())
         + (std::isfinite (comparisonGainDb (state)) ? "" : " / LEVEL NOT MATCHED");
+}
+
+juce::String cueChartLegend (juce::Rectangle<float> chart, const juce::String& heading, const State& state, presentation::Context context)
+{
+    constexpr float minimumPlot = 40.0f;
+    const auto legend = cueSpectrumLegend (state);
+    const auto header = referenceHeaderLayout (chart, heading, legend, context, AWindowControl::arrowWidth);
+    return chart.getHeight() - header.height >= minimumPlot ? legend : cueSpectrumLegend (state, false);
 }
 
 juce::String cuePartLegend (const char* side, reference_audition::CuePart part, double startSeconds, double endSeconds, bool range)

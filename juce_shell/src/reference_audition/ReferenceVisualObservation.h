@@ -25,6 +25,9 @@ public:
     std::uint64_t inputGeneration() const noexcept { return accepting.load(std::memory_order_acquire) ? generation.load(std::memory_order_acquire) : 0; }
     void enqueue(const float*, int, int, std::int64_t, std::uint64_t, std::uint64_t) noexcept;
     std::shared_ptr<const VisualTimeline> snapshot() const;
+    // A の窓（図の A の線の測定）を捨てる。メーターは観測スレッドだけが触るので、頼むだけで次の周回で捨てる。そのとき
+    // 受け口に残っている塊（操作の前の音）も A の線に入れない。V の比較・指紋・範囲の帯の測定は止めない。
+    void resetAWindow() { aWindowResets.fetch_add (1, std::memory_order_release); notify(); }
 private:
     struct Block
     {
@@ -39,6 +42,10 @@ private:
     std::atomic<size_t> writeIndex { 0 }, readIndex { 0 };
     std::atomic<bool> accepting { false };
     std::atomic<std::uint64_t> generation { 1 };
+    std::atomic<std::uint64_t> aWindowResets { 0 };
+    std::uint64_t aWindowResetsDone = 0;  // ここから 3 つは観測スレッドだけ
+    size_t aWindowBoundary = 0;           // 読みがここへ届くまでの塊は操作の前の音
+    bool aWindowCatchingUp = false;
     std::uint64_t rtDiscontinuity = 0;
     mutable juce::CriticalSection controlLock, snapshotLock;
     bool presented = false, paused = false;

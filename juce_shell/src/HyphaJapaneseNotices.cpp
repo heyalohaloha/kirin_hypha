@@ -86,6 +86,7 @@ const Entry entries[] = {
     { "Level match exceeds the safe ceiling. A stays live.",
       u8"MATCHが安全上限を超えます。音はAのままです。" },
     { "Version selection was not changed", u8"Versionの選択は変わっていません" },
+    { "A window was not changed", u8"Aの窓は変わっていません" },
     { "Check Preset selection was not changed", u8"Check Presetの選択は変わっていません" },
     { "Check selection was not changed", u8"Checkの選択は変わっていません" },
     { "Reference selection was not changed", u8"Referenceの選択は変わっていません" },

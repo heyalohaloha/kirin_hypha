@@ -186,7 +186,8 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 ## The full manual
 
-Measured, not judged: Hypha reports what it captured — no score, no target, no recommendation.
+Measured, not judged: Hypha reports what it captured. It sets no score, target or pass/fail of its own;
+a target range on the Reference pages is the spread of the references you chose.
 The [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
 records the verified scope, including all 70 assets of the EBU Loudness Test Set v05.
 
@@ -1000,18 +1001,19 @@ shows the song and the status; songs are switched from 125%.
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
   OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
-  right: A over the last 10 seconds (gold), the chosen song (cyan) and the set's p10–p90 range, each
+  right: A over its window, 10 seconds unless you choose another (gold), the chosen song (cyan) and the set's p10–p90 range, each
   song shifted to the level B plays it at. No genre curves are supplied. B plays and is measured over
   its default Cue: for a song left on the whole track in Kirin OS, that is the chorus candidate, or the
   loudest 30 seconds when no chorus is found; the legend names the part and its times
   (B CHORUS 1:02-1:24), and the C page legend names C's part the same way. The list starts with A's row
   (its last 10 seconds, gold) and shows, for every prepared song, the gain MATCH would play it at; the
-  playing song shows the gain applied. The legend's REFERENCE RANGE is the band between the set's songs
-  (p10 to p90 per band, each at the level B plays it at).
+  playing song shows the gain applied. The legend's TARGET RANGE is the band between the set's songs
+  (p10 to p90 per band, each at the level B plays it at). It takes two songs with measured values; with
+  fewer there is no band and the legend does not name one.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
-  set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue against the same length of recent
-  A; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
+  set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
+  A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
@@ -1062,6 +1064,17 @@ shows the song and the status; songs are switched from 125%.
   replaced; a Version AUTO chose is replaced only when another is better by 0.02 twice in a row (while AUTO's
 Version briefly drops out of the match, its last agreement stays the bar).
 
+**A's window.** The legend's A label on B's Balance (300 %) and on C's spectrum charts (200 % and 300 %)
+opens a list: 3 S, 10 S, 30 S, CUE and ALL, each role keeping its own choice in the project. CUE is
+the length of the Cue the role plays, up to 10 minutes, even when MATCH uses a longer window for a Cue under
+10 seconds; ALL is everything held, up to 10 minutes. The list changes only how A's line
+is summed: what you hear, MATCH, tracking and the range strips stay as they are, nothing measured is dropped,
+and the new window shows at once. The level the songs are aligned to on these charts stays that of MATCH, so
+over a long window a quiet passage in A can sit below them. RESET A WINDOW in the same list drops what A holds
+for this line, including sound still on its way to the meter, so sound from before a change does not mix in; a seek or a gap in the audio does that by itself, and so does leaving the
+Reference page. The legend gives what is really held (A LAST 4 S, A LAST 4:05), and under 3 seconds A has
+no line (A WAITING).
+
 At 300 % on B, C and V, pointing at an item shows one line over the footer on what the item
 measures and what it is for (CREST, the four bands, Blauert's bands, WHOLE and so on), as a loudness
 meter's help bar does, across the whole footer row as on the other pages; it returns to the status
@@ -1072,7 +1085,7 @@ A is gold and the compared role is cyan on every page; colour never scores a res
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
 frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Pointing at a chart reads
 the frequency, the note below 1 kHz and the value of A and of the compared curve as they are drawn,
-gain included; where a curve has no band there is no number. A low-band chart also tags the highest
+gain included, and on B and C the low and high of the target range (TARGET -26.1 TO -19.8), on a second row where the chart is narrow; where a curve has no band there is no number. A low-band chart also tags the highest
 peaks of A with frequency and level. Its bands are too wide to name a note at a peak. Full-range
 spectrum charts
 (B's Balance, C, and V's TONE) also shade Blauert's directional bands — 300–400 Hz, around 1 kHz

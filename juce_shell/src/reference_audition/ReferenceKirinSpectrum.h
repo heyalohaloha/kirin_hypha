@@ -19,7 +19,7 @@ namespace hypha::reference_audition
 //    （4|X|²/(Σw)²、DC と Nyquist は ×1）の dBFS。
 //  - 4 帯域 Balance：bin の中心が [20, 250)・[250, 2k)・[2k, 8k)・[8k, 20k) Hz の bin の
 //    2|X|²/(N·Σw²)（DC と Nyquist は ×1）の和を RMS の dBFS にした値。
-//  - 窓（C は Cue と同じ長さ、B は 10 秒）：帯域ごとにフレームの p10・中央値・p90（nearest-rank）、
+//  - 窓（利用者が役ごとに選ぶ。既定は C が Cue と同じ長さ、B が 10 秒）：帯域ごとにフレームの p10・中央値・p90（nearest-rank）、
 //    Balance はフレームの power の平均。
 // Audio Thread では動かさない（Reference の観測スレッド）。メモリは configure で先に確保する。
 struct KirinSpectrumWindow

@@ -55,6 +55,8 @@ inline juce::String blauertReadout (char role, AVersus contrasts)
     return juce::String::fromUTF8 (u8"1k vs 300-400·3-4k") + " / " + comparison.text;
 }
 
+inline constexpr float blauertReadoutHeight = 15.0f;  // 図の一番上の段（読みの札はこの下に）
+
 inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart, char role, AVersus contrasts,
                                  double minimumHz, double maximumHz, const presentation::Context& context)
 {

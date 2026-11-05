@@ -2,6 +2,7 @@
 #include "ReferenceMissingCheckTest.h"
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceTextRepairsTest.h"
+#include "ReferenceAWindowTest.h"
 #include "ReferenceFollowViewContract.h"
 #include "ValidationStorageSandbox.h"
 
@@ -31,6 +32,7 @@ int main (int argc, char** argv)
     if (mode == "--reference-onset-only") { repairs::verifyOnsetMeaning(); return 0; }
     if (mode == "--reference-cue-label-only") { repairs::verifyCueLabels(); return 0; }
     if (mode == "--reference-selection-reopen-only") { hypha::tests::verifyReferenceSelectionReopens(); return 0; }
+    if (mode == "--reference-a-window-only") { hypha::tests::reference_a_window::verify(); return 0; }
     // First, while the message queue holds only what start-up posted: this test delivers it.
     hypha::tests::verifyReferenceSelectionReopens();
     hypha::tests::verifyMissingCheckNavigation();
@@ -38,6 +40,7 @@ int main (int argc, char** argv)
     repairs::verifyVersionStopText();
     repairs::verifyApprovalPreview(); repairs::verifyLegends (true); repairs::verifyLegends (false);
     repairs::verifyCMatchFit(); repairs::verifyOnsetMeaning(); repairs::verifyCueLabels();
+    hypha::tests::reference_a_window::verify();
     hypha::tests::verifyReferenceAuditionComponentContract();
     std::cout << "Reference audition component contract tests passed\n";
     return 0;

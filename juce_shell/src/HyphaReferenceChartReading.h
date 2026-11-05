@@ -29,6 +29,14 @@ struct ReadCurve
     std::vector<float> level;  // as drawn, with the gain the line carries
 };
 
+// The range a chart fills behind its lines, read the same way as a line. `plateTop` keeps the
+// plate under what the chart prints along its top.
+struct ReadRange
+{
+    ReadCurve low, high;
+    float plateTop = 0.0f;
+};
+
 // The bands a chart really draws. `right` stands for a chart that draws its last band at the edge.
 inline ReadCurve drawnCurve (const char* name, juce::Colour colour, const std::vector<double>& centers,
                              const std::vector<float>& levels, double gain, double minimumHz,
@@ -77,7 +85,7 @@ template <typename YFor>
 void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double minimumHz,
                         double maximumHz, juce::Point<float> pointer,
                         const std::vector<ReadCurve>& curves, YFor&& yFor,
-                        presentation::Context context)
+                        presentation::Context context, const ReadRange* range = nullptr)
 {
     const auto xFor = [=] (float hz)
     {
@@ -105,7 +113,8 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
     auto text = juce::String (juce::roundToInt (hz)) + " Hz";
     if (hz < 1'000.0f)
         text << " " << juce::String (spectrum_peaks::noteName (hz));
-    std::vector<std::pair<juce::String, juce::Colour>> parts { { text, COL_NORMAL.withAlpha (0.94f) } };
+    using Part = std::pair<juce::String, juce::Colour>;
+    std::vector<Part> parts { { text, COL_NORMAL.withAlpha (0.94f) } };
     for (const auto& curve : curves)
     {
         const auto reading = readAt (curve, hz, yFor);
@@ -115,19 +124,36 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ pointer.x, reading->y }));
         parts.push_back ({ juce::String (curve.name) + " " + juce::String (reading->level, 1), curve.colour });
     }
-    float width = 8.0f;
-    for (const auto& [part, colour] : parts)
-        width += text_style::shownWidth (g.getCurrentFont(), part) + 10.0f;
-    auto plate = chart.withHeight (15.0f).withWidth (juce::jmin (width, chart.getWidth()));
-    g.setColour (BG.withAlpha (0.82f));
-    g.fillRoundedRectangle (plate, 3.0f);
-    auto row = plate.reduced (4.0f, 0.0f);
-    for (const auto& [part, colour] : parts)
+    if (range != nullptr)
+        if (const auto low = readAt (range->low, hz, yFor), high = readAt (range->high, hz, yFor); low && high)
+            parts.push_back ({ "TARGET " + juce::String (low->level, 1) + " TO " + juce::String (high->level, 1),
+                               COL_NORMAL.withAlpha (0.86f) });
+    // What does not fit a row of the chart goes to the next row: no reading is dropped.
+    const auto partWidth = [&g] (const Part& part) { return text_style::shownWidth (g.getCurrentFont(), part.first) + 10.0f; };
+    constexpr float padding = 8.0f, rowHeight = 15.0f, rowGap = 1.0f;
+    std::vector<std::pair<float, std::vector<Part>>> rows (1, { padding, {} });
+    for (const auto& part : parts)
     {
-        const float partWidth = text_style::shownWidth (g.getCurrentFont(), part) + 10.0f;
-        g.setColour (colour);
-        text_style::drawText (g, part, row.removeFromLeft (partWidth).toNearestInt(),
-                              juce::Justification::centredLeft);
+        if (! rows.back().second.empty() && rows.back().first + partWidth (part) > chart.getWidth())
+            rows.push_back ({ padding, {} });
+        rows.back().first += partWidth (part);
+        rows.back().second.push_back (part);
+    }
+    const auto height = static_cast<float> (rows.size()) * (rowHeight + rowGap) - rowGap;
+    auto top = chart.getY() + (range != nullptr ? juce::jlimit (0.0f, juce::jmax (0.0f, chart.getHeight() - height), range->plateTop) : 0.0f);
+    for (const auto& [width, row] : rows)
+    {
+        const juce::Rectangle<float> plate (chart.getX(), top, juce::jmin (width, chart.getWidth()), rowHeight);
+        top += rowHeight + rowGap;
+        g.setColour (BG.withAlpha (0.82f));
+        g.fillRoundedRectangle (plate, 3.0f);
+        auto cells = plate.reduced (4.0f, 0.0f);
+        for (const auto& part : row)
+        {
+            g.setColour (part.second);
+            text_style::drawText (g, part.first, cells.removeFromLeft (partWidth (part)).toNearestInt(),
+                                  juce::Justification::centredLeft);
+        }
     }
 }
 }

@@ -99,6 +99,7 @@ namespace hypha::reference_audition
         double sourceLoudnessOffsetLu = 0.0;
         double cueMaximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();
         int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
+        int cueLengthBlocks = 100;  // Cue の長さ（同じ単位。cueWindowBlocks と違い 10 秒の下限が無い。図の窓の CUE が使う）
         // C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
         std::shared_ptr<const KirinSpectrumWindow> cueSpectrum;
         CuePart cuePart = CuePart::unknown;  // Cue が曲のどの部分か（C の図の凡例）
@@ -163,6 +164,7 @@ namespace hypha::reference_audition
         std::shared_ptr<const VisualTimeline> visualTimeline;
         double visualPositionSeconds = -1.0;
         std::shared_ptr<VisualPreferences> visualPreferences;
+        AWindowTarget aWindowTarget;  // 今の A の窓のリストの役と世代
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
         std::int64_t sourceSampleRateHz = 0;
         std::int64_t hostSampleRateHz = 0;

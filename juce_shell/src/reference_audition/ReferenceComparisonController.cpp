@@ -11,7 +11,11 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
       check (root, [this] (bool active) { return admit (2, active); }, false),
       reference (root, [this] (bool active) { return admit (3, active); }, false),
       visual ([this] {
-          return slotController (viewedSlot.load (std::memory_order_acquire)).visualBinding();
+          const auto slot = viewedSlot.load (std::memory_order_acquire);
+          auto binding = slotController (slot).visualBinding();
+          if (slot != 1)  // V の図は A の窓を使わない
+              binding.aDisplayWindowBlocks = displayWindowBlocks (visualPreferences->aWindows().of (slot), binding.cueLengthBlocks);
+          return binding;
       },analysis)
 {
     check.prepareSelectionsBeforeReturn();
@@ -103,6 +107,7 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
     clearPendingAudition();
     {
         const juce::ScopedLock lock (selectionLock);
+        ++aWindowEpoch;
         if (receiverId != identity.runtimeInstanceId && ! pendingSettings) versionId.clear();
         receiverId = identity.runtimeInstanceId;
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
@@ -145,6 +150,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     result.reference.cueId.clear();  // B の曲は既定の Cue で鳴らす
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
+    result.aWindows = visualPreferences->aWindows();
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
 }
@@ -160,6 +166,8 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     bool apply = false;
     {
         const juce::ScopedLock lock (selectionLock);
+        visualPreferences->setAWindows (value.aWindows);
+        ++aWindowEpoch;
         versionId = value.version.candidateId.isEmpty() ? juce::String {} : value.version.target();
         versionAuto = value.versionAuto && versionId.isNotEmpty();
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
@@ -194,6 +202,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.heldAttenuationDb = heldA.targetDb();
     result.visualTimeline = visual.snapshot();
     result.visualPreferences = visualPreferences;
+    result.aWindowTarget = { slot, aWindowEpoch };
     const auto viewedMap = slotController (slot).visualBinding();
     const auto versionMap = version.visualBinding();
     std::int64_t visualPosition = 0;
@@ -301,8 +310,42 @@ bool ReferenceComparisonController::selectCue (const juce::String& id)
 bool ReferenceComparisonController::selectVisualSlot (int slot)
 {
     if ((slot != 1 && slot != 2 && slot != 3) || trialActive()) return false;
-    viewedSlot.store (slot, std::memory_order_release);
+    {
+        const juce::ScopedLock lock (selectionLock);
+        if (viewedSlot.exchange (slot, std::memory_order_acq_rel) != slot) ++aWindowEpoch;
+    }
     if (stateChanged) stateChanged();
+    return true;
+}
+void ReferenceComparisonController::advanceAWindowEpoch()
+{
+    const juce::ScopedLock lock (selectionLock);
+    ++aWindowEpoch;
+}
+bool ReferenceComparisonController::aWindowTargetCurrent (AWindowTarget target) const
+{
+    return (target.slot == 2 || target.slot == 3) && target.slot == viewedSlot.load (std::memory_order_acquire)
+        && target.epoch == aWindowEpoch;
+}
+// trialActive は selectionLock の外で見る（Blind が始まるなら世代が進むので、中の確かめが断る）。
+bool ReferenceComparisonController::selectAWindow (AWindowTarget target, AWindowChoice choice)
+{
+    if (trialActive()) return false;
+    bool changed = false;
+    {
+        const juce::ScopedLock lock (selectionLock);
+        if (! aWindowTargetCurrent (target)) return false;
+        changed = visualPreferences->setAWindow (target.slot, choice);
+    }
+    if (changed && stateChanged) stateChanged();
+    return true;
+}
+bool ReferenceComparisonController::resetAWindow (AWindowTarget target)
+{
+    if (trialActive()) return false;
+    const juce::ScopedLock lock (selectionLock);
+    if (! aWindowTargetCurrent (target)) return false;
+    visual.resetAWindow();
     return true;
 }
 bool ReferenceComparisonController::retryPresetSelection() { return check.retryPresetSelection(); }

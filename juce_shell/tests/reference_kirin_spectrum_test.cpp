@@ -7,8 +7,12 @@
 // 窓の p10・中央値・p90 は Kirin OS の Cue の集計（nearest-rank、Balance は power の平均）と同じ並べ方。
 #include "reference_runtime_test_support.h"
 #include "../src/reference_audition/ReferenceKirinSpectrum.h"
+#include "../src/reference_audition/ReferenceCueMatch.h"
+#include "../src/reference_audition/ReferenceVisualPreferences.h"
 
+#include <chrono>
 #include <cmath>
+#include <iostream>
 
 void testReferenceKirinSpectrum();
 
@@ -39,6 +43,106 @@ std::vector<float> syntheticSignal (int rate, int frames)
 
 void check (bool condition, const juce::String& message) { require (condition, message.toRawUTF8()); }
 
+// 図の窓（3 S・10 S・30 S・CUE・ALL）：新しいフレームから数え、足りなければあるだけで集計する。
+void testDisplayWindows()
+{
+    namespace ref = hypha::reference_audition;
+    check (ref::displayWindowBlocks (ref::AWindowChoice::seconds3, 450) == 30, "3 S is 30 frames");
+    check (ref::displayWindowBlocks (ref::AWindowChoice::seconds10, 450) == 100, "10 S is 100 frames");
+    check (ref::displayWindowBlocks (ref::AWindowChoice::seconds30, 450) == 300, "30 S is 300 frames");
+    check (ref::displayWindowBlocks (ref::AWindowChoice::cue, 450) == 450, "CUE is the role's Cue length");
+    // CUE は Cue の長さのまま。MATCH の窓の下限 10 秒は図に掛けない。上限はどちらも 10 分。
+    check (ref::cueLengthBlocks (0, 48'000 * 5, 48'000) == 50 && ref::cueWindowBlocks (0, 48'000 * 5, 48'000) == 100,
+           "a 5 second Cue sums 5 seconds while MATCH keeps its 10 second floor");
+    check (ref::cueLengthBlocks (0, 48'000 * 2, 48'000) == 20, "a short Cue is not stretched to 3 seconds");
+    check (ref::cueLengthBlocks (0, 48'000 * 900, 48'000) == ref::aWindowMaximumBlocks
+               && ref::cueWindowBlocks (0, 48'000 * 900, 48'000) == ref::aWindowMaximumBlocks, "both stop at 10 minutes");
+    check (ref::cueLengthBlocks (5, 5, 48'000) == 100 && ref::cueLengthBlocks (0, 48'000, 0) == 100, "no Cue keeps the 10 second default");
+    check (ref::displayWindowBlocks (ref::AWindowChoice::all, 450) == ref::aWindowMaximumBlocks, "ALL is what is held, up to the limit");
+    check (ref::aWindowMaximumBlocks == 6'000, "the limit is 10 minutes of 100 ms frames");
+    const int rate = 48'000, frame = rate / 10;
+    constexpr double tau = 6.283185307179586476925286766559;
+    KirinSpectrumMeter meter;
+    check (meter.configure (rate, 2, 120), "the meter takes this format");
+    std::vector<float> pcm (static_cast<size_t> (frame) * 2);
+    std::int64_t sample = 0;
+    const auto feed = [&] (int frames, double amplitude)
+    {
+        for (int index = 0; index < frames; ++index)
+        {
+            for (int n = 0; n < frame; ++n, ++sample)
+                pcm[static_cast<size_t> (n) * 2] = pcm[static_cast<size_t> (n) * 2 + 1]
+                    = static_cast<float> (amplitude * std::sin (tau * 1'000.0 * static_cast<double> (sample) / rate));
+            meter.push (pcm.data(), frame);
+        }
+    };
+    feed (50, 0.5);   // 大きい 5 秒
+    feed (30, 0.05);  // 小さい 3 秒
+    const auto band = static_cast<size_t> (std::lower_bound (meter.centersHz().begin(), meter.centersHz().end(), 1'000.0) - meter.centersHz().begin());
+    const auto last3 = meter.window (30), last8 = meter.window (ref::aWindowMaximumBlocks);
+    check (last3 != nullptr && last3->frames == 30 && last3->wantedFrames == 30, "3 S sums the last 30 frames");
+    check (last8 != nullptr && last8->frames == 80, "a longer window sums what is held");
+    check (std::abs (last8->medianDb[band] - last3->medianDb[band] - 20.0f) < 1.0f, "the short window leaves the loud part out");
+    check (std::abs (last8->p10Db[band] - last3->medianDb[band]) < 1.0f, "the long window spans both parts");
+    // Balance は窓の power の平均：大きい 50 フレーム（+20 dB）と小さい 30 フレーム。
+    check (std::abs (last8->balanceDb[1] - last3->balanceDb[1] - 10.0 * std::log10 ((50.0 * 100.0 + 30.0) / 80.0)) < 0.1, "Balance averages power over the window");
+    feed (60, 0.5);
+    const auto held = meter.window (ref::aWindowMaximumBlocks);
+    check (held != nullptr && held->frames == 120, "ALL stops at what the meter holds");
+    meter.reset();
+    check (meter.window (ref::aWindowMaximumBlocks) == nullptr && meter.framesHeld() == 0, "RESET leaves nothing to sum");
+}
+
+// ALL の上限：6,000 フレームを正しく集計し、それより古いフレームは入らない。時間は記録だけ（CI で揺れるので判定にしない）。
+void testFullWindow()
+{
+    namespace ref = hypha::reference_audition;
+    const int rate = 48'000, frame = rate / 10;
+    constexpr double tau = 6.283185307179586476925286766559;
+    KirinSpectrumMeter meter;
+    check (meter.configure (rate, 2, ref::aWindowMaximumBlocks), "the meter holds 10 minutes");
+    // 1 kHz は 100 ms にちょうど 100 周期なので、同じフレームを繰り返しても位相が続く。
+    const auto levelFrame = [&] (double amplitude)
+    {
+        std::vector<float> pcm (static_cast<size_t> (frame) * 2);
+        for (int n = 0; n < frame; ++n)
+            pcm[static_cast<size_t> (n) * 2] = pcm[static_cast<size_t> (n) * 2 + 1]
+                = static_cast<float> (amplitude * std::sin (tau * 1'000.0 * n / rate));
+        return pcm;
+    };
+    const auto oldest = levelFrame (1.0), quiet = levelFrame (0.01), middle = levelFrame (0.1), loud = levelFrame (0.5);
+    for (int index = 0; index < 100; ++index) meter.push (oldest.data(), frame);  // 上限から外れる
+    for (int index = 0; index < ref::aWindowMaximumBlocks; ++index)
+    {
+        const auto part = index % 10;
+        meter.push ((part < 2 ? quiet : part > 7 ? loud : middle).data(), frame);
+    }
+    check (meter.framesHeld() == ref::aWindowMaximumBlocks, "the meter stops at 6,000 frames");
+    std::shared_ptr<const hypha::reference_audition::KirinSpectrumWindow> whole;
+    const auto started = std::chrono::steady_clock::now();
+    for (int repeat = 0; repeat < 20; ++repeat) whole = meter.window (ref::aWindowMaximumBlocks);
+    const std::chrono::duration<double, std::milli> spent = std::chrono::steady_clock::now() - started;
+    std::cout << "A window over 6000 frames: " << spent.count() / 20.0 << " ms per publish\n";
+    check (whole != nullptr && whole->frames == ref::aWindowMaximumBlocks, "ALL sums all 6,000 frames");
+    const auto band = static_cast<size_t> (std::lower_bound (meter.centersHz().begin(), meter.centersHz().end(), 1'000.0) - meter.centersHz().begin());
+    // 2 割ずつの小さいフレームと大きいフレームの中に p10 と p90 が入る。
+    const auto single = [&] (const std::vector<float>& pcm)
+    {
+        KirinSpectrumMeter one;
+        check (one.configure (rate, 2, 2), "the reference meter takes this format");
+        one.push (pcm.data(), frame);
+        return one.window (1);
+    };
+    const auto low = single (quiet), mid = single (middle), high = single (loud);
+    check (std::abs (whole->p10Db[band] - low->medianDb[band]) < 0.01f, "p10 of 6,000 frames is in the quiet frames");
+    check (std::abs (whole->medianDb[band] - mid->medianDb[band]) < 0.01f, "the median of 6,000 frames is the middle level");
+    check (std::abs (whole->p90Db[band] - high->medianDb[band]) < 0.01f, "p90 of 6,000 frames is in the loud frames");
+    const auto power = [] (const std::shared_ptr<const hypha::reference_audition::KirinSpectrumWindow>& window)
+    { return std::pow (10.0, window->balanceDb[1] / 10.0); };
+    const auto mean = (2.0 * power (low) + 6.0 * power (mid) + 2.0 * power (high)) / 10.0;
+    check (std::abs (whole->balanceDb[1] - 10.0 * std::log10 (mean)) < 0.01, "Balance averages the power of exactly the held frames");
+}
+
 std::vector<double> numbers (const juce::var& array)
 {
     std::vector<double> result;
@@ -50,6 +154,8 @@ std::vector<double> numbers (const juce::var& array)
 
 void testReferenceKirinSpectrum()
 {
+    testDisplayWindows();
+    testFullWindow();
     const auto fixture = juce::JSON::parse (juce::File (KIRIN_REFERENCE_FIXTURE_DIR)
                                                 .getChildFile ("kirin_spectrum/kirin_os_ticks.json"));
     const auto* signals = fixture["signals"].getArray();

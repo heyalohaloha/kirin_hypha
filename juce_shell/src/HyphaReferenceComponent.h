@@ -13,6 +13,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaReferenceAction.h"
+#include "HyphaReferenceAWindowControl.h"
 #include "HyphaReferenceGainText.h"
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
@@ -168,6 +169,8 @@ struct State
     std::shared_ptr<const reference_audition::VisualTimeline> visualTimeline;
     double visualPositionSeconds = -1.0;
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
+    reference_audition::AWindowChoices aWindows; // B・C の図の A の線の窓
+    reference_audition::AWindowTarget aWindowTarget; // リストの回答を結ぶ役と世代
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     juce::Point<float> chartPointer { -1.0f, -1.0f };  // where the pointer reads a spectrum chart
     std::vector<float> liveSpectrumDbfs;
@@ -286,6 +289,9 @@ public:
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
     std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
+    std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice)> onSelectAWindow;
+    std::function<void(reference_audition::AWindowTarget)> onResetAWindow;
     std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
@@ -392,12 +398,16 @@ private:
     SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton actionButton { "OPEN KIRIN OS" };
+    std::array<AWindowControl, 3> aWindowControls; // 図の凡例の A の場所（図ごとに 1 つ）。B の Balance は 1 番目
+    juce::Rectangle<int> balanceBounds;            // B の画面の Balance
     StatusStrip statusStrip;  // 状態の行と、VERSION BLIND・アクションのボタン（HyphaReferenceStatusRow.cpp）
     std::vector<help::Region> helpRegions;  // 最後に描いた図に添えた説明の場所
     bool statusFooterMode = false;
     int statusRowHeight() const noexcept;
     bool statusLineShown() const noexcept;
     void layoutStatusRow (juce::Rectangle<int>);
+    void configureAWindowControls();
+    void layoutAWindowControls();
     void paintStatusRow (juce::Graphics&, juce::Rectangle<int>) const;
 
     // B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
