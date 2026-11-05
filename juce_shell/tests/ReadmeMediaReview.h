@@ -271,7 +271,7 @@ inline reference_ui::State checkPage()
     auto state = roles();
     state.comparisonSlot = 2;
     state.comparisonMode = "loudness_match";
-    state.checks = { { "tone/ref-1", "Tonal balance  /  Reference 01" }, { "tone/ref-2", "Tonal balance  /  Reference 02" },
+    state.checks = { { "tone/ref-1", "Balance  /  Reference 01" }, { "tone/ref-2", "Balance  /  Reference 02" },
                      { "loud/ref-1", "Loudness  /  Reference 01" }, { "peak/ref-1", "True Peak  /  Reference 01" },
                      { "dyn/ref-1", "Dynamics  /  Reference 01" } };
     state.checkId = "tone/ref-1";
