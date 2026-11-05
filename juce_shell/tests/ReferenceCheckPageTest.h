@@ -40,7 +40,7 @@ inline void verifyFactoryCheckSetsFit()
         { "Arrangement Flow", { "Groove", "Space", "Energy curve", "Hook" } },
         { "MIX", { "Balance", "Kick and bass", "Vocal balance", "Midrange", "High end" } },
         { "MIX Space", { "Punch", "Width", "Depth", "Effects", "Compression", "Mono" } },
-        { "Mastering", { "Tonal balance", "Loudness", "True Peak", "Dynamics" } },
+        { "Mastering", { "Balance", "Loudness", "True Peak", "Dynamics" } },
         { "Mastering Context", { "Stereo and phase", "Low-end consistency", "Section difference", "Album context" } },
     };
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -181,7 +181,7 @@ inline void verifyReferenceCheckPage()
     {
         auto many = state;
         many.checks.clear();
-        for (const auto* label : { "Tonal balance", "Loudness", "True Peak", "Dynamics", "Stereo and phase",
+        for (const auto* label : { "Balance", "Loudness", "True Peak", "Dynamics", "Stereo and phase",
                                    "Low-end consistency", "Section difference", "Album context" })
             many.checks.push_back ({ juce::String ("chk-") + juce::String (label).removeCharacters (" ") + "/ref-a",
                                      juce::String (label) + "  /  Song 1" });
