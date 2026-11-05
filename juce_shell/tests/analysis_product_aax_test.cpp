@@ -1,4 +1,5 @@
 #include "AaxAnalysisProductFixture.h"
+#include "AaxChunkProductTest.h"
 
 using namespace aax_analysis_product;
 
@@ -181,6 +182,7 @@ try
     if (scenario == "per_insert") run = per_insert;
     if (scenario == "measured_loop") run = measured_loop;
     require (run != nullptr, "supported isolated scenario");
+    if (scenario == "certified") chunkedPost (layout == "mono" ? 1 : 2);
     Fixture fixture (layout == "mono" ? 1 : 2);
     if (scenario == "loop") fixture.certified (false);
     if (scenario == "short_loops" || scenario == "per_insert" || scenario == "measured_loop")

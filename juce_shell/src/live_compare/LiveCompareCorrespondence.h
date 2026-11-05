@@ -198,10 +198,11 @@ public:
         const bool continuous = havePrevious && block.projectValid
                              && block.project == previousProject + previousFrames;
         std::int64_t candidate = 0;
+        std::uint32_t preReport = 0;
         // A project-time match is not unique inside a loop. Preserve an already proven K;
         // never recalibrate it onto a newer occurrence of the same project coordinate.
-        if (continuous && block.playing && ! block.loop.active && preparedKind != LoopEntryKind::logicPresentation
-            && joinCandidate (ring.header, block, runStart, candidate))
+        if (continuous && block.playing && ! block.loop.active && ! block.positionInterpolated
+            && preparedKind != LoopEntryKind::logicPresentation && joinCandidate (ring.header, block, runStart, candidate, preReport))
         {
             decision.candidateSeen = true;
             decision.candidate = candidate;
@@ -211,7 +212,7 @@ public:
                 decision.invalidatedByDisagreement = true;
                 decision.loss = TimelineBreak::unknown;
             }
-            feed (candidate);
+            feed (candidate, preReport);
         }
         previousProject = block.project;
         previousFrames = block.frames;
@@ -375,11 +376,13 @@ private:
         last = noCandidate;
     }
 
-    void feed (std::int64_t candidate) noexcept
+    void feed (std::int64_t candidate, std::uint32_t preTiming) noexcept
     {
+        const auto reports = static_cast<std::uint16_t> (preTiming >> 16u);
         if (candidate != last) streak = 1;
-        else if (streak < profile.streak) ++streak;
+        else if (streak < profile.streak && preReportCounts ((preTiming & timingNamedPosition) != 0, reports, countedReports)) ++streak;
         last = candidate;
+        countedReports = reports;
         if (streak >= profile.streak)
         {
             k = candidate;
@@ -391,13 +394,14 @@ private:
     // A linear PRE run has one project origin, checked at EVERY publish, so one anchor is
     // sufficient. No backwards descriptor scan, even for a long delay or a small host buffer.
     static bool joinCandidate (const RingHeader& h, const BlockClock& block, std::int64_t runStart,
-                               std::int64_t& candidate) noexcept
+                               std::int64_t& candidate, std::uint32_t& preReport) noexcept
     {
         const auto seq = h.seq.load (std::memory_order_acquire);
         if ((seq & 1u) != 0) return false;
         const auto flags = h.anchorFlags.load (std::memory_order_relaxed);
         const auto project = h.runProject.load (std::memory_order_relaxed);
         const auto end = h.writeEnd.load (std::memory_order_relaxed);
+        preReport = h.reportWord.load (std::memory_order_relaxed);
         const auto pre = runStart + (block.project - project);
         std::atomic_thread_fence (std::memory_order_acquire);
         if (h.seq.load (std::memory_order_relaxed) != seq || flags != 1u
@@ -477,6 +481,7 @@ private:
     std::int64_t k = 0;
     std::int64_t last = noCandidate;
     std::int32_t streak = 0;
+    std::uint16_t countedReports = 0;
     bool havePrevious = false;
     std::int64_t previousProject = 0;
     std::int32_t previousFrames = 0;

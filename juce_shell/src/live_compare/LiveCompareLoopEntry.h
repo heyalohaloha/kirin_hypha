@@ -133,8 +133,11 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
     const auto loopSamples = anchor.loopSamples;
     if (postLoopSamples != loopSamples) return {};
     std::int64_t postOrigin = 0, preOrigin = 0, base = 0;
+    // Between two host reports PRE's named position is no observation; its reported anchor is the
+    // same origin up to whole laps, which the modulo below removes.
     if (! checkedClockSubtract (post.clock, post.project, postOrigin)
-        || ! checkedClockSubtract (pre.clock, pre.project, preOrigin)
+        || ! checkedClockSubtract (pre.positionInterpolated ? anchor.clock : pre.clock,
+                                   pre.positionInterpolated ? anchor.project : pre.project, preOrigin)
         || ! checkedClockSubtract (postOrigin, preOrigin, base)) return {};
 
     if (common && pre.clockBasis == static_cast<std::uint8_t> (ClockBasis::aaxEngine)

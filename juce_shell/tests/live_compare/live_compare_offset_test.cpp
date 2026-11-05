@@ -1,6 +1,8 @@
 #include "live_compare_offset_test.h"
 
+#include "../../src/live_compare/LiveCompareMatch.h"
 #include "../../src/live_compare/LiveCompareOffset.h"
+#include "AaxChunkChain.h"
 
 #include <chrono>
 #include <algorithm>
@@ -48,10 +50,41 @@ OffsetEstimate estimate (Content content, std::int64_t d, float postScale = 1.0f
 }
 }
 
+// An I/O insert between PRE and POST: POST at the hardware buffer against PRE's 1024-frame ring.
+// K is what the positions say; the audio arrives later, which the footer reports and the host's
+// H/W Insert Delay removes. MATCH and the estimate read the same windows through the same K.
+static void chunkedPostKeepsItsWindows()
+{
+    using namespace aax_chunk_test;
+    const struct { int frames; std::int64_t k, contentK, lag; } cases[] = {
+        { 256, -512, 512, -1024 }, // H/W Insert Delay 0: the footer says PRE is 21.33 ms early
+        { 256, 512, 512, 0 },      // H/W Insert Delay 21.33 ms: aligned
+        { 512, 0, 1024, -1024 },
+        { 512, 1024, 1024, 0 },
+    };
+    for (const auto& c : cases)
+    {
+        Options options;
+        options.postFrames = c.frames; options.k = c.k;
+        options.postCarriesPre = true; options.contentK = c.contentK;
+        Chain chain (options);
+        chain.run (200);
+        require (chain.wrongAddress == 0 && chain.wrongPcm == 0 && chain.dropouts == 0, "PRE stays on while the windows fill");
+        const auto offset = measureOffset (chain.sharedRing(), chain.postRenderer());
+        std::printf ("chunked POST %d: K %lld -> offset %lld (peak %.3f)\n", c.frames,
+                     static_cast<long long> (c.k), static_cast<long long> (offset.lagFrames), offset.peak);
+        require (offset.determined && offset.lagFrames == c.lag && offset.clockK == c.k && offset.blockFrames == c.frames,
+                 "the estimate reads PRE through K across block lengths");
+        const auto match = computeMatch (chain.sharedRing(), chain.postRenderer(), 48000);
+        require (match.ok() && match.seconds >= 3.0, "MATCH reads a contiguous window across block lengths");
+    }
+}
+
 namespace hypha::tests
 {
 void verifyLiveCompareOffset()
 {
+    chunkedPostKeepsItsWindows();
     const auto broadband = [] (std::int64_t n) { return noise (n); };
     for (const std::int64_t d : { std::int64_t (0), std::int64_t (240), std::int64_t (-700), std::int64_t (900) })
     {

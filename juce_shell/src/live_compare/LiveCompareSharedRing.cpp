@@ -79,7 +79,7 @@ constexpr std::size_t mappingBytes() noexcept
 // slot stamped for its pair and rate that its PRE has not closed.
 constexpr int ringSlots = 4;
 
-// "Local\kh-lc10-" + 16 hex digits + "-" + slot: this logon session's namespace with the creator's
+// "Local\kh-lc11-" + 16 hex digits + "-" + slot: this logon session's namespace with the creator's
 // default access, like the Analysis exchange (INV-LC11).
 std::wstring slotName (std::uint64_t pairKey, int slot)
 {

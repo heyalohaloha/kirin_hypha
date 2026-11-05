@@ -22,6 +22,8 @@ struct BlockClock
     // or an independent alignment proof. Thread identity is diagnostic only.
     std::uint64_t wallNanos = 0, thread = 0;
     bool transportRestart = false; // explicit stopped host notification since the previous render
+    bool positionInterpolated = false; // a proven AAX chunk names this block; the host reported no position for it
+    std::int64_t chunkCycleSamples = 0; // the loop length two host reports of a proven chunk measured; 0 unknown
     bool wallGap = false; // raw scheduling observation; REAPER additionally requires paired continuity
     // Opaque non-RT chain/configuration fingerprints; no host pointer crosses into the ring.
     std::uint64_t runtimeChainA = 0, runtimeChainB = 0, runtimeRevision = 0;

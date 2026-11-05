@@ -1148,6 +1148,12 @@ delay-compensation state, available from Pro Tools 12.6. Loop playback without a
 is treated as linear playback. If timing cannot be confirmed, POST remains audible and the
 comparison resumes when confirmation returns. END stays available throughout.
 
+An I/O (hardware) insert can sit between PRE and POST. Pro Tools may not compensate all of that
+path's delay. When Hypha can judge the audio, the status line shows what remains, for example
+**PRE 21.33 ms early**; adjust the insert's H/W Insert Delay from its current value by that amount
+and check the line again. On Pro Tools 2026.4.1 at 48 kHz, linear playback and a 1024-sample
+buffer, raising it from 0 to 21.33 ms removed the difference.
+
 The signed 1.1.51 release has passed PRE/POST loading, exact pairing, normal audio, Keep,
 offline bounce, and saving/reopening in regular Pro Tools Native on Intel macOS and Windows x64.
 
@@ -1278,7 +1284,13 @@ LOOP-off step or per-lap approval is needed. Initial comparison needs independen
   catches, so other builds are certified by the floor rather than measured. Pro Tools reports
   an insert's position compensated by the delay before it, so for that many samples after each
   wrap POST's position lies before the loop start; Hypha reads it as the previous lap's tail,
-  which is the audio it carries.
+  which is the audio it carries. With an I/O insert in the chain, POST can run at the hardware
+  buffer while Pro Tools names one position per engine chunk. Hypha fills in the positions the
+  host did not report only after a chunk closes exactly: the engine clock advanced by one block
+  length per callback, and the next position stepped by exactly those frames. The filled-in
+  positions are not evidence on either side: K still comes from the host's own reports. A
+  repeated position whose PPQ moved or is missing, or a new sample rate or clock report, ends
+  this until a chunk closes again.
 
 If proof stays unavailable for three seconds or the loop is too short, Hypha explains the condition and keeps POST
 playing and leaves **END** available. It does not present LOOP-off or re-MATCH as the normal

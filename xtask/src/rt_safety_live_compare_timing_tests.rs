@@ -3,6 +3,7 @@ use super::{
 };
 
 const BLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareBlockClock.h");
+const AAX_CHUNK_H: &str = include_str!("../../juce_shell/src/live_compare/AaxChunkPosition.h");
 const TIMING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareTimingWitness.h");
 const PREPARATION_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareTimingPreparation.h");
@@ -12,6 +13,7 @@ const CHAIN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompar
 fn clock_preparation_and_shared_projection_stay_realtime_safe() {
     for source in [
         BLOCK_H,
+        AAX_CHUNK_H,
         TIMING_H,
         function_body(PREPARATION_H, "TimingEvidence observe ("),
     ] {
