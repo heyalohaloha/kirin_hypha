@@ -66,7 +66,7 @@ namespace hypha::reference_audition
         juce::String title;
         juce::String sourceKind;
         juce::String rejectionCode;
-        int switchingSlot = 0;  // 選択を替えた・押した役。新しい選択が鳴るまで（その間、音は A）
+        int switchingSlot = 0;  // 選択を替えた・押した役。新しい選択が鳴るまで（鳴っている C・V は前の音、ほかは A）
         MatchFailure matchFailure = MatchFailure::none;
         // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。
         double neededAttenuationDb = 0.0;

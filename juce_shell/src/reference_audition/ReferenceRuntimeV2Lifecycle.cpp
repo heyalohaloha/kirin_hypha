@@ -22,6 +22,8 @@ namespace hypha::reference_audition
         activeRuntimeFiles = {};
         revokeAuditionPublication();
         clearPreparedWorkspace();
+        retirePositionSearch();
+        retireSourceVerification();
         pages.close(); preparedPages.close();
         activePages.store (&pages, std::memory_order_release);
         aCapture.disconnect();
@@ -102,6 +104,17 @@ namespace hypha::reference_audition
         publish (std::move (waiting));
     }
 
+    void RuntimeV2Controller::serviceACapture (const Configuration& configuration)
+    {
+        aCapture.service (
+            activeABinding,
+            static_cast<std::int64_t> (std::llround (configuration.sampleRate)),
+            configuration.channels,
+            juce::Time::currentTimeMillis(),
+            versionComparison && configuration.identity.library
+                ? configuration.identity.runtimeInstanceId : juce::String {});
+    }
+
     void RuntimeV2Controller::run()
     {
         int untilPoll = 0;
@@ -128,16 +141,11 @@ namespace hypha::reference_audition
                 && !bSelected.load (std::memory_order_acquire) && !blind.ongoing())
             {
                 blind.clear(); blindPreparationKey.clear(); calibrationObservation.clear();
+                retirePositionSearch();
                 aCapture.disconnect(); untilPoll = 0;
             }
             KIRIN_REFERENCE_BEFORE_CAPTURE_FOR_TEST (this);
-            aCapture.service (
-                activeABinding,
-                static_cast<std::int64_t> (std::llround (configuration.sampleRate)),
-                configuration.channels,
-                juce::Time::currentTimeMillis(),
-                versionComparison && configuration.identity.library
-                    ? configuration.identity.runtimeInstanceId : juce::String {});
+            serviceACapture (configuration);
             serviceRuntimeEvents();
             serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
@@ -175,7 +183,10 @@ namespace hypha::reference_audition
             // 選択を替えた役がまだ鳴っている（フェード中）あいだは、古い音の準備を崩さない。
             const bool prepared = servicePreparedWorkspace (configuration);
             const bool fading = deferredRevokeWaiting();
-            if (! fading && !prepared && (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0))
+            if (positionSearchJustFinished()) untilPoll = 0;
+            // 音源の確かめを待つ間も Library の更新は定期に見る（鳴っている役が消えたら hash を待たずに止める）。
+            const bool selectionWaits = selectionGeneration != appliedSelectionGeneration && !verifyingSource (selectionGeneration);
+            if (! fading && !prepared && (selectionWaits || untilPoll-- <= 0))
             {
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 if (versionComparison && workspace != nullptr)

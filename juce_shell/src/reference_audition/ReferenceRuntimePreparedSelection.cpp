@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <system_error>
 #include <utility>
 
 namespace hypha::reference_audition
@@ -12,6 +13,14 @@ namespace hypha::reference_audition
 static_assert (std::atomic<AudioPages*>::is_always_lock_free);
 namespace
 {
+// 取り消した裏の処理の終わりは待たない（作業スレッドと、stateLock を待つ画面を止めない）。破棄のときだけ待つ。
+template <typename Result>
+void retireBehindWorker (std::future<Result>& running, std::vector<std::future<Result>>& retired)
+{
+    if (running.valid()) retired.push_back (std::move (running));
+    retired.erase (std::remove_if (retired.begin(), retired.end(), [] (const auto& search)
+        { return search.wait_for (std::chrono::seconds (0)) != std::future_status::timeout; }), retired.end());
+}
 std::int64_t outputSample (std::int64_t sample, std::int64_t from, std::int64_t to)
 { return from > 0 ? static_cast<std::int64_t> (std::llround (static_cast<long double> (sample) * to / from)) : 0; }
 double unavailable() noexcept { return std::numeric_limits<double>::quiet_NaN(); }
@@ -30,8 +39,58 @@ bool RuntimeV2Controller::beginSelectionPreparationLocked() noexcept
     return false;
 }
 
+void RuntimeV2Controller::retireVersionSearch (std::future<RuntimeContentAlignment>& search)
+{ retireBehindWorker (search, retiredVersionSearches); }
+
+void RuntimeV2Controller::retireSourceVerification()
+{
+    retireBehindWorker (sourceVerification.check, retiredSourceVerifications);
+    sourceVerification = {};
+}
+
+bool RuntimeV2Controller::verifyingSource (std::uint64_t generation) const
+{
+    return sourceVerification.check.valid() && sourceVerification.generation == generation
+        && sourceVerification.check.wait_for (std::chrono::seconds (0)) == std::future_status::timeout;
+}
+
+juce::String RuntimeV2Controller::verifySourceBehindWorker (
+    const std::shared_ptr<const RuntimeSource>& source, const juce::String& key, std::uint64_t generation, bool freshAttempt)
+{
+    auto& running = sourceVerification;
+    if (!running.check.valid())
+    {
+        try
+        {
+            running.check = std::async (stagedSearchLaunch, [repository = sourceRepository, source, freshAttempt]
+                { return repository.verifySourceFile (*source, freshAttempt); });
+        }
+        catch (const std::system_error&) { return "reference_source_revalidating"; }  // 次の周期にやり直す
+        running.key = key; running.generation = generation;
+    }
+    if (running.check.wait_for (std::chrono::seconds (0)) == std::future_status::timeout) return "reference_source_revalidating";
+    juce::String failure;
+    try { failure = running.check.get(); } catch (...) { failure = "reference_source_revalidating"; }
+    running = {};
+    return failure;
+}
+
+// 探すのは別の thread。作れなければ空を返す（作業スレッドで探さず、次の周期にやり直す）。
+std::future<RuntimeContentAlignment> RuntimeV2Controller::searchAlignment (
+    std::shared_ptr<const RuntimeACaptureAudio> capture, std::shared_ptr<const RuntimeSource> source,
+    std::shared_ptr<const RuntimeDetailedMeasurement> measurement, std::optional<std::int64_t> expected)
+{
+    try
+    {
+        return std::async (stagedSearchLaunch, [capture = std::move (capture), source = std::move (source), measurement = std::move (measurement), expected]
+            { return alignReferenceContent (*capture, *source, *measurement, true, expected); });
+    }
+    catch (const std::system_error&) { return {}; }
+}
+
 void RuntimeV2Controller::clearPreparedWorkspace()
 {
+    if (preparedWorkspace) retireVersionSearch (preparedWorkspace->versionPosition.search);
     preparedWorkspace.reset();
     const juce::ScopedLock lock (stateLock);
     preparedReturn = {};
@@ -63,8 +122,22 @@ void RuntimeV2Controller::supplyPreparedLevel (double loudness, double peak)
     }
 }
 
+// 選んでから上限を過ぎても替えられないなら（読めない・確かめられない）前の V を手放し、今までの A の待ちへ進む。
+void RuntimeV2Controller::serviceVersionHold()
+{
+    if (versionHoldSinceMs.load (std::memory_order_acquire) == 0) return;
+    const juce::ScopedLock lock (stateLock);
+    const auto since = versionHoldSinceMs.load (std::memory_order_acquire);
+    if (since == 0 || (bSelected.load (std::memory_order_acquire) && juce::Time::getMillisecondCounter() - since < stagedVersionLimitMs)) return;
+    versionHoldSinceMs.store (0, std::memory_order_release);
+    if (!bSelected.load (std::memory_order_acquire)) return;
+    revokeAfterFadeLocked();
+    selectA();
+}
+
 bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configuration)
 {
+    serviceVersionHold();
     if (!preparedWorkspace) return false;
     auto& prepared = *preparedWorkspace;
     std::shared_ptr<const RuntimeSource> audibleSource;
@@ -105,7 +178,8 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
         rejected.state = RuntimeState::rejected; rejected.rejectionCode = "reference_source_changed";
         clearPreparedWorkspace(); failClosedToA(); publish (std::move (rejected)); return true;
     }
-    if (!staging.readyAt (start, static_cast<int> (std::min<std::int64_t> (8192, end - start)))) return true;
+    if (!versionComparison && !staging.readyAt (start, static_cast<int> (std::min<std::int64_t> (8192, end - start)))) return true;
+    if (!prepared.returnStarted && versionComparison && !stagedVersionReady (prepared, staging)) return true;
     if (!prepared.returnStarted)
     {
         const juce::ScopedLock lock (stateLock);
@@ -122,9 +196,47 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
     }
     if (deferredRevokeWaiting()) return true;
     auto completed = std::move (prepared);
+    retireVersionSearch (completed.versionPosition.search);
     clearPreparedWorkspace();
     finishWorkspaceSelection (std::move (completed));
     return true;
+}
+
+// V は鳴っている Version を保ったまま、新しい Version の位置を A の直近で確かめ、その位置の音を読み終えてから替える。
+// 止まった・A に戻ったなら保つ音が無いので待たない。
+bool RuntimeV2Controller::stagedVersionReady (WorkspaceSelection& prepared, AudioPages& staging)
+{
+    auto& staged = prepared.versionPosition;
+    if (!bSelected.load (std::memory_order_acquire) || !latestPlaying.load (std::memory_order_acquire)
+        || !prepared.next.detailedMeasurement) return true;
+    const auto continuity = aCapture.continuity();
+    if (staged.capture != nullptr && staged.capture->continuity != continuity)
+    { retireVersionSearch (staged.search); staged.capture.reset(); staged.match.reset(); }  // シークの後は窓がたまるまで待つ
+    if (staged.search.valid())
+    {
+        if (staged.search.wait_for (std::chrono::seconds (0)) == std::future_status::timeout) return false;
+        RuntimeContentAlignment found;
+        try { found = staged.search.get(); } catch (...) { found.reason = "reference_alignment_waiting_for_content"; }
+        if (found.established) staged.match = std::make_shared<RuntimeContentAlignment> (std::move (found));
+        else if (found.reason == "reference_alignment_busy") staged.capture.reset();
+        else if (++staged.misses >= 2) return true;  // この Version は A の今の所と合わない。A の待ちが理由を言う
+    }
+    if (staged.match == nullptr)
+    {
+        const auto capture = aCapture.currentAudio();
+        if (capture == nullptr || capture->continuity != continuity || capture == staged.capture) return false;
+        staged.capture = capture;
+        staged.search = searchAlignment (capture, prepared.source, prepared.next.detailedMeasurement, std::nullopt);
+        if (!staged.search.valid()) staged.capture.reset();
+        return false;
+    }
+    const auto hostRate = prepared.next.hostSampleRateHz;
+    const auto position = outputSample (staged.match->sourceStartSample, prepared.source->audio.sampleRateHz, hostRate)
+        + latestHostPosition.load (std::memory_order_acquire) - staged.capture->startSample;
+    const auto remaining = staging.lengthInSamples() - position;
+    if (position < 0 || remaining <= 0) return true;  // 範囲の外。A の待ちが理由を言う
+    staging.request (position); staging.service();
+    return staging.readyAt (position, static_cast<int> (std::min<std::int64_t> (hostRate / 2, remaining)));
 }
 
 void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
@@ -206,7 +318,7 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
         && selectedSource->measurementSummary->maximumTruePeakDbtp
         ? *selectedSource->measurementSummary->maximumTruePeakDbtp : unavailable();
     KIRIN_REFERENCE_STAGE_FOR_TEST (this, "blind_preparation");
-    serviceBlindPreparation (configuration, *candidate, *cue, selectedSource, next);
+    serviceBlindPreparation (configuration, *candidate, *cue, selectedSource, next, &prepared.versionPosition);
     KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_write");
     if (!configuration.identity.library && prepared.adoptionKey != activePresetAdoptionKey
         && presetAdoptionTransport.write (configuration.identity, prepared.event.manifestRevision,
@@ -216,6 +328,7 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
         const juce::ScopedLock lock (stateLock);
         if (requestedConfiguration.generation != configuration.generation
             || requestedSelection.generation != selection.generation) return;
+        versionHoldSinceMs.store (0, std::memory_order_release);
         requestedSelection.presetId = next.presetId;
         requestedSelection.checkId = next.checkId;
         requestedSelection.candidateId = next.candidateId;

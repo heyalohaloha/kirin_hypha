@@ -6,6 +6,8 @@ namespace hypha::reference_audition
 {
 bool ReferenceComparisonController::selectB (double loudness, double peak) noexcept
 {
+    // The audible V still belongs to the old Version while its replacement prepares.
+    if (preparingVersion()) return ! trialActive();
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
     if (trialActive() || ! snapshot().versionReady) return false;
     reference.selectA(); check.selectA();  // 切り替えの隙間（A が聴こえる時間）を広げない順

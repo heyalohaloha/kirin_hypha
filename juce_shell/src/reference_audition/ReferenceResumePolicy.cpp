@@ -103,6 +103,18 @@ void ReferenceComparisonController::continueAfterSwitch (int slot, bool continue
     normalOutputSlot.store (slot, std::memory_order_release);
 }
 
+// 替えている途中で、鳴っている音へ選び直した。替える途中なら鳴っている役は公開より先に A へ戻るので、
+// 選択が公開されてもまだ鳴っているなら、それは今の音で、替える物は無い。
+void ReferenceComparisonController::settleSwitchBack()
+{
+    auto slot = switchSlot.load (std::memory_order_acquire);
+    if (slot < 1 || slot > 3 || ! slotController (slot).outputSelected()) return;
+    std::uint64_t wanted = 0;
+    { const juce::ScopedLock lock (selectionLock); wanted = switchGeneration; }
+    if (slotController (slot).snapshot().selectionGeneration >= wanted)
+        switchSlot.compare_exchange_strong (slot, 0, std::memory_order_acq_rel);
+}
+
 // 仕様 A：鳴っている役はそのまま（利用者が選んで聴いている）。A に戻っている選択と、押した後の待ちを忘れる。
 void ReferenceComparisonController::forgetHeldAudition()
 {

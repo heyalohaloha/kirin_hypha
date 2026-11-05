@@ -136,6 +136,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     if (callbackLive && preparingCheck() && check.awaitingPreparedLevel()) check.supplyPreparedLevel (loudness, peak);
     reconcileVersionBlindSession();
     reconcileOutputMark();
+    settleSwitchBack();
     if (offlineRenderSeen.exchange (false, std::memory_order_acq_rel)) forgetHeldAudition();
     if (activePendingIntent.load (std::memory_order_acquire) == 0 && !armResume()) return;
     PendingIntent intent;

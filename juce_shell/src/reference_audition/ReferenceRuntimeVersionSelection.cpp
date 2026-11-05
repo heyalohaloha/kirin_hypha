@@ -27,6 +27,7 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
 {
     const auto parts = juce::StringArray::fromTokens (id, "/", {});
     if (parts.size() != 3 || blind.ongoing()) return false;
+    bool keepPlaying = false;
     {
         const juce::ScopedLock lock (stateLock);
         if (! requestedConfiguration.identity.library
@@ -38,9 +39,10 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
         requestedSelection.candidateId = parts[2];
         requestedSelection.cueId.clear();
         ++requestedSelection.generation;
-        revokeAfterFadeLocked();
+        keepPlaying = beginSelectionPreparationLocked();
+        versionHoldSinceMs.store (keepPlaying ? juce::jmax (1u, juce::Time::getMillisecondCounter()) : 0u, std::memory_order_release);
     }
-    selectA();
+    if (!keepPlaying) selectA();
     notify();
     return true;
 }

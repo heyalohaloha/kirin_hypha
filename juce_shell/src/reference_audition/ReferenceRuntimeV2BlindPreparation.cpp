@@ -2,6 +2,7 @@
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceContentAlignment.h"
 #include "ReferenceCopyCorrespondence.h"
+#include <chrono>
 #include <cmath>
 namespace hypha::reference_audition
 {
@@ -9,15 +10,53 @@ namespace hypha::reference_audition
         std::int64_t outputSample (std::int64_t sample, std::int64_t from, std::int64_t to)
         { return static_cast<std::int64_t> (std::llround (static_cast<long double> (sample) * to / from)); }
     }
+    void RuntimeV2Controller::retirePositionSearch()
+    {
+        retireVersionSearch (positionSearch.search);
+        positionSearch = {};
+    }
+
+    // 探し終えたら true。作業スレッドで待つと A の窓を受け取れず、窓が消えて探し直しになる。
+    bool RuntimeV2Controller::finishPositionSearch (
+        const std::shared_ptr<const RuntimeACaptureAudio>& capture, const std::shared_ptr<const RuntimeSource>& source,
+        const std::shared_ptr<const RuntimeDetailedMeasurement>& measurement, std::optional<std::int64_t> expected,
+        RuntimeContentAlignment& found)
+    {
+        auto& running = positionSearch;
+        if (running.search.valid() && running.expected != expected) retirePositionSearch();  // 探している間に写像が替わった
+        if (!running.search.valid())
+        {
+            running.search = searchAlignment (capture, source, measurement, expected);
+            if (!running.search.valid()) return false;  // thread を作れない。次の周期にやり直す
+            running.capture = capture; running.expected = expected; running.announced = false;
+        }
+        if (running.search.wait_for (std::chrono::seconds (0)) == std::future_status::timeout) return false;
+        try { found = running.search.get(); } catch (...) { found.reason = "reference_alignment_waiting_for_content"; }
+        running.capture.reset();
+        return true;
+    }
+
+    bool RuntimeV2Controller::positionSearchJustFinished()
+    {
+        auto& running = positionSearch;
+        if (!running.search.valid() || running.announced
+            || running.search.wait_for (std::chrono::seconds (0)) == std::future_status::timeout) return false;
+        return running.announced = true;
+    }
+
     void RuntimeV2Controller::serviceBlindPreparation (const Configuration& configuration,
         const RuntimeCandidate& candidate, const RuntimeCue& cue,
-        const std::shared_ptr<const RuntimeSource>& selectedSource, Snapshot& next)
+        const std::shared_ptr<const RuntimeSource>& selectedSource, Snapshot& next,
+        const StagedVersionPosition* staged)
     {
         const auto hostRate = next.hostSampleRateHz;
         const auto mappedCueStart = outputSample (cue.startSample, cue.sampleRateHz, hostRate);
         const auto mappedCueEnd = outputSample (cue.endSample, cue.sampleRateHz, hostRate);
         const auto cueKey = runtimeCuePlaybackIdentity (cue);
-        auto capturedA = aCapture.currentAudio();
+        // V を鳴らしたまま確かめた位置は、その窓のまま使う。同じ窓で校正すれば探し直さず、音が A に戻る時間が延びない。
+        const bool stagedPosition = staged != nullptr && staged->match != nullptr
+            && staged->capture->continuity == aCapture.continuity();
+        auto capturedA = stagedPosition ? staged->capture : aCapture.currentAudio();
         std::optional<std::uint64_t> confirmedContinuity;
         bool confirmedCopy = false;
         const bool libraryVersion = versionComparison && configuration.identity.library
@@ -41,6 +80,7 @@ namespace hypha::reference_audition
             : juce::String {};
         if (nextBlindContextKey != blindContextKey)
         {
+            retirePositionSearch();
             if (blind.ongoing())
                 invalidateBlind();
             blind.clear();
@@ -48,6 +88,10 @@ namespace hypha::reference_audition
             calibrationObservation.clear();
             blindContextKey = nextBlindContextKey;
         }
+        // 探している途中の窓は結果が出るまで見続ける。シークの前の窓の結果は使わない。
+        if (stagedPosition || (positionSearch.capture != nullptr && positionSearch.capture->continuity != aCapture.continuity()))
+            retirePositionSearch();
+        if (positionSearch.capture != nullptr) capturedA = positionSearch.capture;
         const auto nextBlindKey = blindIdentityMatches && capturedA != nullptr
             ? referenceObservationIdentity (*capturedA) + ":" + juce::String (capturedA->continuity)
                 + ":" + candidate.sourceArtifact.sha256 + ":"
@@ -62,22 +106,30 @@ namespace hypha::reference_audition
         if (blindIdentityMatches && capturedA != nullptr
             && nextBlindKey != blindPreparationKey)
         {
+            bool searchWholeSong = false;
             do
             {
+                searchWholeSong = false;
                 if (libraryVersion && next.detailedMeasurement)
                 {
                     const auto previous = blind.snapshot();
                     const auto predicted = previous.bStartSample + outputSample (
                         capturedA->startSample - previous.aStartSample, hostRate, previous.bSampleRateHz);
-                    auto matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true,
-                        previous.eligible ? std::optional<std::int64_t> { predicted } : std::nullopt);
+                    RuntimeContentAlignment matched;
+                    if (stagedPosition && !previous.eligible) matched = *staged->match;
+                    else if (!finishPositionSearch (capturedA, selectedSource, next.detailedMeasurement,
+                                                    previous.eligible ? std::optional<std::int64_t> { predicted } : std::nullopt, matched))
+                    {
+                        if (!previous.eligible) next.rejectionCode = positionSearch.reason;
+                        break;
+                    }
                     const auto revision = sourceRepository.checkSourceRevision (*selectedSource);
                     if (revision.state == SourceRevisionState::revalidate) break;
                     if (revision.state == SourceRevisionState::refused)
                     { failClosedToA(); blind.clear(); next.state = RuntimeState::rejected; next.rejectionCode = revision.reason; return; }
                     const bool mappingChanged = previous.eligible
                         && ((capturedA->cuePcmSha256 == previous.aCuePcmSha256 && capturedA->startSample != previous.aStartSample)
-                            || (matched.established && std::abs (matched.sourceStartSample - predicted) > 1)
+                            || (matched.established && referenceAlignmentMoved (matched.sourceStartSample, predicted, previous.bSampleRateHz, hostRate))
                             || matched.reason == "reference_alignment_content_changed"
                             || matched.reason == "reference_alignment_timing_changed");
                     const bool calibrationChanged = previous.eligible && matched.established
@@ -88,13 +140,9 @@ namespace hypha::reference_audition
                         if (blind.ongoing()) invalidateBlind();
                         else
                         {
-                            if (mappingChanged)
-                                matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true);
-                            const auto revisionAfter = sourceRepository.checkSourceRevision (*selectedSource);
-                            if (revisionAfter.state == SourceRevisionState::revalidate) break;
-                            if (revisionAfter.state == SourceRevisionState::refused)
-                            { failClosedToA(); next.state = RuntimeState::rejected; next.rejectionCode = revisionAfter.reason; return; }
                             failClosedToAFromAudioThread(); blind.clear(); calibrationObservation.clear();
+                            // 違うと分かった写像では鳴らさない。曲の全体はすぐ裏で探す
+                            if (mappingChanged) { searchWholeSong = true; continue; }
                             if (matched.established) prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
                         }
                     }
@@ -113,14 +161,15 @@ namespace hypha::reference_audition
                     if (matched.reason != "reference_alignment_busy"
                         && (!blind.ongoing() || (previous.eligible && !mappingChanged && !calibrationChanged)))
                         blindPreparationKey = nextBlindKey;
-                    if (!previous.eligible && !matched.established) next.rejectionCode = matched.reason;
+                    positionSearch.reason = !previous.eligible && !matched.established ? matched.reason : juce::String {};
+                    if (positionSearch.reason.isNotEmpty()) next.rejectionCode = positionSearch.reason;
                 }
                 else if (!libraryVersion)
                 {
                     if (blind.ongoing()) invalidateBlind();
                     if (blind.prepare (capturedA, candidate, cue, selectedSource, true)) blindPreparationKey = nextBlindKey;
                 }
-            } while (false);
+            } while (searchWholeSong);
         }
         const auto blindState = blind.snapshot();
         const auto nextContentMappingKey = blindState.eligible

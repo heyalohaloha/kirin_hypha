@@ -49,8 +49,20 @@ namespace hypha::reference_audition
             return nullptr;
         }
 
+        // V は Cue に関わらず曲全体を鳴らす。
+        RuntimeCue wholeVersionCue (const RuntimeCue& cue, const RuntimeSource& source)
+        {
+            auto whole = cue;
+            whole.startSample = 0;
+            whole.endSample = source.audio.totalSampleFrames;
+            whole.sampleRateHz = source.audio.sampleRateHz;
+            whole.loopEnabled = false;
+            whole.label = "Full song";
+            return whole;
+        }
+
         bool retainsAudibleSelection (const RuntimeWorkspace& publication, const Snapshot& audible,
-                                       RuntimeV2SourceRepository& sources, int channels)
+                                       RuntimeV2SourceRepository& sources, int channels, bool wholeVersion)
         {
             const auto* preset = findPreset (publication, audible.presetId);
             const auto* check = preset ? findCheck (*preset, audible.checkId) : nullptr;
@@ -59,7 +71,9 @@ namespace hypha::reference_audition
             if (!cue) return false;
             const auto source = sources.load (*candidate);
             if (!source.accepted()) return false;
-            auto key = runtimeSelectionPlaybackIdentity (*preset, *check, *candidate, *cue,
+            const auto whole = wholeVersion && candidate->sourceKind == "work_version"
+                ? wholeVersionCue (*cue, *source.source) : *cue;
+            auto key = runtimeSelectionPlaybackIdentity (*preset, *check, *candidate, whole,
                 publication.library ? runtimeSourceAudioIdentity (*source.source) : juce::String {});
             appendPlaybackIdentity (key, juce::String (audible.hostSampleRateHz));
             appendPlaybackIdentity (key, juce::String (channels));
@@ -97,12 +111,7 @@ namespace hypha::reference_audition
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "authority_load_done");
         RequestedSelection selection;
         { const juce::ScopedLock lock (stateLock); selection = requestedSelection; }
-        aCapture.service (activeABinding,
-                          static_cast<std::int64_t> (std::llround (
-                              configuration.sampleRate)),
-                          configuration.channels, juce::Time::currentTimeMillis(),
-                          versionComparison && configuration.identity.library
-                              ? configuration.identity.runtimeInstanceId : juce::String {});
+        serviceACapture (configuration);
         const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
             : repository.refresh (configuration.identity.workId, workspace);
         if (loaded.workspace == nullptr || loaded.rejectionCode == "reference_library_rejected"
@@ -140,7 +149,7 @@ namespace hypha::reference_audition
         {
             Snapshot audible;
             { const juce::ScopedLock lock (stateLock); audible = currentSnapshot; }
-            if (!retainsAudibleSelection (*loaded.workspace, audible, sourceRepository, configuration.channels))
+            if (!retainsAudibleSelection (*loaded.workspace, audible, sourceRepository, configuration.channels, versionComparison))
                 failClosedToA();
         }
         { const juce::ScopedLock lock (stateLock); workspace = loaded.workspace; }  // visualBinding がメッセージスレッドから読む
@@ -324,10 +333,11 @@ namespace hypha::reference_audition
         const bool freshAttempt = ! rejectedPageSource
             && (freshSelection || (sourceRetryFailure.isNotEmpty() && nowMs >= sourceRetryAtMs));
         if (freshAttempt) { sourceRetryFailure.clear(); sourceRetryAtMs = 0; }
+        if (sourceVerification.key != retryKey) retireSourceVerification();
         const auto sourceFailure = rejectedPageSource ? juce::String ("reference_source_changed")
-            : nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified
+            : nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified && !sourceVerification.check.valid()
             ? sourceRepository.verifySourceRevision (*selectedSource)
-            : sourceRepository.verifySourceFile (*selectedSource, freshAttempt);
+            : verifySourceBehindWorker (selectedSource, retryKey, selection.generation, freshAttempt);
         if (sourceFailure == "reference_source_revalidating") return;
         if (sourceFailure.isNotEmpty())
         {
@@ -347,17 +357,12 @@ namespace hypha::reference_audition
         if (! previouslyVerified)
             sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
         const auto selectedCueLabel = cue->label;
-        RuntimeCue wholeVersionCue;
+        RuntimeCue wholeCue;
         if (versionComparison && candidate->sourceKind == "work_version")
         {
-            wholeVersionCue = *cue;
-            wholeVersionCue.startSample = 0;
-            wholeVersionCue.endSample = selectedSource->audio.totalSampleFrames;
-            wholeVersionCue.sampleRateHz = selectedSource->audio.sampleRateHz;
-            wholeVersionCue.loopEnabled = false;
-            wholeVersionCue.label = "Full song";
-            cue = &wholeVersionCue;
-            next.cueLabel = wholeVersionCue.label;
+            wholeCue = wholeVersionCue (*cue, *selectedSource);
+            cue = &wholeCue;
+            next.cueLabel = wholeCue.label;
             next.comparisonMode = "loudness_match";
         }
         const auto mediaKey = workspace->library ? runtimeSourceAudioIdentity (*selectedSource)
@@ -367,8 +372,10 @@ namespace hypha::reference_audition
         appendPlaybackIdentity (publicationKey, juce::String (next.hostSampleRateHz));
         appendPlaybackIdentity (publicationKey, juce::String (configuration.channels));
         next.playbackIdentity = publicationKey;
-        if (!prepareBeforeReturn.load (std::memory_order_acquire)
-            && publicationKey != activePublishedSelectionKey)
+        // C は新しい選択をいつも裏で準備する。V は鳴っているあいだだけ（鳴っていなければ保つ音が無い）。
+        const bool keepsAudible = prepareBeforeReturn.load (std::memory_order_acquire)
+            && (!versionComparison || bSelected.load (std::memory_order_acquire));
+        if (!keepsAudible && publicationKey != activePublishedSelectionKey)
         {
             revokeAuditionPublication();
             if (blind.ongoing()) invalidateBlind(); else selectA();
@@ -428,8 +435,7 @@ namespace hypha::reference_audition
             + juce::String (configuration.identity.hostProcessId) + ":" + configuration.identity.workId + ":"
             + juce::String (workspace->manifest.revision) + ":" + preset->sourceTemplateArtifact.sha256
             + ":" + preset->sourcePresetArtifact.sha256;
-        if (prepareBeforeReturn.load (std::memory_order_acquire)
-            && (publicationKey != activePublishedSelectionKey || !ready.load (std::memory_order_acquire)))
+        if (keepsAudible && (publicationKey != activePublishedSelectionKey || !ready.load (std::memory_order_acquire)))
         {
             prepared.staged = true;
             auto& staging = nextPages();
@@ -447,8 +453,10 @@ namespace hypha::reference_audition
             staging.request (mappedCueStart); staging.service();
             {
                 const juce::ScopedLock lock (stateLock);
+                // V の gain は位置合わせの観測差から決まるので、A の音量を待たない。
                 preparedReturn = {selection.generation, prepared.next.cueWindowBlocks,
-                    prepared.next.comparisonMode == "loudness_match" ? PreparedLevel::loudness
+                    versionComparison ? PreparedLevel::none
+                        : prepared.next.comparisonMode == "loudness_match" ? PreparedLevel::loudness
                         : prepared.next.comparisonMode == "peak_match" ? PreparedLevel::peak : PreparedLevel::none,
                     true, false};
             }

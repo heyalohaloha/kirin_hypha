@@ -15,6 +15,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
       },analysis)
 {
     check.prepareSelectionsBeforeReturn();
+    version.prepareSelectionsBeforeReturn();
     reference.setTrackingEnabled (true);  // B は A の直近 10 秒に追従する
     reference.setSongsOnly (true);        // B は B セットの曲だけを鳴らす（C の Preset に落ちない）
 }
