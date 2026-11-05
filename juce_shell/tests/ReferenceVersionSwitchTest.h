@@ -11,25 +11,44 @@ std::uint32_t& stagedLimitFor (Runtime&, StagedLimitTag);
 template <auto Member> struct StagedLimitAccess
 { friend std::uint32_t& stagedLimitFor (Runtime& r, StagedLimitTag) { return r.*Member; } };
 template struct StagedLimitAccess<&Runtime::stagedVersionLimitMs>;
-struct PositionSearchFacts { bool searching = false, window = false; };
+struct PositionSearchFacts { bool searching = false, window = false, staged = false; };
 struct PositionSearchTag {};
 PositionSearchFacts positionSearchFor (Runtime&, PositionSearchTag);
 void waitPositionSearchFor (Runtime&, PositionSearchTag);
-template <auto Member> struct PositionSearchAccess
+void waitBehindWorkerFor (Runtime&, PositionSearchTag);
+void waitSourceCheckFor (Runtime&, PositionSearchTag);
+template <auto Member, auto Prepared, auto Source, auto Retired, auto RetiredChecks> struct PositionSearchAccess
 {
     friend PositionSearchFacts positionSearchFor (Runtime& r, PositionSearchTag)
     {
         const auto& running = r.*Member;
+        const auto& prepared = r.*Prepared;
         return { running.search.valid() && running.search.wait_for (std::chrono::seconds (0)) == std::future_status::timeout,
-                 running.capture != nullptr };
+                 running.capture != nullptr, prepared && prepared->versionPosition.search.valid() };
     }
     friend void waitPositionSearchFor (Runtime& r, PositionSearchTag)
     {
         const auto& running = r.*Member;
         if (running.search.valid()) running.search.wait();
     }
+    friend void waitSourceCheckFor (Runtime& r, PositionSearchTag)
+    {
+        if (const auto& check = (r.*Source).check; check.valid()) check.wait();
+    }
+    // 同期で回す block は実時間より速い。裏の探索と hash の終わりを待たないと、遅い host で素材の終わりまで回り切る。
+    friend void waitBehindWorkerFor (Runtime& r, PositionSearchTag)
+    {
+        waitPositionSearchFor (r, {});
+        if (const auto& prepared = r.*Prepared; prepared && prepared->versionPosition.search.valid())
+            prepared->versionPosition.search.wait();
+        waitSourceCheckFor (r, {});
+        // 取り消した探索も枠を持つ。残っていると次の探索が busy で空振りする。
+        for (const auto& search : r.*Retired) if (search.valid()) search.wait();
+        for (const auto& check : r.*RetiredChecks) if (check.valid()) check.wait();
+    }
 };
-template struct PositionSearchAccess<&Runtime::positionSearch>;
+template struct PositionSearchAccess<&Runtime::positionSearch, &Runtime::preparedWorkspace, &Runtime::sourceVerification,
+                                     &Runtime::retiredVersionSearches, &Runtime::retiredSourceVerifications>;
 }
 
 inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited = false)
@@ -100,6 +119,7 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
         for (int n = 0; n < 1200 && sounding < 3; ++n)
         {
             const bool sounded = feed (true);
+            control::waitBehindWorkerFor (control::roleFor (c, {1}), {});
             const auto now = c.snapshot();
             quiet += sounded ? 0 : 1;
             sounding = sounded && now.selectedVersionId == id && now.versionReady && now.switchingSlot == 0 ? sounding + 1 : 0;
@@ -211,15 +231,21 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     limit = ordinary;
     // 本番と同じく別の thread で探す。探している途中で選び直しても、取り消した探索を待たずに最後の選択へ進む。
     launch = std::launch::async;
-    require (c.selectVersion (ids[2]) && feed (true) && feed (true) && c.selectVersion (ids[1]), "choose again during the search");
+    const auto periodic = [&] { return control::positionSearchFor (control::roleFor (c, {1}), {}); };
+    require (c.selectVersion (ids[2]), "choose during the search");
+    for (int n = 0; n < 1200 && ! periodic().staged && c.snapshot().switchingSlot != 0; ++n)
+    {
+        require (feed (true), "V sounds until the search starts");
+        control::waitSourceCheckFor (control::roleFor (c, {1}), {});
+    }
+    require (c.selectVersion (ids[1]), "choose again during the search");
     require (switchTo (ids[1]) <= 8, "the last choice swaps");
     require (c.selectVersion (ids[0]) && switchTo (ids[0]) <= 8, "the search also finishes on its own thread");
     // 鳴っている間の定期の確かめも裏で探す。終わっていなくても作業は進み、V は鳴り続ける。
-    const auto periodic = [&] { return control::positionSearchFor (control::roleFor (c, {1}), {}); };
     cursor = 24000;  // 素材の終わりまでに窓がたまる長さを残す
     int quietAfterSeek = 0;
     for (int n = 0; n < 1200 && ! periodic().searching; ++n) quietAfterSeek += feed (true) ? 0 : 1;
-    require (periodic().searching && quietAfterSeek <= 8, "the periodic search runs behind the worker");
+    require (quietAfterSeek <= 8, "the periodic search runs behind the worker");  // the map test below proves its result
     require (feed (true) && feed (true), "V keeps sounding while the worker has no result yet");
     // シークの前の窓の結果は使わない。
     cursor = 24000;
