@@ -412,7 +412,7 @@ void verifyVuAnimatorLifecycle()
     animator.setVisible (true);
     KIRIN_HYBRID_VU_REQUIRE (animator.isVisible());
     animator.setTarget (0, 1.0);
-    for (int frame = 0; frame < 120; ++frame) animator.tickForTest (1.0 / 60.0);
+    for (int frame = 0; frame < 240; ++frame) animator.tickForTest (1.0 / 60.0);
     const auto settled = repaints;
     for (int frame = 0; frame < 30; ++frame) animator.tickForTest (1.0 / 60.0);
     KIRIN_HYBRID_VU_REQUIRE (settled > 0 && repaints == settled);
@@ -451,15 +451,15 @@ void verifyVuVBlankInteractive()
     animator.setVisible (true);
     juce::VBlankAttachment probe (&owner, [&frames] { ++frames; });
     juce::Timer::callAfterDelay (100, [&] { animator.setTarget (0, 1.0); });
-    juce::Timer::callAfterDelay (500, [&] { settled = repaints; });
-    juce::Timer::callAfterDelay (900, [&]
+    juce::Timer::callAfterDelay (3100, [&] { settled = repaints; });
+    juce::Timer::callAfterDelay (3500, [&]
     {
         idle = repaints;
         animator.setTarget (0, 0.0);
         animator.setVisible (false);
         owner.setVisible (false);
     });
-    juce::Timer::callAfterDelay (1200, [&]
+    juce::Timer::callAfterDelay (3800, [&]
     {
         hidden = repaints;
         juce::MessageManager::getInstance()->stopDispatchLoop();

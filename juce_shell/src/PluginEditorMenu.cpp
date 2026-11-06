@@ -1,6 +1,7 @@
 #include "HyphaPairLabels.h"
 #include "PluginEditor.h"
 #include "HyphaGuideInformationFacts.h"
+#include "HyphaSurfacePresentation.h"
 
 namespace
 {
@@ -262,12 +263,8 @@ void KirinHyphaEditor::showDomainMenu()
 {
     const auto role = isPost ? hypha::observatory::Role::post
                              : hypha::observatory::Role::pre;
-    constexpr std::array domains {
-        hypha::observatory::Domain::level, hypha::observatory::Domain::time,
-        hypha::observatory::Domain::frequency, hypha::observatory::Domain::space,
-        hypha::observatory::Domain::reference
-    };
-    constexpr std::array labels { "LEVEL", "TIME", "FREQ", "SPACE", "REF" };
+    constexpr auto domains = hypha::surface_presentation::measurementDomains;
+    constexpr auto labels = hypha::surface_presentation::measurementLabels;
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Observation view");
@@ -287,7 +284,7 @@ void KirinHyphaEditor::showDomainMenu()
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
     menu.showMenuAsync (options, [safe] (int result)
     {
-        if (safe == nullptr || result < 300 || result >= 305) return;
+        if (safe == nullptr || result < 300 || result >= 304) return;
         safe->setObservatoryDomain (
             static_cast<hypha::observatory::Domain> (result - 300));
     });

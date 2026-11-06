@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <cstddef>
 
 #include "HyphaAnalysisNavigation.h"
@@ -9,6 +10,23 @@
 
 namespace hypha::surface_presentation
 {
+// REF is a header action after Meter Context, separate from the four measurement tabs.
+constexpr std::array measurementDomains { observatory::Domain::level, observatory::Domain::time,
+                                        observatory::Domain::frequency, observatory::Domain::space };
+constexpr std::array measurementLabels { "LEVEL", "TIME", "FREQ", "SPACE" };
+constexpr std::array<observatory::Rect, 2> headerSelectors (observatory::Rect slot,
+                                                          observatory::Density density) noexcept
+{
+    const int gap = density == observatory::Density::compact ? 2 : 4;
+    const int referenceWidth = density == observatory::Density::compact ? 32
+                             : density == observatory::Density::focused ? 38
+                             : density == observatory::Density::standard ? 42
+                             : density == observatory::Density::observatory ? 52 : 62;
+    const int contextWidth = std::min (136, slot.width - referenceWidth - gap);
+    return { observatory::Rect { slot.x, slot.y, contextWidth, slot.height },
+             observatory::Rect { slot.x + contextWidth + gap, slot.y, referenceWidth, slot.height } };
+}
+
 enum class Id
 {
     level,

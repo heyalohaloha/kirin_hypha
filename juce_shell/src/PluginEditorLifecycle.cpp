@@ -53,11 +53,9 @@ void KirinHyphaEditor::timerCallback()
         return;
     }
     observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
-    // The Hybrid VU needle follows the audio thread's own 300 ms integration at frame rate
+    // The Hybrid VU needle follows the audio thread's moving-coil state at frame rate
     // (HyphaVuLiveTap.h); the 100 ms meter publication stays the footer's and Capture's source.
     processorRef.vuLive().setEnabled (observatoryView.hybridVuVisible());
-    if (! observatoryView.onVuLiveLevel)
-        observatoryView.onVuLiveLevel = [this] (int channel) { return processorRef.vuLive().level (channel); };
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);

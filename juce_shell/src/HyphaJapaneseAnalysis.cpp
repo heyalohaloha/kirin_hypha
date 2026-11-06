@@ -47,6 +47,8 @@ const Entry entries[] = {
       u8"ひとつの周波数でのPOSTのMidとSideです。クリックで読み取りを固定します。" },
     { "Move to inspect frequency and Delta. Click to lock Focus Trail.",
       u8"動かすと周波数と差分を表示します。クリックでFocus Trailを固定します。" },
+    { "POST Spectrum: current magnitude and rolling peak hold.",
+      u8"POSTのスペクトル：現在の大きさと直近のピーク保持。" },
     { "POST Spectrum: current magnitude, six-second field, and rolling peak hold.",
       u8"POSTのSpectrum：今のレベル、6秒間の履歴、Peak Holdです。" },
     { "~ means approximate frequency. Very low tones need a longer window to locate exactly.",
