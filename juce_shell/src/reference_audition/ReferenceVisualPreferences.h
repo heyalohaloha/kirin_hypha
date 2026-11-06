@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include "ReferenceTextEdges.h"
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -30,10 +31,18 @@ struct VisualViewChoice
     }
 };
 // B・C の図の A の線の窓。変えるのは A の見せ方だけで、MATCH・追従の窓（matchWindowBlocks）とは別に持つ。
-enum class AWindowChoice { seconds3, seconds10, seconds30, cue, all };
+enum class AWindowChoice { seconds3, seconds10, seconds30, cue, all, custom };
 inline constexpr std::array<AWindowChoice, 5> aWindowOptions { AWindowChoice::seconds3, AWindowChoice::seconds10,
     AWindowChoice::seconds30, AWindowChoice::cue, AWindowChoice::all };
 inline constexpr int aWindowMaximumBlocks = 6'000;  // A を覚えておく上限（100 ms × 6,000 = 10 分）
+inline bool validAWindowSeconds (int seconds) noexcept { return seconds >= 3 && seconds <= 600; }
+inline int parseAWindowSeconds (const juce::String& text) noexcept
+{
+    const auto trimmed = reference_text::trimEdges (text);
+    if (trimmed.isEmpty() || trimmed.length() > 3 || ! trimmed.containsOnly ("0123456789")) return 0;
+    const auto seconds = trimmed.getIntValue();
+    return validAWindowSeconds (seconds) ? seconds : 0;
+}
 
 inline const char* aWindowLabel (AWindowChoice choice) noexcept
 {
@@ -43,6 +52,7 @@ inline const char* aWindowLabel (AWindowChoice choice) noexcept
         case AWindowChoice::seconds10: return "10 S";
         case AWindowChoice::seconds30: return "30 S";
         case AWindowChoice::cue: return "CUE";
+        case AWindowChoice::custom: return "SECONDS";
         case AWindowChoice::all: break;
     }
     return "ALL";
@@ -57,7 +67,7 @@ struct AWindowTarget
 };
 
 // `cueBlocks` はその役の Cue の長さ（100 ms のブロック数）。MATCH の下限 10 秒は掛けない。
-inline int displayWindowBlocks (AWindowChoice choice, int cueBlocks) noexcept
+inline int displayWindowBlocks (AWindowChoice choice, int cueBlocks, int seconds = 10) noexcept
 {
     switch (choice)
     {
@@ -65,6 +75,7 @@ inline int displayWindowBlocks (AWindowChoice choice, int cueBlocks) noexcept
         case AWindowChoice::seconds10: return 100;
         case AWindowChoice::seconds30: return 300;
         case AWindowChoice::cue: return cueBlocks;
+        case AWindowChoice::custom: return validAWindowSeconds (seconds) ? seconds * 10 : 100;
         case AWindowChoice::all: break;
     }
     return aWindowMaximumBlocks;
@@ -74,7 +85,10 @@ inline int displayWindowBlocks (AWindowChoice choice, int cueBlocks) noexcept
 struct AWindowChoices
 {
     AWindowChoice reference = AWindowChoice::seconds10, check = AWindowChoice::cue;
+    int referenceSeconds = 10, checkSeconds = 30;
     AWindowChoice of (int slot) const noexcept { return slot == 3 ? reference : check; }
+    int secondsOf (int slot) const noexcept { return slot == 3 ? referenceSeconds : checkSeconds; }
+    int blocksOf (int slot, int cueBlocks) const noexcept { return displayWindowBlocks (of (slot), cueBlocks, secondsOf (slot)); }
     void write (juce::XmlElement& parent) const
     {
         const AWindowChoices standard;
@@ -82,6 +96,8 @@ struct AWindowChoices
         auto* windows = parent.createNewChildElement ("AWindow");
         if (reference != standard.reference) windows->setAttribute ("ref", stateName (reference));
         if (check != standard.check) windows->setAttribute ("check", stateName (check));
+        if (reference == AWindowChoice::custom) windows->setAttribute ("ref_seconds", referenceSeconds);
+        if (check == AWindowChoice::custom) windows->setAttribute ("check_seconds", checkSeconds);
     }
     static AWindowChoices read (const juce::XmlElement& parent)
     {
@@ -90,6 +106,15 @@ struct AWindowChoices
         {
             result.reference = fromState (windows->getStringAttribute ("ref"), result.reference);
             result.check = fromState (windows->getStringAttribute ("check"), result.check);
+            const auto readSeconds = [&] (const char* key, AWindowChoice& choice, AWindowChoice fallback, int& seconds)
+            {
+                if (choice != AWindowChoice::custom) return;
+                const auto parsed = parseAWindowSeconds (windows->getStringAttribute (key));
+                if (parsed != 0) seconds = parsed;
+                else choice = fallback;
+            };
+            readSeconds ("ref_seconds", result.reference, AWindowChoice::seconds10, result.referenceSeconds);
+            readSeconds ("check_seconds", result.check, AWindowChoice::cue, result.checkSeconds);
         }
         return result;
     }
@@ -102,6 +127,7 @@ private:
             case AWindowChoice::seconds10: return "10s";
             case AWindowChoice::seconds30: return "30s";
             case AWindowChoice::cue: return "cue";
+            case AWindowChoice::custom: return "seconds";
             case AWindowChoice::all: break;
         }
         return "all";
@@ -110,6 +136,7 @@ private:
     {
         for (const auto option : aWindowOptions)
             if (text == stateName (option)) return option;
+        if (text == "seconds") return AWindowChoice::custom;
         return fallback;
     }
 };
@@ -123,12 +150,14 @@ public:
     AWindowChoices aWindows() const { const juce::ScopedLock lock (mutex); return windows; }
     void setAWindows (AWindowChoices value) { const juce::ScopedLock lock (mutex); windows = value; }
     // 変わったら true。
-    bool setAWindow (int slot, AWindowChoice value)
+    bool setAWindow (int slot, AWindowChoice value, int seconds = 10)
     {
         const juce::ScopedLock lock (mutex);
         auto& held = slot == 3 ? windows.reference : windows.check;
-        if (held == value) return false;
+        auto& heldSeconds = slot == 3 ? windows.referenceSeconds : windows.checkSeconds;
+        if (held == value && (value != AWindowChoice::custom || heldSeconds == seconds)) return false;
         held = value;
+        if (value == AWindowChoice::custom) heldSeconds = seconds;
         return true;
     }
 private:

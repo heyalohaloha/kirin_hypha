@@ -127,7 +127,7 @@ void Component::configureAWindowControls()
     {
         auto& control = aWindowControls[index];
         control.setComponentID ("reference-a-window-" + juce::String (static_cast<int> (index)));
-        control.onChoose = [this] (AWindowControl::Target opened, AWindowControl::Choice choice) { if (onSelectAWindow) onSelectAWindow (opened, choice); };
+        control.onChoose = [this] (AWindowControl::Target opened, AWindowControl::Choice choice, int seconds) { if (onSelectAWindow) onSelectAWindow (opened, choice, seconds); };
         control.onReset = [this] (AWindowControl::Target opened) { if (onResetAWindow) onResetAWindow (opened); };
         addChildComponent (control);
     }
@@ -146,7 +146,7 @@ void Component::layoutAWindowControls()
     for (size_t index = 0; index < aWindowControls.size(); ++index)
     {
         auto& control = aWindowControls[index];
-        control.setChoice (current.aWindows.of (current.comparisonSlot));
+        control.setChoice (current.aWindows.of (current.comparisonSlot), current.aWindows.secondsOf (current.comparisonSlot));
         control.setTarget (current.aWindowTarget);
         control.setBounds (areas[index]);
         control.setVisible (! areas[index].isEmpty());

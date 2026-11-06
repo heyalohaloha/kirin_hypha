@@ -1,6 +1,7 @@
 #include "../src/PluginEditor.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTimePageNavigation.h"
+#include "../src/HyphaSpectrumGeometry.h"
 #include <algorithm>
 #include <typeinfo>
 #include "../src/HyphaReferenceAccessPanel.h"
@@ -15,25 +16,23 @@
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
 #include "TestProcessorStorage.h"
+#include "ReferenceSelectionReopenTest.h"
 #include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <type_traits>
-
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
 
-namespace
-{
+namespace {
 using Processor = KirinHyphaProcessorBase;
 static_assert (std::is_same_v<decltype (&Processor::selectReferenceB), bool (Processor::*)()>);
 static_assert (std::is_same_v<decltype (&Processor::selectReferenceC), bool (Processor::*)()>);
 using Domain = hypha::observatory::Domain;
 using AnalysisPage = hypha::analysis_navigation::Page;
-
 void require (bool condition, const char* message)
 {
     if (! condition) { std::cerr << "Editor surface: " << message << '\n'; std::exit (1); }
@@ -130,6 +129,7 @@ void verifySavedReferenceChoices()
     require (! restored.referenceAuditionSnapshot().bSelected, "restoring the processor never selects reference audio");
 }
 
+#include "DisplayWindowsProductTest.h"
 void verifyPairHeaderAtEverySize (const juce::File& previews)
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
@@ -488,7 +488,7 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyMagnifiedEditor();
     hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
-    verifySavedReferenceChoices();
+    verifySavedReferenceChoices(); verifyDisplayWindowsProduct();
     verifyEditorShellRepairs();
     verifyTimeTabGeometry();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();

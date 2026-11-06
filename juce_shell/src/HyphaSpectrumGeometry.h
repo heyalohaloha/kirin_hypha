@@ -53,17 +53,31 @@ namespace hypha::spectrum_geometry
                      .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset * scale);
     }
 
+    inline float curveHeaderHeight (float scale) noexcept { return juce::jmax (48.0f, 46.0f * scale); }
+
+    inline float focusTrailHeightFor (juce::Rectangle<float> bounds) noexcept
+    {
+        const auto scale = visualScaleFor (bounds);
+        const auto preferred = ui_contract::spectrumFocusTrailHeight (scale);
+        if (viewOnly (scale)) return preferred;
+        // A short body still leaves a plot to point at. Only the drawing height changes;
+        // the Trail retains the same six seconds of exact observations.
+        const auto available = plotBoundsFor (bounds).getHeight() - curveHeaderHeight (scale)
+            - (ui_contract::spectrumFocusTrailAxisGap + 12.0f) * scale;
+        return juce::jlimit (0.0f, preferred, available);
+    }
+
     inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds,
                                                     bool reserveFocusTrail = false) noexcept
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
         if (! viewOnly (scale))
-            plot.removeFromTop (juce::jmax (32.0f, 30.0f * scale));
+            plot.removeFromTop (curveHeaderHeight (scale));
         if (reserveFocusTrail && scale > 1.1f)
         {
             plot.removeFromBottom (
-                ui_contract::spectrumFocusTrailHeight (scale)
+                focusTrailHeightFor (bounds)
                 + ui_contract::spectrumFocusTrailAxisGap * scale);
         }
         return plot;
@@ -77,7 +91,7 @@ namespace hypha::spectrum_geometry
         if (scale > 1.1f)
         {
             region.removeFromTop (18.0f * scale);
-            return region.removeFromBottom (ui_contract::spectrumFocusTrailHeight (scale));
+            return region.removeFromBottom (focusTrailHeightFor (bounds));
         }
         const float inset = ui_contract::spectrumFocusTrailInset * scale;
         return region.removeFromBottom (ui_contract::spectrumFocusTrailHeight (scale))
@@ -102,6 +116,13 @@ namespace hypha::spectrum_geometry
                                                         float scale) noexcept
     {
         return readout.removeFromRight ((float) ui_contract::spectrumFocusClearWidth * scale);
+    }
+
+    inline juce::Rectangle<float> averageBoundsFor (juce::Rectangle<float> outerPlot, float scale) noexcept
+    {
+        if (viewOnly (scale)) return {};
+        return { outerPlot.getX(), outerPlot.getY() + 32.0f * scale,
+                 82.0f * scale, (float) ui_contract::spectrumChannelModeHeight * scale };
     }
 
     inline juce::Rectangle<float> midSideReadoutBoundsFor (juce::Rectangle<float> plot,

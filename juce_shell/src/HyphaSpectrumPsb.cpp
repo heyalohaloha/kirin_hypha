@@ -4,6 +4,9 @@
 #include "HyphaKeyLight.h"
 #include "HyphaPsbPainter.h"
 #include "HyphaSpectrumChromePainter.h"
+#include "HyphaSpectrumGeometry.h"
+#include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <cmath>
@@ -124,7 +127,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
             presentationContext, pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
                 ? pairingLoopBlock : live_compare::LoopPairingBlock::none,
-            signalActive && currentPostSnapshotValid(), lowScope
+            signalActive && currentPostSnapshotValid(), lowScope, average
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }

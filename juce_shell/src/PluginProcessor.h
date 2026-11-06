@@ -1,5 +1,6 @@
 #pragma once
 #include "PreparedFormat.h"
+#include "HyphaSpectrumAverage.h"
 #include "HyphaPairPreview.h"
 #include "AutomaticPairState.h"
 #include "HyphaCaptureStateNotification.h"
@@ -50,10 +51,8 @@ class KirinHyphaProcessorBase : public juce::AudioProcessor,
 {
 public:
     enum class Role { Pre, Post };
-
     explicit KirinHyphaProcessorBase (Role role);
     ~KirinHyphaProcessorBase() override;
-
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void hostComponentActivationChanged (bool active) override;
@@ -75,7 +74,6 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
     hypha::update::ServiceOwner& updateServicesForEditor() noexcept { return updateServiceOwner; }
-
     juce::AudioProcessorParameter* getBypassParameter() const override;
 
     // Editor (message thread) reads the latest RT result. Null handle / lock contention -> false.
@@ -132,7 +130,7 @@ public:
     bool selectReferenceCandidate (const juce::String&);
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
-    bool selectReferenceVisualSlot (int); bool selectReferenceAWindow (hypha::reference_audition::AWindowTarget, hypha::reference_audition::AWindowChoice); bool resetReferenceAWindow (hypha::reference_audition::AWindowTarget);
+    bool selectReferenceVisualSlot (int); bool selectReferenceAWindow (hypha::reference_audition::AWindowTarget, hypha::reference_audition::AWindowChoice, int seconds = 10); bool resetReferenceAWindow (hypha::reference_audition::AWindowTarget);
     bool requestReferenceRecovery();
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
@@ -227,6 +225,8 @@ public:
     { return analysisDemandOwner.requested(); }
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool setSpectrumDisplaySelection (uint8_t selection, bool absoluteTarget);
+    hypha::spectrum_average::Preference spectrumAverage;
+    void setSpectrumAveragePreference (hypha::spectrum_average::Choice);
     bool spectrumLowScope() const noexcept;
     void setSpectrumLowScope (bool low) noexcept;
     uint8_t spectrumDisplaySelection() const noexcept

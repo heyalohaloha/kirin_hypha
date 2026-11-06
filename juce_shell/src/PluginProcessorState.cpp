@@ -27,6 +27,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
+    spectrumAverage.write (xml);
     xml.setAttribute ("display_state_version", 5);
     xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
     xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
@@ -64,6 +65,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
     juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
+    auto restoredSpectrumAverage = hypha::spectrum_average::Choice::live;
     bool restoredShortTermLoudness = false;
     uint8_t restoredObservatoryDomain = 0;
     uint8_t restoredObservatoryTarget = 0;
@@ -94,6 +96,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                     hypha::reference_audition::ReferenceComparisonSettings::read (*xml));
             }
            #endif
+            restoredSpectrumAverage = hypha::spectrum_average::Preference::read (*xml);
             automaticPair.disconnected.store (xml->getBoolAttribute ("pair_explicitly_disconnected", false));
             restoredInstanceId     = xml->getStringAttribute ("instance_id");
             restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
@@ -157,6 +160,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     if (restored)
     {
+        spectrumAverage.set (restoredSpectrumAverage);
         liveCompare.autoAlign.store (restoredAutoAlign, std::memory_order_release);
         if ((restoredInstanceId.isNotEmpty() && restoredInstanceId != persistInstanceId)
             || restoredPairName.isNotEmpty() || restoredPairInstanceId.isNotEmpty()

@@ -8,6 +8,7 @@
 #include "HyphaSpectrumFocusTrail.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaPairingLoopText.h"
+#include "HyphaSpectrumAverage.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::spectrum_chrome
@@ -51,6 +52,7 @@ namespace hypha::spectrum_chrome
         live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
         bool postSnapshotValid = false;
         bool lowScope = false;
+        spectrum_average::Choice average = spectrum_average::Choice::live;
     };
 
     void paint (juce::Graphics& graphics,

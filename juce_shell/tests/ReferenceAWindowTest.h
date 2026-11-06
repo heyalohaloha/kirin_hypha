@@ -2,7 +2,7 @@
 
 // B・C の図の A の窓（HyphaReferenceAWindowControl.h）を、実際に描いた画面で確かめる。
 //  - 操作は A の窓の線を描く図の凡例の上にだけ出る（B の Balance は 300%、C の Cue の図は 200% と 300%）。
-//  - リストは 5 つの窓と RESET で、押すと見ている役の窓だけを替える。役ごとの選択は別に保存される。
+//  - リストの即選択・秒数の入力・RESET は見ている役の窓だけを替える。役ごとの選択は別に保存される。
 //  - 凡例は実際に入っている長さと目標の範囲を切らずに言う。帯が無いときは目標の範囲と言わない。
 //  - 図を指すと A・比べる側・目標の範囲の値が読める。
 #include "ReferenceTextRepairsTest.h"
@@ -56,6 +56,9 @@ inline void verifyShownWhereTheChartIs()
             for (const auto page : { 2, 3 })
             {
                 auto state = page == 3 ? bPage() : cPage();
+                state.aWindows.reference = state.aWindows.check = ref::AWindowChoice::custom;
+                state.aWindows.referenceSeconds = state.aWindows.checkSeconds = 600;
+                state.aKirin = kirinWindow (0.0f, { -20.0, -14.0, -18.0, -30.0 }, 6000);
                 state.blindLargeScreen = inspection;
                 reference_ui::Component panel;
                 panel.setVisible (true);
@@ -72,12 +75,21 @@ inline void verifyShownWhereTheChartIs()
                 juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
                 juce::Graphics graphics (image);
                 panel.paintEntireComponent (graphics, true);
-                requireWhole (log.texts(), "A LAST 30 S");
+                const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_WINDOW_PREVIEWS", {});
+                if (previews.isNotEmpty())
+                {
+                    const juce::File root (previews); require (root.createDirectory().wasOk(), "preview directory");
+                    const auto name = juce::String (page == 3 ? "reference-b-" : "reference-c-") + juce::String (size.width)
+                        + (language == i18n::Language::english ? "-en.png" : "-ja.png");
+                    const auto output = root.getChildFile (name).createOutputStream();
+                    require (output != nullptr && juce::PNGImageFormat().writeImageToStream (image, *output), "write A window preview");
+                }
+                requireWhole (log.texts(), "A LAST 10:00");
                 requireWhole (log.texts(), "TARGET RANGE");
-                const auto shown = text_style::shownText ("A LAST 30 S");
+                const auto shown = text_style::shownText ("A LAST 10:00");
                 const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::legend,
                                              typography::Composition::visualization);
-                const auto textWidth = text_style::shownWidth (font, "A LAST 30 S");
+                const auto textWidth = text_style::shownWidth (font, "A LAST 10:00");
                 for (int chart = 0; chart < (page == 2 ? 2 : 1); ++chart)
                 {
                     auto* control = controlOf (panel, chart);
@@ -104,7 +116,7 @@ inline void verifyMenu()
     std::optional<ref::AWindowChoice> chosen;
     reference_ui::Component panel;
     sizePanel (panel, 900, 600);
-    panel.onSelectAWindow = [&] (ref::AWindowTarget target, ref::AWindowChoice choice) { answered = target; chosen = choice; };
+    panel.onSelectAWindow = [&] (ref::AWindowTarget target, ref::AWindowChoice choice, int) { answered = target; chosen = choice; };
     panel.onResetAWindow = [&] (ref::AWindowTarget target) { answered = target; ++resets; };
     const auto menuOf = [] (Control& control)
     {
@@ -126,7 +138,7 @@ inline void verifyMenu()
     auto* control = controlOf (panel);
     require (control != nullptr && control->isVisible(), "the B page has the control");
     const auto [rows, ticked] = menuOf (*control);
-    require (rows == juce::StringArray { "3 S", "10 S", "30 S", "CUE", "ALL", "RESET A WINDOW" }, "the list has the five windows and RESET");
+    require (rows == juce::StringArray { "3 S", "10 S", "30 S", "CUE", "ALL", "SECONDS", "RESET A WINDOW" }, "the list has the quick windows, seconds and RESET");
     require (ticked == "30 S", "the list marks B's window");
     const auto opened = control->currentTarget();
     require (opened.slot == 3 && opened.epoch == 7, "the list opens for the role and the state it shows");
@@ -135,6 +147,50 @@ inline void verifyMenu()
         control->choose (opened, Control::itemFor (option));
         require (answered.slot == 3 && answered.epoch == 7 && chosen == option, "choosing a window names the opened role and the window");
     }
+    int customSeconds = 0;
+    panel.onSelectAWindow = [&] (ref::AWindowTarget target, ref::AWindowChoice choice, int seconds)
+    { answered = target; chosen = choice; customSeconds = seconds; };
+    auto entry = control->makeSecondsEntry (opened);
+    auto* input = dynamic_cast<juce::TextEditor*> (entry->findChildWithID ("a-window-seconds"));
+    require (input != nullptr, "seconds has one input with its unit and range");
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const auto& size : observatory::sizePresets)
+            require (entry->getWidth() + 40 < size.width, "the seconds entry fits even the smallest editor");
+        auto* range = dynamic_cast<juce::Label*> (entry->getChildComponent (0));
+        require (range != nullptr && text_style::shownWidth (range->getFont(), range->getText()) <= range->getWidth(),
+                 "the seconds range and unit fit in both languages");
+        const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_WINDOW_PREVIEWS", {});
+        if (previews.isNotEmpty())
+        {
+            juce::Image image (juce::Image::ARGB, entry->getWidth(), entry->getHeight(), true);
+            juce::Graphics graphics (image); entry->paintEntireComponent (graphics, true);
+            const auto output = juce::File (previews).getChildFile (language == i18n::Language::english ? "seconds-en.png" : "seconds-ja.png").createOutputStream();
+            require (output != nullptr && juce::PNGImageFormat().writeImageToStream (image, *output), "write seconds entry preview");
+        }
+    }
+    for (const auto* invalid : { "", "2", "601", "-3", "3.5", "NaN", "3 S", "999999999999" })
+    {
+        chosen.reset(); input->setText (invalid);
+        require (! entry->submit() && ! chosen, "invalid input leaves the role's selection unchanged");
+    }
+    for (const auto seconds : { 3, 47, 600 })
+    {
+        input->setText (juce::String (seconds));
+        require (entry->submit() && chosen == ref::AWindowChoice::custom && customSeconds == seconds
+            && answered.slot == opened.slot && answered.epoch == opened.epoch, "the input sends seconds for the opened role");
+    }
+    for (const auto* text : { " 3 ", "\t600\n" })
+    {
+        input->setText (text);
+        require (entry->submit() && customSeconds == ref::parseAWindowSeconds (text), "seconds use the shared edge-space handling");
+    }
+    // A custom input kept open also retains the original target after the page changes.
+    panel.setState (cPage());
+    input->setText ("45"); entry->submit();
+    require (answered.slot == 3 && answered.epoch == 7, "an open seconds input keeps the original target");
+    panel.setState (b);
     chosen.reset();
     control->choose (opened, 0);
     require (! chosen && resets == 0, "a list closed without a choice changes nothing");

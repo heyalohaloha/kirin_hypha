@@ -135,6 +135,9 @@ void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next
             numericDirty = true;
             return;
         }
+        if (average != Average::live)
+            lastCurvePresentationMs = lastNumericPresentationMs = juce::Time::getMillisecondCounterHiRes();
+        lastCurveUpdateMs = juce::Time::getMillisecondCounterHiRes();
         snapshot = nextLayout;
         displayedPre = pendingPre;
         displayedPost = pendingPost;

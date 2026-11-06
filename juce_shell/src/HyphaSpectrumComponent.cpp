@@ -65,8 +65,9 @@ namespace
 
 SpectrumComponent::SpectrumComponent()
 {
-    setInterceptsMouseClicks (true, false);
-    setAccessible (false);
+    setInterceptsMouseClicks (true, true);
+    addChildComponent (averageButton);
+    averageButton.onClick = [this] { showAverageMenu(); };
 }
 
 bool SpectrumComponent::currentSnapshotValid() const noexcept
@@ -138,6 +139,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
             snapshot, shapeObservation, calmWeights);
         displayedDelta = selected.values;
         displayedDeltaValid = selected.valid;
+        averagedDeltaValid = selected.valid;
         readoutPre = displayedPre;
         readoutPost = displayedPost;
         readoutDelta = displayedDelta;
@@ -169,6 +171,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         pendingPost.fill (0.0f);
         pendingDelta.fill (0.0f);
         displayedDeltaValid.fill (0u);
+        averagedDeltaValid.fill (0u);
         readoutDeltaValid.fill (0u);
         pendingDeltaValid.fill (0u);
     }
@@ -178,6 +181,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     numericDirty = false;
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
     lastCurvePresentationMs = nowMs;
+    lastCurveUpdateMs = nowMs;
     lastNumericPresentationMs = nowMs;
     repaint();
 }
@@ -260,6 +264,9 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
     const auto selected = spectrum_delta::select (next, shapeObservation, calmWeights);
     pendingDelta = selected.values;
     pendingDeltaValid = selected.valid;
+    // A missing source frame breaks the average even when it falls between drawing ticks.
+    for (size_t index = 0; index < averagedDeltaValid.size(); ++index)
+        if (selected.valid[index] == 0u) averagedDeltaValid[index] = 0u;
     absoluteHistory.append (next);
     if (! absoluteObservation)
     {
@@ -296,6 +303,7 @@ void SpectrumComponent::clearSnapshot()
     pendingPost.fill (0.0f);
     pendingDelta.fill (0.0f);
     displayedDeltaValid.fill (0u);
+    averagedDeltaValid.fill (0u);
     readoutDeltaValid.fill (0u);
     pendingDeltaValid.fill (0u);
     clearInteractionState();
@@ -307,6 +315,7 @@ void SpectrumComponent::clearSnapshot()
     modeActionNotice.clear();
     modeActionNoticeUntilMs = 0.0;
     lastCurvePresentationMs = 0.0;
+    lastCurveUpdateMs = 0.0;
     lastNumericPresentationMs = 0.0;
     guideOverlay = {};
     absoluteHistory.clear();
@@ -342,24 +351,27 @@ void SpectrumComponent::presentationTickAt (double nowMs)
     {
         const double intervalMs = 1'000.0
             / (double) ui_contract::spectrumCurvePresentationHz;
-        const double elapsedMs = std::max (0.0, nowMs - lastCurvePresentationMs);
+        const double elapsedMs = std::max (0.0, nowMs - lastCurveUpdateMs);
         snapshot = pendingSnapshot;
-        if (lowScope)
+        if (lowScope && average == Average::live)
         {
             // The long LOW window is its own smoothing. A slow fall on top of it would leave the
             // curve above the numbers read from the same frames.
             displayedPre = pendingPre;
             displayedPost = pendingPost;
             displayedDelta = pendingDelta;
+            averagedDeltaValid = pendingDeltaValid;
         }
         else
         {
-            spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs);
-            spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs);
+            const auto averageMs = spectrum_average::milliseconds (average);
+            spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs, averageMs);
+            spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs, averageMs);
             spectrum_presentation::advanceSignedDeltaCurve (
-                displayedDelta, pendingDelta, elapsedMs);
+                displayedDelta, pendingDelta, averagedDeltaValid, pendingDeltaValid, elapsedMs, averageMs);
         }
         displayedDeltaValid = pendingDeltaValid;
+        lastCurveUpdateMs = nowMs;
         curveDirty = false;
         lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs
                                 ? nowMs : lastCurvePresentationMs + intervalMs;

@@ -25,8 +25,8 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectA = [this] { referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0; processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     // 開いている間に役や状態が替わったリストの回答は断られる（何も変えず、変わっていないと言う）。
-    referenceView.onSelectAWindow = [this] (auto target, auto choice)
-    { if (! processorRef.selectReferenceAWindow (target, choice)) showToast ("A window was not changed"); };
+    referenceView.onSelectAWindow = [this] (auto target, auto choice, int seconds)
+    { if (! processorRef.selectReferenceAWindow (target, choice, seconds)) showToast ("A window was not changed"); };
     referenceView.onResetAWindow = [this] (auto target)
     { if (! processorRef.resetReferenceAWindow (target)) showToast ("A window was not changed"); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };

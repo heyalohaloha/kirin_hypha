@@ -14,6 +14,7 @@
 #include "HyphaSpectrumFocusTrail.h"
 #include "HyphaSpectrumDeltaSelection.h"
 #include "HyphaSpectrumPresentation.h"
+#include "HyphaSpectrumAverage.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_display_ffi.h"
 
@@ -27,6 +28,33 @@ class SpectrumComponent final : public juce::Component,
 {
 public:
     SpectrumComponent();
+    using Average = spectrum_average::Choice;
+    Average averageChoice() const noexcept { return average; }
+    void setAverageChoice (Average next)
+    {
+        if (! spectrum_average::valid (static_cast<int> (next))) next = Average::live;
+        if (average == next) return;
+        average = next;
+        averageButton.setButtonText (juce::String ("AVG ") + spectrum_average::label (average));
+        curveDirty = havePendingSnapshot;
+        repaint();
+    }
+    std::function<void (Average)> onAverageChange;
+    void chooseAverage (int item)
+    {
+        if (! spectrum_average::valid (item - 1)) return;
+        const auto next = static_cast<Average> (item - 1);
+        setAverageChoice (next);
+        if (onAverageChange) onAverageChange (next);
+    }
+    juce::PopupMenu averageMenu() const
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("AVG");
+        for (auto option : spectrum_average::choices)
+            menu.addItem (static_cast<int> (option) + 1, spectrum_average::label (option), true, option == average);
+        return menu;
+    }
 
     void setPresentationContext (presentation::Context next)
     {
@@ -71,6 +99,7 @@ public:
     std::function<void()> onSubviewChange;
     void setSignalActive (bool active);
     void paint (juce::Graphics&) override;
+    void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -83,6 +112,9 @@ public:
     {
         return focusTrail != nullptr ? focusTrail->size() : 0u;
     }
+    float focusTrailValueForTest (size_t frame, float band) const noexcept
+    { return focusTrail != nullptr ? focusTrail->valueAt (frame, band) : NAN; }
+    float markValueForTest (size_t index) const noexcept { return markedDelta[index]; }
     int64_t presentedEndpointForTest() const noexcept
     {
         return snapshot.presentation_end_samples;
@@ -101,6 +133,13 @@ public:
     { return index < readoutPost.size() ? readoutPost[index] : 0.0f; }
     float displayedPostForTest (size_t index) const noexcept
     { return index < displayedPost.size() ? displayedPost[index] : 0.0f; }
+    float displayedPreForTest (size_t index) const noexcept
+    { return index < displayedPre.size() ? displayedPre[index] : 0.0f; }
+    float displayedDeltaForTest (size_t index) const noexcept
+    { return index < displayedDelta.size() ? displayedDelta[index] : 0.0f; }
+    bool displayedDeltaValidForTest (size_t index) const noexcept
+    { return index < displayedDeltaValid.size() && displayedDeltaValid[index] != 0u; }
+    double curveUpdateTimeForTest() const noexcept { return lastCurveUpdateMs; }
     float pendingPostForTest (size_t index) const noexcept
     { return index < pendingPost.size() ? pendingPost[index] : 0.0f; }
     bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
@@ -116,6 +155,17 @@ public:
     std::function<bool(bool)> onScopeChange;
 
 private:
+    class AverageButton final : public juce::Button
+    {
+    public:
+        explicit AverageButton (SpectrumComponent&);
+        void paintButton (juce::Graphics&, bool, bool) override;
+        bool keyPressed (const juce::KeyPress&) override;
+    private:
+        SpectrumComponent& owner;
+    };
+    AverageButton averageButton { *this };
+    void showAverageMenu();
     void clearInteractionState() noexcept;
     bool currentSnapshotValid() const noexcept;
     bool currentPostSnapshotValid() const noexcept;
@@ -150,6 +200,7 @@ private:
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingDelta {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
     spectrum_delta::Validity displayedDeltaValid {};
+    spectrum_delta::Validity averagedDeltaValid {};
     spectrum_delta::Validity readoutDeltaValid {};
     spectrum_delta::Validity pendingDeltaValid {};
     spectrum_delta::Validity markedDeltaValid {};
@@ -183,6 +234,7 @@ private:
     bool deltaPsbAvailable = false;
     bool psbObservation = false;
     bool shapeObservation = false;
+    Average average = Average::live;
     bool signalActive = false;
     live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
     uint8_t psbStatus = KIRIN_SPECTRUM_WARMING_UP;
@@ -191,6 +243,7 @@ private:
     bool hoverNeedsRepaint = false;
     presentation::Context presentationContext = presentation::defaultContext();
     double lastCurvePresentationMs = 0.0;
+    double lastCurveUpdateMs = 0.0;
     double lastNumericPresentationMs = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumComponent)

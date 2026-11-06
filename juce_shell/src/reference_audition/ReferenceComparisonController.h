@@ -42,7 +42,7 @@ public:
     // B（slot 3）・C（slot 2）の図の A の線の窓。見せ方だけで、音・MATCH・追従の窓は変えない。
     // 開いたリストの回答は、開いたときの役と世代（AWindowTarget）のままのときだけ受ける。確かめて書くまでを selectionLock の
     // 中で行うので、別のスレッドから来る restoreSettings と交差しても、復元した値を古い回答が上書きしない。
-    bool selectAWindow (AWindowTarget, AWindowChoice);
+    bool selectAWindow (AWindowTarget, AWindowChoice, int seconds = 10);
     bool resetAWindow (AWindowTarget);
     bool retryPresetSelection();
     bool retryCandidatePreparation();

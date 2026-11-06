@@ -10,6 +10,8 @@ namespace ui = hypha::ui_contract;
 
 void KirinHyphaEditor::configureSpectrumCallbacks()
 {
+    spectrumView.setAverageChoice (processorRef.spectrumAverage.get());
+    spectrumView.onAverageChange = [this] (auto value) { processorRef.setSpectrumAveragePreference (value); };
     spectrumView.onChannelModeChange = [this] (uint8_t channelMode)
     {
         const bool accepted = processorRef.setSpectrumDisplaySelection (
@@ -235,6 +237,7 @@ bool KirinHyphaEditor::refreshAnalysisViews (
         spectrumView.setGuideFrequencyOverlay (hypha::guide_frequency::fromGuidePresentation (
             processorRef.guidePresentationSnapshot()));
         if (haveOwners) spectrumView.setAnalysisOwnerNames (ownerNames);
+        spectrumView.setAverageChoice (processorRef.spectrumAverage.get());
         spectrumView.presentationTick();
         spectrumView.setSignalActive (liveInput);
         spectrumView.setPairingLoopBlock (processorRef.analysisPairingLoopBlock());

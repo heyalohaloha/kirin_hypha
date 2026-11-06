@@ -3,11 +3,66 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumUiContract.h"
+#include "HyphaKeyLight.h"
+#include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 
 namespace hypha
 {
+SpectrumComponent::AverageButton::AverageButton (SpectrumComponent& component)
+    : Button ("AVG LIVE"), owner (component)
+{
+    setComponentID ("spectrum-average");
+    setWantsKeyboardFocus (true);
+    setMouseClickGrabsKeyboardFocus (false);
+}
+
+bool SpectrumComponent::AverageButton::keyPressed (const juce::KeyPress& key)
+{
+    if (key.isKeyCode (juce::KeyPress::spaceKey))
+        return Button::keyPressed (juce::KeyPress (juce::KeyPress::returnKey));
+    return Button::keyPressed (key);
+}
+
+void SpectrumComponent::AverageButton::paintButton (juce::Graphics& g, bool over, bool down)
+{
+    const key_light::Scope light (*this);
+    const auto scale = spectrum_geometry::visualScaleFor (owner.getLocalBounds().toFloat());
+    const auto bounds = getLocalBounds().toFloat();
+    surface_material::paintControl (g, bounds, over, down, true, COL_SPECTRUM_DELTA_BR, 3.0f * scale);
+    g.setFont (monoFont (owner.presentationContext, typography::TextRole::navigation,
+                         typography::Composition::visualization));
+    g.setColour (COL_TEXT_SECONDARY);
+    text_style::drawText (g, getButtonText(), bounds.toNearestInt(), juce::Justification::centred);
+    if (hasKeyboardFocus (false))
+    {
+        g.setColour (COL_SPECTRUM_DELTA_BR);
+        g.drawRoundedRectangle (bounds.reduced (1.0f), 3.0f * scale, 1.0f);
+    }
+}
+
+void SpectrumComponent::resized()
+{
+    const auto bounds = getLocalBounds().toFloat();
+    const auto scale = spectrum_geometry::visualScaleFor (bounds);
+    const auto control = psbObservation ? juce::Rectangle<float>()
+        : spectrum_geometry::averageBoundsFor (spectrum_geometry::plotBoundsFor (bounds), scale);
+    averageButton.setBounds (control.toNearestInt());
+    averageButton.setVisible (! control.isEmpty());
+}
+
+void SpectrumComponent::showAverageMenu()
+{
+    if (! averageButton.isVisible()) return;
+    auto menu = averageMenu();
+    menu.setLookAndFeel (&getLookAndFeel());
+    const juce::Component::SafePointer<SpectrumComponent> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&averageButton),
+        [safe] (int item) { if (safe != nullptr) safe->chooseAverage (item); });
+}
+
 void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
 {
     const auto bounds = getLocalBounds().toFloat();
@@ -16,6 +71,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     if (spectrum_geometry::subviewBoundsFor (outerPlot, scale).contains (event.position))
     {
         psbObservation = ! psbObservation;
+        resized();
         clearSnapshot();
         absolutePsbAvailable = deltaPsbAvailable = false;
         psbStatus = KIRIN_SPECTRUM_WARMING_UP;
@@ -28,6 +84,12 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
     if (psbObservation) return;
+    const auto averageBounds = spectrum_geometry::averageBoundsFor (outerPlot, scale);
+    if (averageBounds.contains (event.position))
+    {
+        showAverageMenu();
+        return;
+    }
     if (spectrum_geometry::lowBoundsFor (outerPlot, scale).contains (event.position))
     {
         if (onScopeChange && onScopeChange (! lowScope))
