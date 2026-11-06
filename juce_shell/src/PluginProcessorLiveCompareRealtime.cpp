@@ -83,6 +83,11 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool callbackGap = block.afterGap;
     if (hostReset) block.afterGap = true;
     block.transportRestart = hostReset && notifiedStop;
+    // Every reader below sees the same position; capture and Record keep the host's own report.
+    const auto format = liveCompare.formatGeneration.load (std::memory_order_acquire);
+    if (format != liveCompare.formatSeen) liveCompare.chunkPosition.reset();
+    liveCompare.formatSeen = format;
+    liveCompare.chunkPosition.apply (block, preparedFormat.sampleRate);
     if (projectAnalysis) nativeHostContext.reaper.observe (block, preparedFormat.sampleRate, usable);
     auto* trace = liveCompare.trace ? liveCompare.trace->row() : nullptr;
     if (trace != nullptr)

@@ -64,6 +64,8 @@ public:
     { processor.liveCompare.preAudible.store (pending); }
     static const hypha::live_compare::SharedRingMapping* publishedRing (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.ring.control(); }
+    static bool chunkProven (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.chunkPosition.proven(); }
     static bool timingRingPublished (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.ring.hasPublishedRealtime(); }
     static hypha::live_compare::AnalysisClockReading aaxLocalClock (const KirinHyphaProcessorBase& processor) noexcept

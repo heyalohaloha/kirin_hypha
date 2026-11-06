@@ -44,6 +44,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     const auto liveClock = hypha::live_compare_clock_policy::current (wrapperType, sampleRate);
     liveCompare.clockAuthority = static_cast<std::uint8_t> (liveClock.authority);
     liveCompare.maximumDelaySamples = liveClock.maximumDelaySamples;
+    liveCompare.formatGeneration.fetch_add (1, std::memory_order_release);
     nativeHostContext.reaper.prepare (liveClock.authority == hypha::live_compare::ClockAuthority::certifiedProject);
     if (nativeHostContext.reaper.needsService()) requestServiceTimer();
     stopLocalBlindCaptureForFormatChange (sampleRate, roles);

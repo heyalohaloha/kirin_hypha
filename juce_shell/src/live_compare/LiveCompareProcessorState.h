@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../local_blind/RtPublicationSlot.h"
+#include "AaxChunkPosition.h"
 #include "LiveCompareAaxGroup.h"
 #include "LiveCompareClock.h"
 #include "LiveCompareMatch.h"
@@ -120,6 +121,9 @@ struct ProcessorState
     CertifiedProjectAnalysisClock projectAnalysisClock;
     PostRenderer renderer;
     ContinuousClock clock;
+    AaxChunkPosition chunkPosition; // Audio Thread only
+    std::atomic<std::uint64_t> formatGeneration { 0 }; // each prepare; a chunk proof ends with its format
+    std::uint64_t formatSeen = 0;                      // Audio Thread only
     GapDetector gaps;
     ReaperCallbackContinuity reaperContinuity;
     std::uint8_t clockAuthority = 0;       // prepareToPlay, host suspends Audio Thread

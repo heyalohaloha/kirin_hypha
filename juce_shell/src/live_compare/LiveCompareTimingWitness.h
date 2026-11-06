@@ -14,7 +14,9 @@ struct TimingHeader
 {
     std::atomic<std::uint64_t> sequence { 0 }, generation { 0 };
     std::atomic<std::uint64_t> ownerA { 0 }, ownerB { 0 }; // immutable, one PRE mapping lifetime
-    std::atomic<std::uint32_t> flags { 0 }; // bits0..2: active/linear/loop; bits8..15: generation cause
+    // bits0..2: active/linear/loop; bit3: wall gap; bit4: this callback's position was named;
+    // bits8..15: generation cause; bits16..31: PRE's host reports so far (wraps).
+    std::atomic<std::uint32_t> flags { 0 };
     std::atomic<std::uint32_t> proof { 0 }, outputPresentation { 0 }, maximumDelay { 0 };
     std::atomic<std::int64_t> clock { 0 }, project { 0 }, origin { 0 }, start { 0 };
     std::atomic<std::int32_t> frames { 0 };
@@ -26,9 +28,17 @@ struct TimingHeader
     AtomicIntervals intervals;
 };
 
+constexpr std::uint32_t timingNamedPosition = 16u;
+
+// A PRE callback between two host reports adds no observation; its next report does. A PRE that
+// reports every callback, which is every host but a split Pro Tools chunk, always counts.
+inline bool preReportCounts (bool named, std::uint16_t reports, std::uint16_t counted) noexcept
+{ return ! named || reports != counted; }
+
 struct TimingSnapshot
 {
     std::uint64_t sequence = 0; // advances by two for each PRE callback
+    std::uint16_t reports = 0;  // PRE's host-reported positions so far; wraps
     std::uint64_t generation = 0;
     std::uint64_t ownerA = 0, ownerB = 0;
     bool active = false;
@@ -49,6 +59,8 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
     const auto flags = h.flags.load (std::memory_order_relaxed);
     next.active = (flags & 1u) != 0;
     next.block.wallGap = (flags & 8u) != 0;
+    next.block.positionInterpolated = (flags & timingNamedPosition) != 0;
+    next.reports = static_cast<std::uint16_t> (flags >> 16u);
     next.anchor.linearKnown = (flags & 2u) != 0;
     next.anchor.loopKnown = (flags & 4u) != 0;
     const auto cause = (flags >> 8u) & 0xffu;
@@ -120,14 +132,16 @@ public:
             linearKnown = loopKnown = false;
             start = block.clock;
         }
-        if (active && ! block.loop.active)
+        // Origins and anchors come from host reports; a named callback only continues them.
+        if (active && ! block.positionInterpolated) ++reports;
+        if (active && ! block.loop.active && ! block.positionInterpolated)
         {
             // The timeline has checked the second and all later project movements.
             linearKnown = havePrevious && ! movement.broken
                 && checkedClockSubtract (block.clock, block.project, origin);
             loopKnown = false;
         }
-        if (active && block.loop.usable (rate) && (! loopKnown || movement.broken))
+        if (active && block.loop.usable (rate) && (! loopKnown || movement.broken) && ! block.positionInterpolated)
         {
             loopClock = block.clock;
             loopProject = block.project;
@@ -139,7 +153,9 @@ public:
         std::atomic_thread_fence (std::memory_order_release);
         h.generation.store (generation, std::memory_order_release); // individual fence for an already-seeded PCM consumer
         h.flags.store ((active ? (1u | (linearKnown ? 2u : 0u) | (loopKnown ? 4u : 0u)) : 0u)
-                           | (block.wallGap ? 8u : 0u) | (static_cast<std::uint32_t> (generationCause) << 8u),
+                           | (block.wallGap ? 8u : 0u) | (block.positionInterpolated ? timingNamedPosition : 0u)
+                           | (static_cast<std::uint32_t> (generationCause) << 8u)
+                           | (static_cast<std::uint32_t> (reports) << 16u),
                        std::memory_order_relaxed);
         h.clock.store (block.clock, std::memory_order_relaxed);
         h.project.store (block.project, std::memory_order_relaxed);
@@ -155,7 +171,7 @@ public:
         h.start.store (start, std::memory_order_relaxed);
         h.loopClock.store (loopClock, std::memory_order_relaxed);
         h.loopProject.store (loopProject, std::memory_order_relaxed);
-        h.loopSamples.store (cycle.known ? cycle.samples : 0, std::memory_order_relaxed);
+        h.loopSamples.store (cycle.known ? cycle.samples : block.chunkCycleSamples, std::memory_order_relaxed);
         h.ppq.store (loop.ppq, std::memory_order_relaxed);
         h.loopStart.store (loop.start, std::memory_order_relaxed);
         h.loopEnd.store (loop.end, std::memory_order_relaxed);
@@ -183,6 +199,7 @@ private:
     LoopTimeline timeline;
     LoopCycleMeter cycles;
     std::uint64_t generation = 0;
+    std::uint16_t reports = 0;
     bool havePrevious = false, linearKnown = false, loopKnown = false;
     BlockClock previousBlock;
     TimelineBreak generationCause = TimelineBreak::unknown;
@@ -236,11 +253,14 @@ public:
         // Feeding the raw clamp into the cycle meter would revoke a proven K every wrap.
         const auto cycle = logicRender (post) ? LoopCycleReading {}
             : postCycles.observe (corroborated ? verified : post, rate);
+        const auto postCycle = cycle.known ? cycle.samples : post.chunkCycleSamples;
         const auto movement = timeline.observe (corroborated ? verified : post, rate,
                                                 coherent ? (age > 0 && age < capacity ? age : 0) : lastAge);
         if (! active || sourceChanged || postProofChanged || movement.broken || cycle.changed)
             invalidate();
-        if (coherent && active && ! sourceChanged && ! movement.broken && havePrevious
+        // A named position inside an AAX chunk is not an observation; only host reports calibrate.
+        const bool preCounts = preReportCounts (pre.block.positionInterpolated, pre.reports, countedReports);
+        if (coherent && active && ! sourceChanged && ! movement.broken && havePrevious && ! post.positionInterpolated
             && ! post.loop.active && ! pre.anchor.loopKnown && pre.anchor.linearKnown)
         {
             std::int64_t postOrigin = 0, candidate = 0, address = 0;
@@ -254,8 +274,9 @@ public:
             {
                 if (valid && candidate != k && profile.invalidateOnDisagreement) invalidate();
                 if (streak == 0 || candidate != last) streak = 1;
-                else if (streak < profile.streak) ++streak;
+                else if (streak < profile.streak && preCounts) ++streak;
                 last = candidate;
+                countedReports = pre.reports;
                 if (streak >= profile.streak)
                 { k = candidate; valid = true; kind = LoopEntryKind::linear; }
             }
@@ -271,20 +292,19 @@ public:
         if (coherent && active && ! sourceChanged && ! postProofChanged && ! movement.broken
             && !logicRender (post) && havePrevious && post.loop.active && ! valid)
         {
-            const auto entry = initialLoopCandidate (pre.anchor, pre.block, post,
-                                                     cycle.known ? cycle.samples : 0,
-                                                     rate, capacity);
+            const auto entry = initialLoopCandidate (pre.anchor, pre.block, post, postCycle, rate, capacity);
             failure = entry.failure;
-            if (entry.valid)
+            if (entry.valid && ! post.positionInterpolated)
             {
                 if (streak == 0 || entry.k != last || entry.kind != candidateKind) streak = 1;
-                else if (streak < profile.streak) ++streak;
+                else if (streak < profile.streak && preCounts) ++streak;
                 last = entry.k;
                 candidateKind = entry.kind;
+                countedReports = pre.reports;
                 if (streak >= profile.streak)
                 { k = entry.k; valid = true; kind = entry.kind; }
             }
-            else if (entry.failure != LoopEntryFailure::observingCycle)
+            else if (! entry.valid && entry.failure != LoopEntryFailure::observingCycle)
                 streak = 0;
         }
         havePrevious = active;
@@ -311,7 +331,7 @@ public:
         return { coherent && active && (runtimeProof ? loopReady
                     : (linearReady || loopReady || (corroborated && inObservedRange))),
                  k, post.clock, generation, pre.ownerA, pre.ownerB,
-                 cycle.known ? cycle.samples : 0, kind,
+                 postCycle, kind,
                  valid ? LoopEntryFailure::none : failure };
     }
     // A torn metadata snapshot is not a source discontinuity. Track POST's continuity using the
@@ -334,6 +354,7 @@ private:
     std::uint64_t generation = 0;
     std::int64_t k = 0, last = 0, lastAge = 0;
     int streak = 0;
+    std::uint16_t countedReports = 0;
     LoopEntryKind kind = LoopEntryKind::none, candidateKind = LoopEntryKind::none;
     BlockClock previousPost;
     bool valid = false, haveSource = false, havePrevious = false, havePostProof = false;

@@ -14,7 +14,9 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-constexpr std::uint32_t ringVersion = 10;
+// PRE and POST ship together. 11: PRE names positions the host did not report (INV-LC27), which a
+// reader of an older version would count as observations, so it must not find this ring at all.
+constexpr std::uint32_t ringVersion = 11;
 constexpr std::uint32_t ringChannels = 2;
 constexpr std::uint32_t ringCapacityFrames = 1u << 20; // power of two: about 5.46 s at 192 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
@@ -65,6 +67,7 @@ struct RingHeader
     std::atomic<std::int64_t> writeEnd { 0 };
     std::atomic<std::uint64_t> published { 0 };
     std::atomic<std::uint64_t> timingGeneration { 0 }; // PCM's PRE generation, covered by seq
+    std::atomic<std::uint32_t> reportWord { 0 };       // as TimingHeader::flags reads it, covered by seq
     // One continuity-checked anchor, not a descriptor/PCM history expansion. These fields are
     // covered by seq and valid only in this run. A loop anchor never calibrates an initial K.
     std::atomic<std::int64_t> runProject { 0 }, loopClock { 0 }, loopProject { 0 };
@@ -99,6 +102,7 @@ struct Ring
         h.writeEnd.store (0, std::memory_order_relaxed);
         h.published.store (0, std::memory_order_relaxed);
         h.timingGeneration.store (0, std::memory_order_relaxed);
+        h.reportWord.store (0, std::memory_order_relaxed);
         h.anchorFlags.store (0, std::memory_order_relaxed);
         h.timing.flags.store (0, std::memory_order_relaxed);
         h.timing.proof.store (0, std::memory_order_relaxed);
@@ -178,6 +182,7 @@ private:
         }
         const bool newRun = ! haveRun || block.clock != runEnd || continuity.broken
             || (wasLooping && ! block.loop.active);
+        const bool reported = ! block.positionInterpolated; // anchors come from host reports only
         const auto seq = h.seq.load (std::memory_order_relaxed);
         h.seq.store (seq + 1, std::memory_order_relaxed);
         std::atomic_thread_fence (std::memory_order_release);
@@ -187,10 +192,22 @@ private:
             h.runStart.store (block.clock, std::memory_order_relaxed);
             h.writeEnd.store (block.clock, std::memory_order_relaxed);
             h.runProject.store (block.project, std::memory_order_relaxed);
-            h.anchorFlags.store (block.playing && block.projectValid && ! block.loop.active ? 1u : 0u,
+            h.anchorFlags.store (block.playing && block.projectValid && ! block.loop.active && reported ? 1u : 0u,
                                  std::memory_order_relaxed);
         }
-        if (block.loop.active && (newRun || ! wasLooping) && block.loop.usable (h.sampleRate.load (std::memory_order_relaxed)))
+        else if (awaitingReport && reported && block.playing && block.projectValid && ! block.loop.active)
+        {
+            // This run began between two host reports: its origin comes from the first report.
+            std::int64_t origin = 0;
+            if (checkedClockSubtract (block.clock, h.runStart.load (std::memory_order_relaxed), origin)
+                && checkedClockSubtract (block.project, origin, origin))
+            {
+                h.runProject.store (origin, std::memory_order_relaxed);
+                h.anchorFlags.store (1u, std::memory_order_relaxed);
+            }
+        }
+        if (block.loop.active && (newRun || ! wasLooping || awaitingReport) && reported
+            && block.loop.usable (h.sampleRate.load (std::memory_order_relaxed)))
         {
             h.loopClock.store (block.clock, std::memory_order_relaxed);
             h.loopProject.store (block.project, std::memory_order_relaxed);
@@ -201,6 +218,7 @@ private:
             h.anchorFlags.store (h.anchorFlags.load (std::memory_order_relaxed) | 2u, std::memory_order_relaxed);
         }
         wasLooping = block.loop.active;
+        awaitingReport = (newRun || awaitingReport) && ! reported;
         for (std::uint32_t channel = 0; channel < ringChannels; ++channel)
         {
             const auto* source = input[std::min (static_cast<int> (channel), inputChannels - 1)];
@@ -221,6 +239,9 @@ private:
         d.seq.store (dseq + 2, std::memory_order_release);
         h.writeEnd.store (block.clock + block.frames, std::memory_order_relaxed);
         h.timingGeneration.store (h.timing.generation.load (std::memory_order_acquire), std::memory_order_relaxed);
+        if (reported) ++reports;
+        h.reportWord.store ((reported ? 0u : timingNamedPosition) | (static_cast<std::uint32_t> (reports) << 16u),
+                            std::memory_order_relaxed);
         h.published.store (count + 1, std::memory_order_release);
         h.seq.store (seq + 2, std::memory_order_release);
         haveRun = true;
@@ -231,6 +252,7 @@ private:
     bool haveRun = false;
     std::int64_t runEnd = 0;
     LoopTimeline timeline;
-    bool wasLooping = false;
+    bool wasLooping = false, awaitingReport = false;
+    std::uint16_t reports = 0; // host-reported blocks published so far; wraps
 };
 }

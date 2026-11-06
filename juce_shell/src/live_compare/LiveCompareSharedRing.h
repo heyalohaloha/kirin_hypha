@@ -15,8 +15,8 @@ std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept;
 // macOS maps the ring with POSIX shared memory, Windows with a pagefile-backed named section.
 constexpr bool sharedRingAvailable() noexcept { return true; }
 
-// "/kh-lc10-" and 16 hex digits: 25 bytes, within the 31-byte POSIX shared-memory name limit.
-// Windows derives its section names from it ("Local\kh-lc10-...-slot").
+// "/kh-lc11-" and 16 hex digits: 25 bytes, within the 31-byte POSIX shared-memory name limit.
+// Windows derives its section names from it ("Local\kh-lc11-...-slot").
 std::string sharedRingName (std::uint64_t pairKey);
 
 // Non-RT owner of one mapping. PRE creates the ring for its own identity when its writes are
