@@ -231,6 +231,7 @@ namespace hypha::reference_audition
                 currentSnapshot.gainLimited = prepared.gainLimited;
                 currentSnapshot.comparisonFallbackOriginal =
                     prepared.comparisonFallbackOriginal;
+                currentSnapshot.rangeShortfallDb = prepared.rangeShortfallDb;
                 currentSnapshot.tracking = prepared.tracking;
                 trackingAnchorDb = prepared.anchorGainDb;
                 heldSelection = { currentSnapshot.playbackIdentity, prepared, true };

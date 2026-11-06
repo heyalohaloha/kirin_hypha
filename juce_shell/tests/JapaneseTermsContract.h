@@ -39,7 +39,6 @@ inline void verifyJapaneseTerms()
         { "Sharpness Delta", "Sharpness" },
         { "HEAD: the band envelope around the onset. The lines mark where PRE and POST rise through their peak - 20 dB; DELAY is the gap between them.", "Envelope" },
         { "DELAY: POST arrival minus PRE arrival in this band, ms; arrival is where the envelope rises through peak - 20 dB.", u8"音が始まる時刻" },
-        { "Level follow stopped 6 dB from the MATCH. The current gain is kept.", "Gain" },
         { "DAW delay compensation is off", u8"遅延補正（PDC）" },
         { "Switch Momentary / Short-term loudness", "Momentary" },
         { "Switch Momentary / Short-term loudness", "Short-term" },

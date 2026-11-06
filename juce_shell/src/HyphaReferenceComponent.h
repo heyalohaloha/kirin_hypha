@@ -197,7 +197,8 @@ struct State
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
     reference_audition::CuePart cuePart = reference_audition::CuePart::unknown;  // C の Cue が曲のどの部分か（凡例）
     std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（図の代わりに聴き比べの案内を出す）
-    double peakShortfallDb = 0.0;  // 鳴っている役が上限まで上げても A に届かない量（0.5 dB 以下）
+    double peakShortfallDb = 0.0;  // 鳴っている役が上限まで上げても A に届かない量（0 なら上限による不足なし）
+    double rangeShortfallDb = 0.0; // MATCH の幅で残る差（正：A より小さい、負：大きい）
     double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
     double cueLoudnessOffsetLu = 0.0;  // C の鳴らす音が cueLoudness より大きく測れる量（mono を stereo の track で +3.01 LU）
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）

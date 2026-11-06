@@ -15,7 +15,7 @@ struct VisualBinding;
 // B・V の追従 gain。live PRE/POST 比較の AUTO（INV-LC16）と同じ値で動かす：1 秒ごとに測り直し、
 // 0.5 dB 以内は動かさず、動かすときは Audio Thread で 50 ms の直線の ramp。上限（True Peak）を超える
 // gain は上限まで上げて追従を続け、届かない量を言う。利用者の MATCH の gain から ±6 dB を超える gain には
-// 動かさず、追従を止めて理由を出す（R-28：利用者が選んだ試聴のことは黙らない）。
+// 動かさず、範囲の端で追従を続け、残る差を言う。ceiling は幅より優先し、必要なら下限より下げる。
 // 動かすのは参照の試聴コピーだけで、A は動かさない。C は Match の後に固定で、追従しない。
 inline constexpr double trackingIntervalSeconds = 1.0;
 inline constexpr double trackingToleranceDb = 0.5;
@@ -25,8 +25,7 @@ inline constexpr double trackingRangeDb = 6.0;
 enum class TrackingAction : std::uint8_t
 {
     keep,        // 0.5 dB 以内、または測れていない（窓が足りない・無音）。今の gain を保つ
-    move,        // gainDb へ動かす
-    stopRange    // gainDb が MATCH の gain から ±6 dB を超える。動かさず、追従を止める
+    move         // gainDb へ動かす（上限でも追従は続く）
 };
 
 // C の MATCH をもう一度（鳴っている C の gain を今の A の窓で決め直して固定する）の結果。
@@ -43,7 +42,8 @@ struct TrackingStep
 {
     TrackingAction action = TrackingAction::keep;
     double gainDb = 0.0;
-    double shortfallDb = 0.0;  // 上限で届かない量
+    double shortfallDb = 0.0;  // ピーク上限で届かない量
+    double rangeShortfallDb = 0.0; // 幅の端で残る差（正：A より小さい、負：A より大きい）
 };
 
 // 選ぶときと同じ上限：gain を掛けた参照の peak は max(−1 dBTP, A の max TP, 参照の max TP) を超えない。

@@ -173,6 +173,17 @@ void versionFollow (const juce::File& root, int trackChannels, int sourceChannel
     for (auto& entry : history) entry.lufs_m = {aLufs + 1, aLufs + 1, aLufs + 1};
     require (controller.followAudition (history, -6) == ref::TrackingAction::move
         && std::abs (controller.snapshot().appliedGainDb - 1.0) < 0.01, "a real one-dB change still follows");
+    for (const double delta : { -5.9, -6.0, -8.0, -9.0, -3.0 })
+    {
+        for (auto& entry : history) entry.lufs_m = {aLufs + delta, aLufs + delta, aLufs + delta};
+        controller.followAudition (history, -6);
+        const auto followed = control::roleFor (controller, {1}).snapshot();
+        const auto target = std::max (-6.0, delta);
+        require (followed.bSelected && followed.tracking == ref::TrackingState::following
+                     && std::abs (followed.appliedGainDb - target) < 0.11
+                     && std::abs (followed.rangeShortfallDb - (delta - target)) < 0.11,
+                 "aligned V keeps following at the range boundary and automatically returns within it");
+    }
     require (juce::SHA256 (file).toHexString() == fileHash, "Version audition preserves the source bytes");
     controller.selectA();
     std::cout << "mono Version follow on " << trackChannels << " channels PASS\n";

@@ -307,6 +307,7 @@ namespace hypha::reference_audition
             next.appliedGainDb = currentSnapshot.appliedGainDb;
             next.gainLimited = currentSnapshot.gainLimited;
             next.peakShortfallDb = currentSnapshot.peakShortfallDb;
+            next.rangeShortfallDb = currentSnapshot.rangeShortfallDb;
             next.comparisonFallbackOriginal = currentSnapshot.comparisonFallbackOriginal;
             next.aIntegratedLoudness = currentSnapshot.aIntegratedLoudness;
             next.aMaximumTruePeakDbtp = currentSnapshot.aMaximumTruePeakDbtp;

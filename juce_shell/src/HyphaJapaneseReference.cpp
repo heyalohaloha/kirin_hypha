@@ -21,7 +21,6 @@ const Entry entries[] = {
     { "TARGET UNAVAILABLE", u8"目標を選べません" },
     { "DROP AUDIO", u8"音声をドロップ" },
     { "REMOVE TARGET", u8"目標を削除" },
-    { "MEASURING", u8"測定中" },
     { "MEASURING %1%", u8"測定中 %1%" },
 
     { "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND HYPHA", u8"Referenceの形式を読めません ／ Kirin OSとHyphaを最新に" },

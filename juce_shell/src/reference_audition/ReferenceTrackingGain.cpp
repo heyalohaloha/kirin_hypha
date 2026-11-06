@@ -41,13 +41,21 @@ TrackingStep trackingStep (double requiredGainDb, double currentGainDb, double s
 {
     if (! std::isfinite (requiredGainDb) || requiredGainDb < -100.0 || requiredGainDb > 100.0 || ! std::isfinite (currentGainDb))
         return {};
-    // 上限で届かないときは上限まで上げて追従を続ける（止めない）。gain が動かなくても届かない量は今の A で言う。
-    const auto shortfall = referencePeakShortfallDb (requiredGainDb, sourcePeakDbtp, aPeakDbtp, heldAttenuationDb);
-    if (std::abs (requiredGainDb - currentGainDb) < trackingToleranceDb) return { TrackingAction::keep, currentGainDb, shortfall };
-    const auto target = requiredGainDb - shortfall;
-    if (std::isfinite (anchorGainDb) && std::abs (target - anchorGainDb) > trackingRangeDb + 1.0e-9)
-        return { TrackingAction::stopRange, target, shortfall };
-    return { TrackingAction::move, target, shortfall };
+    const auto held = std::isfinite (heldAttenuationDb) ? std::min (0.0, heldAttenuationDb) : 0.0;
+    const auto ceilingGain = referenceGainHeadroomDb (sourcePeakDbtp, std::isfinite (aPeakDbtp) ? aPeakDbtp + held : aPeakDbtp) - held;
+    const auto ranged = std::isfinite (anchorGainDb)
+        ? std::clamp (requiredGainDb, anchorGainDb - trackingRangeDb, anchorGainDb + trackingRangeDb) : requiredGainDb;
+    // ceiling を守るためなら MATCH の幅より下げる。許容差の内側でも ceiling の上には残さない。
+    const auto target = std::min (ranged, ceilingGain);
+    // 許容差は ceiling で切り詰める前の要求で判定し、到達後は同じ ramp を繰り返さない。
+    const bool move = currentGainDb > ceilingGain + 1.0e-9 || std::abs (target - currentGainDb) >= trackingToleranceDb
+        || (ranged >= ceilingGain && currentGainDb < ceilingGain && requiredGainDb - currentGainDb >= trackingToleranceDb);
+    const auto applied = move ? target : currentGainDb;
+    const auto peakShortfall = referencePeakShortfallDb (requiredGainDb, sourcePeakDbtp, aPeakDbtp, held);
+    const auto shortfall = peakShortfall > 0.0 && ranged >= ceilingGain ? requiredGainDb - applied : peakShortfall;
+    const auto rangeShortfall = std::abs (ranged - requiredGainDb) > 1.0e-9 && ranged <= ceilingGain
+        ? requiredGainDb - applied : 0.0;
+    return { move ? TrackingAction::move : TrackingAction::keep, applied, shortfall, rangeShortfall };
 }
 
 PairedWindowLoudness pairedWindowLoudness (const std::vector<KirinMeterHistoryEntry>& history,

@@ -25,7 +25,7 @@ int RuntimeV2Controller::matchWindowBlocks() const
 // 選んでいるあいだ 1 秒ごとに、A の直近の窓から gain を求め直す（メッセージスレッド）。
 // B は「A の直近 10 秒 − 鳴らしている Cue の値（無ければ曲全体）」、V は「A の直近 10 秒 − 位置合わせで
 // 対応する V の同じ内容」。窓が足りない（再生直後・シークの後・無音）ときは今の gain を保つ。
-// 上限で届かないあいだも追従を続ける（±6 dB で止めたものは今までどおり再開しない）。
+// ceiling・MATCH の幅で届かないあいだも追従を続け、範囲へ戻れば同じ選択のまま合わせる。
 TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                                      double aSessionPeakDbtp) noexcept
 {
@@ -79,6 +79,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         if (std::isfinite (required) && normalSelectionGeneration.load (std::memory_order_acquire) == generation
             && bSelected.load (std::memory_order_acquire) && currentSnapshot.tracking == TrackingState::following)
         {
+            currentSnapshot.rangeShortfallDb = step.rangeShortfallDb;
             noteShortfallLocked (step.shortfallDb, required);
             holdCurrentGainLocked();
         }
@@ -89,14 +90,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation
         || ! bSelected.load (std::memory_order_acquire) || currentSnapshot.tracking != TrackingState::following)
         return TrackingAction::keep;
-    if (step.action == TrackingAction::stopRange)
-    {
-        currentSnapshot.tracking = TrackingState::stoppedRange;
-        // gain は動かないので、足りない量は今の gain からの差。上限に当たらないなら A を下げる話ではない。
-        noteShortfallLocked (step.shortfallDb > 0.0 ? required - currentGain : 0.0, required);
-        holdCurrentGainLocked();
-        return step.action;
-    }
+    currentSnapshot.rangeShortfallDb = step.rangeShortfallDb;
     noteShortfallLocked (step.shortfallDb, required);  // 先に書く：戻す控え（applyMatchedGainLocked）にも同じ量が入る
     applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
                             louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
