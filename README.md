@@ -958,9 +958,12 @@ playing. Receiving or restoring settings never starts a role.
 Integrated loudness from Kirin OS (the whole song when the Cue has no value); V pairs A with the
 aligned V content over the same window. Following never raises the copy above
 max(−1 dBTP, A's maximum true peak, the source's maximum true peak): at the ceiling it stays there,
-keeps following and says how far under A it plays. It never moves more than 6 dB from the gain of
-the MATCH you started (the same range as AUTO in the live PRE/POST compare); at that limit it stops, keeps the
-current gain and says so, once while you listen to the same role. C compares A's gated loudness over
+keeps following and says how far under A it plays. Following stays within 6 dB of the gain of
+that MATCH (the same range as AUTO in the live PRE/POST compare), except lower when the ceiling
+requires it. At either edge it keeps following; a difference over 0.5 dB appears as a short status
+tag (2.0 DB UNDER A / OVER A (FOLLOW LIMIT)). It automatically matches again when the level returns
+within range, using the same MATCH. Only the audition gain changes: A, measurements and Record stay
+unchanged. C compares A's gated loudness over
 the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated loudness. Pressing C
 plays it at once, matched to the A heard so far, and when A has played for the Cue's length (at most
 30 s) C matches once more and stays fixed, so that a fixed gain is not set from a few seconds; until
@@ -1000,8 +1003,8 @@ match exceeds the ceiling still requires explicit approval. Offline render, a mi
 source, or a failed check leaves A playing.
 
 **Status.** The status line says one of three things, with a dot: ready (cyan: what plays
-and how its level is held — following A, matched and fixed, stopped 6 dB from the match, or original
-level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
+and how its level is held — following A, held at a limit with its remaining difference, matched
+and fixed, or original level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
 unavailable (grey: the reason and its one fix, such as ranking a Reference set in Kirin OS). Its parts are in
 order of importance — how the role plays, how far it is under A, then the rest — and where the line is
 narrower than all of them it shows the parts that fit whole instead of cutting one; pointing at a

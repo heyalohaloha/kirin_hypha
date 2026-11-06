@@ -85,13 +85,17 @@ public:
         audio = std::thread ([this] { processAudio(); });
         startTimer (20);
     }
-    ~LowerAProduct() override { stopTimer(); running.store (false); audio.join(); }
+    ~LowerAProduct() override
+    {
+        stopTimer(); running.store (false); audio.join();
+        if (trackingEditor) post->editorBeingDeleted (trackingEditor.get());
+    }
     bool passed = false;
 
 private:
     Sample input (std::int64_t position) const
     {
-        const auto value = signal[static_cast<std::size_t> (position) % signal.size()];
+        const auto value = signal[static_cast<std::size_t> (position) % signal.size()] * inputGain.load();
         if constexpr (std::is_same_v<Sample, double>) return std::nextafter (static_cast<double> (value), 1.0);
         return value;
     }
@@ -195,13 +199,65 @@ private:
                              && ! post->outputDecision (Activity::versionBlind).refused(),
                          "after RETURN, LISTEN and Blind may start");
                 require (post->getLatencySamples() == 0, "Reference, offline, bypass and RETURN add no latency");
+                mode.store (0);
+                post->setObservatoryDomainPreference (static_cast<uint8_t> (hypha::observatory::Domain::reference));
+                trackingEditor.reset (dynamic_cast<KirinHyphaEditor*> (post->createEditorIfNeeded()));
+                require (trackingEditor != nullptr, "create the shipping editor for tracking");
+                trackingEditor->setVisible (true);
+                require (post->selectReferenceRef(), "B starts a new MATCH before the tracking scenario");
+                stage = 9;
+                break;
+            case 9:
+                if (state.audibleComparisonSlot != 3 || ! state.referenceSelection) break;
+                initialRequired = state.referenceSelection->appliedGainDb + state.referenceSelection->peakShortfallDb;
+                inputGain.store (static_cast<float> (std::pow (10.0, -(initialRequired + 10.0) / 20.0)));
+                stageBlocks = blocks.load(); stage = 10;
+                break;
+            case 10:
+            case 11:
+            {
+                if (blocks.load() < stageBlocks + 48000 * 12 / frames) break;
+                require (state.referenceSelection && state.audibleComparisonSlot == 3, "B remains selected through the limit");
+                const auto& b = *state.referenceSelection;
+                const bool limited = stage == 10;
+                require (b.tracking == ref::TrackingState::following && post->referenceHeldAttenuationDb() == 0.0
+                             && b.matchFailure == ref::MatchFailure::none,
+                         "the processor follows without lowering A or stopping at the range edge");
+                require (std::abs (b.appliedGainDb - (limited ? -6.0 : -3.0)) <= ref::trackingToleranceDb + 1.0e-6
+                             && (limited ? b.rangeShortfallDb < -3.5 : b.rangeShortfallDb == 0.0),
+                         "real A history clamps at MATCH minus 6 dB, then automatically follows back inside");
+                auto* editor = dynamic_cast<KirinHyphaEditor*> (post->getActiveEditor());
+                require (editor != nullptr, "the real editor remains available");
+                hypha::tests::target_editor::refresh (*editor, {});
+                auto* panel = findPanel (*editor);
+                require (panel && std::abs (panel->state().rangeShortfallDb - b.rangeShortfallDb) < 0.01
+                             && hypha::reference_ui::referenceStatusLine (panel->state()).text.contains ("FOLLOW LIMIT") == limited,
+                         "the real editor publishes the remaining difference and clears the tag on return");
+                require (std::abs (auditionPeak.load() - 0.05 * std::pow (10.0, b.appliedGainDb / 20.0)) < 0.001,
+                         "the range-limited gain reaches the actual processor audition output");
+                KirinMeterSession meter {};
+                require (post->pollMeterSession (meter) && std::abs (meter.lufs_m - (beforeLufs + 20 * std::log10 (inputGain.load()))) < 0.2,
+                         "measurements still describe the unchanged A input while B is range-limited");
+                if (limited)
+                {
+                    inputGain.store (static_cast<float> (std::pow (10.0, -(initialRequired + 3.0) / 20.0)));
+                    stageBlocks = blocks.load(); stage = 11; break;
+                }
+                post->selectReferenceA();
                 std::cout << "Reference lower A product: PASS lowered " << needed << " dB\n";
                 passed = true;
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();
                 break;
+            }
             default: break;
         }
+    }
+    static hypha::reference_ui::Component* findPanel (juce::Component& root)
+    {
+        if (auto* panel = dynamic_cast<hypha::reference_ui::Component*> (&root)) return panel;
+        for (auto* child : root.getChildren()) if (auto* panel = findPanel (*child)) return panel;
+        return nullptr;
     }
     void processAudio()
     {
@@ -241,6 +297,7 @@ private:
                     }
 
                 }
+            if (stage >= 10) auditionPeak.store (loudest);
             if (current == 0 && stage == 3 && referenceTonePower (buffer.getReadPointer (0), frames) > 0.99) heardB.store (true);
             if (current == 0 && stage == 3) loweredPeak.store (std::max (loweredPeak.load(), loudest));
             if ((current == 0 && stage == 6) || current == 3) risePeak.store (std::max (risePeak.load(), loudest));
@@ -262,10 +319,13 @@ private:
     std::vector<float> signal;
     Clock clock;
     std::unique_ptr<Processor> post;
+    std::unique_ptr<KirinHyphaEditor> trackingEditor;
     std::thread audio;
     std::atomic<bool> running { true }, heardB { false };
     std::atomic<int> mode { 0 }, verified { 0 }, mismatches { 0 };  // 0 通常、1 オフライン、2 bypass、3 RETURN、4 確かめ
     std::atomic<std::int64_t> blocks { 0 };
+    std::atomic<float> inputGain { 1.0f }, auditionPeak { 0.0f };
+    double initialRequired = 0.0;
     std::atomic<float> loweredPeak { 0.0f }, risePeak { 0.0f };
     std::int64_t stageBlocks = 0;
     std::atomic<int> stage { -1 };

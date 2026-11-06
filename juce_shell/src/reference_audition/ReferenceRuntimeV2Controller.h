@@ -192,6 +192,7 @@ namespace hypha::reference_audition
             TrackingState tracking = TrackingState::none;
             double anchorGainDb = 0.0; // 利用者の MATCH の gain。追従はここから ±6 dB まで（戻すときも同じ値）
             double peakShortfallDb = 0.0;  // 上限で届かない量
+            double rangeShortfallDb = 0.0; // MATCH の幅で残る差（正：A より小さい、負：大きい）
             double requiredGainDb = 0.0;   // 上限が無ければ掛ける gain（A を下げる申し出の量）
             bool valid = false;
         };

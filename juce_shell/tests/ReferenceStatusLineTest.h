@@ -1,7 +1,7 @@
 #pragma once
 
 // 状態の帯。全ての段階が 聴ける／準備中／できない のどれか 1 つに入り、準備中とできないには進め方か
-// 直し方が 1 つ書いてある。聴いているあいだは合わせ方（追従・固定・上限で停止・原音量）を言う。
+// 直し方が 1 つ書いてある。聴いているあいだは合わせ方（追従・固定・上限で保持・原音量）を言う。
 #include "ReferenceGuideContractTest.h"
 
 #include "../src/HyphaLanguage.h"
@@ -42,7 +42,6 @@ inline void verifyReferenceStatusLine()
     for (const auto& [slot, tracking, original, expected] : {
              std::tuple { 1, Tracking::following, false, "V FOLLOWING A (LAST 10 S)" },
              std::tuple { 2, Tracking::fixed, false, "C MATCHED AND FIXED" },
-             std::tuple { 1, Tracking::stoppedRange, false, "V FOLLOW STOPPED 6 DB FROM MATCH" },
              std::tuple { 2, Tracking::none, true, "C ORIGINAL LEVEL" } })
     {
         playing.audibleComparisonSlot = slot;
@@ -54,6 +53,22 @@ inline void verifyReferenceStatusLine()
         require (i18n::translate (line.text, i18n::Language::japanese) != line.text,
                  "the audible line reads in Japanese: " + line.text);
     }
+    for (const int slot : { 1, 3 })
+        for (const double residual : { -2.0, -0.5, 0.0, 0.5, 2.0 })
+        {
+            auto limited = playing;
+            limited.audibleComparisonSlot = slot; limited.originalAudition = false;
+            limited.tracking = Tracking::following; limited.rangeShortfallDb = residual;
+            const auto text = reference_ui::referenceStatusLine (limited).text;
+            require (text.contains ("FOLLOW LIMIT") == (std::abs (residual) > 0.5),
+                     "only a residual outside tolerance shows the range limit tag");
+            if (std::abs (residual) > 0.5)
+                require (text.startsWith (juce::String (reference_ui::roleLetter (slot)) + " 2.0 DB")
+                             && text.contains (residual > 0 ? "UNDER A" : "OVER A")
+                             && i18n::translate (text, i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"Aより2.0 dB"))
+                             && i18n::translate (text, i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"追従上限")),
+                         "both roles report the signed residual first in both languages");
+        }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.audibleComparisonSlot = 3;
     playing.tracking = Tracking::following;
@@ -101,6 +116,10 @@ inline void verifyReferenceStatusLine()
                  && i18n::translate ("LOWER A 8.0 DB", i18n::Language::japanese) != "LOWER A 8.0 DB",
              "a role short of A keeps playing, says how far short, and its button says the fix: " + offerLine.text);
 
+    offered.rangeShortfallDb = 9.0;
+    require (reference_ui::referenceStatusLine (offered).text == "9.0 DB UNDER A",
+             "when both limits apply the compact approval line reports the actual remaining difference");
+
     // 2026-10-04：上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしているときは、その量を言う。
     {
         auto under = playing;
@@ -117,7 +136,7 @@ inline void verifyReferenceStatusLine()
     playing.audibleComparisonSlot = 1;
     playing.appliedGainDb = 4.0;
     playing.heldAttenuationDb = -2.5;
-    for (const auto tracking : { Tracking::following, Tracking::fixed, Tracking::stoppedRange })
+    for (const auto tracking : { Tracking::following, Tracking::fixed })
     {
         playing.tracking = tracking;
         require (reference_ui::gainReadout (playing) == "V +1.5 dB", "the gain readout is the playing role's gain only");

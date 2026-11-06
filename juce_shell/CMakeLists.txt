@@ -776,6 +776,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceRangeStrips.cpp
         src/reference_audition/ReferenceDynamicsRange.cpp
+        src/reference_audition/ReferenceLiveWindowLoudness.cpp
 
         src/HyphaReferenceComparisonView.cpp
 

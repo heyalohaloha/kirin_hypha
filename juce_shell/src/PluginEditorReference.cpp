@@ -181,14 +181,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const auto& audible = runtime.audibleComparisonSlot == 1 || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive
         ? versionSelection : runtime.audibleComparisonSlot == 3 ? referenceSelection : checkSelection;
     const bool callbackLive = processorRef.heartbeatLive();
-    // 追従が上限（True Peak）か MATCH から ±6 dB で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
-    // 上限で止めた追従は A が静かになると下げる向きで戻るので、同じ役を聴いているあいだは止まり直しても知らせない
-    // （止まっているかは状態の行が言う）。
-    // 鍵は役と MATCH の試みの番号：停止・シーク・ループで自動に戻っても同じ試みなので、知らせは出し直さない。
-    using Tracking = hypha::reference_audition::TrackingState;
-    if (referenceTrackingStop.update (runtime.bSelected, runtime.audibleComparisonSlot, audible.matchAttempt,
-                                      audible.tracking == Tracking::stoppedRange))
-        showToast (hypha::reference_ui::notice::trackingStopped());
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
     const bool connected = runtime.libraryReceived;
@@ -309,6 +301,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     state.appliedGainDb = runtime.bSelected ? audible.appliedGainDb : runtime.appliedGainDb;
     state.peakShortfallDb = runtime.bSelected ? audible.peakShortfallDb : 0.0;
+    state.rangeShortfallDb = runtime.bSelected ? audible.rangeShortfallDb : 0.0;
     {
         auto shown = hypha::reference_ui::runtimeStatus (runtime, state);
         state.status = std::move (shown.status);

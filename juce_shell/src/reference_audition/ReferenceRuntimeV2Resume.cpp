@@ -105,6 +105,7 @@ void RuntimeV2Controller::holdCurrentGainLocked() noexcept
     facts.loudnessDeltaBMinusA = currentSnapshot.loudnessDeltaBMinusA;
     facts.truePeakDeltaBMinusA = currentSnapshot.truePeakDeltaBMinusA;
     facts.tracking = currentSnapshot.tracking;
+    facts.rangeShortfallDb = currentSnapshot.rangeShortfallDb;
     facts.peakShortfallDb = currentSnapshot.peakShortfallDb;  // 戻したときも同じ「上限で届かない量」を言う
 }
 }

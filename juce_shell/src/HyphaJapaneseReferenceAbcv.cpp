@@ -29,10 +29,6 @@ const Entry entries[] = {
     { "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN", u8"30秒再生しても位置が合いません / Versionを選び直す" },
     { "V is measured over the same section as A while they are aligned",
       u8"位置合わせしているあいだ、VをAと同じ区間で測ります" },
-    // 追従を MATCH から ±6 dB で止めたとき（live 比較の AUTO と同じ幅）。
-    { "%1 FOLLOW STOPPED 6 DB FROM MATCH", u8"%1の追従はMATCHから6 dBで停止" },
-    { "Level follow stopped 6 dB from the MATCH. The current gain is kept.",
-      u8"音量の追従はMATCHから6 dBで停止。今のGainを保ちます。" },
     // Kirin OS のセット（sets.json）を読めなかったとき。
     // 外した Kirin OS の項目（HyphaReferenceNotices.h の librarySkipped）。
     { "%1: name not readable. Rename it in Kirin OS.", u8"%1の名前を読めません。Kirin OSで名前を直してください。" },
@@ -116,6 +112,8 @@ const Entry entries[] = {
     { "LOW FREQUENCY", u8"低域" },  // C の低域の Check の図の見出し（2026-10-18）
     // Kirin OS の組み込みの名前は、ここ（綴りで画面全体を訳す辞書）に置かない。組み込みの ID の項目だけを名前の欄で
     // 日本語名にする（HyphaReferenceDisplayText.h。2026-10-18：同じ綴りの自作の名前を訳さない）。
+    { "%1 %2 DB UNDER A (FOLLOW LIMIT)", u8"%1 Aより%2 dB小さい（追従上限）" },
+    { "%1 %2 DB OVER A (FOLLOW LIMIT)", u8"%1 Aより%2 dB大きい（追従上限）" },
     { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（Peak上限）" },
     { "%1 DB UNDER A", u8"Aより%1 dB小さい" },
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
