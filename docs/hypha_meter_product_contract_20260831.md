@@ -535,7 +535,7 @@ TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠�
 
 POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
 
-6秒の時間周波数fieldは、100%、125%、150%では縦軸を時間とする平面の濃淡、200%と300%では同じframeを奥へ並べた遠近の地形として描く（INV-S30、INV-S34）。PRE/POST対応のΔ表示は全サイズで平面のままとする。
+LRは全サイズで現在曲線とrolling peak holdだけを描き、6秒field・地形・時間軸札は描かない。測定と履歴の保持・切替は変えない。MIDとSIDEの6秒の時間周波数fieldは、100%、125%、150%では縦軸を時間とする平面の濃淡、200%と300%では同じframeを奥へ並べた遠近の地形として描く（INV-S30、INV-S34）。PRE/POST対応のΔ表示は全サイズで平面のままとする。
 
 POST FREQのM/Sは同じstereo入力窓をMID、SIDEの順で解析し、一つの専用frameとして公開する。
 
@@ -586,7 +586,7 @@ Footer（100%と125%では上段2行目）へ置く`VU`ボタンは通常時もH
 DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更せず、一時的なHybrid VU面を全sizeで前面表示する。
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。
-Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
+Hybrid VUのlive針は全波整流した線形振幅へ2次系（ζ=0.8127169864、ω=13.5119125625 rad/s、DC gain=1）を掛け、上昇・戻りとも99%へ300 ms、半分へ約112 ms、行き過ぎ1.25%とする。係数はprepare時に求め、44.1〜192 kHzで同じ時間応答とする。針の状態と速度をblockごとに公開し、callbackが途切れたhostでもUIが同じ0入力応答を継続する。公開状態の単調時刻と処理済み音声の先行時間を使い、非表示中の経過を再表示に反映し、正常なcallbackのまとめ処理では戻りを始めない。非有限入力を含むblockは全時間を左右とも0入力で進め、有限入力で自動復帰する。100 msの公開VUへ戻して針を止めない。公開の300 ms矩形平均VU、Capture、Record、足元の数値と校正は変更しない。既存の目盛り座標は保持する。Hybrid VUはこの左右の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
 通知は150%以上で既存の足元左（LIVE／HOLDの位置）に固定し、長文でもLRや解析図の上へ持ち上げない。100%／125%は既存の最下部stripを維持する。短い通知は足元のaction fontで一行に収める。2026-10-09の利用者選択により、同じ通知boundsへaction fontで入りきらない長文だけ既存legend font（最大16 px、最小11 px）を使う。LIVE／HOLD／CHAIN LOADと右のボタンは既存action font（最大18 px）を維持する。小さい文字でも入りきらない末尾は省略表示し、既存tooltipとクリックによる詳細には全文を保持する。Hybrid VUでは同じ最下部行の左通知と中央校正のboundsを分離し、針・LR・三つの測定値の描画領域と校正の中心位置を保持する。
 
 Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−14／−16／−18／−20 dBFSから選ぶ。左右は共通の一値とし、exactなPRE／POST pairは同じ基準を使う。選択中の値をcheck markで示す。新しいノブや音量操作は置かない。校正はdBFS値から針位置へ換算する表示設定で、300 msの測定窓・針の時間応答、音声、LUFS、Peak／TP、Session、Record／Keep、plugin_dataとwork.jsonは変更しない。
@@ -809,3 +809,5 @@ AUTOの非表示停止通知は、同じ比較が存続しAUTOが停止したま
 2026-10-10利用者選択：LEVEL／TIMEの同run比較currentは元の一致slot完了から1秒未満、local軸の差も1秒未満の通常PRE公開遅れの間、値とActiveを保持する。1000 ms以上で既存のSTALE／HOLDING／MEASURINGへ戻り、再poll／再joinで延長しない。seek／loop頭への復帰／run変更／停止／pause／pair・authority・layout変更と後続の確定欠測は即時失効する。絶対currentの400 ms期限、M／TPの400 msとS／PSRの3秒測定窓は維持する。FREQはLEVELの計測鮮度で状態行やMARKを切り替えず、pairのNoPair／PreBypassed／PreInactive／LayoutMismatch／LayoutUnknown／AuditionActive／未対応理由だけを使用する。FREQのΔ可用性は独立したspectrum状態に従う。
 
 Keepの結果のLEVEL Δは、そのKeep世代で最後に成立した同じ測定窓のPRE／POSTの差を保持する。未証明の窓の欄を旧値で補わず、停止後も同じ世代の値を維持する。Measure ThreadはWatchの残りを処理してから、Keepの観測spanと処理済みframeの境界を保存する。その境界より後の同じspanのexact点だけを当該世代へ採用し、Watchや前のKeepのActive点を新世代へ持ち越さない。明示的なMeter Sessionのリセットでは、すでに計測に入った継続中のKeepだけをリセット後のspanと観測境界へ結び直す。準備前のKeepへ境界を作らず、旧spanの点は採用しない。その世代でexactな差が一度も成立しなかった場合は従来のΔを表示する。保存RecordとTRACEの数値・形式、状態行の文言は変更しない。
+
+HeaderのMeter Context（2MIX／TRACK/STEM）の右にREFを同じcontrol styleで置き、開いている間は選択状態を示す。PREも同じ位置に無効表示する。計測タブとdomain menuはLEVEL／TIME／FREQ／SPACEの順とし、利用できないPREのFREQは無効のまま。REFのページ、license gate、ショートカットは変えない。POST／Δを並べる場合は同じ幅とする。足元のホバー説明だけを象牙色へ上げ、他の文字階層は保持する。

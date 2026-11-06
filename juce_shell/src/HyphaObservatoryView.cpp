@@ -45,6 +45,7 @@ View::View (Role roleIn) : role (roleIn)
     setMouseClickGrabsKeyboardFocus (false);
     initializeLevelHistoryControls(); initializeVuCalibrationControl();
     addAndMakeVisible (informationButton);
+    informationButton.setExplicitFocusOrder (1);
     informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton,
@@ -62,6 +63,10 @@ View::View (Role roleIn) : role (roleIn)
     frequencyButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::frequency); };
     spaceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::space); };
     referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
+    int focusOrder = 2;
+    for (auto* button : { &contextButton, &referenceButton, &levelButton, &timeButton,
+                          &frequencyButton, &spaceButton, &domainCycleButton, &targetButton, &deltaButton })
+        button->setExplicitFocusOrder (focusOrder++);
     referenceButton.setComponentID ("observatory-reference");
     setReferenceOwned (false);
     domainCycleButton.onClick = [this]

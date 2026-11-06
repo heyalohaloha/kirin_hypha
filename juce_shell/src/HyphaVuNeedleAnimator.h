@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HyphaVuNeedleMotion.h"
+#include "live_compare/CallbackWallClock.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 #include <memory>
@@ -50,7 +51,7 @@ public:
     }
 
     void snap (int channel, double target) noexcept { motion.snap (channel, target); }
-    void setLive (bool live) noexcept { motion.setLive (live); }
+    void accept (const LiveReading& reading) noexcept { motion.accept (reading, live_compare::callbackWallNanos()); }
     double position (int channel) const noexcept { return motion.position (channel); }
     void tickForTest (double dt) { dispatch (dt); }
 

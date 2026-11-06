@@ -38,13 +38,15 @@ public:
         if (changed) repaint();
     }
 
+    static juce::Colour textColour() noexcept { return COL_NORMAL; }
+
     const juce::String& shownText() const noexcept { return text; }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (BG);
         surface_material::paintPanel (g, (footerPanel - getPosition()).toFloat(), 0.76f, 4.0f);
-        g.setColour (COL_TEXT_SECONDARY);
+        g.setColour (textColour());
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
         text_style::drawEllipsized (g, text, getLocalBounds().reduced (8, 0), juce::Justification::centredLeft);
     }

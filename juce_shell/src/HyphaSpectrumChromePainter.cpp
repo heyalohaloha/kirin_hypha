@@ -199,7 +199,9 @@ namespace
                                                 juce::roundToInt (legendTop),
                                                 juce::roundToInt (outerPlot.getWidth()),
                                                 scaledInt (ui_contract::spectrumLegendHeight) };
-            const juce::String lead (scale > 1.4f ? "POST dBFS / 6s field / " : "POST dBFS / 6s");
+            const juce::String lead (state.channelMode == KIRIN_SPECTRUM_CHANNEL_LR
+                ? (scale > 1.4f ? "POST dBFS / " : "POST dBFS")
+                : scale > 1.4f ? "POST dBFS / 6s field / " : "POST dBFS / 6s");
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
             text_style::drawText (g, lead, legend, juce::Justification::centredLeft);
             if (scale > 1.4f)
@@ -358,7 +360,8 @@ void paint (juce::Graphics& g,
             && state.pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
             spectrum_painter::paintPostCurve (g, plot, scale, state.post);
         // Stopped: the six seconds already measured stay, dimmed, under the status.
-        if (state.absoluteObservation && ! state.midSideObservation && ! state.signalActive
+        if (state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR
+            && state.absoluteObservation && ! state.midSideObservation && ! state.signalActive
             && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
             stopped_history::paintDimmed (g, [&] {
                 spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory); });
@@ -395,7 +398,8 @@ void paint (juce::Graphics& g,
     else if (state.absoluteObservation && state.absoluteHistory != nullptr)
         spectrum_painter::paintAbsolute (g, plot, scale, state.post,
                                          state.absolutePeakHold,
-                                         *state.absoluteHistory, state.presentation);
+                                         *state.absoluteHistory, state.presentation,
+                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR);
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.deltaValid,

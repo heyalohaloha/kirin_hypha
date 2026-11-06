@@ -61,8 +61,9 @@ inline juce::String spectrumPlotTooltip()
     return "Move to inspect frequency and Delta. Click to lock Focus Trail.";
 }
 
-inline juce::String absoluteSpectrumPlotTooltip()
+inline juce::String absoluteSpectrumPlotTooltip (bool showHistory = true)
 {
+    if (! showHistory) return "POST Spectrum: current magnitude and rolling peak hold.";
     return "POST Spectrum: current magnitude, six-second field, and rolling peak hold.";
 }
 

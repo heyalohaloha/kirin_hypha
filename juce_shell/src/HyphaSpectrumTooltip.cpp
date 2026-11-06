@@ -120,7 +120,7 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
         tip = frequency > 0.0f && frequency < snapshot.approximate_below_hz
                 ? analysis_ui::approximateFrequencyTooltip()
                 : midSideObservation ? analysis_ui::midSideSpectrumPlotTooltip()
-                : absoluteObservation ? analysis_ui::absoluteSpectrumPlotTooltip()
+                : absoluteObservation ? analysis_ui::absoluteSpectrumPlotTooltip (channelMode != KIRIN_SPECTRUM_CHANNEL_LR)
                                       : analysis_ui::spectrumPlotTooltip();
     }
     if (tip != getTooltip())

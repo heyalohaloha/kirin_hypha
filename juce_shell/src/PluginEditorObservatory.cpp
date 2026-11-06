@@ -94,8 +94,10 @@ void KirinHyphaEditor::configureMeterContext()
         if (! processorRef.clearMeterPeakClipHolds())
             showToast ("TP / Clip CLEAR failed");
     };
+    observatoryView.onVuLiveReading = [this] { return processorRef.vuLive().reading(); };
     observatoryView.onHybridVuChange = [this] (bool visible)
     {
+        processorRef.vuLive().setEnabled (visible);
         processorRef.setManualHybridVuSelection (
             observatoryView.manualHybridVuVisible());
         resized();

@@ -176,7 +176,7 @@ inline void verifyFreq()
         }
         freq.setSignalActive (true);
         for (int index = 0; index < freq_showcase::frameCount; ++index)
-            freq.setSnapshot (freq_showcase::frame (index));
+            { auto frame = freq_showcase::frame (index); frame.channel_mode = KIRIN_SPECTRUM_CHANNEL_MID; freq.setSnapshot (frame); }
         const auto playing = paintOf (freq, bounds.width, bounds.height);
         freq.setSignalActive (false);
         bare.setSignalActive (false);

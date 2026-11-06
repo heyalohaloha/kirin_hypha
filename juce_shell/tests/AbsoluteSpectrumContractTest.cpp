@@ -1,4 +1,5 @@
 #include "AbsoluteSpectrumContractTest.h"
+#include "SpectrumLrSurfaceContract.h"
 #include "SpectrumLandscapeContract.h"
 
 #include "../src/HyphaAbsoluteSpectrumHistory.h"
@@ -354,6 +355,7 @@ void verifySixSecondFieldReadsAsTime()
 
 void verifyAbsoluteSpectrumContract()
 {
+    spectrum_lr_surface::verify();
     verifyLevelLandscape();
     verifySixSecondFieldReadsAsTime();
     verifyFieldIsContinuousAtAnyHostCadence();

@@ -92,7 +92,7 @@ public:
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
-    std::function<void()> onVuCalibrationMenu; std::function<double (int)> onVuLiveLevel; // needle's live VU per channel (HyphaVuLiveTap.h); NaN = use the publication
+    std::function<void()> onVuCalibrationMenu; std::function<hybrid_vu::LiveReading()> onVuLiveReading; // physical needle state; independent of published meter values
     std::function<void()> onClearPeakClipHolds;
     std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
@@ -465,7 +465,7 @@ private:
     Button timeButton { "TIME", true };
     Button frequencyButton { "FREQ", true };
     Button spaceButton { "SPACE", true };
-    Button referenceButton { "REF", true };
+    Button referenceButton { "REF", false };
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };

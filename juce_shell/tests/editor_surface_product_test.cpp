@@ -15,17 +15,16 @@
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
 #include "TestProcessorStorage.h"
+#include <thread>
 #include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <type_traits>
-
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
-
 namespace
 {
 using Processor = KirinHyphaProcessorBase;
@@ -109,6 +108,7 @@ struct HostClock final : juce::AudioPlayHead
     std::int64_t position = 0;
 };
 
+#include "VuTapProductCheck.h"
 void verifySavedReferenceChoices()
 {
     juce::XmlElement xml ("KirinHyphaState");
@@ -479,7 +479,7 @@ int main (int argc, char** argv)
         std::cout << "Editor shell repairs: PASS (PRE/POST, 3 Blind screens, host-thread restore)\n";
         return EXIT_SUCCESS;
     }
-    verifyRecordBodyOwnership();
+    verifyVuTapProduct(); verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
@@ -491,7 +491,7 @@ int main (int argc, char** argv)
     verifySavedReferenceChoices();
     verifyEditorShellRepairs();
     verifyTimeTabGeometry();
-    const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
+    const auto previews = juce::File (argc > 1 ? juce::String (argv[1]) : juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_UI_REFINEMENT_DIR", {}));
     verifyPairHeaderAtEverySize (previews);
     hypha::tests::editor_product::verifyObservatoryHelpLine (previews);
     auto contract = std::make_unique<SurfaceContract> (previews);

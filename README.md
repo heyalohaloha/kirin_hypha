@@ -594,8 +594,9 @@ SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exa
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
 
-When POST has no verified PRE, Spectrum shows POST on its own: the current curve, a rolling peak
-hold, and the **six-second field** behind them. The field is a second axis inside the same
+When POST has no verified PRE, Spectrum shows POST on its own: the current curve and a rolling
+peak hold. **LR** keeps this flat view at every size, without a history field or receding ridges.
+**MID** and **SIDE** retain the **six-second field** behind them. The field is a second axis inside the same
 rectangle — vertical is time, not level. The newest observation is drawn along the bottom edge and
 rises as it ages, leaving the top edge six seconds later, so a resonance that appeared, a sweep, or
 a level move traces a visible shape. Each of its 180 rows is one thirtieth of a second and shows
@@ -605,14 +606,15 @@ between observations. A row stays empty when the nearest observation is further 
 cadence the host is actually publishing at, so the field is continuous at any buffer size while a
 break in the measurement stays a break in the field.
 
-At 200% and 300% the same six seconds are drawn as a landscape instead of a flat field. The newest
+For MID and SIDE at 200% and 300%, the same six seconds are drawn as a landscape instead of a flat field. The newest
 spectrum stands on the plot itself as the front ridge, on the same frequency and level axes as the
 curve, and older spectra recede toward a horizon: higher, narrower, and fainter with age. Each of
 the 24 ridges is the one observation nearest its age, keeping the loudest band in each of its 96
 columns so a narrow peak is not thinned away. A ridge with no observation within half a ridge
 spacing is left out and grid lines join only neighbouring ridges, so a gap stays a gap and two lone
 observations never grow a range between them. The landscape adds no value to the reading; the
-current curve drawn over it does. The paired Δ view stays flat. At these two sizes the plot also
+current curve drawn over it does. LR and the paired Δ view stay flat. Hiding LR history does not
+change measurement, peak hold or the retained history; changing the display does not discard it. At these two sizes the plot also
 names what it draws (`Δ(f) = POST(f) - PRE(f)` or `L(f) = POST(f)`) and the analysis behind it —
 aperture, FFT size, band count, and presentation rate — read from the frame itself.
 
@@ -630,7 +632,7 @@ an unobtrusive `~` prefix. The measured band and Δ remain visible and are not d
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
 All Analysis hover help wraps and repositions inside the plug-in at every size. At 300 % and above,
 pointing at an item on LEVEL, TIME, FREQ, SPACE or REF's B, C and V shows its help in one line over
-the footer instead of a popup: across the whole footer row for the graphs, values and tabs (what the
+the footer instead of a popup, in readable ivory text: across the whole footer row for the graphs, values and tabs (what the
 item is and how it is used; PLR, for one, reads as the song's average dynamics, compared between PRE
 and POST to see how much limiting reduced it), and in the status at the left for the footer's own
 controls, which stay in view. The popup at 200 % and below keeps the full text. **MENU → Display →
@@ -1422,6 +1424,12 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
+The header places **REF** immediately after **2MIX / TRACK/STEM**. It opens the same Reference
+page, lights when that page is open, and retains the existing Kirin OS license and connection help.
+PRE shows the same header action disabled. The measurement row and its view menu contain
+**LEVEL / TIME / FREQ / SPACE**; PRE keeps unavailable FREQ disabled. POST and Δ have equal-width
+buttons wherever both are shown. Reference shortcuts and saved page selection are unchanged.
+
 At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
 and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
 persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
@@ -1445,6 +1453,17 @@ the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
+
+The live needles use a second-order moving-coil response on full-wave rectified input, with unity
+steady gain: 300 ms to the first 99% crossing, 1.25% overswing, and about 112 ms to halfway,
+identically on rise and return. Coefficients are prepared for the current sample rate. The UI
+continues the same position and velocity toward rest if callbacks stop; it never substitutes a
+stale published reading. Publications retain their monotonic time and processed audio horizon,
+so reopening accounts for hidden time and normal callback bursts keep a steady needle. Invalid
+blocks advance both needles with zero input for the entire block. This display path leaves Rust's 300 ms VU values, footer numerals,
+Capture, Record and calibration unchanged. The engraved dial mapping is retained; its coordinates
+are not a linear amplitude scale. These are specified model timings, not a measurement of a
+particular physical meter.
 
 Click **0 VU = −18 dBFS** below the meter to choose **−12, −14, −16, −18 or −20 dBFS**
 (default −18). Both needles use the same reference, and an exact PRE/POST pair shares that
