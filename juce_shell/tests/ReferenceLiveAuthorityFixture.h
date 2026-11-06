@@ -126,13 +126,22 @@ void resetForFreshBlindCapture (ref::RuntimeV2Controller& controller, const ref:
             && control::captureFor (controller, {}).currentAudio() == nullptr;
     }), "the public disconnect receipt proves this capture reset has completed");
     controller.configure (identity, 48'000, 2);
-    require (control::waitUntil (deadline(), [&] {
+    // Source verification and decoding are non-RT preparation, independent of the four-second capture.
+    const auto started = std::chrono::steady_clock::now();
+    const bool prepared = control::waitUntil (started + std::chrono::seconds (30), [&] {
         const auto state = controller.snapshot();
         return state.state == ref::RuntimeState::ready && state.playbackIdentity == expected.playbackIdentity
             && state.manifestRevision == expected.manifestRevision && state.aBindingAvailable
             && control::captureEnabledFor (control::captureFor (controller, {}), {})
             && control::captureFor (controller, {}).currentAudio() == nullptr;
-    }), "the same source is ready with a newly armed real capture after configure");
+    });
+    const auto state = controller.snapshot();
+    std::cout << "Fresh capture reset prepared=" << prepared << " elapsedMs="
+        << std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now() - started).count()
+        << " sameSource=" << (state.playbackIdentity == expected.playbackIdentity)
+        << " sameRevision=" << (state.manifestRevision == expected.manifestRevision)
+        << " binding=" << state.aBindingAvailable << " rejection=" << state.rejectionCode << std::endl;
+    require (prepared, "the same source is ready with a newly armed real capture after configure");
 }
 
 void feedFreshBlindCapture (ref::RuntimeV2Controller& controller, const juce::File& root,

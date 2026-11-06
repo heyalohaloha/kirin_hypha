@@ -21,9 +21,12 @@ bool mapped(const juce::File& file) {
  #endif
 }
 }
+#include "ReferenceReceiptPluginLifetimeTest.h"
 int main(int argc,char** argv)
 {
-    require(argc==2,"module path required"); ValidationStorageSandbox sandbox;
+    if (argc == 4 && juce::String (argv[3]) == "--receipt-plugin")
+        return testReceiptPluginLifetime (juce::File (argv[1]), juce::File (argv[2]));
+    require(argc==2 || argc==4,"module path required"); ValidationStorageSandbox sandbox;
     // dyld retains images containing Rust TLV data; this counter must outlive retained images.
     static std::atomic<int> unloaded {0};
     const auto root=sandbox.directory().getNonexistentChildFile("mod",{},false);
@@ -75,7 +78,7 @@ int main(int argc,char** argv)
        #else
         (void)until;
         for(const auto& module:modules) require(mapped(module),"dyld retains TLV-bearing Rust module");
-       #endif
+#endif
     }
     require(hypha::tests::removeFixtureDirectory (root),"module fixture cleanup");
    #if JUCE_MAC
@@ -83,4 +86,5 @@ int main(int argc,char** argv)
    #else
     std::cout<<"Pair preview lifetime: 36 actual module unloads, 3 independent modules, pending/cancelled/idle, engine already destroyed PASS\n";
    #endif
+    if (argc == 4) return testReceiptPluginLifetime (juce::File (argv[2]), juce::File (argv[3]));
 }

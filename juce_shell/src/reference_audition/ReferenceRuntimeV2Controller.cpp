@@ -30,7 +30,8 @@ namespace hypha::reference_audition
     }
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
-                                              SelectionGate selectionGateIn, bool wholeVersionComparison)
+                                              SelectionGate selectionGateIn, bool wholeVersionComparison,
+                                              LibraryReceivedWriter::Store receivedStore)
         : juce::Thread ("Kirin Reference v2"),
           root (std::move (transportRootIn)),
           versionComparison (wholeVersionComparison),
@@ -47,7 +48,8 @@ namespace hypha::reference_audition
           presetSelectionTransport (root),
           candidatePreparationTransport (root),
           presetAdoptionTransport (root),
-          eventTransport (root)
+          eventTransport (root),
+          libraryReceivedWriter (root, std::move (receivedStore))
     {
         trackingEnabled.store (versionComparison, std::memory_order_release);  // V は追従、C は固定
         outputRetirement.start ([this] { serviceOutputRetirement(); });
@@ -58,6 +60,7 @@ namespace hypha::reference_audition
     {
         KIRIN_REFERENCE_CANCEL_REFRESH_FOR_TEST (this);
         selectA();
+        libraryReceivedWriter.stop(); // 通知ジョブは入力を所有し、worker と controller の停止は I/O を待たない
         signalThreadShouldExit();
         notify();
         if (! stopThread (-1))

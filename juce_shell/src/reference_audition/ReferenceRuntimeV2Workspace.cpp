@@ -174,6 +174,8 @@ namespace hypha::reference_audition
             }
         }
         libraryReceived.store (workspace->library, std::memory_order_release);
+        if (reportsLibraryReceived.load (std::memory_order_acquire))
+            libraryReceivedWriter.observe (configuration.identity, *workspace, nowMs);
         appliedSelectionGeneration.store (selection.generation, std::memory_order_release);
         const auto missingSelection = [&] {
             failClosedToA();

@@ -37,8 +37,11 @@ void testReferenceAbcv (const juce::File& sandbox)
 // `--abcv-only`：ABCV のテストだけを流す（手元で直すときに全体の 4 分を待たない）。
 bool runReferenceAbcvTests (int argc, char** argv, const juce::File& sandbox)
 {
-    if (argc != 2 || juce::String (argv[1]) != "--abcv-only") return false;
-    testReferenceAbcv (sandbox);
+    if (argc != 2) return false;
+    const juce::String mode (argv[1]);
+    if (mode == "--library-skipped-only") testReferenceLibrarySkipped (sandbox);
+    else if (mode == "--abcv-only") testReferenceAbcv (sandbox);
+    else return false;
     hypha::tests::removeFixtureDirectory (sandbox);
     return true;
 }
