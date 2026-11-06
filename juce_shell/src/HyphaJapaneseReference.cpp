@@ -9,6 +9,21 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "DATA ONLY", u8"数値のみ" },
+    { "FILE UNREADABLE", u8"ファイルを読めません" },
+    { "FILE TOO SHORT", u8"音源が短すぎます" },
+    { "AUDIO INVALID", u8"音声データ不正" },
+    { "FILE CHANGED", u8"ファイル変更" },
+    { "SAMPLE RATE", u8"未対応のSample Rate" },
+    { "8 TARGETS MAX", u8"目標は8個まで" },
+    { "A WINDOW UNAVAILABLE", u8"Aの窓が未確定" },
+    { "MEASUREMENT UNAVAILABLE", u8"測定を完了できません" },
+    { "TARGET UNAVAILABLE", u8"目標を選べません" },
+    { "DROP AUDIO", u8"音声をドロップ" },
+    { "REMOVE TARGET", u8"目標を削除" },
+    { "MEASURING", u8"測定中" },
+    { "MEASURING %1%", u8"測定中 %1%" },
+
     { "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND HYPHA", u8"Referenceの形式を読めません ／ Kirin OSとHyphaを最新に" },
     { "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS", u8"Referenceの公開データを読めません ／ Kirin OSで再公開してください" },
     { "KIRIN OS COULD NOT ANALYZE THE FILE / RETRY IN KIRIN OS", u8"Kirin OSで解析に失敗しました ／ Kirin OSでやり直してください" },

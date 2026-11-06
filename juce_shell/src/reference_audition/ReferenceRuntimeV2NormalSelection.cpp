@@ -161,6 +161,7 @@ namespace hypha::reference_audition
     RuntimeV2Controller::StartResult RuntimeV2Controller::activatePreparedB (
         std::uint64_t selectionGeneration) noexcept
     {
+        if (dataOnlySelection.load (std::memory_order_acquire)) return StartResult::refused;
         std::uint64_t epoch = 0;
         {
             const juce::ScopedLock lock (stateLock);
@@ -204,7 +205,7 @@ namespace hypha::reference_audition
         bool publicationStillValid = false;
         {
             const juce::ScopedLock lock (stateLock);
-            publicationStillValid = ready.load (std::memory_order_acquire)
+            publicationStillValid = ! dataOnlySelection.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire)
                 && auditionEpoch.load (std::memory_order_acquire) == epoch
                 && normalSelectionGeneration.load (std::memory_order_acquire)
                     == selectionGeneration
@@ -267,7 +268,7 @@ namespace hypha::reference_audition
         double loudness, double peak, std::uint64_t queuedGeneration,
         const juce::String& expectedPlaybackIdentity) noexcept
     {
-        if (blind.ongoing()) return StartResult::refused;
+        if (blind.ongoing() || dataOnlySelection.load (std::memory_order_acquire)) return StartResult::refused;
         if (queuedGeneration == 0 && expectedPlaybackIdentity.isEmpty()
             && bSelected.load (std::memory_order_acquire)) return StartResult::started;
         const auto generation = queuedGeneration != 0 ? queuedGeneration

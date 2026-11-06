@@ -10,9 +10,11 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
       version (root, [this] (bool active) { return admit (1, active); }, true),
       check (root, [this] (bool active) { return admit (2, active); }, false),
       reference (root, [this] (bool active) { return admit (3, active); }, false),
+      targets (stateChanged, [this] (bool selected) { check.setDataOnlySelection (selected); }),
       visual ([this] {
           const auto slot = viewedSlot.load (std::memory_order_acquire);
           auto binding = slotController (slot).visualBinding();
+          if (slot == 2) if (const auto blocks = targets.cueBlocks(); blocks > 0) binding.cueLengthBlocks = blocks;
           if (slot != 1)  // V の図は A の窓を使わない
               binding.aDisplayWindowBlocks = displayWindowBlocks (visualPreferences->aWindows().of (slot), binding.cueLengthBlocks);
           return binding;
@@ -44,6 +46,7 @@ bool ReferenceComparisonController::admit (int slot, bool active)
     const auto outside = active ? external() : 0;
     const juce::ScopedLock lock (gateLock);
     if (closing) return !active;
+    if (active && slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     const int bit = 1 << slot;
     if (active)
     {
@@ -124,7 +127,7 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
     reference.configure (rIdentity, rate, channels);
     std::optional<ReferenceComparisonSettings> pending;
     { const juce::ScopedLock lock (selectionLock); configured = true; pending = pendingSettings; }
-    if (pending) restoreSettings (*pending);
+    if (pending) { pending->targets = targets.snapshot().collection; restoreSettings (*pending); }
     rtPlaying = false;
     rtInputAllowed = false;
     rtInputObserved = false;
@@ -135,8 +138,9 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
 {
     const auto b = version.snapshot();
     const juce::ScopedLock lock (selectionLock);
-    if (pendingSettings) return *pendingSettings;
+    if (pendingSettings) { auto saved = *pendingSettings; saved.targets = targets.snapshot().collection; return saved; }
     ReferenceComparisonSettings result;
+    result.targets = targets.snapshot().collection;
     result.version = versionId.isEmpty() ? ReferenceChoice {} : version.savedChoice();
     result.versionAuto = versionAuto && versionId.isNotEmpty();
     // A removed Version must not be replaced by a fallback selection on save.
@@ -158,12 +162,14 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
 
 void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSettings& input)
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
     ReferenceComparisonSettings value = input;
     visualPreferences->set (value.visualView);
     if (! value.version.valid() || value.version.candidateId.isEmpty()) value.version = {};
     if (! value.check.valid()) value.check = {};
     if (! value.reference.valid() || value.reference.candidateId.isEmpty()) value.reference = {};
     selectA();
+    targets.restore (value.targets);
     bool apply = false;
     {
         const juce::ScopedLock lock (selectionLock);
@@ -239,7 +245,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.versionReady = versionId.isNotEmpty() && b.sourceKind == "work_version"
         && result.selectedVersionId == b.presetId + "/" + b.checkId + "/" + b.candidateId
         && b.state == RuntimeState::ready && b.auditionBuffered;
-    result.checkReady = c.state == RuntimeState::ready && c.auditionBuffered;
+    result.checkReady = targets.snapshot().collection.selected.isEmpty() && c.state == RuntimeState::ready && c.auditionBuffered;
     // B（REF）。選んだ曲が公開され、音の準備ができていれば押してすぐ鳴る。
     result.referenceSelection = std::make_shared<const Snapshot> (r);
     result.songSets = r.songSets;
@@ -290,9 +296,14 @@ bool ReferenceComparisonController::selectVersion (const juce::String& id, bool 
 // V を見ているとき（V の画面の CHECK SET は C と共用）は V の画面のまま。ほかは C の画面にする。
 bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>& apply)
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
     if (trialActive()) return false;
     const auto before = check.requestedGeneration();
     if (! apply()) return false;
+   #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    if (beforeCheckCommit) beforeCheckCommit();
+   #endif
+    targets.select ({});
     if (viewedSlot.load (std::memory_order_acquire) != 1) viewedSlot.store (2, std::memory_order_release);
     // 同じ選択（世代が進まない）は鳴らしたまま。Kirin OS の準備を待つ CHECK SET は C を止めて手放す。
     const auto after = check.requestedGeneration();
@@ -308,6 +319,37 @@ bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCandidate (id); }); }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCue (id); }); }
+bool ReferenceComparisonController::makeTarget()
+{
+    if (trialActive()) return false;
+    std::uint64_t epoch = 0;
+    { const juce::ScopedLock transaction (targetChoiceLock); epoch = targets.snapshot().restoreEpoch; }
+    const auto timeline = visual.snapshot();
+    auto target = timeline ? targetFromA (*timeline) : MeasuredTarget {};
+    const auto id = target.id;
+   #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    if (beforeMakePublish) beforeMakePublish();
+   #endif
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (trialActive()) return false;
+    if (! targets.add (std::move (target), epoch)) return false;
+    return chooseTarget (id, epoch);
+}
+bool ReferenceComparisonController::chooseTarget (const juce::String& id, std::uint64_t restoreEpoch)
+{
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (trialActive() || ! targets.select (id, restoreEpoch)) return false;
+    check.invalidateMatchOffer();
+    check.selectA(); // Also invalidate a prepared start and a deferred return to the old C.
+    if (normalOutputSlot.load (std::memory_order_acquire) == 2 || pendingSlot() == 2) selectA();
+    {
+        const juce::ScopedLock lock (selectionLock);
+        if (pendingAudition.view.slot == 2) clearPendingAudition(); // Include a finished C failure; preserve B and V intents.
+    }
+    selectVisualSlot (2);
+    if (stateChanged) stateChanged();
+    return true;
+}
 bool ReferenceComparisonController::selectVisualSlot (int slot)
 {
     if ((slot != 1 && slot != 2 && slot != 3) || trialActive()) return false;

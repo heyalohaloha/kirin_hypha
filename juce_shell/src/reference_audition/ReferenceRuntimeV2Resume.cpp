@@ -13,7 +13,7 @@ bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const j
 RuntimeV2Controller::StartResult RuntimeV2Controller::resumeHeldResult (
     std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept
 {
-    if (blind.ongoing()) return StartResult::refused;
+    if (blind.ongoing() || dataOnlySelection.load (std::memory_order_acquire)) return StartResult::refused;
     if (revokeAfterFade.load (std::memory_order_acquire)) return StartResult::preparing;
     if (bSelected.load (std::memory_order_acquire)) return StartResult::stale;
     {
@@ -64,6 +64,12 @@ void RuntimeV2Controller::beginMatchLocked() noexcept
     currentSnapshot.matchFailure = MatchFailure::none;
     currentSnapshot.neededAttenuationDb = 0.0;
     ++currentSnapshot.matchFailureSerial;
+}
+
+void RuntimeV2Controller::invalidateMatchOffer()
+{
+    const juce::ScopedLock lock (stateLock);
+    beginMatchLocked();
 }
 
 void RuntimeV2Controller::failMatchLocked (MatchFailure reason, double neededAttenuationDb) noexcept

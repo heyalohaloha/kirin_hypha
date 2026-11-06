@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include "ReferenceKirinSpectrum.h"
+#include "ReferenceLiveWindowLoudness.h"
 #include "ReferenceKirinFingerprint.h"
 #include <limits>
 #include "ReferenceRuntimeV2Measurement.h"
@@ -41,7 +42,9 @@ struct VisualTimeline
     VisualBinding binding;
     std::vector<VisualPairBin> bins;
     std::shared_ptr<const KirinSpectrumWindow> aKirin; // A の直近の窓（Kirin OS の Cue と同じ定義。長さは binding.aDisplayWindowBlocks）
-    // 2026-10-04：範囲の帯。A の直近 60 秒までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
+    LiveWindowLoudness aTargetLoudness; // Fresh-filter Integrated of exactly aKirin's ticks.
+    double aTargetTruePeak = std::numeric_limits<double>::quiet_NaN(); // Zero-extended TP of exactly aKirin's ticks.
+    // 2026-10-04：範囲の帯。A の直近 10 分までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aTicks;
     int aTickChannels = 0;
     // V の画面の範囲の帯：位置合わせで対応した同じ区間の A と V の 100 ms の bin（直近 30 秒、同じフレーム）。

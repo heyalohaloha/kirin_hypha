@@ -44,6 +44,7 @@ void ReferenceComparisonController::appendPendingAudition (
 
 bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
 {
+    if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     if ((slot != 1 && slot != 2 && slot != 3) || outputDecision (output_owner::Activity::audition).refused()) return false;
     if (slot == 2 && preparingCheck()) return selectC (loudness, peak);
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
@@ -79,6 +80,8 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
 // 押した役を待たせる（止まっている・A の音量を待つ・A を下げている途中）。再生で、準備でき次第鳴らす。
 bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety)
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     const auto state = snapshot();
     if (trialActive()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
@@ -133,6 +136,8 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
 
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive, double nowSeconds)
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (pendingSlot() == 2 && targets.snapshot().collection.selected.isNotEmpty()) { selectA(); return; }
     if (callbackLive && preparingCheck() && check.awaitingPreparedLevel()) check.supplyPreparedLevel (loudness, peak);
     reconcileVersionBlindSession();
     reconcileOutputMark();

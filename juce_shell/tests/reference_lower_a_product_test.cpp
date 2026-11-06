@@ -18,6 +18,7 @@
 #include <type_traits>
 #include "reference_rt_probe.h"
 #include "TestProcessorStorage.h"
+#include "ReferenceTargetProductFlow.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -44,7 +45,7 @@ struct Clock final : juce::AudioPlayHead
 };
 
 // 静かで peak の大きい B の曲：A（−6 dBFS の正弦）に合わせると上限を超え、A を下げる承認が要る。
-void writeLibrary (const juce::File& root) { OneSongLibrary song; song.frequencyHz = 1500; writeOneSongLibrary (root, song); }
+void writeLibrary (const juce::File& root) { OneSongLibrary song; song.frequencyHz = 1500; writeOneSongLibrary (root, song, 2); }
 
 template <typename Sample>
 double referenceTonePower (const Sample* audio, int frames)
@@ -62,7 +63,8 @@ template <typename Sample>
 class LowerAProduct final : private juce::Timer
 {
 public:
-    explicit LowerAProduct (std::vector<float> input) : signal (std::move (input))
+    explicit LowerAProduct (std::vector<float> input, juce::File source, juce::File root)
+        : signal (std::move (input)), targetSource (std::move (source)), referenceRoot (std::move (root))
     {
         require (signal.size() >= frames && referenceTonePower (signal.data(), frames) < 0.01,
                  "the independent tone oracle rejects the known A fixture");
@@ -100,6 +102,13 @@ private:
         require (Steady::now() - lastProgressAt < std::chrono::minutes (5), "audio worker stopped making progress");
         require (progress < 48000 * 300 / frames, "scenario exceeds its input-content budget");
         const auto state = post->referenceAuditionSnapshot();
+        if (stage.load() == -1)
+        {
+            if (! targetFlow.advance (*post, targetSource, referenceRoot, clock.playing)) return;
+            require (mismatches.load() == 0, "target creation, file import, cancel and restore preserve bit-identical A");
+            writeLibrary (referenceRoot);
+            stage = 0;
+        }
         switch (stage.load())
         {
             case 0:  // B の曲が準備でき、A の 4 秒が測れてから B を押す
@@ -235,7 +244,7 @@ private:
             if (current == 0 && stage == 3 && referenceTonePower (buffer.getReadPointer (0), frames) > 0.99) heardB.store (true);
             if (current == 0 && stage == 3) loweredPeak.store (std::max (loweredPeak.load(), loudest));
             if ((current == 0 && stage == 6) || current == 3) risePeak.store (std::max (risePeak.load(), loudest));
-            if ((current == 1 || current == 2 || current == 4) && settle == 0)
+            if ((current == 1 || current == 2 || current == 4 || stage.load() == -1) && settle == 0)
             {
                 verified.fetch_add (1);
                 if (differences != 0) mismatches.fetch_add (1);
@@ -259,7 +268,9 @@ private:
     std::atomic<std::int64_t> blocks { 0 };
     std::atomic<float> loweredPeak { 0.0f }, risePeak { 0.0f };
     std::int64_t stageBlocks = 0;
-    std::atomic<int> stage { 0 };
+    std::atomic<int> stage { -1 };
+    ReferenceTargetProductFlow targetFlow;
+    juce::File targetSource, referenceRoot;
     double needed = 0.0, beforeLufs = 0.0;
     std::int64_t lastProgress = 0;
     Steady::time_point lastProgressAt = Steady::now();
@@ -287,15 +298,16 @@ int main (int argc, char** argv)
                  && ref::RuntimeV2Repository::transportRoot() == reference,
              "every write stays inside the sandbox");
     std::cout << "Reference lower A product: sandbox " << box.getFullPathName() << '\n';
-    require (identity.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (identity, "{\"license\":\"os\"}"),
-             "sandbox Kirin OS identity");
-    writeLibrary (reference);
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
+    verifyUnlicensedTargetEntry();
+    require (identity.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (identity, "{\"license\":\"os\"}"),
+             "sandbox Kirin OS identity");
+
     const auto run = [&] (auto sample) {
-        LowerAProduct<decltype (sample)> contract (std::move (signal));
+        LowerAProduct<decltype (sample)> contract (std::move (signal), juce::File (argv[1]), reference);
         juce::MessageManager::getInstance()->runDispatchLoop();
         return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
     };

@@ -2,8 +2,57 @@
 #include "ReferenceControllerTestAccess.h"
 #include "../src/reference_audition/ReferenceLiveALevel.h"
 #include "ReferenceWholeSongInputClock.h"
+namespace hypha::tests::reference_control
+{
+struct TargetChoiceLockTag {};
+juce::CriticalSection& targetChoiceLockFor (Comparison&, TargetChoiceLockTag);
+template <auto Member> struct TargetChoiceLockAccess
+{ friend juce::CriticalSection& targetChoiceLockFor (Comparison& c, TargetChoiceLockTag) { return c.*Member; } };
+template struct TargetChoiceLockAccess<&Comparison::targetChoiceLock>;
+}
 namespace
 {
+void verifyCheckTargetRestoreCrossing (ref::ReferenceComparisonController& controller)
+{
+    namespace control = hypha::tests::reference_control;
+    const auto original = controller.savedSettings();
+    auto restored = original;
+    ref::MeasuredTarget target;
+    target.id = "target-abcdef"; target.name = "Saved target"; target.duration = 3;
+    target.integrated = -24; target.maximumTruePeak = -6;
+    target.spectrum.p10Db.assign (64, -60); target.spectrum.medianDb.assign (64, -50);
+    target.spectrum.p90Db.assign (64, -40); target.spectrum.balanceDb.fill (-20);
+    restored.targets.items = { target }; restored.targets.selected = target.id; restored.viewedSlot = 3;
+    require (target.valid(), "restore race has a valid numeric target");
+    const auto choices = controller.snapshot().checkSelection->checkTargets;
+    const auto alternate = std::find_if (choices.begin(), choices.end(), [&] (const auto& choice) {
+        return choice.id != original.check.checkId + "/" + original.check.candidateId;
+    });
+    require (alternate != choices.end(), "restore race has two real Checks");
+    juce::WaitableEvent crossed;
+    std::thread restore;
+    controller.setBeforeCheckCommitForTest ([&] {
+        restore = std::thread ([&] {
+            auto& mutex = control::targetChoiceLockFor (controller, {});
+            const bool entered = mutex.tryEnter();
+            if (entered) { mutex.exit(); controller.restoreSettings (restored); }
+            crossed.signal();
+            if (! entered) controller.restoreSettings (restored);
+        });
+        require (crossed.wait (30000), "restore attempts to cross the real Check selection before numeric deselection");
+    });
+    const bool selected = controller.selectCheck (alternate->id);
+    if (restore.joinable()) restore.join();
+    controller.setBeforeCheckCommitForTest ({});
+    const auto result = controller.savedSettings();
+    require (selected && result.check.target() == restored.check.target()
+        && result.targets.selected == target.id && result.viewedSlot == restored.viewedSlot,
+        "restore after a Check transaction retains its Check, numeric selection and page together");
+    require (controller.selectCheck (alternate->id) && controller.savedSettings().targets.selected.isEmpty(),
+             "a subsequent explicit Check selection still clears the numeric selection");
+    controller.restoreSettings (original);
+}
+
 void verifyReferenceSelectionSafety (const juce::File& sandbox)
 {
     KirinObservatoryFrame frame {};
@@ -39,6 +88,9 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     check.getDynamicObject()->setProperty ("comparison_mode", "loudness_match");
     check["candidates"][0]["cues"][0].getDynamicObject()->setProperty ("loop_enabled", true);
     preset["checks"].getArray()->add (check);
+    auto alternateCheck = check.clone();
+    alternateCheck.getDynamicObject()->setProperty ("check_id", "55555555-5555-4555-8555-555555555555");
+    preset["checks"].getArray()->add (alternateCheck);
     const auto publish = [&] (int revision) {
         require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, revision)),
             "selection safety publication");
@@ -65,6 +117,7 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     };
     host (false);
     wait ([] (const auto& s) { return s.checkArmable && !s.versions.empty(); });
+    verifyCheckTargetRestoreCrossing (controller);
     // V の自動特定の AUTO は V の選択だけを替える：押して待っている C を消さない。V を選んだ後は AUTO が上書きしない。
     require (controller.requestAudition (2, level.loudness, level.peak), "queue C before AUTO");
     const auto autoId = controller.snapshot().versions.front().id;
@@ -99,6 +152,31 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     require (controller.requestAudition (2, -1, -2) && controller.snapshot().audibleComparisonSlot == 2
         && controller.snapshot().checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded,
         "manual clicks play at the same ceiling as queued selection");
+    require (host (true), "C actually renders before choosing a numeric target");
+    auto& checkRuntime = hypha::tests::reference_control::roleFor (controller, { 2 });
+    const auto offered = *controller.snapshot().checkSelection;
+    const ref::LowerAOffer oldOffer { 2, offered.neededAttenuationDb, offered.playbackIdentity,
+                                    offered.selectionGeneration, offered.matchFailureSerial };
+    ref::MeasuredTarget data;
+    data.id = "target-abc"; data.name = "Window"; data.duration = 2.0;
+    data.setCenters();
+    data.spectrum.p10Db = data.spectrum.medianDb = data.spectrum.p90Db = std::vector<float> (64, -40.0f);
+    data.spectrum.balanceDb.fill (-40.0);
+    require (controller.targetService().add (data) && controller.chooseTarget (data.id), "select numeric C while an old C offer exists");
+    require (checkRuntime.returningToA(), "the real return fade retains C's output gate");
+    require (controller.approveLowerAAndPlay (oldOffer) == ref::LowerAApproval::stale
+        && controller.heldAttenuationDb() == 0.0 && controller.pendingSlot() != 2
+        && controller.snapshot().checkSelection->matchFailureSerial != offered.matchFailureSerial,
+        "numeric C invalidates the old approval before it can lower A or queue audio");
+    require (! controller.requestAudition (2, -1, -2) && ! controller.selectC (-1, -2)
+        && ! checkRuntime.selectB (-1, -2), "manual and final output admission reject audio for numeric C");
+    controller.servicePendingAudition (-1, -2, true);
+    for (int i = 0; i < 12; ++i) host (true);
+    require (! controller.snapshot().bSelected && ! host (true) && controller.heldAttenuationDb() == 0.0,
+             "servicing a stale C cannot start audio or attenuate A after the normal return fade");
+    require (controller.chooseTarget ({}) && controller.approveLowerAAndPlay (oldOffer) == ref::LowerAApproval::stale,
+             "switching back to the old C does not revive its old approval");
+    require (controller.chooseTarget (data.id) && controller.targetService().remove (data.id), "remove the selected numeric target before the next C start");
     controller.selectA(); for (int i = 0; i < 12; ++i) host (true);
     require (controller.requestAudition (2, level.loudness, level.peak), "A to C uses the same control-plane level");
     require (controller.snapshot().checkSelection->appliedGainDb == fromB.appliedGainDb,
@@ -120,6 +198,24 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
         "same Cue ID with different loop policy cancels pending authority with its reason");
     host (true); controller.servicePendingAudition (-28, -12, true);
     require (!controller.snapshot().bSelected && !host (true), "changed Cue never starts later from the old intent");
+    require (controller.pendingSlot() == 0 && controller.snapshot().pendingAudition.slot == 2,
+             "the completed C failure remains visible after its active intent ends");
+    require (controller.targetService().add (data) && controller.chooseTarget (data.id),
+             "select numeric C after the queued C failed");
+    require (controller.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::none
+        && controller.snapshot().pendingAudition.reasonCode.isEmpty(),
+        "a numeric target clears the old C failure and its recovery request");
+    require (controller.chooseTarget ({}), "return to audio C after the numeric target");
+    host (false);
+    require (controller.requestAudition (1, -28, -12) && controller.pendingSlot() == 1,
+             "queue V before choosing numeric C");
+    const auto pendingVersion = controller.snapshot().pendingAudition;
+    require (controller.chooseTarget (data.id) && controller.pendingSlot() == 1
+        && controller.snapshot().pendingAudition.stage == pendingVersion.stage
+        && controller.snapshot().pendingAudition.reasonCode == pendingVersion.reasonCode,
+        "choosing numeric C preserves V's valid pending audition");
+    controller.selectA();
+    require (controller.chooseTarget ({}) && controller.targetService().remove (data.id), "restore audio C for subsequent selection checks");
 
     // Check the activation boundary too: a stale condition must not be revived by a fresh generation.
     ref::RuntimeV2Controller runtime (root);

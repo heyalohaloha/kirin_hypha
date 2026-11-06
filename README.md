@@ -126,6 +126,13 @@ compares another version of the same song from the same place.
 <br><sub>A tour: Hybrid VU, LEVEL, TIME, DRUM, FREQ, SPACE, LISTEN and PRE/POST Blind</sub>
 </p>
 
+In REF, drop an audio file to measure a target in the background, or use **MAKE TARGET** to save
+the current A window (at least three seconds). Select it for C to compare its spectrum and Balance.
+These targets contain measurements only and cannot play audio. Up to eight targets are kept in the
+DAW project; audio and source paths are never saved. A Kirin OS license is required; registration and
+measurement preparation in Kirin OS are unnecessary for these targets. File support uses JUCE's
+basic formats: WAV, AIFF and FLAC; MP3 and M4A depend on the operating system.
+
 Also inside: the Hybrid VU with true-peak bars and clip lamps, the SHARP and LIVE timelines, the
 time your chain takes between PRE and POST, and a screen in English or Japanese.
 
@@ -904,7 +911,7 @@ its own Factory library. POST tells Kirin OS which library it has read and which
 
 Reference has four roles, each with its own button in the same place at every size: **A B C V**.
 
-- **A — LIVE**: the DAW input. A is never processed; every other role is an audition copy.
+- **A — LIVE**: the DAW input. A is never processed; audible comparisons use audition copies.
 - **B — REF**: Reference songs from Kirin OS. Rank up to three Reference sets for Hypha in Kirin OS;
   choose the set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
   head; when you press B, or B returns after a stop or seek, at a point outside that Cue (you moved
@@ -915,7 +922,20 @@ Reference has four roles, each with its own button in the same place at every si
   stay usable, and while Kirin OS is publishing new sets the current ones stay.
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
   to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
+  C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
+
+**Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
+longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
+pending import. MAKE TARGET copies the current A display window once it contains at least three
+seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
+with no audio to audition. The project stores up to eight targets: 64-band p10, median and p90,
+four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count.
+Comparisons normalize the loudness channel sum to A's layout; the original measurements stay intact.
+The saved A window starts with fresh K-weighting state, matching a file of that window. Audio and source paths
+are not stored, and no target is written into Kirin OS. The Kirin OS license is required; its library
+registration and measurement preparation are unnecessary for these targets. Remove a selected target
+with the minus button.
 
 Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
 display. Choosing a different song, Check, Cue or Version changes only that role: if it was playing,
@@ -1117,10 +1137,10 @@ over the same length, and compares at the level the role plays at. V is measured
 way over the section aligned with A.
 
 A is compared live: while REF is open and the song plays, Hypha measures A for the role you
-are looking at (B, C or V) and fills V's WHOLE timeline as you play. There is no separate step
-to capture A; the page of the role you open decides what is compared, and the space goes to the
-charts. A capture saved in a session by an older version is skipped on reopen (it neither changes
-the display nor uses analysis) and is dropped at the next save.
+are looking at (B, C or V) and fills V's WHOLE timeline as you play. The page decides what is compared;
+MAKE TARGET can preserve the displayed A window's measured facts for a later comparison on C,
+without capturing audio or running a second analysis. The older A capture format is skipped on reopen
+(it neither changes the display nor uses analysis) and is dropped at the next save.
 
 ## Live PRE/POST compare
 

@@ -140,7 +140,7 @@ void Component::syncCheckPage (bool blindSession)
     const auto* versionChoice = vPage ? findVersionTab (versionTab) : nullptr;
     const auto sameSection = versionChoice != nullptr && versionChoice->id != "whole" ? versionChoice->label : juce::String {};
     checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
-    checkTabs.setVisible (vPage || (page && ! groups.empty()));
+    checkTabs.setVisible (! current.targetSelected && (vPage || (page && ! groups.empty())));
     // V を鳴らしていなくても、WHOLE と同じ位置合わせの gain（同じ区間の音量差）で合わせて比べる（鳴らしていれば実際の
     // gain）。2026-10-04 まで V を鳴らさないと「音量未調整」で 4 帯域が「—」だった。
     const auto* timeline = current.visualTimeline.get();
@@ -150,7 +150,7 @@ void Component::syncCheckPage (bool blindSession)
     comparisonView.setSameSection (sameSection, sameSectionGain,
                                    versionChoice != nullptr ? versionChoice->views : std::vector<juce::String> {}, false);
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
-    checkSongBox.setVisible (page && group != nullptr);
+    checkSongBox.setVisible (page && group != nullptr && ! current.targetSelected);
     const bool matching = current.comparisonMode == "loudness_match";
     matchButton.setVisible (page && matching && ! blindSession);
     matchButton.setReady (current.bSelected ? current.audibleComparisonSlot == 2 : canHearCheck (current));
@@ -163,6 +163,7 @@ void Component::syncCheckPage (bool blindSession)
         versionBox.setVisible (false);
         checkBox.setVisible (false);
     }
+    if (current.targetSelected) { presetBox.setVisible (false); checkBox.setVisible (false); cueBox.setVisible (false); }
     if (vPage)
     {
         // V の画面では C の CHECK SET・曲・Cue を出さない（C の画面で選ぶ。V の項目は決まっている）。
@@ -208,6 +209,7 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
 // 入りきらなければ、タブの段を 2 段ぶんにする（名前を切らない）。V のタブは決まった 5 つで 1 段。
 int Component::checkTabsHeight() const
 {
+    if (current.targetSelected) return 0;
     if (! checkPage()) return versionPageRows;
     const auto width = panelArea().getWidth() - (matchButton.isVisible() ? 80 + matchReadoutWidth (current, presentationContext) + 6 : 0);
     return checkPageRows * checkTabs.rowsFor (width);

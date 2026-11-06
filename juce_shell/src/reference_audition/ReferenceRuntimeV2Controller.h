@@ -76,6 +76,8 @@ namespace hypha::reference_audition
                       std::uint64_t queuedGeneration = 0, const juce::String& expectedPlaybackIdentity = {}) noexcept;
         std::uint64_t normalSelectionTicket() const noexcept { return normalSelectionGeneration.load (std::memory_order_acquire); }
         void selectA (bool allowFade = true) noexcept;
+        void invalidateMatchOffer();
+        void setDataOnlySelection (bool selected) noexcept { dataOnlySelection.store (selected, std::memory_order_release); }
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
         bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
         bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
@@ -309,6 +311,7 @@ namespace hypha::reference_audition
         const juce::File root;
         const bool versionComparison;
         const SelectionGate selectionGate;
+        std::atomic<bool> dataOnlySelection { false }; // Non-RT starts also check this when an output gate is retained for a fade.
         RuntimeV2Repository repository;
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;

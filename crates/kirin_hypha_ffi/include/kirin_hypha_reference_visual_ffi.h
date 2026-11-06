@@ -15,9 +15,13 @@ typedef struct {
     double true_peak, momentary_lufs, cross, mid, side;
 } KirinReferenceVisualBin;
 KirinReferenceVisualMeter* kirin_reference_visual_create(uint32_t rate, uint32_t channels);
+/* File-only measurement with integrated loudness; A observation keeps its existing mode. */
+KirinReferenceVisualMeter* kirin_reference_visual_capture_create(uint32_t rate, uint32_t channels);
 void kirin_reference_visual_drop(KirinReferenceVisualMeter*);
 bool kirin_reference_visual_push(KirinReferenceVisualMeter*, const float*, size_t sample_count);
 bool kirin_reference_visual_finish(KirinReferenceVisualMeter*, KirinReferenceVisualBin*);
+/* Worker-only finalization: drain TP support without including padding in loudness. */
+bool kirin_reference_visual_seal(KirinReferenceVisualMeter*, double* integrated, double* maximum_true_peak);
 KirinReferenceVisualAdmission* kirin_reference_visual_admission_create(void);
 bool kirin_reference_visual_admission_set(KirinReferenceVisualAdmission*, bool);
 void kirin_reference_visual_admission_drop(KirinReferenceVisualAdmission*);

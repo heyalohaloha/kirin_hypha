@@ -19,7 +19,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
                  state.status };
     const auto& formatCode = state.comparisonSlot == 1 ? state.versionRejectionCode
         : state.comparisonSlot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
-    if (state.readiness == Readiness::rejected
+    if (! state.targetSelected && state.readiness == Readiness::rejected
         && runtime_view::formatUnreadableCode (formatCode))
         return {StatusKind::unable, runtime_view::rejectedStatus (formatCode)};
     if (state.bSelected)
@@ -57,6 +57,12 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
     }
     if (state.osAccess == os_access::State::unowned) return { StatusKind::unable, state.status };
+    if (state.targetSelected)
+    {
+        const auto lowered = state.heldAttenuationDb < -0.05 && ! returnInFooter
+            ? " / A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
+        return { StatusKind::ready, "DATA ONLY" + lowered };
+    }
     if (! state.separateComparisons)
         return { state.readiness == Readiness::rejected ? StatusKind::unable
                  : state.readiness == Readiness::ready && state.auditionBuffered ? StatusKind::ready : StatusKind::waiting,

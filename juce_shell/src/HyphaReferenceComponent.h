@@ -14,6 +14,7 @@
 
 #include "HyphaReferenceAction.h"
 #include "HyphaReferenceAWindowControl.h"
+#include "HyphaReferenceTargetBar.h"
 #include "HyphaReferenceGainText.h"
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
@@ -105,6 +106,8 @@ enum class CueSubstitute { none, wholeSong, noSpectrum };
 
 struct State
 {
+    bool targetsEnabled = false, targetSelected = false;
+    reference_audition::TargetSnapshot targets;
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     bool separateComparisons = false, versionReady = false, checkReady = false;
     // Where B and C each stand, whichever of them the page shows (the guide names both).
@@ -258,7 +261,7 @@ inline bool canHearReference (const State& state) noexcept
         && state.libraryReceived && state.aAvailable && state.referenceReady;
 }
 
-class Component final : public juce::Component
+class Component final : public juce::Component, public juce::FileDragAndDropTarget
 {
 public:
     Component();
@@ -298,6 +301,13 @@ public:
     // A B or C that cannot be heard yet says why when it is clicked.
     std::function<void(const juce::String&)> onExplain;
 
+    std::function<void(const reference_audition::TargetRequest&)> onTargetRequest;
+    bool isInterestedInFileDrag (const juce::StringArray&) override
+    { return current.targetsEnabled && ! isBlindSession (current.blindPhase); }
+    void filesDropped (const juce::StringArray& files, int, int) override
+    { dragActive = false; repaint(); if (isInterestedInFileDrag (files) && onTargetRequest) onTargetRequest ({ reference_audition::TargetRequest::Action::importFiles, files, {} }); }
+    void fileDragEnter (const juce::StringArray&, int, int) override { dragActive = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override { dragActive = false; repaint(); }
     void setState (State);
     // 状態の行は、足元の段があるとき（150% 以上）はどの画面でも足元の左に出す（エディターが決めて置く。
     // 2026-10-04）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
@@ -331,7 +341,7 @@ public:
     int panelHeaderHeight() const noexcept { return shortPanel() ? 20 : detailedLayout() ? 42 : 34; }
     int panelPickerHeight() const noexcept { return shortPanel() ? 18 : 24; }
     int panelGap() const noexcept { return shortPanel() ? 2 : 4; }
-    juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6); }
+    juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6).withTrimmedBottom (targetBar.isVisible() ? targetBar.rowHeight() + 3 : 0); }
 
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
@@ -373,6 +383,9 @@ private:
         }
     }
 
+    TargetBar targetBar;
+    TargetBadge targetBadge;
+    bool dragActive = false;
     State current;
     bool guideShown = false;
     GuideFit lastGuideFit;

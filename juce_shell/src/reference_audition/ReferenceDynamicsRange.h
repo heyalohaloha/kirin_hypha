@@ -53,13 +53,13 @@ struct FactRange
 // NaN を除いた値の p10・中央値・p90（nearest-rank：Kirin OS の Cue の集計と同じ並べ方）。
 FactRange rangeOf (const std::vector<double>&);
 
-// A の 100 ms の bin を直近 60 秒まで貯める（Reference の観測スレッドだけ。Audio Thread では動かさない）。
+// A の 100 ms の bin を貯める（既定 60 秒、A の表示窓用は最大 10 分）（Reference の観測スレッドだけ。Audio Thread では動かさない）。
 // 途切れ（シーク・停止・形式の変化・壊れた値）では捨てて、新しい計器で数え直す（LUFS の窓を前の音から続けない）。
 class DynamicsTicks
 {
 public:
     static constexpr int capacity = 600;
-    explicit DynamicsTicks (int limitTicks = capacity) : limit (std::clamp (limitTicks, 1, capacity)) {}
+    explicit DynamicsTicks (int limitTicks = capacity) : limit (std::clamp (limitTicks, 1, 6000)) {}
     ~DynamicsTicks();
     DynamicsTicks (const DynamicsTicks&) = delete;
     DynamicsTicks& operator= (const DynamicsTicks&) = delete;
@@ -69,6 +69,7 @@ public:
     // 古い順の bin（100 ms ごとに新しくなる。無ければ null）。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> bins() const noexcept { return published; }
     int channels() const noexcept { return meterChannels; }
+    int pendingSamples() const noexcept { return fill; }
 
 private:
     KirinReferenceVisualMeter* meter = nullptr;

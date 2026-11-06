@@ -131,6 +131,13 @@ Component::Component()
     configureRoles();
     configureCheckPage();
     configureAWindowControls();
+    targetBar.onRequest = [this] (const auto& request) { if (onTargetRequest) onTargetRequest (request); };
+    addChildComponent (targetBar);
+    targetBadge.setComponentID ("reference-target-data");
+    targetBadge.setTitle ("C / DATA ONLY");
+    targetBadge.onClick = [this] { if (! openLarge (2) && onSelectVisualSlot) onSelectVisualSlot (2); };
+    targetBadge.setTooltip ("DATA ONLY");
+    addChildComponent (targetBadge);
 }
 
 void Component::mouseMove (const juce::MouseEvent& event)
@@ -194,6 +201,18 @@ void Component::setState (State next)
         && !current.cues.empty());
     syncRoles (blindSession);
     syncCheckPage (blindSession);
+    targetBar.setVisible (current.targetsEnabled && current.comparisonSlot == 2 && ! blindSession);
+    targetBar.update (current.targets, presentationContext, current.aKirin && current.aKirin->frames >= 30, shortPanel());
+    const bool numericalC = current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr;
+    targetBadge.setVisible (numericalC && ! blindSession);
+    targetBadge.context = presentationContext;
+    targetBadge.setButtonText (detailedLayout() ? "C / DATA" : "DATA");
+    if (numericalC) cButton.setVisible (false);
+    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived))
+    {
+        for (auto* box : { &presetBox, &versionBox, &checkBox, &candidateBox, &cueBox, &checkSongBox }) box->setVisible (false);
+        matchButton.setVisible (false);
+    }
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (false);
     actionButton.setTooltip ("Continue with the safe next action.");
@@ -222,12 +241,18 @@ void Component::paint (juce::Graphics& g)
     getProperties().set (help::shownInLineProperty, helpInLine());  // 部品の説明も吹き出しでなく下の行に
     const key_light::Scope light (*this);
     window_material::paintOuter (g, observationWindowBounds().toFloat());
+    if (dragActive)
+    {
+        g.setColour (COL_NORMAL.withAlpha (0.65f));
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (2), 4.0f, 1.0f);
+    }
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
     // （HyphaVersionBlindScreen.h）。その間 REF は何も描かない（曲名・図・状態の文は手がかりになる。R-28）。
     if (isBlindSession (current.blindPhase)) return;
-    if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + checkTabsHeight()); paintCheckPageLabels (g); }
+    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived)) {} // Leave the initial guide clear.
+    else if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + checkTabsHeight()); paintCheckPageLabels (g); }
     else if (rolePage() && current.comparisonSlot == 3)
     {
         area.removeFromTop (panelGap());  // REFERENCE SET と曲はボタンの段
@@ -311,6 +336,15 @@ void Component::paint (juce::Graphics& g)
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
+    if (rolePage() && current.targetSelected)
+    {
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
+        text_style::drawText (g, "TARGET / DATA ONLY", header.removeFromTop (16), juce::Justification::centredLeft);
+        g.setColour (COL_NORMAL);
+        g.setFont (displayTextFont (current.title, presentationContext, typography::TextRole::body, typography::Composition::information));
+        text_style::drawEllipsized (g, current.title, header, juce::Justification::centredLeft);
+    }
     if (! rolePage())  // 300% の B・C・V では、ボタンの段の選択欄が見出しを兼ねる（同じ曲名を 2 度出さない）
     {
         g.setColour (COL_FLORA.withAlpha (0.86f));

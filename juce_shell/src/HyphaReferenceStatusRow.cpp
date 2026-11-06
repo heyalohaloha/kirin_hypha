@@ -60,7 +60,8 @@ bool Component::statusRowHasControls() const noexcept
 // 案内が次の一手を言っているあいだは行を出さない。断り・アクション・待ちの超過のときは出す。
 bool Component::statusLineShown() const noexcept
 {
-    return ! guideShown || current.readiness == Readiness::rejected
+    return ((shortPanel() || ! targetBar.isVisible()) && current.targetsEnabled && (current.targets.measuring || current.targets.issue.isNotEmpty()))
+        || ! guideShown || current.readiness == Readiness::rejected
         || actionButton.isVisible() || current.preparationOverdue.isNotEmpty();
 }
 
@@ -85,7 +86,20 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
 Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> statusArea) const
 {
     StatusTextLayout layout;
-    const auto line = referenceStatusLine (current, statusInFooter() && current.heldAttenuationDb < -0.05);
+    auto line = referenceStatusLine (current, statusInFooter() && current.heldAttenuationDb < -0.05);
+    if ((shortPanel() || ! targetBar.isVisible()) && current.targetsEnabled && ! isBlindSession (current.blindPhase)
+        && (current.targets.measuring || current.targets.issue.isNotEmpty()))
+    {
+        const auto notice = current.targets.measuring ? "MEASURING " + juce::String (juce::roundToInt (current.targets.progress * 100)) + "%"
+                                                     : current.targets.issue;
+        const bool idle = ! current.bSelected && current.heldAttenuationDb >= -0.05
+            && current.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::none
+            && current.action.kind == ActionKind::none && ! current.kirinOsRequest;
+        if (idle) line = { current.targets.measuring ? StatusKind::waiting : StatusKind::unable, notice };
+        // A temporary failure must survive fitting while the audition and its controls stay active.
+        else if (! current.targets.measuring) line.text = notice + " / " + line.text;
+        else line.text += " / " + notice;
+    }
     layout.line = line;
     auto available = statusArea;  // REF の中では 1・2・REVEAL を置いた残り（レイアウトが入れ物の大きさで決める）
     // 承認・VERSION BLIND のボタンの手前まで（ボタンの幅は文字に合わせて決まる、layoutStatusRow）。

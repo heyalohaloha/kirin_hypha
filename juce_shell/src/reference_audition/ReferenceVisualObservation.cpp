@@ -1,5 +1,6 @@
 #include "ReferenceVisualObservation.h"
 #include "ReferenceTestCommitObserver.h"
+#include "ReferenceTargetPeakWindow.h"
 #include "ReferenceVisualAudio.h"
 #include "ReferenceVisualPreferences.h"
 #include <algorithm>
@@ -7,7 +8,7 @@
 namespace hypha::reference_audition
 {
 VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner)
-    : juce::Thread ("Reference view"), analysis(std::move(owner)), binding (std::move (callback))
+    : juce::Thread ("Reference view"), analysis(std::move(owner)), binding (std::move (callback)), targetPeaks (std::make_unique<TargetPeakWindow>())
 { formats.registerBasicFormats(); startThread (juce::Thread::Priority::low); }
 VisualObservation::~VisualObservation()
 {
@@ -70,6 +71,8 @@ void VisualObservation::publish()
 {
     // 図の窓の A の要約（窓を替えても測ったものは捨てず、覚えている分から集計し直す）。
     timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.aDisplayWindowBlocks, 1, aWindowMaximumBlocks));
+    timeline.aTargetLoudness = targetPeaks->levels (timeline.aKirin ? timeline.aKirin->frames : 0);
+    timeline.aTargetTruePeak = targetPeaks->window (timeline.aKirin ? timeline.aKirin->frames : 0);
     timeline.aPairKirin = pairAMeter.window (300);
     timeline.aTicks = aTickMeter.bins();
     timeline.aTickChannels = aTickMeter.channels();
@@ -107,15 +110,23 @@ bool VisualObservation::resetMeters()
 // 入力）は測らずに窓を捨てる（K 特性のフィルタの状態や FFT に NaN を残さない）。
 void VisualObservation::consumeKirin (const Block& block, int rate)
 {
-    if (! kirinMeter.configuredFor (rate, block.channels) && ! kirinMeter.configure (rate, block.channels, aWindowMaximumBlocks))
-        return;
+    if (! kirinMeter.configuredFor (rate, block.channels))
+    {
+        if (! kirinMeter.configure (rate, block.channels, aWindowMaximumBlocks)) return;
+        aTickMeter.reset(); targetPeaks->reset();
+    }
     if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
     if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
-    { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); kirinExpected = -1; dirty = true; return; }
+    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); kirinExpected = -1; dirty = true; return; }
     if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity)
-    { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); }
+    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); }
     kirinDiscontinuity = block.discontinuity;
-    if (! aWindowCatchingUp) kirinMeter.push (block.pcm.data(), block.frames);
+    if (! aWindowCatchingUp)
+    {
+        // Start both summaries at RESET's boundary; the continuous range history keeps its own clock.
+        kirinMeter.push (block.pcm.data(), block.frames);
+        targetPeaks->push (block.pcm.data(), block.frames, rate, block.channels);
+    }
     printMeter.push (block.pcm.data(), block.frames);
     aTickMeter.push (block.pcm.data(), block.frames, rate, block.channels);
     printEndSample = block.position + block.frames;
@@ -197,7 +208,7 @@ void VisualObservation::run()
         runRate = rate; runChannels = channels;
         if (const auto resets = aWindowResets.load (std::memory_order_acquire); resets != aWindowResetsDone)
         {
-            aWindowResetsDone = resets; kirinMeter.reset(); dirty = true;
+            aWindowResetsDone = resets; kirinMeter.reset(); targetPeaks->reset(); dirty = true;
             // 今の受け口の中身はどれも押す前か押した直後の音。読みがこの位置へ届くまで A の線に入れない。
             aWindowBoundary = writeIndex.load (std::memory_order_acquire);
             aWindowCatchingUp = aWindowBoundary != readIndex.load (std::memory_order_relaxed);
@@ -205,7 +216,7 @@ void VisualObservation::run()
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); printMeter.reset(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             aWindowCatchingUp = false;
@@ -266,7 +277,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); kirinMeter.reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);

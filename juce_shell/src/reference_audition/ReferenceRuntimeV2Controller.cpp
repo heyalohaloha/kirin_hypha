@@ -258,6 +258,7 @@ namespace hypha::reference_audition
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
     {
         const juce::ScopedLock lock (outputGateLock);
+        if (dataOnlySelection.load (std::memory_order_acquire)) return 0;
         const bool retained = activeOutputGateToken.load (std::memory_order_acquire) != 0;
         if (retained && (bSelected.load (std::memory_order_acquire) || blind.ongoing())) return 0;
         auto token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);

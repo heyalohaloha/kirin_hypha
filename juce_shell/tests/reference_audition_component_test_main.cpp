@@ -4,6 +4,8 @@
 #include "ReferenceTextRepairsTest.h"
 #include "ReferenceAWindowTest.h"
 #include "ReferenceFollowViewContract.h"
+#include "ReferenceMeasuredTargetUiTest.h"
+#include "../src/reference_audition/ReferenceLiveWindowLoudness.cpp"
 #include "ValidationStorageSandbox.h"
 
 #include <iostream>
@@ -23,6 +25,7 @@ int main (int argc, char** argv)
     if (mode == "--reference-guide-only") { hypha::tests::verifyReferenceGuideContract(); return 0; }
     if (mode == "--missing-check-navigation-only") { hypha::tests::verifyMissingCheckNavigation(); return 0; }
     if (mode == "--missing-check-text-only") { hypha::tests::verifyMissingCheckText(); return 0; }
+    hypha::tests::measured_target_ui::verify (storage.directory());
     namespace repairs = hypha::tests::reference_text_repairs;
     if (mode == "--reference-approval-only") { repairs::verifyApprovalPreview(); return 0; }
     if (mode == "--reference-v-stop-text-only") { repairs::verifyVersionStopText(); return 0; }

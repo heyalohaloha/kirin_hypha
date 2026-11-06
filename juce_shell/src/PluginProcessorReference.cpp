@@ -437,3 +437,37 @@ void KirinHyphaProcessorBase::configureReferenceAudition()
     referenceAuditionController->configure (identity, preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()));
    #endif
 }
+
+hypha::reference_audition::TargetSnapshot KirinHyphaProcessorBase::referenceTargetSnapshot() const
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController ? referenceAuditionController->targetService().snapshot()
+                                       : hypha::reference_audition::TargetSnapshot {};
+   #else
+    return {};
+   #endif
+}
+
+bool KirinHyphaProcessorBase::changeReferenceTarget (const hypha::reference_audition::TargetRequest& request)
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs() || ! referenceAuditionController) return false;
+    auto& controller = *referenceAuditionController;
+    auto& targets = controller.targetService();
+    using Action = hypha::reference_audition::TargetRequest::Action;
+    switch (request.action)
+    {
+        case Action::importFiles: return targets.importFiles (request.files);
+        case Action::make: return controller.makeTarget();
+        case Action::select: return controller.chooseTarget (request.id, request.restoreEpoch);
+        case Action::remove:
+            if (! targets.remove (request.id)) return false;
+            captureStateNotification.changed(); return true;
+        case Action::cancel: targets.cancel(); return true;
+    }
+   #else
+    juce::ignoreUnused (request);
+   #endif
+    return false;
+}
