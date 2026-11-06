@@ -180,14 +180,6 @@ void KirinHyphaProcessorBase::selectLiveComparePre (bool pre) noexcept
         liveCompare.selection.select (pre);
     }
 }
-void KirinHyphaProcessorBase::invalidateLiveComparePair() noexcept
-{
-    if (role != Role::Post) return;
-    liveCompare.pairRevocationGeneration.store (liveCompare.authority.revoke(), std::memory_order_release);
-    liveCompare.selection.end (hypha::live_compare::RecoveryReason::pairChanged);
-    requestServiceTimer(); // cleanup is deferred; RT authority already rejects the old ring
-}
-
 void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
 {
     if (std::isfinite (linear) && linear > 0.0f && linear <= 16.0f)

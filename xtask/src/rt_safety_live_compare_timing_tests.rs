@@ -4,16 +4,93 @@ use super::{
 
 const BLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareBlockClock.h");
 const AAX_CHUNK_H: &str = include_str!("../../juce_shell/src/live_compare/AaxChunkPosition.h");
+const ALIGN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareAlign.h");
 const TIMING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareTimingWitness.h");
 const PREPARATION_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareTimingPreparation.h");
 const CHAIN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareChainTiming.h");
 
 #[test]
+fn content_alignment_moves_only_the_audition_address() {
+    let render = function_body(SESSION_H, "RenderReport render (");
+    assert!(render.contains("weight <= 0.0f && (! blind || ! preSelected)"));
+    assert!(render.contains("align.outputAllowed && ! alignFading"));
+    assert!(render.contains("alignRequest.read (align.context, alignApplied)"));
+    assert!(render
+        .contains("consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignApplied)"));
+    let history = function_body(SESSION_H, "void recordHistory (");
+    assert!(!history.contains("align"));
+    assert!(history.contains("decision.k"));
+    let realtime = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    assert!(realtime.contains("fallback (blindCommand, frames, preparedFormat.sampleRate, report.reason == Reason::ceiling)"));
+    assert!(realtime.contains("blindCommand.active() ? blindCommand.pre() : preSelected,"));
+}
+
+#[test]
+fn alignment_is_bound_to_the_context_measured_before_publication() {
+    let content = include_str!("../../juce_shell/src/PluginProcessorContentTiming.cpp");
+    let measure = function_body(
+        content,
+        "KirinHyphaProcessorBase::measureLiveCompareOffset()",
+    );
+    assert!(
+        measure.find("const auto context =").unwrap() < measure.find("measureOffset (").unwrap()
+    );
+    assert!(measure.contains("estimate.alignContext = context"));
+    let publish = function_body(content, "bool KirinHyphaProcessorBase::alignLiveCompare (");
+    assert!(publish.contains("estimate.alignContext != liveCompare.alignContext()"));
+    assert!(publish.contains("requestAlign (value, estimate.alignContext)"));
+    let read = function_body(ALIGN_H, "AlignValue read (");
+    assert!(read.contains("if (before != sequence.load()) return unchanged"));
+    assert!(read.contains("return measured == context ? value : AlignValue {}"));
+    assert!(!read.contains("while") && !read.contains("for ("));
+    let format = include_str!("../../juce_shell/src/PluginProcessorFormat.cpp");
+    assert!(format.contains("if (! preparedFormat.matches (sampleRate, roles))"));
+    assert!(!format.contains("requestAlign"));
+    assert!(
+        format.find("ScopedLock sl (handleLock)").unwrap()
+            < format.find("alignFormat.fetch_add").unwrap()
+    );
+    assert!(
+        measure
+            .find("ScopedTryLock formatLock (handleLock)")
+            .unwrap()
+            < measure.find("const auto context =").unwrap()
+    );
+    assert!(publish.contains("! formatLock.isLocked() || formatChangeHeld.load"));
+    assert!(ALIGN_H.contains("std::int64_t frames = 0"));
+    assert!(!ALIGN_H.contains("value.k"));
+    assert!(function_body(ALIGN_H, "bool alignedReadStart (")
+        .contains("checkedClockSubtract (start, value.frames, start)"));
+    let display = function_body(content, "KirinHyphaProcessorBase::liveCompareAlignMs()");
+    assert!(
+        display
+            .find("ScopedTryLock formatLock (handleLock)")
+            .unwrap()
+            < display.find("preparedFormat.sampleRate").unwrap()
+    );
+    assert!(display.contains("! formatLock.isLocked() || formatChangeHeld.load"));
+    assert!(
+        format.find("renderer.clearAlignDisplay()").unwrap()
+            < format.find("preparedFormat =").unwrap()
+    );
+    assert!(ALIGN_H.contains("ownerA == other.ownerA && ownerB == other.ownerB"));
+    assert!(read.contains("ownerA.load(), ownerB.load()"));
+    assert!(function_body(SESSION_H, "RenderReport render (")
+        .contains("align.context = alignOwner (align.context, ring)"));
+    let state = include_str!("../../juce_shell/src/PluginProcessorState.cpp");
+    assert!(!state.contains("requestAlign"));
+}
+
+#[test]
 fn clock_preparation_and_shared_projection_stay_realtime_safe() {
     for source in [
         BLOCK_H,
         AAX_CHUNK_H,
+        ALIGN_H,
         TIMING_H,
         function_body(PREPARATION_H, "TimingEvidence observe ("),
     ] {

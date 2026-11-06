@@ -221,6 +221,45 @@ static void aaxChunkKeepsTheCycleToItsLoop()
     }
 }
 
+// A wrap inside the first chunk proves nothing, as at the head of a loop where the host reports the
+// tail of a lap that never played. A chunk of that length closing afterwards makes it the measurement.
+static void aaxChunkKeepsAnEarlyWrapForItsProof()
+{
+    using namespace aax_chunk_test;
+    AaxChunkPosition position;
+    std::int64_t clock = 1000;
+    const auto seen = [&] (std::int64_t project, int frames = 256)
+    {
+        auto b = aaxBlock (clock, project, frames);
+        b.loop = { true, true, static_cast<double> (project) / 24000.0, 0.0, 2.0, 120.0 };
+        clock += frames;
+        position.apply (b, rate);
+        return b;
+    };
+    for (int i = 0; i < 4; ++i) seen (47500);
+    const auto wrapped = seen (524);
+    require (! position.proven() && wrapped.chunkCycleSamples == 0, "the wrap alone proves nothing");
+    for (int i = 1; i < 4; ++i) seen (524);
+    const auto closed = seen (1548);
+    require (position.proven() && closed.chunkCycleSamples == 48000, "the closed chunk makes it the measurement");
+
+    AaxChunkPosition other;
+    clock = 1000;
+    const auto seenBy = [&] (AaxChunkPosition& p, std::int64_t project)
+    {
+        auto b = aaxBlock (clock, project);
+        b.loop = { true, true, static_cast<double> (project) / 24000.0, 0.0, 2.0, 120.0 };
+        clock += 256;
+        p.apply (b, rate);
+        return b;
+    };
+    for (int i = 0; i < 4; ++i) seenBy (other, 47500);
+    seenBy (other, 524);                                // a wrap after a chunk of 1024
+    seenBy (other, 524);
+    const auto shorter = seenBy (other, 1036);          // the next chunk closes at 512
+    require (other.proven() && shorter.chunkCycleSamples == 0, "a chunk of another length takes no early wrap");
+}
+
 // One report names one PPQ. A repeated position whose PPQ moved or is missing is not that shape.
 static void aaxChunkRefusesAContradictoryPpq()
 {

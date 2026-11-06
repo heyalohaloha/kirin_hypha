@@ -1149,10 +1149,10 @@ is treated as linear playback. If timing cannot be confirmed, POST remains audib
 comparison resumes when confirmation returns. END stays available throughout.
 
 An I/O (hardware) insert can sit between PRE and POST. Pro Tools may not compensate all of that
-path's delay. When Hypha can judge the audio, the status line shows what remains, for example
-**PRE 21.33 ms early**; adjust the insert's H/W Insert Delay from its current value by that amount
-and check the line again. On Pro Tools 2026.4.1 at 48 kHz, linear playback and a 1024-sample
-buffer, raising it from 0 to 21.33 ms removed the difference.
+path's delay. When Hypha can judge the audio and PRE is early, it reads PRE that much later and
+the status line says so, for example **PRE 21.33 ms aligned**. Turn off **Align PRE automatically**
+in MENU to hear PRE where the clocks put it. LISTEN and BLIND across an I/O insert were measured on
+Pro Tools Developer 26.4.0.5 at 48 kHz with hardware buffers of 256, 512 and 1024 samples.
 
 The signed 1.1.51 release has passed PRE/POST loading, exact pairing, normal audio, Keep,
 offline bounce, and saving/reopening in regular Pro Tools Native on Intel macOS and Windows x64.
@@ -1290,7 +1290,9 @@ LOOP-off step or per-lap approval is needed. Initial comparison needs independen
   length per callback, and the next position stepped by exactly those frames. The filled-in
   positions are not evidence on either side: K still comes from the host's own reports. A
   repeated position whose PPQ moved or is missing, or a new sample rate or clock report, ends
-  this until a chunk closes again.
+  this until a chunk closes again. Below such a buffer K can fall below zero, with PRE ahead of
+  POST on the engine clock. In a loop that candidate must lie inside what PRE has already written,
+  and no other lap may fit both the written range and the host's delay bound.
 
 If proof stays unavailable for three seconds or the loop is too short, Hypha explains the condition and keeps POST
 playing and leaves **END** available. It does not present LOOP-off or re-MATCH as the normal
@@ -1317,13 +1319,19 @@ before enough audio is available and completes on the processor, including while
 closed. If lowering POST is needed, it still asks for approval when the editor is available.
 
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
-  two seconds of playback Hypha also compares the audio itself. When PRE is off, the status line
-  says so, for example **PRE 2.31 ms early** (a plug-in between that under-reports its latency) or
-  **late**. An intentional delay, reverb or heavy processing can cause the same message, and
-  silence or a held tone cannot be judged; Hypha never changes the comparison because of it.
-- If a strong, unambiguous content offset changes, Hypha uses POST while preserving the
-  comparison. Two fresh estimates back at the original baseline clear the hold automatically;
-  stopping and restarting also resets it. Weak peaks caused by processing do not create a hold.
+  two seconds of playback Hypha also compares the audio itself. When PRE is early, as with a
+  plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
+  and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
+  follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
+  shows the difference instead (**PRE 2.31 ms early**, **late**). An intentional delay, reverb or
+  heavy processing can look the same, and silence or a held tone cannot be judged. Only the
+  audition's read position moves: the clock proof, MATCH, A, the meters and Record stay as they are.
+- During a BLIND trial a new alignment waits until you switch to POST and the fade finishes.
+  A seek, stop or timing interruption does not move it under the same selected source.
+- If a strong, unambiguous content offset changes to a difference Hypha cannot align, Hypha uses
+  POST while preserving the comparison. Two fresh estimates back at the
+  original baseline clear the hold automatically; stopping and restarting also resets it. Weak
+  peaks caused by processing do not create a hold.
 - While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume
   automatically. A brief interruption is quiet; a condition lasting three seconds gets guidance.
 - If the chosen PRE is one channel of a multi-mono plug-in in Pro Tools, LISTEN does not start

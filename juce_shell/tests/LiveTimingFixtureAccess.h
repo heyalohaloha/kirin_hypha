@@ -109,6 +109,7 @@ public:
         e.lagFrames = lag; e.clockK = 4096; e.blockFrames = 512;
         e.stopGeneration = processor.liveCompare.contentHold.generation();
         e.timelineGeneration = processor.liveCompare.timelineGeneration.load();
+        e.alignContext = processor.liveCompare.alignContext();
         processor.holdLiveCompareForContentJump (e);
         return e;
     }
@@ -118,6 +119,25 @@ public:
     { processor.liveCompare.compensationOff.store (disabled); }
     static hypha::live_compare::OffsetEstimate jumpFacts (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.contentJumpFacts; }
+    static void clearContent (KirinHyphaProcessorBase& processor)
+    { processor.liveCompare.contentHold.clear (processor.liveCompare.contentHold.generation()); }
+    // Simulate invalidation immediately after the publisher's final context check. The real RT
+    // entry must reject this stale tuple too, even before the service timer can retire it.
+    static void publishMeasuredAlign (KirinHyphaProcessorBase& processor, const hypha::live_compare::OffsetEstimate& estimate)
+    { processor.liveCompare.renderer.requestAlign (hypha::live_compare::alignValue (estimate.lagFrames), estimate.alignContext); }
+    // Advance only the local counter to model a long-lived instance, before any audio is fed.
+    static void advanceReaperOrigin (KirinHyphaProcessorBase& processor, std::int64_t frames)
+    {
+        const hypha::HostAuxiliaryClock raw { 0, hypha::AuxiliaryClockSource::vst3Continuous, false };
+        while (frames > 0)
+        {
+            const auto count = static_cast<std::int32_t> (std::min (frames, std::int64_t (INT32_MAX)));
+            processor.liveCompare.clock.next (raw, count, true);
+            frames -= count;
+        }
+    }
+    static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.historyView().kValid; }
     static void heldGains (KirinHyphaProcessorBase& processor)
     {
         processor.lastPlaying.store (true);

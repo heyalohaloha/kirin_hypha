@@ -30,6 +30,7 @@ namespace hypha::live_compare
 // callbacks wait: the measured cycle lets K be proven again at once, without another lap. The
 // measurement belongs to one loop: leaving it, or a new range or tempo, discards it. A wrap keeps a
 // proven chunk but never proves one, and only a reported PPQ that crossed the loop end is a wrap.
+// A wrap seen before any proof is kept apart and counts only once a chunk of the same length closes.
 //
 // Certified Pro Tools AddClock only; every other clock, and every linear block, passes through
 // unchanged. Audio Thread, one per side, fixed size. Nothing survives a break.
@@ -55,7 +56,11 @@ public:
         }
         else
         {
+            const auto pendingCycle = earlyCycle, pendingChunk = earlyChunk;
+            earlyCycle = earlyChunk = 0; // only the very next closed chunk can confirm the wrap
             const bool closed = continuing && closes (block, rate);
+            if (closed && state != State::proven && block.loop.sameRange (proof.loop) && elapsed == pendingChunk)
+                cycle = pendingCycle;
             if (closed) { chunk = elapsed; state = State::proven; }
             else state = State::anchored;
             if (! closed || ! block.loop.active || ! block.loop.sameRange (proof.loop)) cycle = 0;
@@ -94,9 +99,10 @@ private:
         const bool looping = proof.loop.active && block.loop.active;
         if (looping && ! loopPositionMatches (proof.loop, head, elapsed, block.loop, block.project, rate)) return false;
         if (measured == 0) return true;
-        const bool wrapped = state == State::proven && looping && block.loop.ppq < proof.loop.ppq
-            && proof.loop.advance (elapsed, rate) < proof.loop.ppq;
-        if (! wrapped || (cycle != 0 && measured != cycle)) return false;
+        if (! looping || block.loop.ppq >= proof.loop.ppq || proof.loop.advance (elapsed, rate) >= proof.loop.ppq)
+            return false;
+        if (state != State::proven) { earlyCycle = measured; earlyChunk = elapsed; return false; }
+        if (cycle != 0 && measured != cycle) return false;
         cycle = measured;
         return true;
     }
@@ -124,7 +130,7 @@ private:
     }
 
     State state = State::idle;
-    std::int64_t head = 0, nextClock = 0, elapsed = 0, chunk = 0, cycle = 0;
+    std::int64_t head = 0, nextClock = 0, elapsed = 0, chunk = 0, cycle = 0, earlyCycle = 0, earlyChunk = 0;
     std::int32_t frames = 0;
     double proofRate = 0.0;
     BlockClock proof; // the chunk's last host report: its position, loop and clock certificate

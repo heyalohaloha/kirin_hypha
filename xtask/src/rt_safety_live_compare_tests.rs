@@ -135,7 +135,7 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
         "loopAddressIsCurrent (runtimePeer.anchor, runtimePeer.block, block, k,",
         "runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire)",
         "timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,",
-        "decision.preStart = block.clock - k;",
+        "alignedReadStart (block.clock, k, align, decision.preStart)",
         "if (decision.timelineChanged)",
         "! block.loop.active",
         "profile.invalidateOnDisagreement",
@@ -173,7 +173,7 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
     // The only allocation in the session header is the non-RT prepare.
     let render = function_body(SESSION_H, "RenderReport render (");
     let feed = function_body(SESSION_H, "bool feed (");
-    for body in [render, feed] {
+    for body in [render, feed].map(without_line_comments) {
         for forbidden in ["make_unique", "new ", "mutex", "sleep", "wait"] {
             assert!(
                 !body.contains(forbidden),
@@ -353,7 +353,7 @@ fn live_compare_pin_keeps_one_range_through_blind_admission_without_an_entry() {
         );
     }
     let handled = function_body(menu, "bool KirinHyphaEditor::handleLiveCompareMenu");
-    assert!(handled.contains("result > 43") && !handled.contains("44"));
+    assert!(handled.contains("result > 44") && handled.contains("setLiveCompareAutoAlign"));
 }
 
 // INV-LC16: AUTO moves PRE's gain only, through the approved point (the ceiling and the reach of the

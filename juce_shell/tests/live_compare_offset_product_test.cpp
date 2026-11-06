@@ -102,6 +102,7 @@ public:
                      "offset fixture uses the qualified synthetic VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
+        post->setLiveCompareAutoAlign (false); // the hold below is what a user who turned it off gets
         editor.reset (post->createEditorIfNeeded());
         require (editor != nullptr, "real product editor opens");
         editor->setSize (900, 600);
@@ -142,11 +143,11 @@ private:
 
     void timerCallback() override
     {
-        if (std::chrono::steady_clock::now() - started >= std::chrono::seconds (60))
+        if (std::chrono::steady_clock::now() - started >= std::chrono::seconds (75))
         {
             // Where the round trip stood, for a slow test machine to explain itself.
             const auto status = post->liveCompareStatus();
-            std::cerr << "Live offset product state: stage " << stage << ", footer \"" << footer()
+            std::cerr << "Live offset product state: stage " << stage << ", aligned " << post->liveCompareAlignFrames() << ", footer \"" << footer()
                       << "\", pair " << static_cast<int> (post->pairStatus()) << ", active " << status.active
                       << ", matched " << status.matched << ", PRE selected " << status.preSelected
                       << ", PRE audible " << status.preAudible << ", PRE waiting " << status.preWaiting
@@ -274,8 +275,21 @@ private:
                 require (stalls.load() > 0 && longestCallbackMicros.load() >= 600000,
                          "certified offset recovery survives the deliberate 600 ms machine stall");
                 require (footer() != "Compensation off: enable it (POST)", "the reason clears once it is on");
+                post->setLiveCompareAutoAlign (true);
+                ++stage;
+                break;
+            }
+            case 9:
+            {
+                // INV-LC28: on, the same early PRE is read later, and the footer says it is taken up.
+                if (post->liveCompareAlignFrames() != 3000) break;
+                editor->setSize (900, 600);
+                if (footer() != "PRE 62.50 ms aligned") break;
+                const auto status = post->liveCompareStatus();
+                require (status.active && status.preSelected, "the footer is the applied value");
+                std::cout << "aligned: " << footer() << std::endl;
                 std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold, "
-                             "delay compensation off)\n";
+                             "delay compensation off, alignment)\n";
                 passed = true;
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();

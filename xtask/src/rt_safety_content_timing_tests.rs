@@ -2,15 +2,17 @@ use super::{function_body, EDITOR_LIVE_COMPARE_CPP, PROCESSOR_CPP};
 const CONTENT_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorContentTiming.cpp");
 const BLIND_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorLiveBlind.cpp");
 
-// INV-LC7 / LC10: the content offset is measured off the Audio Thread and only shown; a jump the
-// monitor settles holds POST, with PRE still selected, until playback stops.
+// INV-LC7 / LC10 / LC28: content is measured off the Audio Thread. An alignable jump moves only
+// the audition address; other jumps hold POST with PRE still selected.
 #[test]
 fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() {
     let rt = function_body(
         PROCESSOR_CPP,
         "void KirinHyphaProcessorBase::processLiveCompare",
     );
-    assert!(rt.contains("preSelected && ! contentHeld"));
+    assert!(
+        rt.contains("liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff")
+    );
     assert!(rt.contains("if (! block.playing)"));
     assert!(rt.contains("liveCompare.contentHold.stopped();"));
     assert!(!rt.contains("measureOffset") && !rt.contains("estimateOffset"));
@@ -18,7 +20,10 @@ fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() 
         CONTENT_CPP,
         "void KirinHyphaProcessorBase::serviceLiveContentTiming",
     );
-    assert!(monitor.contains("if (step.jumped) holdLiveCompareForContentJump (estimate)"));
+    assert!(monitor.contains("step.settled && alignLiveCompare (step, estimate)"));
+    assert!(
+        monitor.contains("if (step.jumped && ! aligned) holdLiveCompareForContentJump (estimate)")
+    );
     assert!(monitor.contains("step.recovered"));
     assert!(monitor.contains("estimate.timelineGeneration == liveCompare.timelineGeneration.load"));
     assert!(monitor.contains("liveCompare.contentHold.clear (estimate.stopGeneration)"));

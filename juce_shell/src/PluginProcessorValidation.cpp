@@ -106,6 +106,8 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
         };
         offsetLine ("Content timing estimate", liveCompare.offsetFacts);
         offsetLine ("Content timing hold", liveCompare.contentJumpFacts);
+        lines.add ("Content alignment: " + number (liveCompareAlignFrames())
+                   + (liveCompareAutoAlign() ? " / automatic" : " / off"));
         const char* validationIssues[] {
             "not requested", "scheduled", "POST only", "exact PRE pair unavailable",
             "live clock unavailable", "previous attempt reset; retry", "request rejected"

@@ -349,7 +349,7 @@ void verifyLiveCompareFooterContract()
                                     "MATCH waits for PRE", "MATCH needs 3 s of play", "MATCH failed; try again",
                                     "MATCH needs more signal", "MATCH over 24 dB", "MATCH: POST -24.00 dB",
                                     "POST back to normal", "Press RETURN first", "PRE over TP ceiling",
-                                    "PRE 170.67 ms early", "PRE 170.67 ms late", "PRE held: latency changed",
+                                    "PRE 170.67 ms early", "PRE 170.67 ms late", "PRE 170.67 ms aligned", "PRE held: latency changed",
                                     "B plays from REF: press A there to listen",
                                     "C plays from REF: press A there to listen",
                                     "V plays from REF: press A there to listen", "AUTO on: within 0.5 dB", "AUTO off",

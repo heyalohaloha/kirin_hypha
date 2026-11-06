@@ -129,6 +129,17 @@ int main()
         require (! brief.view().usedPostFallback, "separate short runs never add up; just under 25 ms stays undisclosed");
         brief.fallback (cmd, 1, 48000.0);                // 1200 frames = 25 ms
         require (brief.view().usedPostFallback, "25 ms of contiguous POST during PRE is disclosed");
+        require (brief.view().fallbackForTiming && ! brief.view().fallbackForCeiling, "the result names timing only when timing did it");
+        BlindSession ceiling;
+        ceiling.start (true);
+        ceiling.fallback (ceiling.command(), 1200, 48000.0, true);
+        require (ceiling.view().usedPostFallback && ceiling.view().fallbackForCeiling && ! ceiling.view().fallbackForTiming,
+                 "the ceiling is named when the ceiling did it");
+        BlindSession mixed;
+        mixed.start (true);
+        mixed.fallback (mixed.command(), 600, 48000.0, true);
+        mixed.fallback (mixed.command(), 600, 48000.0);
+        require (mixed.view().fallbackForCeiling && mixed.view().fallbackForTiming, "a run of both names both");
         for (const auto [frames, rate] : { std::pair { 1024, 48000.0 }, std::pair { 1024, 44100.0 }, std::pair { 2048, 96000.0 } })
         {
             BlindSession single; single.start (true);

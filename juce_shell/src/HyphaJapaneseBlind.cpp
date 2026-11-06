@@ -13,6 +13,8 @@ const Entry entries[] = {
     { "Loop timing unavailable; turn loop off to compare (POST)", u8"ループのタイミングは未確認。ループをオフにすると比べられます（POST）" },
     { "Track setup cannot verify the loop; turn loop off (POST)", u8"トラック構成ではループを確かめられません。ループをオフに（POST）" },
     { "POST was used briefly when timing was unavailable", u8"タイミングを確かめられない間はPOSTを鳴らしました" },
+    { "POST played where PRE went over the ceiling", u8"PREが上限を超えた所はPOSTを鳴らしました" },
+    { "POST played for timing and the PRE ceiling", u8"タイミング未確認と上限超えの所はPOSTを鳴らしました" },
     { "Timing unavailable; check PRE and play (POST)", u8"タイミング未確認：PREを確認し再生（POST）" },
     { "Check chain levels; resumes automatically (POST)", u8"チェーンの音量を確認すると自動で戻ります（POST出力）" },
     { "Timing changed: check chain delay (POST)", u8"時間差が変化：チェーンの遅延を確認（POST）" },
