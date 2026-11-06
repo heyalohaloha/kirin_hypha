@@ -10,6 +10,7 @@
 #include "../src/reference_audition/ReferenceRuntimeEventTransport.h"
 #include "../src/reference_audition/ReferenceTextEdges.h"
 #include "../src/AtomicFile.h"
+#include "ReferenceLibraryReceivedTest.h"
 void testReferenceLibrarySkipped (const juce::File&);
 void testReferenceAdoptedVersions (const juce::File&);
 
@@ -70,6 +71,7 @@ void testNameEdgesAndOpenOutcome()
 void testReferenceLibrarySkipped (const juce::File& sandbox)
 {
     testNameEdgesAndOpenOutcome();
+    testLibraryReceived (sandbox);
     const auto root = libraryCopy (sandbox, "library-skipped");
     const auto manifestFile = root.getChildFile ("library/manifest.json");
     auto manifest = readJsonFile (manifestFile);

@@ -26,6 +26,25 @@ The existing platform-specific `plugin_data/reference/v2` root contains:
   expired lease does not erase an already verified library.
 - `library/open/<request UUID>.json`: an explicit request to continue in the OS Reference editor.
   Removing a received request acknowledges the handoff, not successful navigation past an OS draft guard.
+- `library/received/<runtime UUID>.json`: Hypha's report that it read a library, one file per instance, overwritten:
+  `kirin_hypha_reference_library_received`, version `1.0`, `runtime_instance_id` (a lowercase UUID v4 equal to the
+  file name), `manifest_revision`, `received_at_ms`, `hypha_version` and `skipped`, the items it left out as
+  `{ "name", "reason" }` rows, `reason` being `name_unreadable` or `unreadable`, `name` empty when unreadable. At most
+  64 KiB and 256 rows; rows beyond that are cut. Written only when the revision or the rows change, never with a lower
+  revision than the instance already reported; a rejected revision is not reported. A file another instance's cleanup
+  removed comes back with the same content on the next worker cycle, including while C waits for the next MATCH window.
+  Saving and cleanup run on one background thread with one coalesced pending value. Each job owns its inputs independently
+  of the controller, so neither C preparation nor controller destruction waits for notification I/O. Stopping discards the
+  pending value and stops further cleanup; an active store can finish safely. Before launching notification work, the
+  loader retains its code module once until host exit, including thread-exit code and static state. This bounded module
+  retention is intentional: releasing it when a future becomes ready would race the thread returning from plugin code.
+  If module retention cannot be established, only the notification is skipped. The native lifetime test holds a store
+  across controller deletion and actual POST VST3 close/reopen; a separate unloadable control module verifies the explicit
+  pin without relying on Rust thread-local storage. See the [Apple loader contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dlopen.3.html)
+  and [Windows module pin contract](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw).
+  A failed write stops nothing and waits for
+  the next change. Writing removes files of this
+  name shape older than 30 days, looking at 256 files at most each time. Kirin OS only reads this folder.
 - `library/events/<runtime UUID>` and `library/manifests/<revision>.json`: immutable audition
   history bound to the exact library revision. Library events have `work_id: null`; they do not
   manufacture a Work association.

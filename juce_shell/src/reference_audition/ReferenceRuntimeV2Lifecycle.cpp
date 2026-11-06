@@ -150,6 +150,8 @@ namespace hypha::reference_audition
             serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
             serviceLibraryRecovery();
+            if (reportsLibraryReceived.load (std::memory_order_acquire))
+                libraryReceivedWriter.service (juce::Time::currentTimeMillis());
             servicePresetSelectionAcknowledgement();
             serviceCandidatePreparationAcknowledgement();
             const auto currentTransportHeartbeat = transportHeartbeat.load (

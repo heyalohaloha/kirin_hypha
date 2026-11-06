@@ -19,6 +19,7 @@ namespace hypha::reference_audition
         juce::String workId;
         std::uint32_t hostProcessId = 0;
         bool library = false;
+        juce::String hyphaVersion {}; // 読み終えた知らせに書く（library/received）
 
         bool valid() const noexcept;
     };

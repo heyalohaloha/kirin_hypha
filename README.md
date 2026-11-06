@@ -898,7 +898,7 @@ Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per proj
 
 Kirin OS automatically publishes its saved Reference library to POST; there is nothing to
 connect. A small OS indicator reports the connection; received settings remain visible when media is unavailable. Hypha does not substitute
-its own Factory library.
+its own Factory library. POST tells Kirin OS which library it has read and which items it left out.
 
 ![Reference B: the last 10 seconds of your mix (A) beside a ranked set of four reference songs, with level match and spectral balance](docs/media/readme/ref_b.jpg)
 

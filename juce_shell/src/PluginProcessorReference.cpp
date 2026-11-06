@@ -432,6 +432,7 @@ void KirinHyphaProcessorBase::configureReferenceAudition()
     hypha::reference_audition::RuntimeIdentity identity;
     identity.runtimeInstanceId = referenceRuntimeId;
     identity.library = true;
+    identity.hyphaVersion = JucePlugin_VersionString;
     referenceAuditionController->setAnalysisOwner(kirin_hypha_reference_analysis_owner(hyphaHandle));
     referenceAuditionController->configure (identity, preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()));
    #endif

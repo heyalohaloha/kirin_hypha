@@ -8,6 +8,7 @@
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
 #include "ReferenceCandidatePreparationTransport.h"
+#include "ReferenceLibraryReceived.h"
 #include "ReferencePresetAdoptionTransport.h"
 #include "ReferencePresetSelectionTransport.h"
 #include "ReferenceRecoveryTransport.h"
@@ -36,7 +37,8 @@ namespace hypha::reference_audition
         using SelectionGate = std::function<bool(bool)>;
 
         explicit RuntimeV2Controller (juce::File transportRootIn = RuntimeV2Repository::transportRoot(),
-                                      SelectionGate = {}, bool wholeVersionComparison = false);
+                                      SelectionGate = {}, bool wholeVersionComparison = false,
+                                      LibraryReceivedWriter::Store = {});
         ~RuntimeV2Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
@@ -103,6 +105,8 @@ namespace hypha::reference_audition
         // B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
         void setSongsOnly (bool enabled) noexcept { songsOnly.store (enabled, std::memory_order_release); notify(); }
         void prepareSelectionsBeforeReturn() noexcept { prepareBeforeReturn.store (true, std::memory_order_release); }
+        // library を読み終えたことを Kirin OS へ返す役にする。3 つの役は同じ library を読むので、1 つの役だけが返す。
+        void reportLibraryReceived() noexcept { reportsLibraryReceived.store (true, std::memory_order_release); }
         bool awaitingPreparedLevel() const;
         int preparedMatchWindowBlocks() const;
         void supplyPreparedLevel (double loudness, double peak);
@@ -319,13 +323,14 @@ namespace hypha::reference_audition
         CandidatePreparationTransport candidatePreparationTransport;
         PresetAdoptionTransport presetAdoptionTransport;
         RuntimeEventTransport eventTransport;
+        LibraryReceivedWriter libraryReceivedWriter; // 作業スレッドだけが触る
         juce::String sourceRetryKey, sourceRetryFailure;
         std::int64_t sourceRetryAtMs = 0;
         int sourceRetryCount = 0;
         AudioPages pages;
         AudioPages preparedPages;
         std::atomic<AudioPages*> activePages { &pages };
-        std::atomic<bool> prepareBeforeReturn { false };
+        std::atomic<bool> prepareBeforeReturn { false }, reportsLibraryReceived { false };
         std::optional<WorkspaceSelection> preparedWorkspace; // Worker-owned; never read by the callback.
         std::uint32_t stagedVersionLimitMs = 20'000;  // 替えられないまま前の V を保つ上限。過ぎたら A で待つ
         std::launch stagedSearchLaunch = std::launch::async;
