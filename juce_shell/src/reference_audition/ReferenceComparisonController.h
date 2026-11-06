@@ -5,6 +5,8 @@
 #include "ReferenceBlindSlot.h"
 #include "ReferenceComparisonSettings.h"
 #include "ReferenceHeldAttenuation.h"
+#include "ReferenceTargetService.h"
+#include "ReferenceTargetCapture.h"
 #include "../OutputOwnership.h"
 
 #include <deque>
@@ -32,6 +34,13 @@ public:
     void setPresented (bool active) noexcept;
     Snapshot snapshot();
     ReferenceComparisonSettings savedSettings();
+    TargetService& targetService() noexcept { return targets; }
+    bool chooseTarget (const juce::String&, std::uint64_t restoreEpoch = 0);
+    bool makeTarget();
+   #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    void setBeforeMakePublishForTest (std::function<void()> probe) { beforeMakePublish = std::move (probe); }
+    void setBeforeCheckCommitForTest (std::function<void()> probe) { beforeCheckCommit = std::move (probe); }
+   #endif
     void restoreSettings (const ReferenceComparisonSettings&);
     bool selectVersion (const juce::String&, bool automatic = false); // automatic：V の自動特定の AUTO（V の選択だけを替える）
     bool selectPreset (const juce::String&);
@@ -138,6 +147,11 @@ private:
     bool closing = false;
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
+    juce::CriticalSection targetChoiceLock; // Non-RT: restore and C/target selection commit as whole transactions.
+   #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    std::function<void()> beforeMakePublish;
+    std::function<void()> beforeCheckCommit;
+   #endif
     juce::String versionId, receiverId;
     StateChanged stateChanged;
     struct PendingIntent
@@ -194,6 +208,7 @@ private:
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
     std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();  // 観測スレッドが読むので visual より先に作る
     RuntimeV2Controller version, check, reference;
+    TargetService targets;
     VisualObservation visual;
     // A を観測スレッドへ渡す（Audio Thread）。aFeed：見せていて Blind の外のときだけ渡す。aWriters：片付けで、Audio Thread が
     // 渡し終えるのを待つ（2026-10-04、A の取り込みの部品をやめたときにそこから移した守り）。

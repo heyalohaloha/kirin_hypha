@@ -141,6 +141,18 @@ void resetForFreshBlindCapture (ref::RuntimeV2Controller& controller, const ref:
         << " sameSource=" << (state.playbackIdentity == expected.playbackIdentity)
         << " sameRevision=" << (state.manifestRevision == expected.manifestRevision)
         << " binding=" << state.aBindingAvailable << " rejection=" << state.rejectionCode << std::endl;
+    if (! prepared)
+    {
+        std::cerr << "CAPTURE_REARM state=" << static_cast<int> (state.state)
+            << " ready=" << (state.state == ref::RuntimeState::ready)
+            << " identityMatches=" << (state.playbackIdentity == expected.playbackIdentity)
+            << " manifestMatches=" << (state.manifestRevision == expected.manifestRevision)
+            << " binding=" << state.aBindingAvailable
+            << " enabled=" << control::captureEnabledFor (control::captureFor (controller, {}), {})
+            << " pcm=" << (control::captureFor (controller, {}).currentAudio() != nullptr)
+            << " rejection=" << state.rejectionCode;
+        printCaptureWorkerFacts (std::cerr, controller); std::cerr << std::endl;
+    }
     require (prepared, "the same source is ready with a newly armed real capture after configure");
 }
 

@@ -77,24 +77,16 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
     bool restoredHybridVuOnRecord = true, restoredAutoAlign = true, restored = false;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    hypha::reference_audition::ReferenceComparisonSettings restoredReference;
+   #endif
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         if (xml->hasTagName ("KirinHyphaState"))
         {
            #if ! KIRIN_HYPHA_PRE_DISPLAY
-            if (role == Role::Post)
-            {
-                std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
-                {
-                    const juce::ScopedLock lock (handleLock);
-                    if (! referenceAuditionController) createReferenceAuditionController();
-                    controller = referenceAuditionController;
-                }
-                // Controller gate callbacks acquire handleLock: never enter with it held.
-                controller->restoreSettings (
-                    hypha::reference_audition::ReferenceComparisonSettings::read (*xml));
-            }
+            restoredReference = hypha::reference_audition::ReferenceComparisonSettings::read (*xml);
            #endif
             restoredSpectrumAverage = hypha::spectrum_average::Preference::read (*xml);
             automaticPair.disconnected.store (xml->getBoolAttribute ("pair_explicitly_disconnected", false));
@@ -162,6 +154,20 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     {
         spectrumAverage.set (restoredSpectrumAverage);
         liveCompare.autoAlign.store (restoredAutoAlign, std::memory_order_release);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (role == Role::Post)
+        {
+            std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
+            {
+                const juce::ScopedLock lock (handleLock);
+                if (! referenceAuditionController) createReferenceAuditionController();
+                controller = referenceAuditionController;
+            }
+            // Both state formats replace project facts and invalidate in-flight measurements.
+            // Controller gate callbacks acquire handleLock: never enter with it held.
+            controller->restoreSettings (restoredReference);
+        }
+       #endif
         if ((restoredInstanceId.isNotEmpty() && restoredInstanceId != persistInstanceId)
             || restoredPairName.isNotEmpty() || restoredPairInstanceId.isNotEmpty()
             || restoredPairProjectHash.isNotEmpty() || automaticPair.disconnected.load (std::memory_order_acquire))

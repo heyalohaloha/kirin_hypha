@@ -111,3 +111,9 @@ Momentary Loudness	technical term retained in Japanese; wrapping token
 Short-term Loudness	technical term retained in Japanese; wrapping token
 Loudness Range	technical term retained in Japanese; wrapping token
 Buffer size	technical term retained in Japanese; wrapping token
+MAKE TARGET	Reference action label; simple English retained in both languages
+C / DATA	Reference role badge; simple English retained in both languages
+C TARGET	Reference chart legend; simple English retained in both languages
+C / KIRIN OS	Reference comparison source selector label
+A WINDOW / 3 S	Reference minimum observation window label
+MONO / STEREO	channel layout names retained in both languages

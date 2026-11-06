@@ -17,6 +17,8 @@ bool ReferenceComparisonController::selectB (double loudness, double peak) noexc
 }
 bool ReferenceComparisonController::selectC (double loudness, double peak) noexcept
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (targets.snapshot().collection.selected.isNotEmpty()) return false;
     // The audible C still belongs to the old selection while its replacement prepares.
     if (preparingCheck()) return ! trialActive();
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
@@ -44,14 +46,16 @@ void ReferenceComparisonController::selectA() noexcept
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
 LowerAApproval ReferenceComparisonController::approveLowerAAndPlay (const LowerAOffer& offer)
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
     const int slot = offer.slot;
     const double approvedDb = offer.db;
+    if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return LowerAApproval::stale;
     if (! offer.valid() || ! std::isfinite (approvedDb) || trialActive()) return LowerAApproval::refused;
     if (outputDecision (output_owner::Activity::lowerA).refused()) return LowerAApproval::postInUse;
     // 申し出は、その役の今の音・選択・MATCH の失敗に対するものだけを受ける（別の役・古い申し出・押し直した後は断る）。
-    const auto role = slotController (slot).snapshot();
-    if (role.matchFailure != MatchFailure::ceilingExceeded || role.playbackIdentity != offer.playbackIdentity
-        || role.selectionGeneration != offer.selectionGeneration || role.matchFailureSerial != offer.failureSerial)
+    const auto offered = slotController (slot).snapshot();
+    if (offered.matchFailure != MatchFailure::ceilingExceeded || offered.playbackIdentity != offer.playbackIdentity
+        || offered.selectionGeneration != offer.selectionGeneration || offered.matchFailureSerial != offer.failureSerial)
         return LowerAApproval::stale;
     const auto before = heldA.targetDb();
     heldA.hold (approvedDb);

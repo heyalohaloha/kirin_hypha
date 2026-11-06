@@ -138,7 +138,7 @@ juce::String cueSpectrumLegend (const State& state, bool targetRange)
     const bool aReady = kirinComparable (state) && state.aKirin->frames >= minimumAFrames;
     const auto a = aReady ? aWindowLegend (state.aKirin->frames) : juce::String ("A WAITING");
     const auto nan = std::numeric_limits<double>::quiet_NaN();
-    return a + " / " + cuePartLegend ("C", state.cuePart, nan, nan, false)
+    return a + " / " + (state.targetSelected ? juce::String ("C TARGET") : cuePartLegend ("C", state.cuePart, nan, nan, false))
         + (targetRange ? juce::String (" / ") + targetRangeLegend : juce::String())
         + (std::isfinite (comparisonGainDb (state)) ? "" : " / LEVEL NOT MATCHED");
 }

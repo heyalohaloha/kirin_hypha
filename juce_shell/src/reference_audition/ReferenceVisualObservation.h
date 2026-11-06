@@ -7,6 +7,7 @@
 #include <functional>
 namespace hypha::reference_audition
 {
+class TargetPeakWindow;
 class VisualObservation final : private juce::Thread
 {
 public:
@@ -63,9 +64,10 @@ private:
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
     KirinSpectrumMeter kirinMeter;        // A を Kirin OS の Cue と同じ定義で
+    std::unique_ptr<TargetPeakWindow> targetPeaks;         // Numeric window edges only; existing A meters are unchanged.
     KirinSpectrumMeter pairAMeter, pairVMeter; // 位置合わせで対応した A と V（同じフレーム）
     KirinFingerprintMeter printMeter;     // A の Kirin 指紋（直近 30 秒）
-    DynamicsTicks aTickMeter;              // 範囲の帯：A の 100 ms の bin（Kirin OS の区間の値と同じ定義）
+    DynamicsTicks aTickMeter { 6000 };              // 範囲の帯：A の 100 ms の bin（Kirin OS の区間の値と同じ定義）
     DynamicsTicks pairATicks { 300 }, pairVTicks { 300 }; // V の画面：同じ区間の A と V（直近 30 秒）
     std::int64_t printEndSample = -1;
     std::int64_t pairKirinExpected = -1;

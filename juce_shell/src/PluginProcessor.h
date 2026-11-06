@@ -143,6 +143,7 @@ public:
     bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();
     void endReferenceBlind();
+    #include "ReferenceTargetProcessorApi.h"
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }

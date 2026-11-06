@@ -11,9 +11,11 @@
 #include <ctime>
 #include "ReferenceVisualAudioParity.h"
 #include "ReferenceAWindowRuntimeTest.h"
+#include "ReferenceMeasuredTargetTest.h"
 void testReferenceVisual (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
 {
+    testMeasuredTargets (sandbox);
     testAWindowTargets (sandbox);
     testAWindowResetRing();
     const auto root = sandbox.getChildFile ("visual"); require (root.createDirectory().wasOk(), "visual fixture directory");

@@ -44,28 +44,31 @@ public:
         if (elsewhere.getNumItems() > 0) menu.addSubMenu (elsewhereTitle, elsewhere);
         return menu;
     }
-    // A mouse click or Return marks the base ComboBox's list active and opens it only while it is
-    // not; hidePopup() clears that mark, as the base class does when its own list closes.
+    // Freeze the offered keys before opening the asynchronous list.
+    std::function<void(int)> menuReply()
+    {
+        std::vector<std::pair<int, juce::String>> offered;
+        for (int index = 0; index < getNumItems(); ++index)
+            offered.emplace_back (getItemId (index), rowKey (index));
+        const juce::Component::SafePointer<SelectionControl> safe (this);
+        return [safe, choices = std::move (offered)] (int id) {
+            if (safe == nullptr) return;
+            safe->showing = false;
+            safe->hidePopup();
+            for (const auto& [item, key] : choices)
+                if (item == id) { safe->chooseRow (key); break; }
+        };
+    }
+    // A mouse click or Return opens one list; hidePopup clears the base class's active mark.
     void showPopup() override
     {
         if (showing) return;
         if (! isEnabled() || getNumItems() == 0) { hidePopup(); return; }
         showing = true;
         auto menu = makeMenu();
-        std::vector<std::pair<int, juce::String>> offered;
-        for (int index = 0; index < getNumItems(); ++index)
-            offered.emplace_back (getItemId (index), rowKey (index));
         menu.setLookAndFeel (&getLookAndFeel());
-        const juce::Component::SafePointer<SelectionControl> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
-                            .withMinimumWidth (getWidth()).withItemThatMustBeVisible (getSelectedId()),
-            [safe, offered = std::move (offered)] (int id) {
-                if (safe == nullptr) return;
-                safe->showing = false;
-                safe->hidePopup();
-                for (const auto& [item, key] : offered)
-                    if (item == id) { safe->chooseRow (key); break; }
-            });
+                            .withMinimumWidth (getWidth()).withItemThatMustBeVisible (getSelectedId()), menuReply());
     }
 private:
     juce::String rowKey (int index) const

@@ -1,6 +1,7 @@
 #pragma once
 #include "ReferenceAuditionProtocol.h"
 #include "ReferenceVisualPreferences.h"
+#include "ReferenceMeasuredTarget.h"
 
 namespace hypha::reference_audition
 {
@@ -20,6 +21,7 @@ struct ReferenceChoice
 
 struct ReferenceComparisonSettings
 {
+    TargetCollection targets;
     ReferenceChoice version, check, reference;  // reference: B（REF）の曲
     bool versionAuto = false;                   // V の Version は AUTO が選んだ（AUTO が選び直せる）
     juce::String songSetId;                     // 選んでいる B SET
@@ -29,6 +31,7 @@ struct ReferenceComparisonSettings
     // 2026-10-04：A の取り込み（ACapture）と Tonal の表示（ReferenceTonal）は書かず、古い版が残したものは読み飛ばす。
     void write (juce::XmlElement& parent) const
     {
+        targets.write (parent);
         auto* xml = parent.createNewChildElement ("ReferenceChoices");
         xml->setAttribute ("version", 1);
         xml->setAttribute ("viewed_slot", viewedSlot);
@@ -46,6 +49,7 @@ struct ReferenceComparisonSettings
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
     {
         ReferenceComparisonSettings result;
+        result.targets = TargetCollection::read (parent);
         const auto* xml = parent.getChildByName ("ReferenceChoices");
         if (xml == nullptr || xml->getIntAttribute ("version") != 1) return result;
         const auto readChoice = [xml] (const char* name) {

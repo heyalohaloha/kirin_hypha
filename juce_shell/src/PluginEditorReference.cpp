@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaReferenceTargetView.h"
 #include "HyphaReferencePendingUI.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include <algorithm>
@@ -123,6 +124,10 @@ void KirinHyphaEditor::configureReferenceAudition()
           [this] { return processorRef.revealReferenceBlind(); }, [this] { processorRef.endReferenceBlind(); } },
         [this] (const auto& notice) { versionBlindNotice = notice; versionBlindNoticeUntil = juce::Time::getMillisecondCounter() + 5000; });
     scaleRoot.addChildComponent (versionBlindView);
+    referenceView.onTargetRequest = [this] (const auto& request) {
+        if (! processorRef.changeReferenceTarget (request) && processorRef.referenceTargetSnapshot().issue.isEmpty())
+            showToast ("TARGET UNAVAILABLE");
+    };
     scaleRoot.addChildComponent (referenceView);
 }
 void KirinHyphaEditor::layoutReferenceAudition()
@@ -269,7 +274,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.detailedMeasurement = runtime.detailedMeasurement;
     // V の Version を替えて A へ戻った一瞬は図を前のまま保つ（曲の頭の図へ跳ばない）。前の V が鳴っているあいだは今の図。
     const auto timelineNow = juce::Time::getMillisecondCounterHiRes();
-    if (runtime.switchingSlot == 1 && runtime.audibleComparisonSlot != 1
+    if (runtime.comparisonSlot == 1 && runtime.switchingSlot == 1 && runtime.audibleComparisonSlot != 1
         && referenceSwitchTimeline != nullptr && timelineNow < referenceSwitchHoldUntilMs)
         state.visualTimeline = referenceSwitchTimeline;
     else
@@ -316,6 +321,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         pending.isNotEmpty() && state.action.kind != hypha::reference_ui::ActionKind::lowerAAndPlay
             && ! (state.kirinOsRequest && state.action.kind != hypha::reference_ui::ActionKind::none))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
+    hypha::reference_ui::applyMeasuredTarget (state, processorRef.referenceTargetSnapshot(), processorRef.licenseIsOs());
     referenceView.setState (std::move (state));
     serviceReferenceOpenedNotice();  // C・V を開いて 0.2 秒後、今の状態で窓と押下を確かめて言う
     if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};

@@ -86,10 +86,21 @@ public:
         park();
     }
     ~AWindowRing() { release(); observation.setPresented (false); }
-    void enqueue (int count)
+    void enqueue (int count, float amplitude = 0.0f)
+    {
+        enqueueSamples (count, [amplitude] (std::int64_t at, int) {
+            return amplitude * static_cast<float> (std::sin (6.283185307179586 * (at % 48) / 48.0));
+        });
+    }
+    void enqueueSamples (int count, const std::function<float(std::int64_t, int)>& sample)
     {
         for (int index = 0; index < count; ++index, position += 240)
+        {
+            for (int n = 0; n < 240; ++n)
+                for (int channel = 0; channel < 2; ++channel)
+                    pcm[static_cast<size_t> (n * 2 + channel)] = sample (position + n, channel);
             observation.enqueue (pcm.data(), 240, 2, position, observation.inputGeneration(), 1);
+        }
     }
     // 止まっている観測スレッドを `iterations` 周だけ進めて、また止める。
     void advance (int iterations)
@@ -123,6 +134,15 @@ public:
             enqueue (static_cast<int> (std::min<size_t> (distance, 100)));
             drain();
         }
+    }
+    std::shared_ptr<const ref::VisualTimeline> window (int count)
+    {
+        { const std::lock_guard<std::mutex> lock (mutex); displayBlocks = count; }
+        release();
+        hypha::tests::reference_control::await ([&] {
+            const auto state = observation.snapshot(); return state && state->binding.aDisplayWindowBlocks == count;
+        }, "the selected A window is published");
+        park(); return observation.snapshot();
     }
 private:
     ref::VisualBinding step()
