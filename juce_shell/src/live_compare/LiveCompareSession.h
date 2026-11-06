@@ -260,7 +260,7 @@ public:
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
                          float ceilingLinear, bool blind = false,
                          RecoveryReason timingBlock = RecoveryReason::none,
-                         Decision* diagnosticDecision = nullptr) noexcept
+                         Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback()) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -281,7 +281,15 @@ public:
             return report;
         }
         float* scratch[] = { left.get(), right.get() };
-        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
+        align.context = alignOwner (align.context, ring);
+        // A new address may not jump under PRE: it waits for PRE to be silent, which LISTEN brings
+        // about with the usual fades and a Blind trial leaves to the listener's own switching.
+        if (align.context != alignContext) { alignApplied = {}; alignShown.store (0); weight = 0.0f; alignContext = align.context; }
+        const auto wantedAlign = align.enabled ? alignRequest.read (align.context, alignApplied) : AlignValue {};
+        if (wantedAlign != alignApplied && weight <= 0.0f && (! blind || ! preSelected)) alignApplied = wantedAlign;
+        const bool alignFading = wantedAlign != alignApplied && ! blind;
+        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignApplied);
+        if (decision.kValid) alignShown.store (alignApplied.frames, std::memory_order_release);
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
         if (timingBlock != RecoveryReason::none) invalidateHistory();
         else recordHistory (block, io, channels, decision);
@@ -329,7 +337,7 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        const float target = preSelected ? 1.0f : 0.0f;
+        const float target = preSelected && align.outputAllowed && ! alignFading ? 1.0f : 0.0f;
         if (weight <= 0.0f && target <= 0.0f)
         {
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
@@ -378,6 +386,12 @@ public:
         report.preAudible = weight > 0.0f;
         return report;
     }
+
+    // Message thread (INV-LC28): the content value for later blocks; 0 reads PRE at K alone.
+    void requestAlign (AlignValue value, AlignContext context = {}) noexcept { alignRequest.publish (value, context); }
+    AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignRequest.read (context); }
+    void clearAlignDisplay() noexcept { alignShown.store (0, std::memory_order_release); }
+    std::int64_t alignFrames() const noexcept { return alignShown.load (std::memory_order_acquire); }
 
     // Audio Thread: the host stopped processing the session (end, format change).
     void silenceTransition() noexcept { weight = 0.0f; }
@@ -475,6 +489,10 @@ private:
     std::atomic<std::int64_t> projectRunStart { 0 }, projectOffset { 0 };
     std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
+    AlignRequest alignRequest;
+    AlignContext alignContext; // Audio Thread only
+    std::atomic<std::int64_t> alignShown { 0 };
+    AlignValue alignApplied; // Audio Thread only
     std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 };
 };
 }

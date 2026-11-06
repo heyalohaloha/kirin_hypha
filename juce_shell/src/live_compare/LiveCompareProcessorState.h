@@ -155,6 +155,17 @@ struct ProcessorState
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved
+    std::atomic<bool> autoAlign { true };         // INV-LC28; saved only when off
+    std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 };
+    AlignContext alignServiced;                  // message thread: the monitor's pair and format
+    std::uint64_t alignPreferenceSeen = 0;
+    AlignContext alignContext() const noexcept
+    { const auto* mapping = ring.control(); return alignContext (mapping != nullptr ? mapping->ring() : nullptr); }
+    AlignContext alignContext (const Ring* source) const noexcept
+    {
+        const AlignContext context { authority.ticket(), alignFormat.load (std::memory_order_acquire) };
+        return source != nullptr ? alignOwner (context, *source) : context;
+    }
     std::atomic<std::uint64_t> hostResetGeneration { 0 };
     std::uint64_t hostResetSeen = 0, stopSeen = 1; // Audio Thread only
     bool wasPlaying = false;                      // Audio Thread only

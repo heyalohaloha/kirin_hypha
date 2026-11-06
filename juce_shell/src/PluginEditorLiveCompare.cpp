@@ -46,6 +46,12 @@ juce::String offsetText (std::int64_t lag, double sampleRate)
     return "PRE " + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
 }
 
+// INV-LC28: the amount the audition's read position already takes up.
+juce::String alignedText (double ms)
+{
+    return "PRE " + juce::String (ms, 2) + " ms aligned";
+}
+
 juce::String startFailure (StartResult result)
 {
     switch (result)
@@ -280,8 +286,10 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
 {
     juce::ignoreUnused (now);
     const auto observed = processorRef.liveContentTimingObservation();
+    const auto alignedMs = processorRef.liveCompareAlignMs();
     liveCompareWarning = status.prolongedWait && status.contentHeld
         ? "Timing changed: check chain delay (POST)"
+        : status.active && alignedMs > 0.0 ? alignedText (alignedMs)
         : status.active && observed.settled && std::llabs (observed.lagFrames) > 1
             ? offsetText (observed.lagFrames, observed.sampleRate) : juce::String();
     return false;

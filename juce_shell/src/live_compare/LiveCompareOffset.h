@@ -23,6 +23,7 @@ struct OffsetEstimate
     std::int64_t clockK = 0;
     std::int32_t blockFrames = 0;
     std::uint64_t stopGeneration = 0, timelineGeneration = 0;
+    AlignContext alignContext;
     double sampleRate = 0.0; // the rate lagFrames counts in: the rate the ring is stamped with
 };
 

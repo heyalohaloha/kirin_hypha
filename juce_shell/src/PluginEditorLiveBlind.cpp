@@ -119,12 +119,14 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     }
     if (observatoryView.localBlindEntryAvailable())
         menu.addItem (23, "BLIND", ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)));
+    menu.addItem (44, "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)
 {
     // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
-    if (result < 40 || result > 43) return false;
+    if (result < 40 || result > 44) return false;
+    if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
     if (result == 40 && observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();
     if (result == 41 && observatoryView.onLiveCompareMatch) observatoryView.onLiveCompareMatch();
     if (result == 42 || result == 43) processorRef.selectLiveComparePre (result == 42);

@@ -106,7 +106,7 @@ inline std::vector<BlindCase> blindCases()
       state.signalWait = state.prolongedWait = true; add (state, true, 1.0f); }
     for (int reason = 0; reason <= static_cast<int> (RecoveryReason::reaperLoopTooShort); ++reason)
     for (int stage = 1; stage <= static_cast<int> (BlindStage::failed); ++stage)
-    for (int mode = 0; mode < 12; ++mode)
+    for (int mode = 0; mode < 14; ++mode)
     {
         if (stage == static_cast<int> (BlindStage::finishing)
             && (reason != 0 || (mode >= 1 && mode <= 6))) continue;
@@ -120,8 +120,10 @@ inline std::vector<BlindCase> blindCases()
         state.loopBlock = mode == 5 ? LoopPairingBlock::auCycle
                         : mode == 6 ? LoopPairingBlock::aaxLoop : LoopPairingBlock::none;
         state.prolongedWait = mode < 10;
-        state.trial.revealed = mode == 7 || mode == 11;
-        state.trial.usedPostFallback = mode == 11;
+        state.trial.revealed = mode == 7 || mode >= 11;
+        state.trial.usedPostFallback = mode >= 11;
+        state.trial.fallbackForTiming = mode == 11 || mode == 13;
+        state.trial.fallbackForCeiling = mode >= 12;
         state.trial.played = mode == 8 ? 3 : 0;
         state.lowerPostDb = -24.0;
         state.waiting = mode == 8 ? MatchFailure::notEnoughSignal

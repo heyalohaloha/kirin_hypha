@@ -278,12 +278,13 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
         auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
                                                    buffer.getArrayOfWritePointers(), channels,
-                                                   preSelected && ! contentHeld && ! compensationOff,
+                                                   blindCommand.active() ? blindCommand.pre() : preSelected,
                                                    gain,
                                                    liveCompare.postLevel, postTarget,
                                                    ceiling, blindCommand.active() && ! blindRejected,
                                                    cycleUnverified ? Reason::cycleUnverified : Reason::none,
-                                                   trace != nullptr ? &trace->decision : nullptr);
+                                                   trace != nullptr ? &trace->decision : nullptr,
+                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff });
         if (trace != nullptr)
         {
             trace->render = report; trace->renderSeen = true;
@@ -334,7 +335,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             {
                 if (hypha::live_compare::endsComparison (report.reason))
                     liveCompare.blind.invalidate (blindCommand, report.reason);
-                else liveCompare.blind.fallback (blindCommand, frames, preparedFormat.sampleRate);
+                else liveCompare.blind.fallback (blindCommand, frames, preparedFormat.sampleRate, report.reason == Reason::ceiling);
             }
             else
             {

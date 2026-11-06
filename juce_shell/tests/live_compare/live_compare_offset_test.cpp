@@ -77,6 +77,13 @@ static void chunkedPostKeepsItsWindows()
                  "the estimate reads PRE through K across block lengths");
         const auto match = computeMatch (chain.sharedRing(), chain.postRenderer(), 48000);
         require (match.ok() && match.seconds >= 3.0, "MATCH reads a contiguous window across block lengths");
+        // The audition's read position stays out of the estimate: PRE read later reports the same
+        // lag through the same K, so the value never chases itself.
+        chain.align (alignValue (c.lag));
+        chain.run (60);
+        const auto again = measureOffset (chain.sharedRing(), chain.postRenderer());
+        require (again.determined && again.lagFrames == c.lag && again.clockK == c.k, "alignment does not move the estimate");
+        require (chain.wrongAddress == 0 && chain.wrongPcm == 0, "PRE is read at K plus the value");
     }
 }
 

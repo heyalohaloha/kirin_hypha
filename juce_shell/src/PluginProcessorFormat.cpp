@@ -49,6 +49,15 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     if (nativeHostContext.reaper.needsService()) requestServiceTimer();
     stopLocalBlindCaptureForFormatChange (sampleRate, roles);
     const juce::ScopedLock sl (handleLock);
+    // The estimate and its publication share this non-RT lock: a new epoch cannot expose old PCM.
+    if (! preparedFormat.matches (sampleRate, roles))
+    {
+        liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
+       #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+        if (hypha::live_compare::afterAlignFormatChangeForTest) hypha::live_compare::afterAlignFormatChangeForTest();
+       #endif
+        liveCompare.renderer.clearAlignDisplay(); // never display old frames with the new rate
+    }
     normalizeSpectrumSelectionForInputChannels (numCh);
     // B-141: Studio One offline bounce re-prepares after All Keep entered Record. The block size
     // may change for render, but the user-visible Record state must not be thrown away, so the

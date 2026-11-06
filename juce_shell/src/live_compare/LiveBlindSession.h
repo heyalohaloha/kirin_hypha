@@ -21,6 +21,7 @@ struct BlindView
     bool active = false, revealed = false, invalidated = false, firstPre = false;
     int audible = 0, played = 0, selected = 0;
     bool usedPostFallback = false;
+    bool fallbackForTiming = false, fallbackForCeiling = false; // why, after REVEAL
     std::uint32_t epoch = 0;
     RecoveryReason reason = RecoveryReason::none;
 };
@@ -99,14 +100,18 @@ public:
     // continuous signal is heard as its own event, so the listener did not hear "the other
     // source". A stable block of the requested source ends the run; separate short runs never add
     // up to a disclosure. 2048 frames at 48 kHz (43 ms) and any longer run are disclosed.
-    void fallback (BlindCommand cmd, int frames, double sampleRate) noexcept
+    void fallback (BlindCommand cmd, int frames, double sampleRate, bool ceiling = false) noexcept
     {
         observe (cmd, false);
         if (! valid (cmd) || ! cmd.pre()) { fallbackRun = 0; return; }
         if (fallbackRunEpoch != cmd.epoch()) { fallbackRunEpoch = cmd.epoch(); fallbackRun = 0; }
+        if (fallbackRun == 0) fallbackRunCeiling = fallbackRunTiming = false;
+        (ceiling ? fallbackRunCeiling : fallbackRunTiming) = true;
         fallbackRun += static_cast<std::int64_t> (frames > 0 ? frames : 0);
-        if (static_cast<double> (fallbackRun) * 1000.0 >= audibleFallbackMs * sampleRate)
-            fallbackEpoch.store (cmd.epoch(), std::memory_order_release);
+        if (static_cast<double> (fallbackRun) * 1000.0 < audibleFallbackMs * sampleRate) return;
+        if (fallbackRunTiming) timingFallbackEpoch.store (cmd.epoch(), std::memory_order_release);
+        if (fallbackRunCeiling) ceilingFallbackEpoch.store (cmd.epoch(), std::memory_order_release);
+        fallbackEpoch.store (cmd.epoch(), std::memory_order_release);
     }
     static constexpr double audibleFallbackMs = 25.0;
 
@@ -152,6 +157,8 @@ public:
         result.epoch = cmd.epoch();
         result.selected = valid (cmd) ? cmd.stimulus() : 0;
         result.usedPostFallback = fallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
+        result.fallbackForTiming = timingFallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
+        result.fallbackForCeiling = ceilingFallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
         result.reason = (state >> 32) == cmd.epoch()
             ? static_cast<RecoveryReason> ((state >> 8) & 0xffu) : RecoveryReason::none;
         result.active = cmd.active();
@@ -167,9 +174,10 @@ private:
     static constexpr std::uint64_t revealedBit = 1u;
     static constexpr std::uint64_t invalidBit = 8u;
     static constexpr std::uint64_t endedBit = 16u;
-    std::atomic<std::uint32_t> fallbackEpoch { 0 };
+    std::atomic<std::uint32_t> fallbackEpoch { 0 }, timingFallbackEpoch { 0 }, ceilingFallbackEpoch { 0 };
     std::int64_t fallbackRun = 0; // audio thread only: contiguous POST frames while PRE was requested
     std::uint32_t fallbackRunEpoch = 0; // audio thread only
+    bool fallbackRunTiming = false, fallbackRunCeiling = false; // audio thread only: what filled this run
     std::uint32_t serial = 0; // message thread only
     std::atomic<std::uint64_t> request { 0 }, terminal { 0 }, played { 0 }, audible { 0 };
 };

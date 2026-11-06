@@ -41,6 +41,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
         scaleModePreference()));
     xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
+    if (! liveCompareAutoAlign()) xml.setAttribute ("live_auto_align", false); // on by default, never written
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     {
         std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
@@ -73,7 +74,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     int restoredEditorHeight = hypha::observatory::defaultEditorSize().height;
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
-    bool restoredHybridVuOnRecord = true, restored = false;
+    bool restoredHybridVuOnRecord = true, restoredAutoAlign = true, restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
@@ -131,6 +132,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             }
             if (displayStateVersion >= 5) restoredHybridVuOnRecord =
                 xml->getBoolAttribute ("hybrid_vu_on_record", true);
+            restoredAutoAlign = xml->getBoolAttribute ("live_auto_align", true);
             restored = true;
         }
     }
@@ -155,6 +157,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     if (restored)
     {
+        liveCompare.autoAlign.store (restoredAutoAlign, std::memory_order_release);
         if ((restoredInstanceId.isNotEmpty() && restoredInstanceId != persistInstanceId)
             || restoredPairName.isNotEmpty() || restoredPairInstanceId.isNotEmpty()
             || restoredPairProjectHash.isNotEmpty() || automaticPair.disconnected.load (std::memory_order_acquire))

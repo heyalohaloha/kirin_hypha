@@ -47,7 +47,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     else
         instruction = "";
     if (revealed && current.trial.usedPostFallback)
-        instruction = "POST was used briefly when timing was unavailable";
+        instruction = ! current.trial.fallbackForCeiling ? "POST was used briefly when timing was unavailable"
+            : ! current.trial.fallbackForTiming ? "POST played where PRE went over the ceiling"
+            : "POST played for timing and the PRE ceiling";
     screen.instruction = screen.guidanceShown ? juce::String() : instruction;
     screen.detail = explanation;
     screen.sourceOne = revealed ? (current.trial.firstPre ? "1: PRE" : "1: POST") : "SOURCE 1";

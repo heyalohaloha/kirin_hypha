@@ -123,8 +123,14 @@ public:
     void enterLoop (std::int64_t frames) { options.loopFrames = frames; }
     void leaveLoop() { options.loopFrames = 0; setK (expectedK); }
 
+    void align (AlignValue value) noexcept { renderer.requestAlign (value, alignOwner ({}, *ring)); }
+    void select (bool pre) noexcept { preSelected = pre; }
+    void trial (bool on) noexcept { blindTrial = on; }
+
     const Ring& sharedRing() const noexcept { return *ring; }
     const PostRenderer& postRenderer() const noexcept { return renderer; }
+    const auto& samples() const noexcept { return output; }
+    std::int64_t renderedClock = 0;
 
     int accepted = 0, wrongAddress = 0, wrongPcm = 0, proven = 0, dropouts = 0, firstAcceptChunk = -1;
     int chunks = 0;
@@ -193,8 +199,9 @@ private:
                     = options.postCarriesPre ? pcm (b.clock - options.contentK + f, c) : postSample;
         float* out[] { output[0].data(), output[1].data() };
         decision = {};
-        report = renderer.render (*ring, key, rate, b, out, 2, true, 1.0f, level, 1.0f, 1.0f,
-                                  false, RecoveryReason::none, &decision);
+        report = renderer.render (*ring, key, rate, b, out, 2, preSelected, 1.0f, level, 1.0f, 1.0f,
+                                  blindTrial, RecoveryReason::none, &decision);
+        renderedClock = b.clock;
         if (report.timelineChanged) renewal.lost (report.loss, true);
         if (options.record)
             log.push_back ({ static_cast<std::int64_t> (report.verdict), decision.kValid ? 1 : 0, decision.k,
@@ -204,7 +211,7 @@ private:
             renewal.accepted();
             ++accepted;
             if (firstAcceptChunk < 0) firstAcceptChunk = chunks;
-            if (decision.preStart != b.clock - expectedK) ++wrongAddress;
+            if (decision.preStart != b.clock - expectedK - renderer.alignFrames()) ++wrongAddress;
             if (report.stableSource && report.preAudible)
             {
                 ++proven;
@@ -221,7 +228,7 @@ private:
     AaxChunkPosition prePosition, postPosition;
     PreFeeder feeder; TimingObserver observer; PostRenderer renderer; PostLevel level;
     NamedSelection selection; NamedReentry renewal;
-    bool initial = true;
+    bool initial = true, preSelected = true, blindTrial = false;
     std::int64_t preClock = 0, preProject = 0, postClock = 0, postHead = 0, expectedK = 0;
     std::uint64_t wall = 1000000000ull;
     std::array<std::array<float, chunkFrames>, 2> input {}, output {};

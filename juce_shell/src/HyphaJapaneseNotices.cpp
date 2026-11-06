@@ -126,6 +126,7 @@ const Entry entries[] = {
     { "The offer changed. Press the role again.", u8"内容が変わりました。ボタンを押し直してください。" },
     { "PRE %1 ms early", u8"PREが%1 ms早く鳴っています" },
     { "PRE %1 ms late", u8"PREが%1 ms遅れて鳴っています" },
+    { "PRE %1 ms aligned", u8"PRE %1 ms 合わせ済み" },
     { "AUTO on: within 0.5 dB", u8"AUTO：0.5 dB以内で追従" },
     { "AUTO off", u8"AUTOを止めました" },
     { "AUTO not started: MATCH pending", u8"AUTO未開始：MATCH確認待ち" },

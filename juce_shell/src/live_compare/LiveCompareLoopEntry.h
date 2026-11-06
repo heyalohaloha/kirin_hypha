@@ -147,8 +147,21 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
         if (bound == 0) return {};
         if (loopSamples <= static_cast<std::int64_t> (bound))
             return { 0, LoopEntryKind::boundedEngine, LoopEntryFailure::loopTooShort, false };
-        const auto candidate = positiveModulo (base, loopSamples);
-        if (candidate > static_cast<std::int64_t> (bound)) return {};
+        auto candidate = positiveModulo (base, loopSamples);
+        std::int64_t preEnd = 0, postEnd = 0, lead = 0;
+        if (! checkedClockAdd (pre.clock, pre.frames, preEnd) || ! checkedClockAdd (post.clock, post.frames, postEnd)
+            || ! checkedClockSubtract (preEnd, postEnd, lead)) return {};
+        if (candidate <= static_cast<std::int64_t> (bound) && loopSamples - candidate <= lead)
+            return { 0, LoopEntryKind::boundedEngine, LoopEntryFailure::loopTooShort, false };
+        if (candidate > static_cast<std::int64_t> (bound))
+        {
+            // The positive residue is outside the compensation bound. PRE's written range bounds
+            // negative K: PRE ahead of POST on the DAE clock. The preceding lap must fit inside PRE's
+            // lead, and one more lap must not: otherwise two written addresses would fit.
+            const auto advance = loopSamples - candidate;
+            if (lead < advance || lead - advance >= loopSamples) return {};
+            candidate -= loopSamples;
+        }
         const bool current = loopAddressIsCurrent (anchor, pre, post, candidate, rate, capacity);
         return { candidate, LoopEntryKind::boundedEngine,
                  current ? LoopEntryFailure::none : LoopEntryFailure::observingCycle, current };

@@ -100,6 +100,7 @@ const Entry entries[] = {
     { "PRE and POST get different block lengths", u8"PREとPOSTのブロック長が違います" },
     { "PRE is not confirmed to run before POST", u8"PREがPOSTより先に動くことを確認できません" },
     { "Show in the footer", u8"下部に常時表示" },
+    { "Align PRE automatically", u8"PREの位置を自動で合わせる" },
     { "Footer chain time changed for this session only",
       u8"下部のチェーン表示は、このセッションだけ変更しました" },
 
