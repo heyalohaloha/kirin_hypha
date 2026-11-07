@@ -111,3 +111,9 @@ void KirinHyphaProcessorBase::notifyObservatoryEditorSizeChanged()
 {
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
+
+void KirinHyphaProcessorBase::setSpectrumAveragePreference (hypha::spectrum_average::Choice value)
+{
+    if (spectrumAverage.set (value))
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}

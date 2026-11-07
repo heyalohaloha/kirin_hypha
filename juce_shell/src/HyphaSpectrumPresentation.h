@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace hypha::spectrum_presentation
 {
@@ -86,10 +87,26 @@ std::array<float, Size> calmLowFrequencies (
 }
 
 template <std::size_t Size>
+void advanceAverageCurve (std::array<float, Size>& displayed,
+                          const std::array<float, Size>& target,
+                          double elapsedMs, double averageMs) noexcept
+{
+    if (! std::isfinite (elapsedMs) || elapsedMs <= 0.0 || ! std::isfinite (averageMs) || averageMs <= 0.0) return;
+    const float response = static_cast<float> (-std::expm1 (-elapsedMs / averageMs));
+    for (std::size_t index = 0; index < Size; ++index)
+    {
+        if (! std::isfinite (target[index])) continue;
+        if (! std::isfinite (displayed[index])) displayed[index] = target[index];
+        else displayed[index] += response * (target[index] - displayed[index]);
+    }
+}
+
+template <std::size_t Size>
 void advanceAbsoluteCurve (std::array<float, Size>& displayed,
                            const std::array<float, Size>& target,
-                           double elapsedMs) noexcept
+                           double elapsedMs, double averageMs = 0.0) noexcept
 {
+    if (averageMs > 0.0) { advanceAverageCurve (displayed, target, elapsedMs, averageMs); return; }
     const double boundedElapsedMs = std::isfinite (elapsedMs) && elapsedMs > 0.0
                                   ? elapsedMs : 0.0;
     const float releaseDb = static_cast<float> (
@@ -108,8 +125,9 @@ void advanceAbsoluteCurve (std::array<float, Size>& displayed,
 template <std::size_t Size>
 void advanceSignedDeltaCurve (std::array<float, Size>& displayed,
                               const std::array<float, Size>& target,
-                              double elapsedMs) noexcept
+                              double elapsedMs, double averageMs = 0.0) noexcept
 {
+    if (averageMs > 0.0) { advanceAverageCurve (displayed, target, elapsedMs, averageMs); return; }
     if (! std::isfinite (elapsedMs) || elapsedMs <= 0.0)
         return;
     const float response = static_cast<float> (
@@ -123,5 +141,24 @@ void advanceSignedDeltaCurve (std::array<float, Size>& displayed,
         else
             displayed[index] += response * (target[index] - displayed[index]);
     }
+}
+
+template <std::size_t Size>
+void advanceSignedDeltaCurve (std::array<float, Size>& displayed,
+                              const std::array<float, Size>& target,
+                              std::array<uint8_t, Size>& previousValid,
+                              const std::array<uint8_t, Size>& targetValid,
+                              double elapsedMs, double averageMs = 0.0) noexcept
+{
+    // Missing bands have no dB value. Seed each returning band with its first real observation.
+    auto measured = target;
+    for (std::size_t index = 0; index < Size; ++index)
+    {
+        if (targetValid[index] == 0u) measured[index] = 0.0f;
+        if (targetValid[index] == 0u || previousValid[index] == 0u)
+            displayed[index] = measured[index];
+    }
+    advanceSignedDeltaCurve (displayed, measured, elapsedMs, averageMs);
+    previousValid = targetValid;
 }
 }

@@ -284,6 +284,14 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
     require (! controller.selectAWindow (openedOnC, ref::AWindowChoice::all) && ! controller.resetAWindow (openedOnC), "an answer from before the role changed is dropped");
     require (controller.savedSettings().aWindows.check == ref::AWindowChoice::seconds3 && windowOfA (100), "the dropped answer changed nothing");
     require (controller.selectAWindow (target(), ref::AWindowChoice::all) && windowOfA (ref::aWindowMaximumBlocks), "B's window reaches the A line");
+    for (const int seconds : { 3, 47, 600 })
+        require (controller.selectAWindow (target(), ref::AWindowChoice::custom, seconds) && windowOfA (seconds * 10),
+                 "custom seconds reach the observation thread's real A window");
+    for (const int invalid : { -1, 0, 2, 601, 2147483647 })
+        require (! controller.selectAWindow (target(), ref::AWindowChoice::custom, invalid) && windowOfA (6000),
+                 "invalid custom seconds leave the running window alone");
+    require (! controller.selectAWindow (openedOnC, ref::AWindowChoice::custom, 45), "stale custom seconds keep their role guard");
+    require (controller.selectAWindow (target(), ref::AWindowChoice::all), "restore the quick ALL choice");
     require (matchWindows() == before, "the A window leaves the MATCH and tracking windows alone");
     require (! controller.selectAWindow ({ 1, target().epoch }, ref::AWindowChoice::all), "V has no A window");
     const auto saved = controller.savedSettings().aWindows;

@@ -215,7 +215,15 @@ Record data. Numbers are reported as captured — no interpretation, no scoring,
 Two display filters exist in the shipping JUCE surface. They affect what is drawn, never what is
 measured, stored, or read back.
 
-- **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
+FREQ's **AVG** chooses **LIVE** (the existing response), **0.2 S**, **1 S**, **3 S** or **10 S**.
+The timed choices are symmetric exponential averages of the live drawing in dB: after one chosen
+interval the curve covers about 63% of a step. Use a short time for quick changes and a long time
+for the overall trend. The same setting covers LR, MID, SIDE, M/S, LOW, RAW and SHAPE. It does not
+filter numeric readings, FOCUS Trail, PSB, MARK, peak hold, Record, Keep or values sent to Kirin OS.
+Choose it at 125% or larger; 100% only names a non-default choice. Each project's state remembers
+it, omits LIVE, and opens older states with the unchanged LIVE response.
+
+- **Live FREQ curves (AVG LIVE).** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
   and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
   neither sign is favoured.
 - **MONO's live curve.** A band with nothing to measure in the current 100 ms observation (the rest
@@ -1065,7 +1073,9 @@ shows the song and the status; songs are switched from 125%.
 Version briefly drops out of the match, its last agreement stays the bar).
 
 **A's window.** The legend's A label on B's Balance (300 %) and on C's spectrum charts (200 % and 300 %)
-opens a list: 3 S, 10 S, 30 S, CUE and ALL, each role keeping its own choice in the project. CUE is
+opens a list: 3 S, 10 S, 30 S, CUE and ALL remain quick choices; SECONDS accepts 3–600 whole
+seconds, confirmed with SET. The range and unit stay beside the input. Invalid input keeps the
+selection. Each role keeps its own choice in the project, with defaults omitted from state. CUE is
 the length of the Cue the role plays, up to 10 minutes, even when MATCH uses a longer window for a Cue under
 10 seconds; ALL is everything held, up to 10 minutes. The list changes only how A's line
 is summed: what you hear, MATCH, tracking and the range strips stay as they are, nothing measured is dropped,

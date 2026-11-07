@@ -12,29 +12,77 @@
 // 枠だけを描く。リストは Reference の選択欄と同じ材料。役ごとの選択は B・C の画面が持ち、ここは今の選択を見せるだけ。
 namespace hypha::reference_ui
 {
-class AWindowControl final : public juce::Button
+class AWindowSecondsEntry final : public juce::Component
+{
+public:
+    explicit AWindowSecondsEntry (int seconds)
+    {
+        label.setText ("SECONDS  3-600 S", juce::dontSendNotification);
+        addAndMakeVisible (label);
+        input.setComponentID ("a-window-seconds");
+        input.setText (juce::String (seconds));
+        input.setSelectAllWhenFocused (true);
+        input.setTitle ("SECONDS  3-600 S");
+        input.onTextChange = [this] { apply.setEnabled (reference_audition::parseAWindowSeconds (input.getText()) != 0); };
+        input.onReturnKey = [this] { submit(); };
+        input.onEscapeKey = [this] { dismiss(); };
+        addAndMakeVisible (input);
+        apply.setButtonText ("SET");
+        apply.onClick = [this] { submit(); };
+        addAndMakeVisible (apply);
+        setSize (224, 76);
+    }
+    std::function<bool (const juce::String&)> onSubmit;
+    void visibilityChanged() override { if (isShowing()) input.grabKeyboardFocus(); }
+    bool submit()
+    {
+        if (reference_audition::parseAWindowSeconds (input.getText()) == 0 || ! onSubmit) return false;
+        const bool accepted = onSubmit (input.getText());
+        if (accepted) dismiss();
+        return accepted;
+    }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (10);
+        label.setBounds (area.removeFromTop (24));
+        apply.setBounds (area.removeFromRight (50));
+        area.removeFromRight (8);
+        input.setBounds (area);
+    }
+private:
+    void dismiss() { if (auto* box = findParentComponentOfClass<juce::CallOutBox>()) box->dismiss(); }
+    juce::Label label;
+    juce::TextEditor input;
+    juce::TextButton apply;
+};
+
+class AWindowControl final : public juce::Button,
+                             private juce::ComponentMovementWatcher
 {
 public:
     using Choice = reference_audition::AWindowChoice;
     using Target = reference_audition::AWindowTarget;
     static constexpr int arrowWidth = 12;  // 凡例が矢印のために空ける幅
     static constexpr int resetItem = 100;
+    static constexpr int secondsItem = 101;
 
-    AWindowControl() : juce::Button ("A window")
+    AWindowControl() : juce::Button ("A window"), juce::ComponentMovementWatcher (this)
     {
         setTitle (titleFor (choice));
         setTooltip ("Choose how much of A the line shows. The sound and MATCH do not change.");
         setWantsKeyboardFocus (true);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
+    ~AWindowControl() override { closeSecondsEntry(); }
 
-    std::function<void (Target, Choice)> onChoose;
+    std::function<void (Target, Choice, int)> onChoose;
     std::function<void (Target)> onReset;
 
-    void setChoice (Choice next)
+    void setChoice (Choice next, int nextSeconds = 10)
     {
-        if (choice == next) return;
+        if (choice == next && seconds == nextSeconds) return;
         choice = next;
+        seconds = nextSeconds;
         setTitle (titleFor (choice));
     }
     Choice chosen() const noexcept { return choice; }
@@ -47,6 +95,7 @@ public:
         menu.addSectionHeader ("A WINDOW");
         for (const auto option : reference_audition::aWindowOptions)
             menu.addItem (itemFor (option), reference_audition::aWindowLabel (option), true, option == choice);
+        menu.addItem (secondsItem, "SECONDS", true, choice == Choice::custom);
         menu.addSeparator();
         menu.addItem (resetItem, "RESET A WINDOW");
         return menu;
@@ -58,8 +107,29 @@ public:
     void choose (Target opened, int item)
     {
         if (item == resetItem) { if (onReset) onReset (opened); return; }
+        if (item == secondsItem)
+        {
+            if (! isShowing()) return;
+            closeSecondsEntry();
+            secondsEntry = &juce::CallOutBox::launchAsynchronously (makeSecondsEntry (opened), getScreenBounds(), nullptr);
+            return;
+        }
         for (const auto option : reference_audition::aWindowOptions)
-            if (item == itemFor (option) && onChoose) onChoose (opened, option);
+            if (item == itemFor (option) && onChoose) onChoose (opened, option, seconds);
+    }
+
+    std::unique_ptr<AWindowSecondsEntry> makeSecondsEntry (Target opened)
+    {
+        auto entry = std::make_unique<AWindowSecondsEntry> (seconds);
+        const juce::Component::SafePointer<AWindowControl> safe (this);
+        entry->onSubmit = [safe, opened] (const juce::String& text)
+        {
+            const auto value = reference_audition::parseAWindowSeconds (text);
+            if (safe == nullptr || value == 0 || ! safe->onChoose) return false;
+            safe->onChoose (opened, Choice::custom, value);
+            return true;
+        };
+        return entry;
     }
 
     void clicked() override
@@ -69,7 +139,7 @@ public:
         const juce::Component::SafePointer<AWindowControl> safe (this);
         const auto opened = target;
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMinimumWidth (getWidth())
-                                .withItemThatMustBeVisible (itemFor (choice)),
+                                .withItemThatMustBeVisible (choice == Choice::custom ? secondsItem : itemFor (choice)),
                             [safe, opened] (int item) { if (safe != nullptr) safe->choose (opened, item); });
     }
 
@@ -88,10 +158,24 @@ public:
     }
 
 private:
-    static juce::String titleFor (Choice option) { return juce::String ("A window: ") + reference_audition::aWindowLabel (option); }
+    void componentMovedOrResized (bool, bool) override {}
+    void componentPeerChanged() override { closeSecondsEntry(); }
+    void componentVisibilityChanged() override { if (! isShowing()) closeSecondsEntry(); }
+    void closeSecondsEntry()
+    {
+        if (secondsEntry == nullptr) return;
+        // End this modal immediately; JUCE releases its async content on the message loop.
+        secondsEntry->exitModalState (0);
+        secondsEntry->setVisible (false);
+        secondsEntry = nullptr;
+    }
+    juce::String titleFor (Choice option) const { return juce::String ("A window: ")
+        + (option == Choice::custom ? juce::String (seconds) + " S" : juce::String (reference_audition::aWindowLabel (option))); }
 
     Choice choice = Choice::seconds10;
+    int seconds = 10;
     Target target;
+    juce::Component::SafePointer<juce::CallOutBox> secondsEntry;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AWindowControl)
 };
 }

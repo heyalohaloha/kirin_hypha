@@ -1,5 +1,6 @@
 #include "SpectrumPresentationContractTest.h"
 #include "SpectrumLowScopeContract.h"
+#include "SpectrumAverageContract.h"
 
 #include "../src/HyphaSpectrumPeaks.h"
 #include "../src/HyphaSpectrumPresentation.h"
@@ -84,6 +85,7 @@ namespace
 void verifySpectrumPresentationContract()
 {
     verifySpectrumLowScopeContract();
+    verifySpectrumAverageContract();
     // The host-rate aperture keeps the zero-padded bin below 10 Hz at common rates.
     verifyWeightSpan (10.0f, 22'000.0f);
     verifyWeightSpan (96'000.0f / 16'384.0f, 22'000.0f);

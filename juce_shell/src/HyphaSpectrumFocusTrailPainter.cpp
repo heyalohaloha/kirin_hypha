@@ -74,7 +74,10 @@ void paint (juce::Graphics& g,
     g.drawRoundedRectangle (well, radius, 0.65f * strokeScale);
 
     auto plot = bounds.reduced (3.0f * strokeScale, 2.0f * strokeScale);
-    if (! compact)
+    const auto headingHeight = juce::jmax (14.0f, 7.0f * visualScale);
+    // Short editor bodies spend their height on the history, keeping the heading only when
+    // there is also room for a readable trace. The exact six-second history is unchanged.
+    if (! compact && plot.getHeight() >= headingHeight + 8.0f * strokeScale)
     {
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
@@ -83,7 +86,7 @@ void paint (juce::Graphics& g,
                                         : juce::String (juce::CharPointer_UTF8 ("\xCE\x94")))
                     + juce::String (juce::CharPointer_UTF8 (
                         " \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
-                    plot.removeFromTop (juce::jmax (14.0f, 7.0f * visualScale)),
+                    plot.removeFromTop (headingHeight),
                     juce::Justification::centredLeft);
     }
     if (plot.getHeight() < 3.0f)

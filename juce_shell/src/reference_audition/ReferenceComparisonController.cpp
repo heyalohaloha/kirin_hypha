@@ -14,7 +14,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           const auto slot = viewedSlot.load (std::memory_order_acquire);
           auto binding = slotController (slot).visualBinding();
           if (slot != 1)  // V の図は A の窓を使わない
-              binding.aDisplayWindowBlocks = displayWindowBlocks (visualPreferences->aWindows().of (slot), binding.cueLengthBlocks);
+              binding.aDisplayWindowBlocks = visualPreferences->aWindows().blocksOf (slot, binding.cueLengthBlocks);
           return binding;
       },analysis)
 {
@@ -329,14 +329,15 @@ bool ReferenceComparisonController::aWindowTargetCurrent (AWindowTarget target) 
         && target.epoch == aWindowEpoch;
 }
 // trialActive は selectionLock の外で見る（Blind が始まるなら世代が進むので、中の確かめが断る）。
-bool ReferenceComparisonController::selectAWindow (AWindowTarget target, AWindowChoice choice)
+bool ReferenceComparisonController::selectAWindow (AWindowTarget target, AWindowChoice choice, int seconds)
 {
-    if (trialActive()) return false;
+    if (trialActive() || (choice == AWindowChoice::custom && ! validAWindowSeconds (seconds))
+        || (choice != AWindowChoice::custom && std::find (aWindowOptions.begin(), aWindowOptions.end(), choice) == aWindowOptions.end())) return false;
     bool changed = false;
     {
         const juce::ScopedLock lock (selectionLock);
         if (! aWindowTargetCurrent (target)) return false;
-        changed = visualPreferences->setAWindow (target.slot, choice);
+        changed = visualPreferences->setAWindow (target.slot, choice, seconds);
     }
     if (changed && stateChanged) stateChanged();
     return true;

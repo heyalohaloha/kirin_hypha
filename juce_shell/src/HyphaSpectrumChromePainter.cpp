@@ -139,10 +139,12 @@ namespace
                               + (state.lowScope ? "  LOW" : "")
                               + (state.shapeObservation && ! state.absoluteObservation ? "  SHAPE" : "")
                               + (state.haveMark && ! state.absoluteObservation ? "  MARK" : "");
+            const auto averageLabel = state.average == spectrum_average::Choice::live ? juce::String()
+                : juce::String ("AVG ") + spectrum_average::label (state.average);
             g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                                  typography::Composition::visualization));
             g.setColour (COL_FLORA.withAlpha (0.86f));
-            text_style::drawText (g, chosen.trim(), outerPlot.withTop (legendTop).withHeight (
+            text_style::drawText (g, (chosen + "  " + averageLabel).trim(), outerPlot.withTop (legendTop).withHeight (
                             scaled ((float) ui_contract::spectrumLegendHeight)).reduced (scaled (4.0f), 0.0f)
                             .toNearestInt(), juce::Justification::centredRight);
         }

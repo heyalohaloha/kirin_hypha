@@ -60,6 +60,24 @@ void testDisplayWindows()
     check (ref::cueLengthBlocks (5, 5, 48'000) == 100 && ref::cueLengthBlocks (0, 48'000, 0) == 100, "no Cue keeps the 10 second default");
     check (ref::displayWindowBlocks (ref::AWindowChoice::all, 450) == ref::aWindowMaximumBlocks, "ALL is what is held, up to the limit");
     check (ref::aWindowMaximumBlocks == 6'000, "the limit is 10 minutes of 100 ms frames");
+    for (const int seconds : { 3, 47, 600 })
+        check (ref::displayWindowBlocks (ref::AWindowChoice::custom, 450, seconds) == seconds * 10, "custom seconds use 100 ms frames");
+    for (const auto* invalid : { "", "2", "601", "NaN", "-3", "3.5", "1e2", "999999999999" })
+        check (ref::parseAWindowSeconds (invalid) == 0, "invalid seconds are refused without clipping");
+    ref::AWindowChoices windows;
+    juce::XmlElement defaults ("State"); windows.write (defaults);
+    check (defaults.getChildByName ("AWindow") == nullptr, "default windows are not written");
+    windows.reference = windows.check = ref::AWindowChoice::custom;
+    windows.referenceSeconds = 3; windows.checkSeconds = 600;
+    juce::XmlElement state ("State"); windows.write (state);
+    const auto copy = ref::AWindowChoices::read (state);
+    check (copy.blocksOf (3, 450) == 30 && copy.blocksOf (2, 450) == 6000, "custom windows remember each role through state");
+    state.getChildByName ("AWindow")->setAttribute ("ref_seconds", "3.5");
+    const auto invalidState = ref::AWindowChoices::read (state);
+    check (invalidState.reference == ref::AWindowChoice::seconds10 && invalidState.blocksOf (2, 450) == 6000,
+           "one invalid saved window keeps the other role");
+    const auto old = ref::AWindowChoices::read (defaults);
+    check (old.reference == ref::AWindowChoice::seconds10 && old.check == ref::AWindowChoice::cue, "old state keeps the old defaults");
     const int rate = 48'000, frame = rate / 10;
     constexpr double tau = 6.283185307179586476925286766559;
     KirinSpectrumMeter meter;

@@ -274,6 +274,12 @@ LIVEのM、TP、SharpnessはLEVELの現在値とTIMEの履歴へ吸収する。
 
 FREQは既存Spectrumの意味と操作を保ったまま、上位領域へ移す。
 
+FREQのAVGは125%以上の短い選択札でLIVE・0.2 S・1 S・3 S・10 Sを選ぶ。
+既定のLIVEを保ち、秒数指定は曲線だけの対称指数平均（時定数）。MID・SIDE・M/S・LOW・RAW・SHAPEにも同じに効く。
+数値・FOCUS Trail・MARK・PSB・保存する測定は変えない（INV-S29）。100%は非既定の札だけで操作を置かない（INV-S38）。
+ReferenceのAは既存の即選択にSECONDS（3〜600の整数秒）を足し、役ごとにprojectへ保存する。
+Aの表示だけでMATCH・追従の窓を替えず、3秒未満のAは線を出さない（INV-S46・S49）。
+
 ### 7.3 Observation targets
 
 | Target | Meaning | PRE unavailable |

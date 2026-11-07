@@ -268,13 +268,13 @@ bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
 }
 
 bool KirinHyphaProcessorBase::selectReferenceAWindow (hypha::reference_audition::AWindowTarget target,
-                                                      hypha::reference_audition::AWindowChoice choice)
+                                                      hypha::reference_audition::AWindowChoice choice, int seconds)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->selectAWindow (target, choice);
+        && referenceAuditionController->selectAWindow (target, choice, seconds);
    #else
-    juce::ignoreUnused (target, choice);
+    juce::ignoreUnused (target, choice, seconds);
     return false;
    #endif
 }

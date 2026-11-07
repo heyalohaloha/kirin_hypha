@@ -290,7 +290,7 @@ public:
     std::function<void(int)> onSelectVisualSlot;
     std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
-    std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice)> onSelectAWindow;
+    std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;
     std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
