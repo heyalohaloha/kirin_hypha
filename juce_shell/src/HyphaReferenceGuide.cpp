@@ -1,6 +1,7 @@
 #include "HyphaReferenceGuide.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceHelpText.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceStages.h"
@@ -187,7 +188,7 @@ void Component::syncSourceButtons()
     bButton.setReady (! opensLarge && (! current.separateComparisons || versionAudible || bQueue));
     bButton.setTooltip (opensLarge ? "Open V at 300%" : bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
         : ! current.separateComparisons || versionAudible
-        ? "Audition the Version from Kirin OS (V)." : unavailableText (current, true));
+        ? help_text::versionMixContext : unavailableText (current, true));
     cButton.setReady (! opensLarge && (checkAudible || cQueue));
     cButton.setTooltip (opensLarge ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
         : checkAudible ? "Audition the Check's song from Kirin OS (C)." : unavailableText (current, false));

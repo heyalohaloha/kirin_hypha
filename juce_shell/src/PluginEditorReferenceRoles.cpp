@@ -1,4 +1,6 @@
 #include "PluginEditor.h"
+
+#include <algorithm>
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferenceNotices.h"
@@ -31,7 +33,12 @@ void KirinHyphaEditor::wireReferenceRoles()
         showToast (hypha::reference_ui::notice::roleUnavailable (3, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
     };
     referenceView.onSelectSong = [this] (const juce::String& id)
-    { if (! processorRef.selectReferenceSong (id)) showToast ("Song selection was not changed"); };
+    {
+        if (! processorRef.selectReferenceSong (id)) { showToast ("Song selection was not changed"); return; }
+        KirinObservatoryFrame frame {};
+        const bool available = processorRef.pollObservatoryFrame (frame);
+        refreshReferenceAudition (frame, available);
+    };
     referenceView.onSelectSongSet = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSongSet (id)) showToast ("Reference set selection was not changed"); };
     // C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
@@ -166,6 +173,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                 hypha::reference_ui::SongFact fact;
                 fact.prepared = ! song.requiresPreparation;
                 fact.preparation = preparationOf (song.id);
+                fact.loaded = std::find (runtime.preloadedSongs.begin(), runtime.preloadedSongs.end(), song.id) != runtime.preloadedSongs.end();
                 if (index < set.facts.size())
                 {
                     const auto& source = set.facts[index];
@@ -187,6 +195,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     }
     state.songSetId = runtime.selectedSongSetId;
     state.songId = runtime.selectedSongId;
+    state.audibleSongId = runtime.audibleSongId;
     state.songSetsIssue = runtime.songSetsIssue;
     // Kirin OS の項目を外したら、どれをなぜ外したかと直し方を一度だけ知らせる（R-28：Kirin OS で選んだものが黙って
     // 消えない）。名前で言えない形の違い（sets.json の一部）は更新を勧める。全部を読めないときは B の画面の状態の行が言う。

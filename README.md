@@ -953,6 +953,7 @@ Reference has four roles, each with its own button in the same place at every si
   to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
   C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
+  V works best with Hypha on the 2Mix.
 
 **Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
@@ -966,10 +967,16 @@ are not stored, and no target is written into Kirin OS. The Kirin OS license is 
 registration and measurement preparation are unnecessary for these targets. Remove a selected target
 with the minus button.
 
-Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
-display. Choosing a different song, Check, Cue or Version changes only that role: if it was playing,
-it fades to A and plays the new choice with a new MATCH as soon as it is ready; the other roles keep
-playing. Receiving or restoring settings never starts a role.
+Only one role sounds at a time. The A/B/C/V buttons change the sound; pages within Reference change only the
+display. Leaving Reference returns to A with a short fade and cancels pending playback. The selections remain,
+and reopening Reference does not start playback. Blind keeps its existing exit behavior. Choosing a different
+Check, Cue or Version changes only that role: if it was playing, it fades to A and plays the new choice with a new
+MATCH as soon as it is ready; the other roles keep playing. Choosing a different B song keeps the current song
+playing while the new one prepares, then crosses directly to it with its own MATCH, without passing through A.
+The pressed row is selected at once and PLAYING moves when the new song is actually heard. While the B page is
+open, Hypha checks the listed songs ahead of a press, up to 8 songs and 1 GB. If a song cannot be prepared or
+matched, the current song keeps playing and the status line says why; the choice completes by itself when it can.
+Receiving or restoring settings never starts a role.
 
 **Level matching.** B and V follow A: every second Hypha measures A's gated loudness over the last
 10 seconds (BS.1770 gating of the 100 ms momentary history) and moves the audition copy toward

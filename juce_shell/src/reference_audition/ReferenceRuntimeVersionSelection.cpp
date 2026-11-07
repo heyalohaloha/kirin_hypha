@@ -51,6 +51,7 @@ bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
 {
     const auto parts = juce::StringArray::fromTokens (id, "/", {});
     if (parts.size() != 3 || blind.ongoing()) return false;
+    bool keepPlaying = false;
     {
         const juce::ScopedLock lock (stateLock);
         const auto known = std::any_of (currentSnapshot.songSets.begin(), currentSnapshot.songSets.end(), [&] (const auto& set) {
@@ -62,9 +63,9 @@ bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
         requestedSelection.candidateId = parts[2];
         requestedSelection.cueId.clear();
         ++requestedSelection.generation;
-        revokeAfterFadeLocked();
+        keepPlaying = beginSelectionPreparationLocked();
     }
-    selectA();
+    if (!keepPlaying) selectA();
     notify();
     return true;
 }

@@ -31,11 +31,13 @@ namespace hypha::reference_audition
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
                                               SelectionGate selectionGateIn, bool wholeVersionComparison,
-                                              LibraryReceivedWriter::Store receivedStore)
+                                              LibraryReceivedWriter::Store receivedStore,
+                                              std::function<void()> selectionReadyIn)
         : juce::Thread ("Kirin Reference v2"),
           root (std::move (transportRootIn)),
           versionComparison (wholeVersionComparison),
           selectionGate (std::move (selectionGateIn)),
+          selectionReady (std::move (selectionReadyIn)),
           repository (root),
           aBindingRepository (root),
           aCapture (root),
@@ -114,6 +116,9 @@ namespace hypha::reference_audition
         result.adoptedVersions = adoptedVersions;
         const auto blindState = blind.snapshot();
         result.bSelected = bSelected.load (std::memory_order_acquire);
+        result.preloadedSongs = songPreloadReady;
+        result.songSwitchSettling = normalSwitchSerial.load (std::memory_order_acquire)
+            != normalSwitchRetired.load (std::memory_order_acquire);
         result.transportPlaying = latestPlaying.load (std::memory_order_acquire);
         result.transportPositionValid = latestPositionValid.load (std::memory_order_acquire);
         const bool publishedReady = ready.load (std::memory_order_acquire);

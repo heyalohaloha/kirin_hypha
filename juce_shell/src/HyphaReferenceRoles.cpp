@@ -70,8 +70,10 @@ bool Component::openLarge (int slot)
 void Component::syncRoles (bool blindSession)
 {
     const bool waiting = current.pendingAudition.waiting() && current.pendingAudition.slot == 3;
-    const bool audible = canHearReference (current), queue = canQueueReference (current);
-    refButton.setToggleState (current.bSelected && current.audibleComparisonSlot == 3, juce::dontSendNotification);
+    // 曲の切替のあいだも B は鳴っている。新しい曲の準備で押せないように見せない。
+    const bool roleSounds = current.bSelected && current.audibleComparisonSlot == 3;
+    const bool audible = canHearReference (current) || roleSounds, queue = canQueueReference (current);
+    refButton.setToggleState (roleSounds, juce::dontSendNotification);
     refButton.setVisible (! blindSession && current.separateComparisons);
     // 予約（DAW の再生を待つ）は色で示し、何を待つかは状態の行が言う（「B...」は文字が切れたように見えた。2026-10-04）。
     refButton.setButtonText ("B");
@@ -95,7 +97,8 @@ void Component::syncRoles (bool blindSession)
         const auto& song = current.songs[index];
         const auto fact = index < current.songFacts.size() ? current.songFacts[index] : SongFact {};
         const bool selected = song.id == current.songId;
-        const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
+        // 選んだ行はすぐ選択中になり、PLAYING は実際に出力へ出た曲だけに付く。
+        const bool playing = roleSounds && song.id == current.audibleSongId;
         // MATCH：鳴っている曲は実際の gain、ほかは押したときの gain（A の窓 − その曲の Cue の値）。どちらも読みの基準で。
         const auto would = fact.prepared && ! preparationFailed (fact.preparation)
             ? songPreviewGainDb (current, fact, selected) : std::numeric_limits<double>::quiet_NaN();
@@ -103,7 +106,8 @@ void Component::syncRoles (bool blindSession)
                           displayGainDb (current, playing ? current.appliedGainDb : would),
                           selected, playing, ! fact.prepared, preparationWord (fact.preparation),
                           selected && ! playing && current.action.kind == ActionKind::lowerAAndPlay
-                              && current.action.offer.slot == 3 ? current.action.offer.db : std::numeric_limits<double>::quiet_NaN() });
+                              && current.action.offer.slot == 3 ? current.action.offer.db : std::numeric_limits<double>::quiet_NaN(),
+                          selected && ! playing && (roleSounds || current.switchingSlot == 3), fact.loaded });
     }
     songList.setRows (std::move (rows), presentationContext);
     songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));
@@ -114,7 +118,8 @@ void Component::syncRoles (bool blindSession)
 
 bool Component::explainReference()
 {
-    if (canHearReference (current) || canQueueReference (current)) return false;
+    if (canHearReference (current) || canQueueReference (current)
+        || (current.bSelected && current.audibleComparisonSlot == 3)) return false;
     if (onSelectVisualSlot) onSelectVisualSlot (3);
     if (onExplain) onExplain (referenceUnavailableText (current));
     return true;

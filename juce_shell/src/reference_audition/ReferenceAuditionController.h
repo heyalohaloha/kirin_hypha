@@ -70,6 +70,9 @@ namespace hypha::reference_audition
         juce::String sourceStorageNotice;
         juce::String pendingSourceFailure; // The requested source is separate from the audible publication.
         int switchingSlot = 0;  // 選択を替えた・押した役。新しい選択が鳴るまで（鳴っている C・V は前の音、ほかは A）
+        juce::String audibleSongId;  // 実際に出力へ出ている B の曲（選んでいる曲とは別。切替の途中は空か前の曲）
+        bool songSwitchSettling = false;  // 新しい曲を渡したが、Audio Thread がまだ前の曲を読み終えていない
+        std::vector<juce::String> preloadedSongs;  // 押す前に確かめ終えた B の曲（押せばすぐ替わる）
         MatchFailure matchFailure = MatchFailure::none;
         // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。
         double neededAttenuationDb = 0.0;

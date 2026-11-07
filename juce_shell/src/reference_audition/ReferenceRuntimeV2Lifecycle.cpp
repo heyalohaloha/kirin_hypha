@@ -1,6 +1,7 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceTestCommitObserver.h"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -24,6 +25,8 @@ namespace hypha::reference_audition
         clearPreparedWorkspace();
         retirePositionSearch();
         retireSourceVerification();
+        clearSongPreload();
+        songBankRetiringSinceMs = 0;
         pages.close(); preparedPages.close();
         activePages.store (&pages, std::memory_order_release);
         aCapture.disconnect();
@@ -183,11 +186,13 @@ namespace hypha::reference_audition
                 missedTransportCallbacks = 0;
             }
             // 選択を替えた役がまだ鳴っている（フェード中）あいだは、古い音の準備を崩さない。
-            const bool prepared = servicePreparedWorkspace (configuration);
-            const bool fading = deferredRevokeWaiting();
+            const bool retiring = serviceSwitchRetirement();
+            const bool prepared = !retiring && servicePreparedWorkspace (configuration);
+            const bool fading = retiring || deferredRevokeWaiting();
             if (positionSearchJustFinished()) untilPoll = 0;
             // 音源の確かめを待つ間も Library の更新は定期に見る（鳴っている役が消えたら hash を待たずに止める）。
             const bool selectionWaits = selectionGeneration != appliedSelectionGeneration && !verifyingSource (selectionGeneration);
+            if (sourceCheckSlotFreed()) untilPoll = 0;
             const bool sourceChecked = sourceVerification.check.valid()
                 && sourceVerification.check.wait_for (std::chrono::seconds (0)) != std::future_status::timeout;
             if (! fading && !prepared && (selectionWaits || sourceChecked || untilPoll-- <= 0))
@@ -196,7 +201,13 @@ namespace hypha::reference_audition
                 if (versionComparison && workspace != nullptr)
                     versionIdentifier.prepare (root, *workspace, juce::Time::currentTimeMillis());
                 untilPoll = workspacePolls;
+                if (std::exchange (sourceRecheckSoon, false))
+                {
+                    untilPoll = sourceRecheckPolls;
+                    sourceRecheckPolls = std::min (workspacePolls, sourceRecheckPolls * 2);
+                }
             }
+            if (songsOnly.load (std::memory_order_acquire)) serviceSongPreload();
             wait (fading ? 2 : workerPollMs);
         }
     }

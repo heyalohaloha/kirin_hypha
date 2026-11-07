@@ -92,6 +92,7 @@ struct SongFact
     double lufsI = std::numeric_limits<double>::quiet_NaN();
     double loudnessOffsetLu = 0.0;  // 鳴らす音が lufsI より大きく測れる量（mono の曲を stereo の track で +3.01 LU）
     bool prepared = false;
+    bool loaded = false;  // Hypha が確かめ終えている（押せばすぐ替わる）
     reference_audition::RuntimeSongPreparation preparation; // Kirin OS がこの曲を準備している状態
     std::vector<double> centersHz;
     std::vector<float> medianDb;
@@ -192,6 +193,7 @@ struct State
     std::vector<SongFact> songFacts; // songs と同じ順
     std::map<juce::String, std::vector<juce::String>> checkViewBindings; // V のタブの Check ごとの表示
     juce::String songSetId, songId, songSetsIssue; // songSetsIssue：Kirin OS のセットを読めなかった理由（空なら無し）
+    juce::String audibleSongId;  // 実際に出力へ出ている曲（選んだ曲とは別）
     // 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;

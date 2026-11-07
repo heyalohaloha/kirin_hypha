@@ -34,7 +34,8 @@ namespace hypha::reference_audition
                            std::shared_ptr<void> authority = {},
                            const std::atomic<std::uint64_t>* invalidation = nullptr,
                            std::uint64_t initialInvalidation = 0,
-                           std::function<bool()> readCheck = {});
+                           std::function<bool()> readCheck = {},
+                           std::int64_t firstPosition = -1);
         juce::String installReaderForTest (std::unique_ptr<juce::AudioFormatReader>,
                                            double hostSampleRate, int hostChannels,
                                            bool sampleRateConversionApproved = false);
@@ -53,10 +54,14 @@ namespace hypha::reference_audition
                         bool loopEnabled, float linearGain) noexcept;
         RenderResult renderResult (juce::AudioBuffer<float>& destination,
                                    std::int64_t sourcePosition, float linearGain) noexcept;
+        // expectedGeneration: nonzero reads only the source opened at that generation, so a
+        // switch that still reads the previous song never reads a later song from this bank.
         RenderResult renderCueResult (juce::AudioBuffer<float>& destination,
                                       std::int64_t sourcePosition,
                                       std::int64_t cueStart, std::int64_t cueEnd,
-                                      bool loopEnabled, float linearGain) noexcept;
+                                      bool loopEnabled, float linearGain,
+                                      std::uint64_t expectedGeneration = 0) noexcept;
+        std::uint64_t openGeneration() const noexcept { return activeGeneration.load (std::memory_order_acquire); }
 
        #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
         using RenderCopyHook = void (*) (AudioPages&);
@@ -108,7 +113,8 @@ namespace hypha::reference_audition
 
     private:
         void run() override;
-        void serviceOnce();
+        void serviceOnce() { servicePages (pageCount); }
+        void servicePages (size_t pageLimit);
         enum PageState : std::uint8_t { empty, loading, ready, inUse };
         static constexpr size_t pageCount = 6;
 
@@ -126,7 +132,7 @@ namespace hypha::reference_audition
 
         juce::String installReader (std::unique_ptr<juce::AudioFormatReader>,
                                     double hostSampleRate, int hostChannels,
-                                    bool sampleRateConversionApproved);
+                                    bool sampleRateConversionApproved, std::int64_t firstPosition = -1);
         bool fill (std::int64_t pageStart,
                    const std::array<std::int64_t, pageCount>& protectedStarts,
                    size_t protectedCount, std::uint64_t generation);
@@ -137,7 +143,7 @@ namespace hypha::reference_audition
         RenderResult renderRegion (juce::AudioBuffer<float>& destination,
                            std::int64_t sourcePosition,
                            std::int64_t regionStart, std::int64_t regionEnd,
-                           bool loopEnabled, float linearGain) noexcept;
+                           bool loopEnabled, float linearGain, std::uint64_t expectedGeneration = 0) noexcept;
         bool retirePages();
 
         mutable std::array<Page, pageCount> pages;

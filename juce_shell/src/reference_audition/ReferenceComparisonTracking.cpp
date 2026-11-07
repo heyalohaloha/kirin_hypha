@@ -9,7 +9,7 @@ int ReferenceComparisonController::liveWindowBlocks (int slot) const
 
 bool ReferenceComparisonController::pendingAuditionNeedsLevel() const
 {
-    if (preparingCheck()) return true;
+    if (preparingCheck() || preparingReference()) return true;
     const juce::ScopedLock lock (selectionLock);
     return activePendingIntent.load (std::memory_order_acquire) != 0 && ! pendingAudition.resume;
 }
@@ -17,6 +17,7 @@ bool ReferenceComparisonController::pendingAuditionNeedsLevel() const
 int ReferenceComparisonController::pendingLiveWindowBlocks() const
 {
     if (preparingCheck()) return check.preparedMatchWindowBlocks();
+    if (preparingReference()) return reference.matchWindowBlocks();
     int slot = 0;
     { const juce::ScopedLock lock (selectionLock); slot = pendingAudition.view.slot; }
     return liveWindowBlocks (slot);

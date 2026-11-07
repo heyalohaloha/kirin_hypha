@@ -4,6 +4,8 @@
 #include <deque>
 #include <functional>
 #include <future>
+#include <limits>
+#include <map>
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
@@ -27,6 +29,7 @@
 #include "ReferenceCalibrationObservation.h"
 #include "ReferenceContentAlignment.h"
 #include "ReferenceDeferredControl.h"
+#include "ReferenceNormalPath.h"
 #include "ReferenceVisualTimeline.h"
 
 namespace hypha::reference_audition
@@ -38,7 +41,7 @@ namespace hypha::reference_audition
 
         explicit RuntimeV2Controller (juce::File transportRootIn = RuntimeV2Repository::transportRoot(),
                                       SelectionGate = {}, bool wholeVersionComparison = false,
-                                      LibraryReceivedWriter::Store = {});
+                                      LibraryReceivedWriter::Store = {}, std::function<void()> selectionReady = {});
         ~RuntimeV2Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
@@ -78,6 +81,8 @@ namespace hypha::reference_audition
         void selectA (bool allowFade = true) noexcept;
         void invalidateMatchOffer();
         void setDataOnlySelection (bool selected) noexcept { dataOnlySelection.store (selected, std::memory_order_release); }
+        // 押す前に確かめておく B の曲（可能性の高い順）。空なら今ある先読みを保つ（件数と容量の上限は作業スレッド）。
+        void preloadSongs (std::vector<juce::String>);
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
         bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
         bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
@@ -128,22 +133,7 @@ namespace hypha::reference_audition
         bool takeHeldWithdrawn() noexcept { return heldWithdrawn.exchange (false, std::memory_order_acq_rel); }
 
     private:
-        struct Configuration
-        {
-            RuntimeIdentity identity;
-            double sampleRate = 0.0;
-            int channels = 0;
-            std::uint64_t generation = 0;
-        };
-
-        struct RequestedSelection
-        {
-            juce::String presetId;
-            juce::String checkId;
-            juce::String candidateId;
-            juce::String cueId;
-            std::uint64_t generation = 0;
-        };
+        #include "ReferenceRuntimePreparationMembers.h"
 
         struct AuditionEventSession
         {
@@ -175,87 +165,6 @@ namespace hypha::reference_audition
             bool completionPending = false;
         };
 
-        struct PreparedNormalSelection
-        {
-            std::uint64_t auditionEpoch = 0;
-            std::uint64_t selectionGeneration = 0;
-            float linearGain = 1.0f;
-            double appliedGainDb = 0.0;
-            double aIntegratedLoudness = 0.0;
-            double aMaximumTruePeakDbtp = 0.0;
-            double adjustedBIntegratedLoudness = 0.0;
-            double adjustedBMaximumTruePeakDbtp = 0.0;
-            double loudnessDeltaBMinusA = 0.0;
-            double truePeakDeltaBMinusA = 0.0;
-            bool gainLimited = false;
-            bool comparisonFallbackOriginal = false;
-            TrackingState tracking = TrackingState::none;
-            double anchorGainDb = 0.0; // 利用者の MATCH の gain。追従はここから ±6 dB まで（戻すときも同じ値）
-            double peakShortfallDb = 0.0;  // 上限で届かない量
-            double rangeShortfallDb = 0.0; // MATCH の幅で残る差（正：A より小さい、負：大きい）
-            double requiredGainDb = 0.0;   // 上限が無ければ掛ける gain（A を下げる申し出の量）
-            bool valid = false;
-        };
-
-        // V を鳴らしたまま確かめた、新しい Version の位置。替えた後に同じ A の窓を探し直さない。
-        // 探すのは別の thread（作業スレッドを止めると A の窓を受け取れず、窓が消えて探し直しになる）。
-        struct StagedVersionPosition
-        {
-            std::shared_ptr<const RuntimeACaptureAudio> capture;
-            std::shared_ptr<const RuntimeContentAlignment> match;
-            std::future<RuntimeContentAlignment> search;
-            int misses = 0;
-        };
-        // 鳴っている間の定期の位置の確かめ。これも別の thread で探し、終わるまで今の写像のまま鳴らす。
-        struct PositionSearch
-        {
-            std::shared_ptr<const RuntimeACaptureAudio> capture;
-            std::optional<std::int64_t> expected;
-            std::future<RuntimeContentAlignment> search;
-            juce::String reason;  // 合わなかった理由。次の探索の間も同じ理由を見せる
-            bool announced = false;
-        };
-        // 初めて選ぶ音源の確かめ（file 全体の hash）。数秒かかるので、これも作業スレッドで計算しない。
-        struct SourceVerification
-        {
-            juce::String key;
-            std::uint64_t generation = 0;
-            std::shared_ptr<const RuntimeSource> source;
-            std::future<juce::String> check;
-        };
-        struct WorkspaceSelection
-        {
-            Configuration configuration;
-            RequestedSelection selection;
-            Snapshot next;
-            RuntimeCandidate candidate;
-            RuntimeCue cue;
-            RuntimeEventContext event;
-            RuntimeSourcePresetReceipt sourceTemplateArtifact;
-            std::shared_ptr<const RuntimeSource> source;
-            juce::String sourceKey, adoptionKey;
-            std::int64_t preparedAtMs = 0;
-            bool staged = false, returnStarted = false, songEntry = false;
-            StagedVersionPosition versionPosition;
-        };
-        bool beginSelectionPreparationLocked() noexcept;
-        bool holdSelectionForSourceRetry (const juce::String&, bool confirmed = false);
-        void clearPreparedWorkspace();
-        bool servicePreparedWorkspace (const Configuration&);
-        bool stagedVersionReady (WorkspaceSelection&, AudioPages&);
-        void serviceVersionHold();
-        std::future<RuntimeContentAlignment> searchAlignment (std::shared_ptr<const RuntimeACaptureAudio>, std::shared_ptr<const RuntimeSource>,
-                                                              std::shared_ptr<const RuntimeDetailedMeasurement>, std::optional<std::int64_t>);
-        void retireVersionSearch (std::future<RuntimeContentAlignment>&);
-        void retirePositionSearch();
-        bool finishPositionSearch (const std::shared_ptr<const RuntimeACaptureAudio>&, const std::shared_ptr<const RuntimeSource>&,
-                                   const std::shared_ptr<const RuntimeDetailedMeasurement>&, std::optional<std::int64_t>, RuntimeContentAlignment&);
-        bool positionSearchJustFinished();
-        juce::String verifySourceBehindWorker (std::shared_ptr<const RuntimeSource>&, const juce::String& key,
-                                               std::uint64_t generation, bool freshAttempt);
-        bool verifyingSource (std::uint64_t generation) const;
-        void retireSourceVerification();
-        void finishWorkspaceSelection (WorkspaceSelection);
         AudioPages& currentPages() const noexcept { return *activePages.load (std::memory_order_acquire); }
         AudioPages& nextPages() noexcept { return &currentPages() == &pages ? preparedPages : pages; }
 
@@ -275,9 +184,6 @@ namespace hypha::reference_audition
         // 自動で戻すときに今の位置がその Cue の外（選んだ後に頭へ戻した・Cue を過ぎた）なら、今の位置を起点に Cue の
         // 頭から鳴らし直す。DAW の位置に合わせる曲（同じ Work・V）は置き直さない（位置を動かすのは利用者）。
         bool restartsAtCueStart() const noexcept;
-        // Audio Thread。Cue の頭から鳴らし直す役が鳴っているあいだに Cue の外へ出た（Cue の終わり・DAW のループ）とき
-        // の位置：選んだときの起点から Cue を周回した位置（終わりの次は頭）。公開を引っ込めず、試聴を作り直さない。
-        std::int64_t loopedCuePosition (std::int64_t hostPosition) const noexcept;
         bool restartCueAtPlayhead (std::int64_t hostPosition) noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
@@ -300,6 +206,10 @@ namespace hypha::reference_audition
         void serviceCandidatePreparationAcknowledgement();
         void serviceDeferredAudioThreadActions();
         void serviceOutputRetirement();
+        bool readNormalPath (NormalPath&) const noexcept;
+        void beginSwitchBlend (const NormalPath&) noexcept;
+        void finishSwitchBlend() noexcept;
+        bool renderOutgoingSong (std::int64_t hostPosition, int channels, int frames) noexcept;
         void revokeAuditionPublication() noexcept;
         // 鳴っている（A へ戻るフェード中を含む）役の選択を替える。先に公開を取り消すと Audio Thread が
         // フェードを掛けずに A を返す（ぷつっと切れる）ので、フェードが終わってから作業スレッドが取り消す。
@@ -315,6 +225,7 @@ namespace hypha::reference_audition
         const bool versionComparison;
         const SelectionGate selectionGate;
         std::atomic<bool> dataOnlySelection { false }; // Non-RT starts also check this when an output gate is retained for a fade.
+        const std::function<void()> selectionReady;  // 新しい選択を公開した（待っている役を次の周期まで待たせない）
         RuntimeV2Repository repository;
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;
@@ -344,17 +255,19 @@ namespace hypha::reference_audition
         std::launch stagedSearchLaunch = std::launch::async;
         PositionSearch positionSearch;  // Worker-owned.
         SourceVerification sourceVerification;  // Worker-owned.
+        SongPreload songPreload;  // Worker-owned.
+        std::vector<juce::String> songPreloadWanted, songPreloadReady;  // stateLock
+        LiveLevelReading latestLiveLevel;  // stateLock：押したときと定期の A の値
+        std::int64_t songBankRetiringSinceMs = 0;  // Worker-owned：切替で前の曲の面を閉じるのを待っている
+        std::uint64_t announcedSelectionGeneration = 0;  // Worker-owned：selectionReady で知らせた世代
+        bool sourceCheckBlocked = false;  // Worker-owned：走っている確かめの空きを待っている押下がある
+        bool sourceRecheckSoon = false;  // Worker-owned：確かめが見張りと重なった。次の周期を待たず見直す
+        int sourceRecheckPolls = 1;  // Worker-owned
+        std::atomic<bool> pairedSongSwitch { true };
         std::vector<std::future<juce::String>> retiredSourceVerifications;  // Worker-owned.
         std::vector<std::future<RuntimeContentAlignment>> retiredVersionSearches;  // Worker-owned.
         std::atomic<std::uint32_t> versionHoldSinceMs { 0 };  // 0 は保っていない
-        enum class PreparedLevel { none, loudness, peak };
-        struct PreparedReturn
-        {
-            std::uint64_t generation = 0;
-            int windowBlocks = 0;
-            PreparedLevel level = PreparedLevel::none;
-            bool pending = false, available = false;
-        } preparedReturn; // stateLock; level readiness is not permission to play the new PCM.
+        PreparedReturn preparedReturn; // stateLock; level readiness is not permission to play the new PCM.
         RuntimeV2Blind blind;
         mutable juce::CriticalSection stateLock;
         juce::CriticalSection outputGateLock;
@@ -429,8 +342,16 @@ namespace hypha::reference_audition
         std::atomic<bool> normalPageWaiting { false };
         std::atomic<float> normalFadeStep { 1.0f / 240.0f };
         std::array<std::array<float, 8192>, 2> normalLiveA {};
+        std::array<std::array<float, 8192>, 2> normalOutgoing {}; // Audio-thread owned: the previous song during a switch.
         std::uint64_t rtNormalEpoch = 0;
         float rtNormalBlend = 0.0f; // Audio-thread owned.
+        NormalPath rtPath, rtOutgoing; // Audio-thread owned.
+        float rtSwitchBlend = 0.0f; // Audio-thread owned.
+        bool rtSwitchBlending = false; // Audio-thread owned.
+        // 曲の切替（新しい PCM・位置・gain の一組）。writing と serial は mappingGeneration の書き込みを挟み、
+        // retired は Audio Thread が前の曲を読み終えた番号。作業スレッドはそれまで前の面を閉じない。
+        std::atomic<bool> normalSwitchWriting { false };
+        std::atomic<std::uint64_t> normalSwitchSerial { 0 }, normalSwitchRetired { 0 };
         void setContentObservationDemand (unsigned bit, bool enabled) noexcept;
         std::atomic<unsigned> contentObservationDemands { 0 }; // 1: view/capture, 2: queued B.
         std::atomic<bool> contentRefreshRequested { false };

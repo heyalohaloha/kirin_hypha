@@ -10,6 +10,9 @@
 
 namespace hypha::reference_audition
 {
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, const RuntimeSource&, bool);
+#endif
     namespace
     {
         const RuntimePreset* findPreset (const RuntimeWorkspace& workspace,
@@ -305,77 +308,8 @@ namespace hypha::reference_audition
         for (const auto& item : candidate->cues)
             next.cues.push_back ({ item.cueId, item.label, {}, false });
 
-        const auto sourceLoad = sourceRepository.load (*candidate);
-        if (! sourceLoad.accepted())
-        {
-            failClosedToA();
-            next.state = RuntimeState::rejected;
-            next.rejectionCode = sourceLoad.rejectionCode;
-            publish (std::move (next));
-            return;
-        }
-        auto selectedSource = sourceCache.find (candidate->sourceArtifact.sha256);
-        // The retry reservation belongs to one explicit selection of one source receipt. A new
-        // selection checks its file at once (through verifySourceFile) instead of serving an
-        // earlier read failure through a new reservation; a republished manifest keeps it.
-        const auto retryKey = candidate->sourceArtifact.sha256 + ":" + juce::String (selection.generation);
-        const bool freshSelection = sourceRetryKey != retryKey;
-        if (freshSelection)
-        { sourceRetryKey = retryKey; sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0; }
-        const bool previouslyVerified = selectedSource != nullptr && ! freshSelection;
-        if (! previouslyVerified)
-            selectedSource = sourceLoad.source;
-        const bool rejectedPageSource = currentPages().sourceInvalidated() && workerSource
-            && workerSourceGeneration == selection.generation
-            && workerSource->absolutePath == selectedSource->absolutePath
-            && workerSource->sourceFileSha256 == selectedSource->sourceFileSha256;
-        // A reservation that has run out starts one fresh attempt. Polls before it only republish
-        // the stored failure; polls after it wait for the attempt the worker holds, and the
-        // worker's own failure reaches this clock as the verification reason.
-        const bool freshAttempt = ! rejectedPageSource
-            && (freshSelection || (sourceRetryFailure.isNotEmpty() && nowMs >= sourceRetryAtMs));
-        const bool retryCopy = revision_detail::sourceCopyFailure (sourceRetryFailure);
-        if (freshAttempt) { sourceRetryFailure.clear(); sourceRetryAtMs = 0; }
-        if (sourceVerification.key != retryKey) retireSourceVerification();
-        const auto sourceFailure = rejectedPageSource ? juce::String ("reference_source_changed")
-            : nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified && !sourceVerification.check.valid()
-            ? sourceRepository.verifySourceRevision (*selectedSource)
-            : verifySourceBehindWorker (selectedSource, retryKey, selection.generation, freshAttempt && !retryCopy);
-        if (sourceFailure == "reference_source_revalidating")
-        {
-            const auto reason = sourceFailureCode (revision_detail::service().watch (*selectedSource)->unavailable.load (std::memory_order_acquire));
-            if (!holdSelectionForSourceRetry (reason.isNotEmpty() ? reason : sourceFailure, reason.isNotEmpty())
-                && !ready.load (std::memory_order_acquire))
-            {
-                next.state = RuntimeState::waiting; next.rejectionCode = sourceFailure;
-                publish (std::move (next));
-            }
-            return;
-        }
-        if (sourceFailure.isNotEmpty())
-        {
-            const bool keepsSelection = holdSelectionForSourceRetry (sourceFailure);
-            if (nowMs >= sourceRetryAtMs)
-            {
-                sourceRetryFailure = sourceFailure;
-                sourceRetryAtMs = nowMs + (keepsSelection && !revision_detail::sourceCopyFailure (sourceFailure) ? 1000
-                    : std::min (60000, 5000 * (1 << std::min (sourceRetryCount++, 4))));
-            }
-            sourceCache.forget (candidate->sourceArtifact.sha256);
-            if (sourceFailure == "reference_source_cache_full" && sourceCache.releaseUnused())
-            { sourceRetryAtMs = nowMs; sourceRetryCount = 0; }
-            if (keepsSelection) return;
-            failClosedToA();
-            next.state = sourceFailure == "reference_source_read_failed" || revision_detail::sourceCopyFailure (sourceFailure)
-                ? RuntimeState::waiting : RuntimeState::rejected;
-            next.rejectionCode = sourceFailure;
-            publish (std::move (next));
-            return;
-        }
-        holdSelectionForSourceRetry ({});
-        sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0;
-        if (! previouslyVerified)
-            sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
+        const auto selectedSource = loadVerifiedSelectionSource (*candidate, selection, next, nowMs);
+        if (! selectedSource) return;
         const auto selectedCueLabel = cue->label;
         RuntimeCue wholeCue;
         if (versionComparison && candidate->sourceKind == "work_version")
@@ -456,15 +390,26 @@ namespace hypha::reference_audition
             + juce::String (configuration.identity.hostProcessId) + ":" + configuration.identity.workId + ":"
             + juce::String (workspace->manifest.revision) + ":" + preset->sourceTemplateArtifact.sha256
             + ":" + preset->sourcePresetArtifact.sha256;
-        if (keepsAudible && (publicationKey != activePublishedSelectionKey || !ready.load (std::memory_order_acquire)))
+        // B の同じ音源が公開し直されただけなら、開いている面をそのまま使う（読み終えたページを捨てない）。
+        const bool openAlready = songsOnly.load (std::memory_order_acquire)
+            && prepared.sourceKey == activeSourceKey && currentPages().sourceOpen();
+        if (keepsAudible && (publicationKey != activePublishedSelectionKey
+                             || (!ready.load (std::memory_order_acquire) && !openAlready)))
         {
             prepared.staged = true;
             auto& staging = nextPages();
             const auto pinned = std::make_shared<revision_detail::PinnedSource> (selectedSource);
+           #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            observeReferenceSwitchPages (this, selection.generation, *selectedSource, true);
+           #endif
             const auto failure = staging.open (*selectedSource, configuration.sampleRate, configuration.channels, true,
                 [this, pinned] (RuntimeFileRevision& revision) { return pinned->verified (sourceRepository, revision); }, pinned->input(),
                 [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
-                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation(), [pinned] { return pinned->readSucceeded(); });
+                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation(), [pinned] { return pinned->readSucceeded(); },
+                songsOnly.load (std::memory_order_acquire) ? mappedCueStart : std::int64_t { -1 });
+           #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            observeReferenceSwitchPages (this, selection.generation, *selectedSource, false);
+           #endif
             if (failure.isNotEmpty())
             {
                 if (holdSelectionForSourceRetry (failure, failure != "reference_source_revalidating")) return;

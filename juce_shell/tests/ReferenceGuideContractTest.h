@@ -4,6 +4,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaReferenceStages.h"
+#include "../src/HyphaReferenceHelpText.h"
 #include "../src/HyphaTextStyle.h"
 #include "ReferenceControlLookup.h"
 #include "ReferenceGuideStates.h"
@@ -166,6 +167,14 @@ inline void verifyUnavailableButtons()
     require (selectedC, "a ready C is selected as before");
     explained.clear();
     component.setState (named ("ready"));
+    require (b->getTooltip() == reference_ui::help_text::versionMixContext,
+             "a ready V describes the mix context");
+    auto* version = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-version"));
+    require (version != nullptr && version->getTooltip() == reference_ui::help_text::versionMixContext,
+             "the Version selector describes the mix context");
+    { const i18n::ScopedLanguage japanese (i18n::Language::japanese);
+      require (text_style::shownText (b->getTooltip()) == juce::String::fromUTF8 (u8"VはHyphaを2Mixに置くと動きやすい"),
+               "the V mix context is translated"); }
     b->onClick();
     require (selectedB && explained.isEmpty(), "a ready B is selected without a reason");
     auto viewed = named ("stopped");

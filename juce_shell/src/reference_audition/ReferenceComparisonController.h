@@ -10,6 +10,7 @@
 #include "../OutputOwnership.h"
 
 #include <deque>
+#include <limits>
 #include <juce_events/juce_events.h>
 
 namespace hypha::reference_audition
@@ -26,8 +27,10 @@ public:
     // gate：出力の経路（Rust の試聴の排他）。versionBlindGate：VERSION BLIND のあいだのほかの Blind との排他（同じ project・
     // 同じ process の別の Hypha も含む。Rust の kirin_hypha_set_version_blind_capture_exclusion）。externalStates：Reference の
     // 外の状態（live 比較・PRE/POST Blind・Keep／Record・形式・書き出し・bypass）。出力を取る入口は表（OutputOwnership.h）で決める。
+    // selectionReady：新しい選択を公開した（作業スレッドから呼ぶ。待っている役を次の周期まで待たせない）。
     explicit ReferenceComparisonController (juce::File, SelectionGate gate = {}, SelectionGate versionBlindGate = {},
-                                            StateChanged = {}, ExternalStates externalStates = {});
+                                            StateChanged = {}, ExternalStates externalStates = {},
+                                            StateChanged selectionReady = {});
     ~ReferenceComparisonController();
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
@@ -59,7 +62,9 @@ public:
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
     bool selectRef (double, double) noexcept;              // B（REF）を鳴らす
-    bool selectSong (const juce::String& songId);          // B の曲。B が鳴っていれば即切替
+    // B の曲。B が鳴っていれば鳴らしたまま準備して替える。loudness・peak は押したときの A（読めなければ NaN）。
+    bool selectSong (const juce::String& songId, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                     double peak = std::numeric_limits<double>::quiet_NaN());
     bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
     // C の MATCH の試みを 1 度だけ見る（窓を開き直しても、同じ試みの合わせ直しを立て直さない）。メッセージスレッド。
     bool takeCheckAttempt (std::uint64_t attempt) noexcept
@@ -183,11 +188,14 @@ private:
     bool queueAudition (int slot, std::uint64_t safetyEpoch);
     bool selectCheckRole (const std::function<bool()>& apply);
     bool preparingCheck() const { return switchSlot.load() == 2 && normalOutputSlot.load() == 2; }
+    bool preparingReference() const { return switchSlot.load() == 3 && normalOutputSlot.load() == 3; }
     bool preparingVersion() const { return switchSlot.load() == 1 && normalOutputSlot.load() == 1 && version.outputSelected(); }
     RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     void ensureReferenceSong (const Snapshot& reference);
+    void requestSongPreload (const Snapshot& reference);  // B の一覧を見ているあいだ、押す前に確かめる曲を渡す
     juce::String songSetId, songId; // selectionLock
+    std::vector<juce::String> songPreloadOrder; // selectionLock
     std::atomic<int> switchSlot { 0 };        // 選択を替えた役（1〜3）。公開されたら新しい MATCH で鳴らす
     std::uint64_t switchGeneration = 0;        // selectionLock：その役の替えた後の選択の世代
     std::atomic<bool> offlineRenderSeen { false };

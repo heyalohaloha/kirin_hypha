@@ -209,6 +209,9 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Workspace.cpp src/reference_audition/ReferenceRuntimePreparedSelection.cpp
+    src/reference_audition/ReferenceRuntimeWorkspacePublication.cpp
+    src/reference_audition/ReferenceRuntimeSourcePreparation.cpp
+    src/reference_audition/ReferenceRuntimeSongSwitch.cpp
     src/reference_audition/ReferenceRuntimeV2BlindPreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceVisualAudio.cpp
@@ -1040,6 +1043,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         ${KIRIN_RUST_NATIVE_LIBS}
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    include(cmake/ReferenceSwitchTests.cmake)
     add_test(NAME kirin_reference_audition_runtime
         COMMAND KirinReferenceAuditionRuntimeTests)
     include(cmake/PairPreviewTests.cmake)

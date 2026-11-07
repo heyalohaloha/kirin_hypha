@@ -4,12 +4,12 @@
 namespace hypha::reference_audition
 {
 ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback,
-    SelectionGate blindCallback, StateChanged stateChangedIn, ExternalStates externalIn)
+    SelectionGate blindCallback, StateChanged stateChangedIn, ExternalStates externalIn, StateChanged selectionReady)
     : gate (std::move (callback)), versionBlindGate (std::move (blindCallback)), externalStates (std::move (externalIn)),
       stateChanged(std::move(stateChangedIn)),
-      version (root, [this] (bool active) { return admit (1, active); }, true),
-      check (root, [this] (bool active) { return admit (2, active); }, false),
-      reference (root, [this] (bool active) { return admit (3, active); }, false),
+      version (root, [this] (bool active) { return admit (1, active); }, true, {}, selectionReady),
+      check (root, [this] (bool active) { return admit (2, active); }, false, {}, selectionReady),
+      reference (root, [this] (bool active) { return admit (3, active); }, false, {}, selectionReady),
       targets (stateChanged, [this] (bool selected) { check.setDataOnlySelection (selected); }),
       visual ([this] {
           const auto slot = viewedSlot.load (std::memory_order_acquire);
@@ -23,6 +23,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
     check.prepareSelectionsBeforeReturn();
     check.reportLibraryReceived();  // V と B の id には印が付く。素の id を持つ C が返す
     version.prepareSelectionsBeforeReturn();
+    reference.prepareSelectionsBeforeReturn();
     reference.setTrackingEnabled (true);  // B は A の直近 10 秒に追従する
     reference.setSongsOnly (true);        // B は B セットの曲だけを鳴らす（C の Preset に落ちない）
 }
@@ -203,6 +204,7 @@ Snapshot ReferenceComparisonController::snapshot()
 {
     const auto b = version.snapshot(), c = check.snapshot(), r = reference.snapshot();
     ensureReferenceSong (r);
+    requestSongPreload (r);
     const juce::ScopedLock lock (selectionLock);
     const auto slot = viewedSlot.load (std::memory_order_acquire);
     auto result = slot == 1 ? b : slot == 3 ? r : c;
@@ -253,6 +255,8 @@ Snapshot ReferenceComparisonController::snapshot()
     result.librarySkipped = r.librarySkipped;
     result.libraryPreparation = r.libraryPreparation;
     result.selectedSongId = songId;
+    if (renderedSlot.load (std::memory_order_relaxed) == 3 && r.bSelected && ! r.songSwitchSettling)
+        result.audibleSongId = r.presetId + "/" + r.checkId + "/" + r.candidateId;
     result.selectedSongSetId = std::any_of (r.songSets.begin(), r.songSets.end(), [this] (const auto& set) { return set.id == songSetId; })
         ? songSetId : r.songSets.empty() ? juce::String {} : r.songSets.front().id;
     const bool songPublished = songId.isNotEmpty() && r.presetId + "/" + r.checkId + "/" + r.candidateId == songId;

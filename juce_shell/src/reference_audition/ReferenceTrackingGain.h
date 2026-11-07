@@ -105,6 +105,8 @@ public:
         position = std::numeric_limits<int>::max();
     }
 
+    float value() const noexcept { return current; }
+
 private:
     float start = 1.0f, current = 1.0f, target = 1.0f;
     int position = std::numeric_limits<int>::max();

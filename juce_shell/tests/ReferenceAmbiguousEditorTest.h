@@ -98,8 +98,12 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
                  "the stopped source button reaches the controller and retains its press during the read failure");
         if (cancel)
         {
-            auto* a = dynamic_cast<juce::Button*> (find (*r.editor, "reference-a"));
-            require (a != nullptr, "the shipping editor exposes A cancellation"); a->onClick();
+            if (failure == 0 && stopped) r.view().onDomainChange (observatory::Domain::level);
+            else
+            {
+                auto* a = dynamic_cast<juce::Button*> (find (*r.editor, "reference-a"));
+                require (a != nullptr, "the shipping editor exposes A cancellation"); a->onClick();
+            }
         }
         ref::revision_detail::sourceReaderOpenHookForTest.store (nullptr);
         ref::revision_detail::sourcePageOpenHookForTest.store (nullptr);
@@ -124,6 +128,13 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
         const bool referenceHeard = power > 0 && 2 * (sine * sine + cosine * cosine) / (512 * power) > 0.9;
         require (referenceHeard == !cancel && r.post->referenceOutputSlot() == (cancel ? 0 : 2),
                  "the real button's held press reaches actual source PCM; pressing A cancels it");
+        if (cancel && failure == 0 && stopped)
+        {
+            r.view().onDomainChange (observatory::Domain::reference);
+            for (int n = 0; n < 8; ++n) feed();
+            require (r.post->referenceOutputSlot() == 0 && !r.post->referenceAuditionSnapshot().pendingAudition.waiting(),
+                     "leaving REF during a stopped preparation stays cancelled after recovery, playback and return");
+        }
         std::cerr << "initial source editor case completed" << std::endl;
     }
 }

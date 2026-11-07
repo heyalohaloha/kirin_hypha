@@ -82,7 +82,8 @@ namespace hypha::reference_audition
                                    std::function<bool()> rejectionCheck,
                                    std::shared_ptr<void> authority,
                                    const std::atomic<std::uint64_t>* invalidation,
-                                   std::uint64_t initialInvalidation, std::function<bool()> readCheck)
+                                   std::uint64_t initialInvalidation, std::function<bool()> readCheck,
+                                   std::int64_t firstPosition)
     {
         const juce::ScopedLock lock (readerLock);
         if ((invalidation != nullptr) != static_cast<bool> (authority)) return "runtime_format_invalid";
@@ -105,7 +106,7 @@ namespace hypha::reference_audition
         sourceVerified.store (verified && !rejected, std::memory_order_release);
         sourceUnavailableState.store (sourceFailure (sourceInvalidation, initialSourceInvalidation), std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels,
-                              sampleRateConversionApproved);
+                              sampleRateConversionApproved, firstPosition);
     }
 
     juce::String AudioPages::installReaderForTest (
@@ -125,7 +126,7 @@ namespace hypha::reference_audition
 
     juce::String AudioPages::installReader (
         std::unique_ptr<juce::AudioFormatReader> nextReader,
-        double hostSampleRate, int hostChannels, bool sampleRateConversionApproved)
+        double hostSampleRate, int hostChannels, bool sampleRateConversionApproved, std::int64_t firstPosition)
     {
         const juce::ScopedLock lock (readerLock);
         openState.store (false, std::memory_order_release);
@@ -172,8 +173,9 @@ namespace hypha::reference_audition
             / nextReader->sampleRate));
         reader = std::move (nextReader);
         activeGeneration.fetch_add (1, std::memory_order_acq_rel);
-        requestedPosition.store (0, std::memory_order_release);
-        serviceOnce();
+        // A chosen Cue opens at its own head: that page and the next decode here, the rest in the refill.
+        requestedPosition.store (juce::jmax<std::int64_t> (0, firstPosition), std::memory_order_release);
+        servicePages (firstPosition >= 0 ? 2 : pageCount);
         if (serviceMode == ServiceMode::background && !isThreadRunning()
             && !startThread (juce::Thread::Priority::normal))
         {
@@ -266,7 +268,7 @@ namespace hypha::reference_audition
         else serviceOnce();
     }
 
-    void AudioPages::serviceOnce()
+    void AudioPages::servicePages (size_t pageLimit)
     {
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_reader_lock");
         const juce::ScopedLock lock (readerLock);
@@ -316,7 +318,7 @@ namespace hypha::reference_audition
             }
         }
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_fill");
-        for (size_t index = 0; index < protectedCount; ++index)
+        for (size_t index = 0; index < protectedCount && index < pageLimit; ++index)
             fill (protectedStarts[index], protectedStarts, protectedCount, generation);
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_done");
     }

@@ -20,6 +20,106 @@ namespace hypha::reference_audition
         }
     }
 
+    RuntimeV2Controller::MatchLevels RuntimeV2Controller::matchLevels (
+        const RuntimeSource& source, bool cueLevel, double cueLoudness, double cuePeak, double loudnessOffset) const noexcept
+    {
+        const auto& summary = source.measurementSummary;
+        return { loudnessOffset + (cueLevel && ! versionComparison ? cueLoudness
+                     : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable()),
+                 cueLevel && ! versionComparison && std::isfinite (cuePeak) ? cuePeak
+                     : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable() };
+    }
+
+    MatchFailure RuntimeV2Controller::requiredMatchGain (const juce::String& mode, const MatchLevels& levels,
+        double aIntegratedLoudness, double aMaximumTruePeakDbtp, double& requiredGain) const noexcept
+    {
+        requiredGain = 0.0;
+        if (mode == "loudness_match")
+        {
+            if (! std::isfinite (aIntegratedLoudness)) return MatchFailure::liveLevelUnavailable;
+            if (! std::isfinite (levels.loudness)) return MatchFailure::sourceLevelUnavailable;
+            requiredGain = aIntegratedLoudness - levels.loudness;
+        }
+        else if (mode == "peak_match")
+        {
+            if (! std::isfinite (aMaximumTruePeakDbtp)) return MatchFailure::liveLevelUnavailable;
+            if (! std::isfinite (levels.peak)) return MatchFailure::sourceLevelUnavailable;
+            requiredGain = aMaximumTruePeakDbtp - levels.peak;
+        }
+        return MatchFailure::none;
+    }
+
+    // The gain and facts of one MATCH, computed once for a held audition and for a paired song switch.
+    bool RuntimeV2Controller::matchedSelection (const juce::String& comparisonMode, double requiredGain, const MatchLevels& levels,
+        double aIntegratedLoudness, double aMaximumTruePeakDbtp, PreparedNormalSelection& prepared, MatchFailure& failure) const noexcept
+    {
+        if (! std::isfinite (requiredGain)
+            || requiredGain < -100.0 || requiredGain > 100.0)
+            return false;
+
+        double appliedGain = requiredGain, shortfall = 0.0;
+        // 上限は、承認して A を下げている量を足した後の音で見る。届かなければ上限まで上げて鳴らし（足りない量を言う）、
+        // 0.5 dB を超えるなら、承認すれば合わせられる下げ幅を添える。
+        const auto held = heldAttenuationDb.load (std::memory_order_acquire);
+        if (requiredGain + held > 0.0)
+        {
+            if (! std::isfinite (levels.peak))
+            {
+                failure = MatchFailure::sourceLevelUnavailable;
+                return false;
+            }
+            shortfall = referencePeakShortfallDb (requiredGain, levels.peak, aMaximumTruePeakDbtp, held);
+            appliedGain = requiredGain - shortfall;
+        }
+
+        prepared.linearGain = gainFromDecibels (appliedGain);
+        prepared.appliedGainDb = appliedGain;
+        prepared.anchorGainDb = appliedGain;
+        prepared.aIntegratedLoudness = aIntegratedLoudness;
+        prepared.aMaximumTruePeakDbtp = aMaximumTruePeakDbtp;
+        prepared.adjustedBIntegratedLoudness = std::isfinite (levels.loudness)
+            ? levels.loudness + appliedGain : unavailable();
+        prepared.adjustedBMaximumTruePeakDbtp = std::isfinite (levels.peak)
+            ? levels.peak + appliedGain : unavailable();
+        prepared.loudnessDeltaBMinusA = std::isfinite (aIntegratedLoudness)
+            && std::isfinite (prepared.adjustedBIntegratedLoudness)
+            ? prepared.adjustedBIntegratedLoudness - aIntegratedLoudness : unavailable();
+        prepared.truePeakDeltaBMinusA = std::isfinite (aMaximumTruePeakDbtp)
+            && std::isfinite (prepared.adjustedBMaximumTruePeakDbtp)
+            ? prepared.adjustedBMaximumTruePeakDbtp - aMaximumTruePeakDbtp : unavailable();
+        // A normal MATCH is exact or stops at the ceiling. Only explicit original mode uses zero gain.
+        prepared.gainLimited = false;
+        prepared.peakShortfallDb = shortfall;
+        prepared.requiredGainDb = requiredGain;
+        prepared.comparisonFallbackOriginal = false;
+        // V と、追従にした役（B）の知覚音量の MATCH は窓に追従する。Peak の MATCH と C は固定。
+        prepared.tracking = ! versionComparison && comparisonMode == "original" ? TrackingState::none
+            : versionComparison || (trackingEnabled.load (std::memory_order_acquire) && comparisonMode == "loudness_match")
+                ? TrackingState::following : TrackingState::fixed;
+        prepared.valid = true;
+        return true;
+    }
+
+    // stateLock を持って呼ぶ。掛ける gain と、画面の値・追従の中心・戻す控えを同じ MATCH にそろえる。
+    void RuntimeV2Controller::applyPreparedFactsLocked (const PreparedNormalSelection& prepared) noexcept
+    {
+        currentSnapshot.appliedGainDb = prepared.appliedGainDb;
+        noteShortfallLocked (prepared.peakShortfallDb, prepared.requiredGainDb);
+        currentSnapshot.aIntegratedLoudness = prepared.aIntegratedLoudness;
+        currentSnapshot.aMaximumTruePeakDbtp = prepared.aMaximumTruePeakDbtp;
+        currentSnapshot.adjustedBIntegratedLoudness = prepared.adjustedBIntegratedLoudness;
+        currentSnapshot.adjustedBMaximumTruePeakDbtp = prepared.adjustedBMaximumTruePeakDbtp;
+        currentSnapshot.loudnessDeltaBMinusA = prepared.loudnessDeltaBMinusA;
+        currentSnapshot.truePeakDeltaBMinusA = prepared.truePeakDeltaBMinusA;
+        currentSnapshot.gainLimited = prepared.gainLimited;
+        currentSnapshot.comparisonFallbackOriginal = prepared.comparisonFallbackOriginal;
+        currentSnapshot.rangeShortfallDb = prepared.rangeShortfallDb;
+        currentSnapshot.tracking = prepared.tracking;
+        trackingAnchorDb = prepared.anchorGainDb;
+        heldSelection = { currentSnapshot.playbackIdentity, prepared, true };
+        preparedNormalSelection.valid = false;
+    }
+
     bool RuntimeV2Controller::prepareReferenceGain (
         double aIntegratedLoudness,
         double aMaximumTruePeakDbtp,
@@ -55,11 +155,7 @@ namespace hypha::reference_audition
             return false;
         // B・C で鳴らすのは Cue なので、Kirin OS の Cue の値（ranges）があればそれで合わせる。無ければ
         // 曲全体の値（Kirin OS で測り直すと Cue の値になる）。V は曲全体の位置合わせの観測差で合わせる。
-        const auto& summary = source->measurementSummary;
-        const auto sourceLoudness = loudnessOffset + (cueLevel && ! versionComparison ? cueLoudness
-            : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable());
-        const auto sourcePeak = cueLevel && ! versionComparison && std::isfinite (cuePeak) ? cuePeak
-            : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable();
+        const auto levels = matchLevels (*source, cueLevel, cueLoudness, cuePeak, loudnessOffset);
         const auto rejectMatch = [&] (MatchFailure reason, double neededAttenuationDb = 0.0)
         {
             const juce::ScopedLock lock (stateLock);
@@ -70,83 +166,29 @@ namespace hypha::reference_audition
             }
             return false;
         };
-
+        PreparedNormalSelection prepared;
         double requiredGain = 0.0;
-        if (!versionComparison && comparisonMode == "loudness_match")
-        {
-            if (! std::isfinite (aIntegratedLoudness))
-                return rejectMatch (MatchFailure::liveLevelUnavailable);
-            if (! std::isfinite (sourceLoudness))
-                return rejectMatch (MatchFailure::sourceLevelUnavailable);
-            requiredGain = aIntegratedLoudness - sourceLoudness;
-        }
-        else if (!versionComparison && comparisonMode == "peak_match")
-        {
-            if (! std::isfinite (aMaximumTruePeakDbtp))
-                return rejectMatch (MatchFailure::liveLevelUnavailable);
-            if (! std::isfinite (sourcePeak))
-                return rejectMatch (MatchFailure::sourceLevelUnavailable);
-            requiredGain = aMaximumTruePeakDbtp - sourcePeak;
-        }
-        else if (!versionComparison && comparisonMode != "original")
-            return false;
         if (versionComparison)
         {
             const auto calibration = blind.snapshot();
             if (!calibration.wholeSong || !calibration.eligible) return false;
-            if (calibration.wholeSong && calibration.eligible)
-            {
-                requiredGain = calibration.pairedLoudnessDeltaDb;
-                aMaximumTruePeakDbtp = calibration.aCueTruePeakDbtp;
-                // The paired observation determines gain. It does not establish
-                // an integrated whole-song LUFS value for the live, editable A.
-                aIntegratedLoudness = unavailable();
-            }
+            requiredGain = calibration.pairedLoudnessDeltaDb;
+            aMaximumTruePeakDbtp = calibration.aCueTruePeakDbtp;
+            // The paired observation determines gain. It does not establish
+            // an integrated whole-song LUFS value for the live, editable A.
+            aIntegratedLoudness = unavailable();
         }
-        if (! std::isfinite (requiredGain)
-            || requiredGain < -100.0 || requiredGain > 100.0)
-            return false;
-
-        double appliedGain = requiredGain, shortfall = 0.0;
-        // 上限は、承認して A を下げている量を足した後の音で見る。届かなければ上限まで上げて鳴らし（足りない量を言う）、
-        // 0.5 dB を超えるなら、承認すれば合わせられる下げ幅を添える。
-        const auto held = heldAttenuationDb.load (std::memory_order_acquire);
-        if (requiredGain + held > 0.0)
+        else
         {
-            if (! std::isfinite (sourcePeak))
-                return rejectMatch (MatchFailure::sourceLevelUnavailable);
-            shortfall = referencePeakShortfallDb (requiredGain, sourcePeak, aMaximumTruePeakDbtp, held);
-            appliedGain = requiredGain - shortfall;
+            const auto failure = requiredMatchGain (comparisonMode, levels, aIntegratedLoudness, aMaximumTruePeakDbtp, requiredGain);
+            if (failure != MatchFailure::none) return rejectMatch (failure);
+            if (comparisonMode != "loudness_match" && comparisonMode != "peak_match" && comparisonMode != "original") return false;
         }
-
-        PreparedNormalSelection prepared;
+        MatchFailure failure = MatchFailure::none;
+        if (! matchedSelection (comparisonMode, requiredGain, levels, aIntegratedLoudness, aMaximumTruePeakDbtp, prepared, failure))
+            return failure == MatchFailure::none ? false : rejectMatch (failure);
         prepared.auditionEpoch = epoch;
         prepared.selectionGeneration = selectionGeneration;
-        prepared.linearGain = gainFromDecibels (appliedGain);
-        prepared.appliedGainDb = appliedGain;
-        prepared.anchorGainDb = appliedGain;
-        prepared.aIntegratedLoudness = aIntegratedLoudness;
-        prepared.aMaximumTruePeakDbtp = aMaximumTruePeakDbtp;
-        prepared.adjustedBIntegratedLoudness = std::isfinite (sourceLoudness)
-            ? sourceLoudness + appliedGain : unavailable();
-        prepared.adjustedBMaximumTruePeakDbtp = std::isfinite (sourcePeak)
-            ? sourcePeak + appliedGain : unavailable();
-        prepared.loudnessDeltaBMinusA = std::isfinite (aIntegratedLoudness)
-            && std::isfinite (prepared.adjustedBIntegratedLoudness)
-            ? prepared.adjustedBIntegratedLoudness - aIntegratedLoudness : unavailable();
-        prepared.truePeakDeltaBMinusA = std::isfinite (aMaximumTruePeakDbtp)
-            && std::isfinite (prepared.adjustedBMaximumTruePeakDbtp)
-            ? prepared.adjustedBMaximumTruePeakDbtp - aMaximumTruePeakDbtp : unavailable();
-        // A normal MATCH is exact or stops at the ceiling. Only explicit original mode uses zero gain.
-        prepared.gainLimited = false;
-        prepared.peakShortfallDb = shortfall;
-        prepared.requiredGainDb = requiredGain;
-        prepared.comparisonFallbackOriginal = false;
-        // V と、追従にした役（B）の知覚音量の MATCH は窓に追従する。Peak の MATCH と C は固定。
-        prepared.tracking = ! versionComparison && comparisonMode == "original" ? TrackingState::none
-            : versionComparison || (trackingEnabled.load (std::memory_order_acquire) && comparisonMode == "loudness_match")
-                ? TrackingState::following : TrackingState::fixed;
-        prepared.valid = true;
 
         const juce::ScopedLock lock (stateLock);
         if (! ready.load (std::memory_order_acquire)
@@ -216,26 +258,8 @@ namespace hypha::reference_audition
                 preparedNormalSelection.valid = false;
             else
             {
-                const auto& prepared = preparedNormalSelection;
-                bLinearGain.store (prepared.linearGain, std::memory_order_release);
-                currentSnapshot.appliedGainDb = prepared.appliedGainDb;
-                noteShortfallLocked (prepared.peakShortfallDb, prepared.requiredGainDb);
-                currentSnapshot.aIntegratedLoudness = prepared.aIntegratedLoudness;
-                currentSnapshot.aMaximumTruePeakDbtp = prepared.aMaximumTruePeakDbtp;
-                currentSnapshot.adjustedBIntegratedLoudness =
-                    prepared.adjustedBIntegratedLoudness;
-                currentSnapshot.adjustedBMaximumTruePeakDbtp =
-                    prepared.adjustedBMaximumTruePeakDbtp;
-                currentSnapshot.loudnessDeltaBMinusA = prepared.loudnessDeltaBMinusA;
-                currentSnapshot.truePeakDeltaBMinusA = prepared.truePeakDeltaBMinusA;
-                currentSnapshot.gainLimited = prepared.gainLimited;
-                currentSnapshot.comparisonFallbackOriginal =
-                    prepared.comparisonFallbackOriginal;
-                currentSnapshot.rangeShortfallDb = prepared.rangeShortfallDb;
-                currentSnapshot.tracking = prepared.tracking;
-                trackingAnchorDb = prepared.anchorGainDb;
-                heldSelection = { currentSnapshot.playbackIdentity, prepared, true };
-                preparedNormalSelection.valid = false;
+                bLinearGain.store (preparedNormalSelection.linearGain, std::memory_order_release);
+                applyPreparedFactsLocked (PreparedNormalSelection (preparedNormalSelection));
             }
         }
         if (! publicationStillValid)

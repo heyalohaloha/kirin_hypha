@@ -18,6 +18,11 @@ int main (int argc, char** argv)
     const auto sandbox = hypha::tests::temporaryParent()
                              .getNonexistentChildFile ("ref", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    if (argc == 2 && juce::String (argv[1]) == "--b-switch-only")
+    {
+        runReferenceBSwitchTests (sandbox); require (hypha::tests::removeFixtureDirectory (sandbox), "B switch fixtures must be removed");
+        return 0;
+    }
     if (runReferenceWorkspaceContract (argc, argv, sandbox) || runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox) || runReferenceRepairTests (argc, argv, sandbox)) return 0;
     if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
     {

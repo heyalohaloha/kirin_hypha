@@ -7,6 +7,7 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "V works best with Hypha on the 2Mix.", u8"VはHyphaを2Mixに置くと動きやすい" },
     { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSで確認" },
     { "AUDIO READ FAILED", u8"音声を読み出せません" },
     { "PLAYHEAD OUTSIDE VERSION", u8"再生位置が版の範囲外です" },
