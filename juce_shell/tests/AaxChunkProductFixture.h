@@ -17,7 +17,7 @@ namespace aax_analysis_product
 class ChunkedPost
 {
 public:
-    explicit ChunkedPost (int channelsIn) : channels (channelsIn)
+    explicit ChunkedPost (int channelsIn, int bufferFramesIn = 256) : channels (channelsIn), bufferFrames (bufferFramesIn)
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
@@ -49,13 +49,13 @@ public:
                 for (int i = 0; i < chunkFrames; ++i) preAudio.setSample (ch, i, source (preClock.engine + i, ch));
         juce::MidiBuffer midi;
         pre->processBlock (preAudio, midi);
-        for (int offset = 0; offset < chunkFrames; offset += postFrames)
+        for (int offset = 0; offset < chunkFrames; offset += bufferFrames)
         {
             postClock.engine = engine + offset;
             postClock.project = compensated(); // one position for the whole chunk
-            juce::AudioBuffer<float> audio (channels, postFrames);
+            juce::AudioBuffer<float> audio (channels, bufferFrames);
             for (int ch = 0; ch < channels; ++ch)
-                for (int i = 0; i < postFrames; ++i) audio.setSample (ch, i, input (postClock.engine + i, ch));
+                for (int i = 0; i < bufferFrames; ++i) audio.setSample (ch, i, input (postClock.engine + i, ch));
             post->processBlock (audio, midi);
             audit (audio, postClock.engine);
         }
@@ -129,7 +129,12 @@ public:
     std::int64_t contentK = 512, loudFrom = std::numeric_limits<std::int64_t>::max();
     float postScale = 0.5f;
     hypha::tests::ProductTestClock wallClock;
-    int channels, exact = 0, withheld = 0;
+    int channels, bufferFrames, exact = 0, withheld = 0;
+    bool requireContentPosition = false, tonal = false, quiet = false, oppositePolarity = false;
+    bool swappedChannels = false;
+    bool unrelatedPost = false;
+    int silentChannel = -1;
+    std::int64_t rightContentShift = 0;
     std::int64_t wrongFrames = 0;
     std::int64_t engine = 1068544, transport = -1764, k = -512, loopFrames = 0;
     Clock preClock, postClock;
@@ -144,8 +149,16 @@ private:
         z ^= z >> 31;
         return (static_cast<float> (z >> 40) / 16777216.0f - 0.5f) * 0.2f;
     }
-    float source (std::int64_t clock, int channel) const { return noise (clock, channel) * (clock >= loudFrom ? 64.0f : 1.0f); }
-    float input (std::int64_t clock, int channel) const { return postScale * noise (clock - contentK, channel); }
+    float signal (std::int64_t clock, int channel) const
+    {
+        if (quiet || channel == silentChannel) return 0.0f;
+        if (oppositePolarity) return channel == 0 ? noise (clock, 0) : -noise (clock, 0);
+        if (tonal) return static_cast<float> (0.1 * std::sin (static_cast<double> (clock % 48) * (2.0 * 3.14159265358979323846 / 48.0) + channel));
+        return noise (clock, channel);
+    }
+    float source (std::int64_t clock, int channel) const { return signal (clock, channel) * (clock >= loudFrom ? 64.0f : 1.0f); }
+    float input (std::int64_t clock, int channel) const { return postScale * signal (clock - contentK
+        + (unrelatedPost ? 123457 : 0) - (channel == 1 ? rightContentShift : 0), swappedChannels ? 1 - channel : channel); }
 
     std::int64_t wrapped (std::int64_t position) const noexcept
     { return loopFrames > 0 && position >= loopFrames ? position - loopFrames : position; }
@@ -157,7 +170,7 @@ private:
     void compare (const juce::AudioBuffer<float>& out, Expected expected)
     {
         for (int ch = 0; ch < channels; ++ch)
-            for (int i = 0; i < postFrames; ++i)
+            for (int i = 0; i < bufferFrames; ++i)
             {
                 const auto actual = out.getSample (ch, i), wanted = expected (i, ch);
                 if (std::memcmp (&actual, &wanted, sizeof (float)) != 0) ++wrongFrames;
@@ -174,13 +187,16 @@ private:
         previousAlignment = alignment;
         previousActive = status.active;
         const auto asPost = [&] (int i, int ch) { return input (clock + i, ch); };
-        const auto read = clock - k - post->liveCompareAlignFrames();
+        const auto read = requireContentPosition ? clock - contentK : clock - k - post->liveCompareAlignFrames();
         const auto asPre = [&] (int i, int ch) { return source (read + i, ch) * status.gain; };
         const bool idle = ! status.active && ! status.finishing && weight <= 0.0f;
         // A block without proof is POST from its first frame, and so is an idle one.
         if (idle || (! status.active && status.reason != hypha::live_compare::RecoveryReason::none)
             || status.verdict != hypha::live_compare::Verdict::accepted
             || status.observation == hypha::live_compare::RecoveryReason::ceiling || status.contentHeld
+            || (status.observation == hypha::live_compare::RecoveryReason::calibrating
+                || status.observation == hypha::live_compare::RecoveryReason::preLate
+                || status.observation == hypha::live_compare::RecoveryReason::contentAmbiguous)
             || (LiveTimingFixtureAccess::gainRevision (*post).load() & 1u) != 0)
         {
             compare (out, asPost);
@@ -189,6 +205,8 @@ private:
             exact = 0;
             return;
         }
+        if (requireContentPosition && status.preAudible && !tonal)
+            require (k + alignment == contentK, "audible PRE always uses the current content position");
         // Every fade ends inside its block here: PRE's weight at the block's end names the target.
         const float target = status.preAudible ? 1.0f : 0.0f;
         const bool steady = target >= weight && target <= weight;
@@ -202,7 +220,7 @@ private:
         for (int ch = 0; ch < channels; ++ch)
         {
             auto faded = weight;
-            for (int i = 0; i < postFrames; ++i)
+            for (int i = 0; i < bufferFrames; ++i)
             {
                 faded = faded < target ? std::min (target, faded + 1.0f / fadeFrames)
                                        : std::max (target, faded - 1.0f / fadeFrames);

@@ -20,6 +20,7 @@ struct Screen
     int audible = 0;  // 1・2：鳴っているソース（そのボタンを点ける）
     juce::String sourceOne { "SOURCE 1" }, sourceTwo { "SOURCE 2" };
     bool revealShown = false, revealEnabled = false;
+    bool alignOffShown = false;
     juce::String revealTitle { "Reveal the sources without an answer" };
     bool approveShown = false;
     juce::String approveText { "LOWER POST" }, approveTitle, approveDescription;
@@ -37,7 +38,7 @@ public:
     explicit ScreenComponent (const juce::String& idPrefix);
     ~ScreenComponent() override;
     std::function<void(int)> onSelect;
-    std::function<void()> onReveal, onEnd, onApprove;
+    std::function<void()> onReveal, onEnd, onApprove, onAlignOff;
     void setScreen (const Screen&);
     const Screen& screen() const noexcept { return shown; }
     void paint (juce::Graphics&) override;
@@ -53,6 +54,7 @@ private:
     HyphaTextButton one { "SOURCE 1" }, two { "SOURCE 2" };
     // REVEAL と END はどちらの言語でもこの綴りのまま（説明の文は訳す）。
     HyphaTextButton reveal { "REVEAL", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton alignOff { "ALIGN OFF", true, text_style::LabelPolicy::fixed };
     HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST" };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)
 };

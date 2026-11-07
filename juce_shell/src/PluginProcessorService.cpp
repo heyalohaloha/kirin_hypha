@@ -32,8 +32,9 @@ void KirinHyphaProcessorBase::timerCallback()
     serviceLiveContentTiming();
     serviceLiveBlind();
     serviceLiveCompareMatch();
-    nativeHostContext.reaper.service (role == Role::Pre || liveCompare.preparation.hasPeer()
-        || liveCompare.sessionActive.load (std::memory_order_acquire));
+    // Observe topology independently of substitution permission, including after END.
+    nativeHostContext.reaper.service (candidateMeasurementIsolated() || role == Role::Pre || liveCompare.preparation.hasPeer()
+        || liveCompare.sessionActive.load (std::memory_order_acquire), candidateReturning());
     serviceReferencePendingAudition();
     serviceReferenceTracking();
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()

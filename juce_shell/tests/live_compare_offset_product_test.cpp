@@ -58,8 +58,8 @@ struct Clock final : juce::AudioPlayHead
         info.setIsPlaying (playing);
         if (playing)
         {
-            info.setTimeInSamples (position);
-            info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
+            info.setTimeInSamples (position + projectOffset);
+            info.setTimeInSeconds (static_cast<double> (position + projectOffset) / 48000.0);
             info.setKirinAuxiliaryClockSource (1);
             info.setKirinAuxiliaryClockSamples (position);
             info.setKirinPresentationLatencySource (1);
@@ -67,7 +67,7 @@ struct Clock final : juce::AudioPlayHead
         }
         return info;
     }
-    std::int64_t position = 0;
+    std::int64_t position = 0, projectOffset = 0;
     bool playing = false;
 };
 
@@ -282,14 +282,42 @@ private:
             case 9:
             {
                 // INV-LC28: on, the same early PRE is read later, and the footer says it is taken up.
+                alignPendingSeen = alignPendingSeen || footer() == "Aligning PRE";
                 if (post->liveCompareAlignFrames() != 3000) break;
                 editor->setSize (900, 600);
                 if (footer() != "PRE 62.50 ms aligned") break;
                 const auto status = post->liveCompareStatus();
                 require (status.active && status.preSelected, "the footer is the applied value");
+                require (alignPendingSeen, "the real editor shows pending alignment before it is complete");
                 std::cout << "aligned: " << footer() << std::endl;
+                postProjectOffset.store (-3500); // clocks change K; actual content still arrives 3000 frames later
+                ++stage;
+                break;
+            }
+            case 10:
+            {
+                const auto status = post->liveCompareStatus();
+                const juce::String expected ("PRE 10.42 ms late / Check chain delay and DAW compensation; POST plays");
+                if (status.observation != hypha::live_compare::RecoveryReason::preLate || footer() != expected) break;
+                require (status.preSelected && status.preWaiting && !status.preAudible,
+                         "confirmed late PRE retains selection while exact POST plays");
+                const auto japanese = hypha::i18n::translate (footer(), hypha::i18n::Language::japanese);
+                require (japanese.contains ("10.42") && japanese.contains (juce::String::fromUTF8 (u8"遅れ"))
+                         && japanese.contains (juce::String::fromUTF8 (u8"遅延補正")),
+                         "the actual footer translates both the measured delay and the chain remedy");
+                auto* view = findView (*editor);
+                require (view && hypha::tests::footer_notice::retainedInFooter (*view, expected),
+                         "the measured late-PRE notice reaches the real bounded footer and its details");
+                postProjectOffset.store (0);
+                ++stage;
+                break;
+            }
+            case 11:
+            {
+                if (!post->liveCompareStatus().preAudible || footer() != "PRE 62.50 ms aligned") break;
+                require (post->liveCompareStatus().preSelected, "corrected chain automatically resumes the same selected PRE");
                 std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold, "
-                             "delay compensation off, alignment)\n";
+                             "delay compensation off, alignment, uncorrectable timing guidance and recovery)\n";
                 passed = true;
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();
@@ -333,6 +361,7 @@ private:
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
                     buffer.setSample (c, f, noise (clock.position + f, c));
+            clock.projectOffset = 0;
             countStall (previousPre);
             pre->processBlock (buffer, midi);
             // The unreported delay between PRE and POST.
@@ -345,6 +374,7 @@ private:
                     buffer.setSample (c, f, from < 0 ? 0.0f
                         : line[static_cast<std::size_t> (from) % lineFrames * 2 + static_cast<std::size_t> (c)]);
                 }
+            clock.projectOffset = postProjectOffset.load();
             countStall (previousPost);
             post->processBlock (buffer, midi);
             if (deliberateStall) schedulingStallCompleted.store (true);
@@ -366,12 +396,12 @@ private:
     std::atomic<std::int64_t> longestCallbackMicros { 0 };
     std::atomic<int> stalls { 0 };
     std::atomic<bool> injectSchedulingStall { false }, schedulingStallCompleted { false };
-    std::atomic<std::int64_t> delayFrames { 2000 };
+    std::atomic<std::int64_t> delayFrames { 2000 }, postProjectOffset { 0 };
     std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
     float matchedGain = 1.0f;
-    bool demanded = false, heldNoticeSeen = false;
+    bool demanded = false, heldNoticeSeen = false, alignPendingSeen = false;
 };
 }
 

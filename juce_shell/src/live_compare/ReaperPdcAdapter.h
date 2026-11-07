@@ -1,6 +1,7 @@
 #pragma once
 #include "ReaperPdcMailbox.h"
 #include "ReaperChainStatus.h"
+#include "ReaperCandidateNames.h"
 #include <memory>
 namespace Steinberg { class FUnknown; }
 
@@ -18,7 +19,8 @@ public:
     bool needsService() const noexcept { return active.load(); }
     bool monitoring() const noexcept { return inspecting; } // message thread only
     ReaperChainRestriction restriction() const noexcept { return limitation.load(); }
-    void service (bool interested);
+    void service (bool interested, bool returnOnly = false);
+    std::vector<ReaperCandidateName> candidateNames() const; // explicit menu read, including stopped transport
     void observe (BlockClock& block, double rate, bool usable) noexcept
     { if (active.load (std::memory_order_relaxed)) mailbox.observe (block, rate, usable); }
 private:

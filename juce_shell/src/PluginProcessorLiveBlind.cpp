@@ -9,6 +9,7 @@ using namespace hypha::live_compare;
 void KirinHyphaProcessorBase::finishLiveCompare()
 {
     if (role != Role::Post) return;
+    endCandidateCompare();
     // End logical ownership now. The published mapping remains leased for the RT fade/ramp.
     liveCompare.sessionActive.store (false, std::memory_order_release);
     liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // END ends this LISTEN
@@ -24,9 +25,40 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     requestServiceTimer();
 }
 
+// BLIND's own preparation failed inside A/B. The connection, its PRE2 request and the capture
+// exclusion are A/B's, so only this trial ends: LISTEN continues with no new confirmation or drain.
+bool KirinHyphaProcessorBase::returnBlindToCandidateListen()
+{
+    if (! candidateCompareActive() || ! liveCompare.sessionActive.load (std::memory_order_acquire))
+        return false;
+    ++liveCompare.blindPreparation;
+    liveCompare.blindTiming.end();
+    liveCompare.cancelTimingAdmission();
+    liveCompare.blind.end();
+    liveCompare.blind.reset();
+    liveCompare.blindPreparationReason = RecoveryReason::none;
+    liveCompare.blindStage = BlindStage::idle;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController) referenceAuditionController->releaseLocalBlind (liveCompare.blindScope);
+   #endif
+    liveCompare.blindScope = 0;
+    liveCompare.candidate.blindReturned.store (true, std::memory_order_release);
+    requestServiceTimer();
+    return true;
+}
+
 bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
 {
-    return liveCompare.sessionActive.load (std::memory_order_acquire)
+    const juce::ScopedTryLock ownership (handleLock);
+    if (! ownership.isLocked()) return true; // re-prepare owns the storage; keep the next tick
+    const auto* publisher = liveCompare.ring.control();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (afterLiveCompareServiceReadForTest) afterLiveCompareServiceReadForTest();
+   #endif
+    const bool receiving = (publisher != nullptr && publisher->ring() != nullptr)
+        || liveCompare.candidate.receiver.hasStorage();
+    return (role == Role::Pre && writesEnabled.load (std::memory_order_acquire) && receiving)
+        || candidateMeasurementIsolated() || liveCompare.sessionActive.load (std::memory_order_acquire)
         || (role == Role::Post && writesEnabled.load (std::memory_order_acquire) && liveCompareSupported())
         || liveCompare.authority.restoring() || liveCompare.authority.generation() != liveCompare.restoreServiced
         || liveCompare.completion.command() != liveCompare.finishServiced || liveCompare.blindScope != 0;
@@ -60,6 +92,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
         return StartResult::comparisonBusy;
     }
    #endif
+    const auto candidateScopeBeforeBlind = liveCompare.candidate.scope;
     std::uint64_t epoch = 0;
     bool admitted;
     {
@@ -78,13 +111,21 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
         if (startedHere) stopLiveCompare();
         return StartResult::comparisonBusy;
     }
+    const bool borrowedCandidateScope = candidateScopeBeforeBlind != 0 && epoch == candidateScopeBeforeBlind;
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (afterLiveBlindScopeAcquiredForTest) afterLiveBlindScopeAcquiredForTest();
+   #endif
     if (liveCompare.authority.ticket() != permission || ! liveCompare.authority.permitted())
     {
-        releaseLocalBlindProductScope (epoch);
+        if (! borrowedCandidateScope) releaseLocalBlindProductScope (epoch);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        else if (referenceAuditionController) referenceAuditionController->releaseLocalBlind (epoch);
+       #endif
         if (startedHere) stopLiveCompare();
         return StartResult::notReady;
     }
     liveCompare.blindScope = epoch;
+    liveCompare.candidate.blindReturned.store (false, std::memory_order_release);
     liveCompare.blind.reset();
     liveCompare.blindPreparationReason = RecoveryReason::none;
     ++liveCompare.blindPreparation;
@@ -114,6 +155,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         && (liveCompare.blindStage == BlindStage::preparing || liveCompare.blindStage == BlindStage::settling
             || liveCompare.blindStage == BlindStage::approval))
     {
+        if (returnBlindToCandidateListen()) return;
         liveCompare.blindPreparationReason = preparingLoss;
         liveCompare.blindStage = BlindStage::invalidated;
         stopLiveCompare (preparingLoss);
@@ -146,6 +188,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         liveCompare.blindGainRevision.store (gains.revision, std::memory_order_release);
         if (! liveCompare.blind.startWith (hypha::reference_audition::secureRandomBit))
         {
+            if (returnBlindToCandidateListen()) return;
             liveCompare.blindStage = BlindStage::invalidated;
             stopLiveCompare (RecoveryReason::randomUnavailable);
             return;
@@ -173,6 +216,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     if (liveCompare.blindPlan.failure != MatchFailure::none)
     {
         liveCompare.blindWaiting = liveCompare.blindPlan.failure;
+        if (returnBlindToCandidateListen()) return;
         stopLiveCompare();
         liveCompare.blindStage = BlindStage::failed;
     }
@@ -183,7 +227,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         const auto applied = applyLiveCompareMatch (liveCompare.blindPlan, MatchChoice::basis);
         liveCompare.blindWaiting = applied.failure;
         if (applied) liveCompare.blindStage = BlindStage::settling;
-        else if (applied.failure != MatchFailure::stale)
+        else if (applied.failure != MatchFailure::stale && ! returnBlindToCandidateListen())
         {
             stopLiveCompare();
             liveCompare.blindStage = BlindStage::failed;
@@ -208,7 +252,7 @@ bool KirinHyphaProcessorBase::approveLiveBlindMatch (std::uint64_t generation)
     {
         liveCompare.blindWaiting = applied.failure;
         if (applied.failure == MatchFailure::stale) liveCompare.blindStage = BlindStage::preparing;
-        else
+        else if (! returnBlindToCandidateListen())
         {
             stopLiveCompare();
             liveCompare.blindStage = BlindStage::failed;
@@ -224,6 +268,10 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
 {
     LiveBlindStatus status { liveCompare.blindStage, liveCompare.blind.view(), liveCompare.blindWaiting,
                             liveCompare.blindPlan.lowerPostGainDb, liveCompare.blindPreparation };
+    status.candidate = candidateCompareActive();
+    status.candidateBypassed = candidateBypassed();
+    status.candidateHostInactive = candidateHostInactive();
+    if (status.candidate) status.matchSecondsRemaining = liveCompare.renderer.matchSecondsRemaining();
     const auto state = liveCompareStatus();
     const auto gains = readGainSnapshot (liveCompare);
     const bool receipt = currentBlindReceipt (liveCompare);

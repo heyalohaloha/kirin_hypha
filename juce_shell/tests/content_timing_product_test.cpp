@@ -3,6 +3,7 @@
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingAvailabilityTest.h"
 #include "TestProcessorStorage.h"
+#include "AutoAlignStateProductTest.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -14,6 +15,7 @@ static void require (bool ok, const char* message)
 int main()
 {
     ReferenceValidationStorageSandbox sandbox;
+    hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     juce::ScopedJuceInitialiser_GUI initialise;
     const auto availabilityCases = verifyTimingAvailability (require);
@@ -24,6 +26,7 @@ int main()
                           juce::AudioProcessor::wrapperType_VST3,
                           juce::AudioProcessor::wrapperType_AAX })
     {
+        verifyAutoAlignState (wrapper, require);
         juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);
         Processor post (Processor::Role::Post);
         auto layout = post.getBusesLayout();

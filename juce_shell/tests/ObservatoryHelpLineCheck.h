@@ -131,6 +131,10 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
              "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
              "Press to MATCH again or to let PRE follow POST (AUTO)",
              "Match PRE to POST loudness over the latest four seconds", "NOTE requires Kirin OS",
+             "Match A to B loudness over the latest four seconds",
+             "Press MATCH to match again or start AUTO (A follows B)",
+             "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO",
+             "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again",
              "Finish Keep / Record before PRE / POST Blind", "Match levels and compare while the song plays" })
         texts.add (text, false);
 }
@@ -184,6 +188,44 @@ inline void verifyObservatoryHelpLine (const juce::File& previews)
         statusWidth = juce::jmin (statusWidth, status);
         require (addPointedHelps (*editor, texts) > 0, "every page has help in the line at 300%");
         addPairedFooterHelps (*view, texts);
+    }
+    // Exercise the actual SPACE pointer route with the real Keep/LISTEN footer controls present.
+    // Their status width is smaller than the idle full row; a fitting long-form help proves nothing here.
+    for (const bool listen : { false, true })
+    {
+        view->onDomainChange (Domain::space);
+        if (listen) { observatory::LiveCompareFooter state; state.active = true; view->setLiveCompareFooter (state); }
+        else view->setKeepActive (true);
+        require (view->footerControlsInUse(), "Keep/LISTEN reserves its actual footer controls");
+        const auto line = editor->helpLineAt (editor->getLocalPoint (view, view->bodyBounds().getCentre()));
+        const auto width = helpLineWidths (*view).second;
+        require (! line.wholeRow && line.text == "80 ms: vertical shared, horizontal difference",
+                 "pointing at SPACE while operating Keep/LISTEN selects the short axis explanation");
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const i18n::ScopedLanguage locale (language);
+            const auto context = view->presentationContext();
+            const auto font = labelFont (context, typography::TextRole::unit, typography::Composition::information);
+            require (i18n::hasTranslation (line.text) && text_style::shownWidth (font, line.text) <= float (width),
+                     "short SPACE explanation fits the actual occupied footer width in both languages");
+            auto* bar = dynamic_cast<HelpLineBar*> (find (*editor, "help-line"));
+            require (bar != nullptr, "shipping help bar exists");
+            auto area = view->footerBounds(); area.setWidth (width + 16);
+            bar->show (line.text, area, view->footerBounds(), context);
+            require (bar->shownText() == line.text && bar->getWidth() - 16 == width,
+                     "production help bar paints within the width measured with active controls");
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds());
+            const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_SPACE_TEST_DIR", {});
+            if (directory.isNotEmpty())
+            {
+                auto output = juce::File (directory).getChildFile (juce::String ("help-") + (listen ? "listen-" : "keep-")
+                    + (language == i18n::Language::japanese ? "ja" : "en") + ".png").createOutputStream();
+                require (output && juce::PNGImageFormat().writeImageToStream (image, *output), "occupied SPACE footer preview");
+            }
+            bar->show ({}, {}, {}, context);
+        }
+        texts.add (line.text, false);
+        view->setKeepActive (false); view->setLiveCompareFooter ({});
     }
     addHelpsBeyondPointing (texts);
     const auto context = presentation::forEditor (900, 600);

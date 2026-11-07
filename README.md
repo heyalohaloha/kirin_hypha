@@ -86,9 +86,10 @@ Every hit measured on PRE and POST: transient, strength, crest and sharpness, re
 up to eight recent hits. Pick an octave band to compare each hit's delay, attack, release and level.
 </td>
 <td width="50%" valign="top">
-<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
+<img src="docs/media/readme/space.jpg" alt="SPACE: stereo trace, L/R balance, correlation and the mono sum">
 <br><b>What survives the mono sum</b> · SPACE<br>
-Mid/side density, balance, correlation, and how much of each band survives the mono sum.
+A fine stereo trace, balance, correlation, and how much of each band survives the mono sum.
+This SPACE example uses synthetic stereo samples rendered by the current editor.
 </td>
 </tr>
 <tr>
@@ -525,8 +526,26 @@ Each metric keeps an independent fixed scale, and the current values update at a
 
 ### SPACE — stereo distribution, and what the mono sum keeps
 
-SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
-Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
+SPACE draws a fine stereo trace from the latest **80 ms** of this instance's original input,
+with a **60 Hz** display refresh. Vertical motion is sound shared by the channels; horizontal
+motion is their difference. The plot keeps continuous sample coordinates and subpixel points,
+without MID/SIDE labels or a FIELD badge. Point at it for a one-line explanation, in either language.
+
+The display tap runs only while SPACE is visible, on PRE and POST alike. It publishes each audio
+block without waiting for the 100 ms meter publication, clears on seek, stop, bypass, offline
+render or a callback gap, and resumes with fresh input. AU render-clock jumps and Reset also start
+a fresh trace when transport information is unavailable. Restoring a minimised native window resumes
+SPACE automatically. Mono input leaves the stereo plot empty and keeps its mono reason visible.
+The dark frame and background stay fixed.
+AAX split callbacks retain the full trace after the engine clock and an exact project-position
+step verify their chunk. Seeks, Reset and missing clocks discard that proof and recover automatically;
+Record keeps the host's original positions.
+
+**BAL and CORR still use the same three-second statistics.** The public FIELD remains the same
+25×25, three-second density; Record, Keep, Capture's measured density, saved state and the values
+sent to Kirin OS are unchanged. The fast trace is display-only, uses a preallocated lock-free
+copy, and never changes the audio or the measured facts. SPACE stays absolute: Hypha does not
+invent PRE/POST subtraction for correlation or the stereo field.
 
 At the largest editor it also shows **MONO**, beside the full-height scatter and under BAL and
 CORR: how much of each third-octave band survives being summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
@@ -1354,17 +1373,28 @@ before enough audio is available and completes on the processor, including while
 closed. If lowering POST is needed, it still asks for approval when the editor is available.
 
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
-  two seconds of playback Hypha also compares the audio itself. When PRE is early, as with a
+  two seconds of settled playback Hypha also compares the audio itself. Initial alignment and
+  a changed clock mapping are checked every 100 ms using fresh, validated audio windows;
+  **Aligning PRE** shows that this check is incomplete. Initial silence or a held tone cannot
+  confirm a read position: POST plays until content confirms PRE. If this persists, Hypha asks
+  for another section and resumes automatically when it can confirm the timing. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
   follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
   shows the difference instead (**PRE 2.31 ms early**, **late**). An intentional delay, reverb or
-  heavy processing can look the same, and silence or a held tone cannot be judged. Only the
+  heavy processing can look the same, and silence cannot establish a position. Repeated audio uses a check of each current block, with a short notice; a nonmatching block uses POST immediately. Only the
   audition's read position moves: the clock proof, MATCH, A, the meters and Record stay as they are.
 - During a BLIND trial a new alignment waits until you switch to POST and the fade finishes.
-  A seek, stop or timing interruption does not move it under the same selected source.
+  A seek, stop or timing interruption alone does not move it under the same selected source.
+  When the clock mapping changes, an unverified correction uses POST until fresh content
+  confirms the new read position, including when the previous correction was zero. A publication
+  collision alone keeps the trial's fixed read position. Recheck guidance is the same for both
+  anonymous sources; neither source earns a listening receipt from substitute POST.
+  PRE then returns with the same selection and approved gain;
+  no samples at the old, invalid position are used for a fade.
 - If a strong, unambiguous content offset changes to a difference Hypha cannot align, Hypha uses
-  POST while preserving the comparison. Two fresh estimates back at the
+  POST while preserving the comparison. A confirmed late PRE during a changed clock mapping
+  shows the measured delay and asks to check chain delay and DAW compensation. Two fresh estimates back at the
   original baseline clear the hold automatically; stopping and restarting also resets it. Weak
   peaks caused by processing do not create a hold.
 - While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume
@@ -1384,6 +1414,27 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   playhead or the newest PRE block. A previous-pass occurrence is valid only when the delayed
   POST audio actually belongs to that pass and the timing proof uniquely identifies it.
 - As in Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
+
+## A/B: hardware and plug-in comparison
+
+Place **PRE1 → A → PRE2 → B → POST** on one mono or stereo track. A hardware insert can sit in **A or B**.
+As with LIVE, neither PRE may be an AAX multi-mono instance; insert it as stereo instead.
+On POST, press **A/B**, choose PRE2, then confirm the diagram. During comparison, PRE2 sends the
+original input to B while continuing to share A's output with POST. POST's usual LISTEN, MATCH,
+AUTO and BLIND controls compare **A** and **B** at the matched level. **END** returns to A→B.
+The normal PRE1 pair is retained; reopening a saved session does not restart A/B.
+
+The diagram is a placement confirmation, not automatic routing detection. Different track names
+are shown as a hint. In another arrangement, the sound can change during comparison. When timing
+or the replacement range cannot be confirmed, the actual chain output is used temporarily;
+BLIND keeps its assignment and resumes automatically. That interval is not counted as B heard.
+An A that arrives later than B, or whose position the audio cannot confirm, plays as it is and the
+footer says so; comparison continues.
+Normal measurement and capture are suspended during A/B. Finish Record / Keep before starting.
+
+Hardware and effects with feedback or long tails retain their own history when their input
+changes. A/B does not reset them. Allow the effect to settle before judging it or exporting;
+an immediate offline render can include that retained history.
 
 ## Local PRE/POST Blind Compare
 

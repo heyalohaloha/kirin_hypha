@@ -7,6 +7,8 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Stereo shape over 80 ms: vertical is shared sound, horizontal is difference. BAL and CORR use 3 s.",
+      u8"直近80 msの音の広がり。縦は左右に共通する音、横は左右の違い。BALとCORRは3秒の統計です。" },
     { "PRE name", u8"PREの名前" },
     { "Press Return or Space to edit the PRE name", u8"ReturnかSpaceでPREの名前を編集します" },
     { "PRE pair selection", u8"ペアのPREの選択" },

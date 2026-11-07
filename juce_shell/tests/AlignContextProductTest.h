@@ -1,10 +1,209 @@
 #pragma once
 #include "AaxChunkProductFixture.h"
 #include <functional>
+#include "../src/HyphaLiveBlindComponent.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 
 namespace aax_analysis_product
 {
 inline std::function<void()> formatInterleave;
+inline std::function<void(std::int64_t)> publicationInterleave;
+
+inline void alignmentRechecksPromptly (int channels)
+{
+    using namespace hypha::live_compare;
+    for (int buffer : { 256, 512, 1024 })
+    {
+        ChunkedPost chain (channels, buffer);
+        chain.requireContentPosition = true;
+        chain.seek (5000);
+        chain.enterLoop (48000);
+        auto& post = *chain.post;
+        chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select initial LOOP PRE");
+        require (post.startLiveCompare() == StartResult::started, "initial LOOP starts LISTEN");
+        post.selectLiveComparePre (true);
+        chain.until (90, [&] { return post.liveCompareAlignFrames() == 1024; }, "initial LOOP aligns within two seconds");
+        chain.clean ("initial LOOP keeps K and the sample address independent");
+        chain.leaveLoop();
+        chain.run (60);
+        auto invalid = post.measureLiveCompareOffset();
+        require (offsetCanVote (invalid), "the invalid-offset test starts from real current evidence");
+        invalid.lagFrames = INT64_MIN;
+        OffsetMonitor::Step invalidStep; invalidStep.settled = true;
+        invalidStep.lagFrames = INT64_MIN; invalidStep.sampleRate = 48000;
+        require (!post.alignLiveCompare (invalidStep, invalid), "an unrepresentable offset cannot publish a zero correction");
+        // Only the host's compensated position moves. The audio delay does not.
+        chain.setDelay (512);
+        chain.until (90, [&] { return post.liveCompareAlignFrames() == 0 && post.liveCompareStatus().preAudible; },
+                     "changed insert compensation replaces the old alignment within two seconds");
+        require (post.liveCompareStatus().preSelected && !post.liveCompareStatus().contentHeld,
+                 "delay recheck keeps the choice and recovers automatically");
+        chain.clean ("rechecking never jumps PRE's read address under audible PRE");
+        chain.setDelay (1024); // PRE would need unwritten future audio: keep exact POST
+        chain.run (190);
+        require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
+                 "a confirmed late PRE cannot release the alignment wait");
+        const auto late = post.liveCompareStatus();
+        require (late.observation == RecoveryReason::preLate && post.liveContentTimingObservation().lagFrames == 512,
+                 "confirmed late PRE publishes its measured delay instead of a calibration wait");
+        const auto guidance = hypha::live_compare_ui::namedPresentation (late);
+        require (guidance.reason == RecoveryReason::preLate && guidance.action == hypha::live_compare_ui::RecoveryAction::none
+                 && juce::String (guidance.instruction).contains ("Check chain delay and DAW compensation"),
+                 "uncorrectable timing asks to check the chain instead of waiting longer");
+        auto ended = late;
+        ended.active = ended.preSelected = ended.preWaiting = ended.prolongedWait = false;
+        require (*hypha::live_compare_ui::namedPresentation (ended).instruction == 0,
+                 "a past late-PRE observation cannot keep a remedy after normal END");
+        chain.setDelay (512);
+        chain.until (90, [&] { return post.liveCompareStatus().preAudible; }, "a correct mapping resumes the same PRE");
+        chain.clean ("the uncorrectable interval never plays the wrong PRE");
+    }
+}
+
+inline void zeroAlignmentRechecksAmbiguousAudio (int channels)
+{
+    using namespace hypha::live_compare;
+    ChunkedPost chain (channels);
+    chain.requireContentPosition = true;
+    chain.setDelay (512);
+    auto& post = *chain.post;
+    chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select zero-alignment PRE");
+    require (post.startLiveCompare() == StartResult::started, "zero-alignment LISTEN");
+    post.selectLiveComparePre (true);
+    chain.until (90, [&] { return post.liveContentTimingObservation().settled && post.liveCompareStatus().preAudible; },
+                 "zero correction is confirmed by content");
+    require (post.liveCompareAlignFrames() == 0, "initial content position needs zero correction");
+    chain.unrelatedPost = true;
+    chain.setDelay (-512);
+    chain.run (190);
+    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected && post.liveCompareAlignPending(),
+             "ambiguous content after K changes cannot authorize the old zero correction");
+    chain.unrelatedPost = false;
+    chain.until (90, [&] { return post.liveCompareAlignFrames() == 1024 && post.liveCompareStatus().preAudible; },
+                 "fresh strong evidence automatically resumes the selected PRE");
+    chain.clean ("zero-correction recheck never sounds the wrong content position");
+}
+
+inline void blindRecheckDoesNotRevealAssignment (int channels)
+{
+    using namespace hypha::live_compare;
+    hypha::blind_ui::Screen screens[2];
+    for (int assignment = 0; assignment < 2; ++assignment)
+    {
+        ChunkedPost chain (channels);
+        auto& post = *chain.post;
+        chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select anonymous timing PRE");
+        require (post.beginLiveBlind() == StartResult::started, "anonymous timing begins through BLIND admission");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
+                     "anonymous timing prepares actual PCM and gains");
+        LiveTimingFixtureAccess::assignBlind (post, assignment != 0);
+        require (post.selectLiveBlind (1), "select the first anonymous source");
+        chain.run (4);
+        require (post.liveBlindStatus().trial.played == 1, "only the first source earned an audio receipt");
+        chain.unrelatedPost = true;
+        chain.setDelay (512);
+        chain.run (190);
+        require (post.selectLiveBlind (2), "select the unheard source during the recheck");
+        chain.run (4);
+        require (post.liveBlindStatus().trial.played == 1 && !post.revealLiveBlind(),
+                 "neither assignment earns the second receipt from substitute POST");
+        const auto state = post.liveBlindStatus();
+        require (state.stage == BlindStage::active && state.prolongedWait && post.liveCompareAlignPending(),
+                 "real changed K and ambiguous content prolong the anonymous recheck");
+        auto invalidated = state;
+        invalidated.stage = BlindStage::invalidated;
+        invalidated.reason = RecoveryReason::pairChanged;
+        invalidated.observation = RecoveryReason::preLate;
+        invalidated.trial.invalidated = true;
+        require (hypha::live_compare_ui::blindRecovery (invalidated, true).reason == RecoveryReason::pairChanged,
+                 "an old timing observation cannot mask the lost-pair remedy");
+        screens[assignment] = hypha::live_blind_ui::screenFor (state, true, post.liveCompareStatus().postActual);
+        require (screens[assignment].guidanceShown && screens[assignment].cause == "Audio timing is ambiguous"
+                 && screens[assignment].recovery.contains ("Position unconfirmed"),
+                 "both assignments report the same current timing check");
+        require (!post.liveCompareStatus().preAudible, "rechecking plays only exact POST");
+        chain.clean ("anonymous rechecking never reads an unverified address");
+        const auto gain = post.liveCompareStatus().gain;
+        chain.unrelatedPost = false;
+        chain.until (90, [&] { return !post.liveCompareAlignPending() && post.liveCompareAlignFrames() == 0
+                                     && post.liveCompareStatus().preAudible == (assignment == 0); },
+                     "fresh strong evidence resumes either anonymous source automatically");
+        require (post.liveBlindStatus().trial.epoch == state.trial.epoch && post.liveBlindStatus().trial.selected == 2
+                 && std::abs (post.liveCompareStatus().gain - gain) < 1.0e-9f,
+                 "rechecking keeps the same anonymous assignment, selection and approved gain");
+        chain.clean ("anonymous recovery uses only the newly confirmed address");
+        chain.run (4);
+        require (post.liveBlindStatus().trial.played == 3 && post.revealLiveBlind(),
+                 "both assignments can reveal after the requested source actually sounded");
+    }
+    require (screens[0] == screens[1], "every visible BLIND field is identical under the opposite actual assignment");
+}
+
+inline void initialAlignmentWaitsForEvidence (int channels)
+{
+    using namespace hypha::live_compare;
+    for (bool quiet : { true })
+    for (bool loop : { false, true })
+    {
+        ChunkedPost chain (channels);
+        chain.requireContentPosition = true;
+        chain.quiet = quiet;
+        chain.tonal = !quiet;
+        if (loop) { chain.seek (5000); chain.enterLoop (48000); }
+        auto& post = *chain.post;
+        chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select ambiguous initial PRE");
+        require (post.startLiveCompare() == StartResult::started, "ambiguous initial LISTEN starts");
+        post.selectLiveComparePre (true);
+        chain.run (190);
+        const auto waiting = post.liveCompareStatus();
+        require (waiting.preSelected && !waiting.preAudible && post.liveCompareAlignPending(),
+                 "initial silence cannot authorize an unconfirmed address");
+        require (waiting.observation == RecoveryReason::contentAmbiguous && waiting.prolongedWait,
+                 "a validated ambiguous window is distinct from initial preparation");
+        const auto guidance = hypha::live_compare_ui::namedPresentation (waiting);
+        require (juce::String (guidance.instruction).contains ("Position unconfirmed"),
+                 "unconfirmed content uses a short factual notice without an endless wait instruction");
+        chain.clean ("all initial ambiguous samples stay exact POST");
+        chain.quiet = chain.unrelatedPost = false;
+        chain.until (90, [&] { return post.liveCompareAlignFrames() == 1024 && post.liveCompareStatus().preAudible; },
+                     "a usable section resumes the same PRE without another selection");
+        require (post.liveCompareStatus().preSelected, "automatic initial recovery keeps the choice");
+        chain.clean ("every sample through the first confirmation uses the correct source position");
+    }
+}
+
+inline void disabledAlignmentStillMonitorsContent (int channels)
+{
+    using namespace hypha::live_compare;
+    ChunkedPost chain (channels);
+    auto& post = *chain.post;
+    post.setLiveCompareAutoAlign (false);
+    chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select disabled-alignment PRE");
+    require (post.startLiveCompare() == StartResult::started, "disabled-alignment LISTEN starts");
+    post.selectLiveComparePre (true);
+    const auto observed = [&] (std::int64_t lag) {
+        const auto step = post.liveContentTimingObservation();
+        const auto estimate = post.measureLiveCompareOffset();
+        return step.settled && step.lagFrames == lag && offsetCanVote (estimate) && estimate.clockK == chain.k;
+    };
+    chain.until (300, [&] { return observed (-1024); }, "OFF with nonzero K still measures the initial difference");
+    require (post.liveCompareAlignFrames() == 0 && post.liveCompareStatus().preAudible,
+             "OFF leaves the read position at K while monitoring");
+    chain.setDelay (256);
+    chain.until (300, [&] { return observed (-256); }, "OFF follows changed K and displays its current difference");
+    require (post.liveCompareAlignFrames() == 0 && !post.liveCompareAutoAlign(), "monitoring cannot turn correction on");
+    chain.contentK = 1536;
+    chain.until (300, [&] { return post.liveCompareStatus().contentHeld; },
+                 "OFF retains strong content-change detection after K changes");
+    require (post.liveCompareStatus().preSelected, "publishing a content hold preserves the explicit choice");
+    chain.chunk (false); // the first real callback after the non-RT monitor publishes the hold
+    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
+             "the first callback after a confirmed content jump uses POST while preserving the choice");
+    chain.contentK = 512;
+    chain.until (300, [&] { return !post.liveCompareStatus().contentHeld && post.liveCompareStatus().preAudible; },
+                 "OFF monitoring returns automatically when the content baseline returns");
+    chain.clean ("OFF monitoring leaves each sample on its selected verified clock path");
+}
 
 inline void alignmentRejectsChangingFormat (int channels)
 {
@@ -53,8 +252,8 @@ inline void alignmentRejectsChangingFormat (int channels)
     post.selectLiveComparePre (true);
     chain.postScale = 0.0f;
     chain.run (220);
-    require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 0,
-             "undetermined new content cannot inherit the previous format's frames");
+    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
+             "undetermined new content cannot authorize the new format's address");
     chain.clean ("format interleave never emits a stale address");
 }
 
@@ -82,11 +281,138 @@ inline void alignmentBelongsToPreOwner (int channels)
     LiveTimingFixtureAccess::publishMeasuredAlign (post, old); // a delayed old publication
     chain.postScale = 0.0f;
     chain.run (220);
-    require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 0,
-             "new PRE with ambiguous content cannot reuse the previous owner's correction");
+    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
+             "new PRE with ambiguous content cannot authorize the new owner's address");
     chain.postScale = 0.5f;
     chain.contentK = 1536;
     chain.until (400, [&] { return post.liveCompareAlignFrames() == 2048; }, "new owner measures its own correction");
     chain.clean ("PRE replacement never reads an old correction");
 }
+
+// Anti-phase and single-channel material must reach the default-ON path through actual PCM,
+// including BLIND's played receipts. The fixture independently checks every output sample.
+inline void stereoAlignmentPreservesChannelEvidence (int channels)
+{
+    if (channels != 2) return;
+    using namespace hypha::live_compare;
+    for (int mode : { 0, 1, 2, 3, 4 })
+    {
+        ChunkedPost chain (channels);
+        chain.requireContentPosition = true;
+        chain.oppositePolarity = mode == 0;
+        chain.silentChannel = mode == 1 ? 0 : mode == 2 ? 1 : -1;
+        if (mode == 3) chain.rightContentShift = 512;
+        chain.swappedChannels = mode == 4;
+        chain.seek (5000); chain.enterLoop (48000);
+        auto& post = *chain.post;
+        require (post.liveCompareAutoAlign(), "stereo evidence is tested with the default alignment ON");
+        chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select stereo evidence PRE");
+        require (post.startLiveCompare() == StartResult::started, "stereo evidence starts LISTEN");
+        post.selectLiveComparePre (true);
+        if (mode == 3)
+        {
+            chain.run (190);
+            require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected
+                     && post.liveCompareAlignPending(), "disagreeing channel positions cannot authorize PRE");
+            chain.rightContentShift = 0;
+        }
+        chain.until (90, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024; },
+                     "inverse polarity or either single channel aligns inside the initial loop");
+        chain.clean ("every stereo sample uses the verified position");
+        if (mode != 0) continue;
+        post.finishLiveCompare();
+        chain.until (30, [&] { return !post.liveCompareStatus().active && !post.liveCompareStatus().finishing; },
+                     "LISTEN ends before a fresh anti-phase BLIND");
+        require (post.beginLiveBlind() == StartResult::started, "anti-phase BLIND starts");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
+                     "anti-phase BLIND prepares from actual stereo PCM");
+        for (int source : { 1, 2 })
+        {
+            require (post.selectLiveBlind (source), "select each anti-phase anonymous source");
+            chain.run (12);
+        }
+        require (post.liveBlindStatus().trial.played == 3 && post.revealLiveBlind(),
+                 "anti-phase BLIND earns both real played receipts and can REVEAL");
+        chain.clean ("anti-phase BLIND uses the verified sample position");
+    }
+}
+
+inline std::function<void()> offsetWindowInterleave;
+inline void copiedOffsetWindowVotesOnlyOnce (int channels)
+{
+    using namespace hypha::live_compare;
+    for (bool recheck : { false, true })
+    {
+        ChunkedPost chain (channels);
+        chain.requireContentPosition = true;
+        auto& post = *chain.post;
+        chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select copied-window PRE");
+        require (post.startLiveCompare() == StartResult::started, "copied-window LISTEN starts");
+        post.selectLiveComparePre (true);
+        if (recheck)
+        {
+            chain.until (90, [&] { return post.liveCompareStatus().preAudible; }, "initial position is confirmed before recheck");
+            chain.setDelay (512);
+        }
+        // Accumulate a complete current window without servicing its monitor. The hook inserts
+        // the next real callback between service entry and the estimator's actual snapshot.
+        for (int i = 0; i < 60; ++i) chain.chunk (false);
+        const auto before = post.measureLiveCompareOffset();
+        require (offsetCanVote (before), "the contention test has strong current PCM");
+        bool visited = false;
+        offsetWindowInterleave = [&] { visited = true; chain.chunk (false); };
+        beforeOffsetWindowForTest = [] { offsetWindowInterleave(); };
+        LiveTimingFixtureAccess::serviceContentTiming (post);
+        beforeOffsetWindowForTest = nullptr;
+        offsetWindowInterleave = {};
+        const auto copied = post.measureLiveCompareOffset();
+        require (visited && offsetCanVote (copied) && copied.window.end > before.window.end,
+                 "a real callback advanced the copied window within the acquisition interval");
+        require (!post.liveContentTimingObservation().settled, "one copied window supplies only the first vote");
+        chain.wallClock.advance (std::chrono::milliseconds (120));
+        LiveTimingFixtureAccess::serviceContentTiming (post); // no additional PCM
+        require (!post.liveContentTimingObservation().settled && post.liveCompareAlignPending(),
+                 "the same copied window cannot become a second vote after callbacks cease");
+        require (post.liveCompareStatus().preSelected, "duplicate evidence never clears the selected source");
+        // Resume with a normal callback interval; wall time elapsed during the pause is genuine.
+        chain.until (90, [&] { return post.liveCompareStatus().preAudible && !post.liveCompareAlignPending(); },
+                     "fresh PCM automatically completes initial alignment or recheck");
+        chain.clean ("window contention never emits an unverified PRE address");
+    }
+}
+
+// Advance K between the service's generation check and the estimator's own snapshot. Both
+// generations have the same lag, so an old candidate would otherwise confirm after one window.
+inline void newMappingStartsWithOneVote (int channels)
+{
+    using namespace hypha::live_compare;
+    ChunkedPost chain (channels);
+    chain.requireContentPosition = true;
+    auto& post = *chain.post;
+    chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select generation PRE");
+    require (post.startLiveCompare() == StartResult::started, "generation LISTEN starts");
+    post.selectLiveComparePre (true);
+    for (int i = 0; i < 60; ++i) chain.chunk (false);
+    LiveTimingFixtureAccess::serviceContentTiming (post);
+    require (!post.liveContentTimingObservation().settled, "old generation has exactly one vote");
+    chain.wallClock.advance (std::chrono::milliseconds (120));
+    bool visited = false;
+    offsetWindowInterleave = [&] {
+        visited = true;
+        chain.setDelay (0);
+        chain.contentK += 512;
+        for (int i = 0; i < 60; ++i) chain.chunk (false);
+    };
+    beforeContentEstimateForTest = [] { offsetWindowInterleave(); };
+    LiveTimingFixtureAccess::serviceContentTiming (post);
+    beforeContentEstimateForTest = nullptr;
+    offsetWindowInterleave = {};
+    require (visited && offsetCanVote (post.measureLiveCompareOffset()), "new generation supplies strong actual PCM");
+    require (!post.liveContentTimingObservation().settled && post.liveCompareAlignPending(),
+             "new generation cannot combine its first vote with the previous generation");
+    chain.until (90, [&] { return post.liveCompareStatus().preAudible && !post.liveCompareAlignPending(); },
+                 "a second fresh window resumes the retained PRE selection");
+    chain.clean ("generation change never emits an unconfirmed address");
+}
+
 }

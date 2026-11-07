@@ -344,6 +344,8 @@ void View::cycleTimeRange()
 
 void View::updateControls()
 {
+    spaceLive.setPresented (selectedDomain == Domain::space && ! hybridVuVisible()
+                            && ! captureFrame && ! measurementOnlySurround);
     levelButton.setToggleState (selectedDomain == Domain::level, juce::dontSendNotification);
     timeButton.setToggleState (selectedDomain == Domain::time, juce::dontSendNotification);
     frequencyButton.setToggleState (selectedDomain == Domain::frequency, juce::dontSendNotification);
@@ -398,6 +400,13 @@ void View::updateControls()
 }
 
 
+juce::Rectangle<int> View::spaceTraceBounds() const
+{
+    if (bodyArea.isEmpty() || selectedDomain != Domain::space) return {};
+    return space_field::plotBounds (bodyArea,
+        presentation().family == ExperienceFamily::compactMeter, presentationContext()).expanded (2);
+}
+
 void View::paint (juce::Graphics& g)
 {
     metricHelpCount = 0;
@@ -435,7 +444,7 @@ void View::paint (juce::Graphics& g)
         space_field::paint (g, bodyArea, observatoryFrame.meter, monoSumHistory,
                             currentFactsAvailable(),
                             contract.family == ExperienceFamily::compactMeter,
-                            presentationContext());
+                            presentationContext(), spaceLive.attached() ? &spaceLive : nullptr);
     else drawPanel (g, bodyArea, contract.family);
     paintFooter (g, layout);
     observatory_world::paintPlateFrame (g, getLocalBounds(), state);

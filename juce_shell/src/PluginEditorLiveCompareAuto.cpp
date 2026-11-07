@@ -31,7 +31,7 @@ void KirinHyphaEditor::chooseLiveCompareFollow()
     else if (liveCompareLimited)
         menu.addItem (3, "AUTO needs a MATCH without TP LIMIT", false);
     else
-        menu.addItem (3, "AUTO: follow POST within 0.5 dB");
+        menu.addItem (3, processorRef.candidateCompareActive() ? "AUTO: follow B within 0.5 dB" : "AUTO: follow POST within 0.5 dB");
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView.liveMatchAnchor()).withDeletionCheck (*this)
         .withMinimumWidth (juce::jlimit (300, 520, getWidth()))

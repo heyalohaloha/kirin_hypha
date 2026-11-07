@@ -151,12 +151,21 @@ struct NoticeRig
     }
     void close() { if (editor) post->editorBeingDeleted (editor.get()); editor.reset(); }
     observatory::View& view() { return *component<observatory::View> (*editor); }
+    // A distinct broadband position lets the default-ON content check complete.
+    static float sourceSample (std::int64_t position, int channel)
+    {
+        auto bits = static_cast<std::uint64_t> (position * 2 + channel) + 0x9E3779B97F4A7C15ull;
+        bits = (bits ^ (bits >> 30)) * 0xBF58476D1CE4E5B9ull;
+        bits = (bits ^ (bits >> 27)) * 0x94D049BB133111EBull;
+        bits ^= bits >> 31;
+        return (static_cast<float> (bits >> 40) / 16777216.0f - 0.5f) * 0.1f;
+    }
     void block()
     {
         for (int c = 0; c < 2; ++c)
         for (int n = 0; n < 512; ++n)
         {
-            const auto value = 0.05f * std::sin (float (clock.position + n) * 0.071f);
+            const auto value = sourceSample (clock.position + n, c);
             preAudio.setSample (c, n, value); postAudio.setSample (c, n, chainGain * value);
         }
         pre->processBlock (preAudio, midi);
@@ -194,11 +203,15 @@ struct NoticeRig
         auto preview = post->createPairPreview();
         require (pair_preview::request (preview), "actual PRE discovery request");
         // The PRE publishes on its own thread; a loaded runner can take seconds (10 s, as elsewhere).
+        // A scan can complete before it has published, so ask again as the other product fixtures do.
+        auto requested = std::chrono::steady_clock::now();
         for (int n = 0; n < 500; ++n)
         {
             advance (0.02); KirinPairPreviewValue value {};
             if (kirin_hypha_pair_preview_poll (preview.get(), &value) && value.complete && value.has_single)
             { require (post->setPairCandidate (pre->instanceId(), "Fixture PRE"), "actual PRE selected"); return; }
+            if (std::chrono::steady_clock::now() - requested > std::chrono::milliseconds (1050)
+                && pair_preview::request (preview)) requested = std::chrono::steady_clock::now();
         }
         require (false, "PRE discovery deadline");
     }
@@ -247,6 +260,7 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.expectOrdinaryAudio = false;
     require (r.post->startLiveCompare() == live_compare::StartResult::started, "hide test starts real LISTEN");
     r.post->selectLiveComparePre (true); r.advance (0.3);
+    for (int n = 0; n < 20 && !r.post->liveCompareStatus().preAudible; ++n) r.advance (0.1);
     require (r.post->liveCompareStatus().preAudible, "PRE actually plays before hide");
     const auto status = r.post->liveCompareStatus();
     const auto oldGeneration = status.sessionGeneration + 1;
@@ -374,7 +388,15 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.advance (2.8);
     require (r.view().feedback().isNotEmpty(), "a DAW stop beyond 3 seconds shows its remedy");
     r.clock.playing = true; r.advance (0.6);
-    require (r.view().feedback().isEmpty(), "waiting remedy clears when verified PRE resumes");
+    // Recovery includes the default-ON content check; wait for verified audio rather than
+    // assuming a fixed amount of wall time is also a completed measurement window.
+    for (int n = 0; n < 20 && (!r.post->liveCompareStatus().preAudible
+         || r.post->liveCompareAlignPending() || r.view().feedback().isNotEmpty()); ++n) r.advance (0.1);
+    if (r.view().feedback().isNotEmpty())
+        std::cerr << "Recovery feedback: " << r.view().feedback() << ", PRE " << r.post->liveCompareStatus().preAudible
+                  << ", pending " << r.post->liveCompareAlignPending() << ", frames " << r.post->liveCompareAlignFrames() << '\n';
+    require (r.post->liveCompareStatus().preAudible && !r.post->liveCompareAlignPending()
+             && r.view().feedback().isEmpty(), "waiting remedy clears when verified PRE resumes");
     // An unexpected pair change during actual LISTEN remains a bounded terminal notice.
     r.post->clearPairCandidate(); r.advance (0.15);
     require (! r.post->liveCompareStatus().active && r.view().feedback().startsWith ("PRE changed:"),

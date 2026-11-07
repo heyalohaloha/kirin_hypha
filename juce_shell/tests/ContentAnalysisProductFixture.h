@@ -156,7 +156,7 @@ struct Fixture
         injectedDelay.beforePost (callbacks, [&] (auto delayTime) { wallClock.advance (delayTime); });
         process (*post, audio);
         preClock.content += frames; postClock.content += frames;
-        LiveTimingFixtureAccess::serviceTiming (*post);
+        LiveTimingFixtureAccess::serviceProcessorTimer (*post);
         ++callbacks;
         wallClock.advanceBlock (frames, rate);
         // Wait for real publication outside callbacks, including the first IO endpoint

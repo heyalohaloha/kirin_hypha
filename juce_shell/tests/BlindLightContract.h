@@ -162,6 +162,14 @@ inline void verifyLive (juce::Component& root, const observatory::SizePreset& pr
     screen.setState (hidden, true, 1.0f);
     require (differentPixels (first, render (screen, true)) == 0,
              "Live Blind light and pixels never disclose the hidden PRE/POST assignment");
+    const auto endBounds = screen.findChildWithID ("live-blind-end")->getBounds();
+    hidden.prolongedWait = true;
+    hidden.reason = live_compare::RecoveryReason::stopped;
+    screen.setState (hidden, false, 1.0f);
+    require (screen.findChildWithID ("live-blind-end")->getBounds() == endBounds,
+             "END stays at the same position when stopped guidance appears");
+    hidden.prolongedWait = false;
+    hidden.reason = live_compare::RecoveryReason::none;
     hidden.trial.revealed = true;
     screen.setState (hidden, true, 1.0f);
     requireQuietForm (screen);

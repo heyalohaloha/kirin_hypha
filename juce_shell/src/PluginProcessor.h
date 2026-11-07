@@ -24,6 +24,7 @@
 #include "HyphaMeterContext.h"
 #include "HyphaVuCalibrationPreference.h"
 #include "HyphaVuLiveTap.h"
+#include "HyphaSpaceLiveTap.h"
 #include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -298,7 +299,7 @@ public:
     bool addNote (const juce::String& memo); // sample-exact POST NOTE during Record
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
-    struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };
+    struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; juce::String hostName; int chainPosition = -1; };
     struct PostPairClaim
     {
         juce::String instanceId;
@@ -313,7 +314,7 @@ public:
     bool pairPreviewMatches (const KirinPairPreview*) const;
     bool automaticPairNeedsService() const;
     bool tryAutomaticPair (const KirinPairPreview*, const KirinPairPreviewValue&);
-    juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
+    juce::Array<PreCandidate> enumeratePreCandidates() const; juce::Array<PreCandidate> enumeratePreCandidatesForMenu() const;
     juce::Array<PostPairClaim> enumeratePostPairClaims() const; // FFI kirin_hypha_enumerate_post_pair_claims
     int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)
 
@@ -382,7 +383,6 @@ private:
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
                                  bool timelineActive,
                                  bool bypassed, bool nonRealtimeMode);
-
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
     mutable hypha::local_blind::HostClockProbe hostClockProbe;

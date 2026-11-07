@@ -6,23 +6,11 @@
 namespace
 {
     namespace ui = hypha::ui_contract;
+    using hypha::pair_labels::claimedByOtherPost;
     juce::String allKeepMenuLabel (int nReady)
     {
         return juce::String ("All Keep: ") + juce::String (nReady) + " ready POST"
              + (nReady == 1 ? "" : "s");
-    }
-
-    bool claimedByOtherPost (const KirinHyphaProcessorBase::PreCandidate& candidate,
-                             const juce::String& ownInstanceId,
-                             const juce::Array<KirinHyphaProcessorBase::PostPairClaim>& claims)
-    {
-        for (const auto& c : claims)
-            if (c.instanceId != ownInstanceId
-                && ((c.hasPairedPreInstanceId && c.pairedPreInstanceId == candidate.instanceId)
-                    || (! c.hasPairedPreInstanceId && c.hasPairPreName && candidate.hasName
-                        && candidate.name.isNotEmpty() && c.pairPreName == candidate.name)))
-                return true;
-        return false;
     }
 
     juce::String resolvedOwnPreInstanceId (
@@ -53,7 +41,7 @@ void KirinHyphaEditor::showCandidateMenu()
     // stalled heartbeat does not lock (false-release prevention; signal_state is silence-conflated).
     const bool pairLocked = playing && processorRef.heartbeatLive()
         && processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
-    const auto cands = processorRef.enumeratePreCandidates();
+    const auto cands = processorRef.enumeratePreCandidatesForMenu();
     const auto claims = processorRef.enumeratePostPairClaims();
     const juce::String ownInstanceId = processorRef.instanceId();
 
@@ -67,16 +55,7 @@ void KirinHyphaEditor::showCandidateMenu()
         const bool selected = currentPreInstanceId.isNotEmpty()
                            && c.instanceId == currentPreInstanceId;
         const bool inUse = claimedByOtherPost (c, ownInstanceId, claims);
-        int sameNameCount = 0;
-        if (c.hasName && c.name.isNotEmpty())
-            for (const auto& other : cands)
-                if (other.hasName && other.name == c.name)
-                    ++sameNameCount;
-        const juce::String shown = c.hasName && c.name.isNotEmpty()
-                                     ? c.name + (sameNameCount > 1
-                                                     ? " / " + c.instanceId.substring (0, 8)
-                                                     : juce::String())
-                                     : "PRE " + c.instanceId.substring (0, 8);
+        const auto shown = hypha::pair_labels::menuLabel (cands, c);
         labels.add ((inUse ? "In use by another POST: " : hypha::pair_labels::menuPrefix) + shown);
         labelEnabled.add (! inUse);
         labelChecked.add (selected && ! inUse);

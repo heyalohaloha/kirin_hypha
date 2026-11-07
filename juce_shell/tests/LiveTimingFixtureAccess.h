@@ -48,8 +48,14 @@ public:
     { processor.enableWritesNow(); }
     static void serviceTiming (KirinHyphaProcessorBase& processor)
     { processor.serviceLiveCompare(); }
+    static void serviceContentTiming (KirinHyphaProcessorBase& processor)
+    { processor.serviceLiveContentTiming(); }
     static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
     { processor.timerCallback(); }
+    static bool liveCompareNeedsService (KirinHyphaProcessorBase& processor)
+    { return processor.liveCompareNeedsService(); }
+    static const juce::CriticalSection& handleOwnership (KirinHyphaProcessorBase& processor)
+    { return processor.handleLock; }
     static void retirePreparedFormatRing (KirinHyphaProcessorBase& processor)
     { processor.stopLiveCompareForFormatChange(); }
     // Exercise the real publication slot and service path without requiring OS shared memory.
@@ -62,6 +68,8 @@ public:
     }
     static void fadePending (KirinHyphaProcessorBase& processor, bool pending)
     { processor.liveCompare.preAudible.store (pending); }
+    static void traceForTest (KirinHyphaProcessorBase& processor, std::unique_ptr<hypha::chain_trace::Recorder> trace)
+    { processor.liveCompare.trace = std::move (trace); }
     static const hypha::live_compare::SharedRingMapping* publishedRing (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.ring.control(); }
     static bool chunkProven (const KirinHyphaProcessorBase& processor) noexcept
@@ -110,6 +118,7 @@ public:
         e.stopGeneration = processor.liveCompare.contentHold.generation();
         e.timelineGeneration = processor.liveCompare.timelineGeneration.load();
         e.alignContext = processor.liveCompare.alignContext();
+        e.alignRevision = processor.liveCompare.renderer.alignRevision();
         processor.holdLiveCompareForContentJump (e);
         return e;
     }
@@ -123,8 +132,9 @@ public:
     { processor.liveCompare.contentHold.clear (processor.liveCompare.contentHold.generation()); }
     // Simulate invalidation immediately after the publisher's final context check. The real RT
     // entry must reject this stale tuple too, even before the service timer can retire it.
+    static void settleContent (KirinHyphaProcessorBase& processor) { processor.liveCompare.contentStep.settled = true; }
     static void publishMeasuredAlign (KirinHyphaProcessorBase& processor, const hypha::live_compare::OffsetEstimate& estimate)
-    { processor.liveCompare.renderer.requestAlign (hypha::live_compare::alignValue (estimate.lagFrames), estimate.alignContext); }
+    { processor.liveCompare.renderer.requestAlign (hypha::live_compare::alignValue (estimate.lagFrames), estimate.alignContext, estimate.alignRevision); }
     // Advance only the local counter to model a long-lived instance, before any audio is fed.
     static void advanceReaperOrigin (KirinHyphaProcessorBase& processor, std::int64_t frames)
     {
@@ -136,6 +146,8 @@ public:
             frames -= count;
         }
     }
+    static void assignBlind (KirinHyphaProcessorBase& processor, bool firstPre)
+    { processor.liveCompare.blind.start (firstPre); }
     static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.renderer.historyView().kValid; }
     static void heldGains (KirinHyphaProcessorBase& processor)
@@ -163,6 +175,23 @@ public:
     }
     static bool configureStudioProClock (KirinHyphaProcessorBase& processor) noexcept
     { return configureVst3Clock (processor, "Studio Pro", "8.1.2.113407"); }
+    static bool configureReaperClock (KirinHyphaProcessorBase& processor) noexcept
+    {
+        if (!configureVst3Clock (processor, "REAPER", "7.71")) return false;
+        processor.nativeHostContext.reaper.prepare (true);
+        return true;
+    }
+    static bool candidateHistoryValid (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.renderer.historyView().kValid; }
+    static const auto& candidateStateForTest (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.candidate; }
+    static void failBlindPreparation (KirinHyphaProcessorBase& processor, hypha::live_compare::RecoveryReason reason)
+    {
+        const auto command = processor.liveCompare.blindTiming.command();
+        processor.liveCompare.blindTiming.observe (command, false, reason, command.requiredAdmission);
+    }
+    static int reaperRestrictionForTest (const KirinHyphaProcessorBase& processor) noexcept
+    { return static_cast<int> (processor.nativeHostContext.reaper.restriction()); }
     static bool configureVst3Clock (KirinHyphaProcessorBase& processor,
                                     const char* name, const char* version) noexcept
     {
@@ -179,6 +208,10 @@ public:
 
     static hypha::live_compare::BlindCommand command (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.blind.command(); }
+
+    // Only after real BLIND admission; exercise both random outcomes before its first callback.
+    static void assignBlindForTest (KirinHyphaProcessorBase& processor, bool firstPre) noexcept
+    { processor.liveCompare.blind.start (firstPre); }
 
     static int audible (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.blind.view().audible; }

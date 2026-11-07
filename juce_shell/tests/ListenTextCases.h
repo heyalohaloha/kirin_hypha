@@ -21,7 +21,7 @@ inline std::vector<Notice> notices()
         result.push_back ({ text, state });
     };
     // Exercise the presentation for every public reason, both live and after teardown.
-    for (int reason = 0; reason <= static_cast<int> (RecoveryReason::reaperLoopTooShort); ++reason)
+    for (int reason = 0; reason <= static_cast<int> (RecoveryReason::contentAmbiguous); ++reason)
         for (int mode = 0; mode < 14; ++mode)
         {
             Status state;
@@ -52,6 +52,8 @@ inline std::vector<Notice> notices()
         add (live_compare_ui::namedPresentation (state).instruction, state);
     }
     add ("MATCH waits for more signal");
+    add ("Repeated audio: checked per block");
+    add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());
     // B, C or V in REF holding the output past 3 s (currentListenPresentation).
     for (int slot = 1; slot <= 3; ++slot)
     {
@@ -64,7 +66,7 @@ inline std::vector<Notice> notices()
         "Mono / stereo only", "PRE not running; choose again", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
         "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
-        "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
+        "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
         "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
     for (const auto* db : { "-24.00", "0.00", "+24.00" })
@@ -75,6 +77,12 @@ inline std::vector<Notice> notices()
     }
     for (const auto* offset : { "0.02", "170.67", "9999.99" })
         for (const auto* side : { " early", " late" }) add (juce::String ("PRE ") + offset + " ms" + side);
+    for (const auto* offset : { "0.02", "170.67", "9999.99" })
+    {
+        Status state; state.active = state.preSelected = state.prolongedWait = true;
+        state.observation = RecoveryReason::preLate;
+        add (juce::String ("PRE ") + offset + " ms late / " + live_compare_ui::namedPresentation (state).instruction, state);
+    }
     for (int n = 0; n <= static_cast<int> (live_compare_ui::AutoReadiness::blocked); ++n)
         add (live_compare_ui::autoReadinessNotice (static_cast<live_compare_ui::AutoReadiness> (n)));
     for (int n = 1; n <= static_cast<int> (local_blind::CaptureAdmission::referenceAudition); ++n)
@@ -104,7 +112,7 @@ inline std::vector<BlindCase> blindCases()
     }
     { LiveBlindStatus state; state.stage = BlindStage::preparing;
       state.signalWait = state.prolongedWait = true; add (state, true, 1.0f); }
-    for (int reason = 0; reason <= static_cast<int> (RecoveryReason::reaperLoopTooShort); ++reason)
+    for (int reason = 0; reason <= static_cast<int> (RecoveryReason::contentAmbiguous); ++reason)
     for (int stage = 1; stage <= static_cast<int> (BlindStage::failed); ++stage)
     for (int mode = 0; mode < 14; ++mode)
     {

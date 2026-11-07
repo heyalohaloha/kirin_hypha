@@ -19,6 +19,7 @@
         "/../juce_shell/src/PluginEditorCapture.cpp"
     ));
     const PLUGIN_PROCESSOR_CPP: &str = concat!(
+        include_str!("../../../juce_shell/src/ProcessorAudioCallback.h"),
         include_str!("../../../juce_shell/src/PluginProcessor.cpp"),
         "\n",
         // B-961: format binding lives in its own translation unit; parity still reads one shell.

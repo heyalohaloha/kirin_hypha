@@ -39,6 +39,8 @@ class OpenFile;
 inline std::atomic<void (*)()> hashReadHook { nullptr }, pageReadHook { nullptr };
 inline std::atomic<OpenFile*> watchedPageFile { nullptr };
 inline std::atomic<int> verifyFailureForTest { 0 };
+// Fails the next open on this thread only. A boundary hook must not lose its failure to the monitor.
+inline thread_local bool threadOpenFailureForTest = false;
 inline std::atomic<bool> persistentReadFailureForTest { false };
 inline std::atomic<bool> pathFailureForTest { false }, persistentPathFailureForTest { false };
 inline std::atomic<std::uint64_t> pathChecksForTest { 0 }, sourceHashBytesForTest { 0 }, originalReadBytesForTest { 0 };
@@ -67,7 +69,7 @@ public:
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
         pathForTest = file.getFullPathName();
         int expected = 1;
-        if (verifyFailureForTest.compare_exchange_strong (expected, 0)) return;
+        if (std::exchange (threadOpenFailureForTest, false) || verifyFailureForTest.compare_exchange_strong (expected, 0)) return;
 #endif
 #if JUCE_WINDOWS
         handle = CreateFileW (file.getFullPathName().toWideCharPointer(), GENERIC_READ,

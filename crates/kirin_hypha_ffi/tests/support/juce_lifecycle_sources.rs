@@ -20,6 +20,7 @@ pub fn read_repo(path: &str) -> String {
             "juce_shell/src/PluginEditorInformation.cpp",
         ],
         "juce_shell/src/PluginProcessor.cpp" => &[
+            "juce_shell/src/ProcessorAudioCallback.h",
             "juce_shell/src/PluginProcessorState.cpp",
             "juce_shell/src/PluginProcessorIdentity.cpp",
             "juce_shell/src/PluginProcessorPairReadback.cpp",

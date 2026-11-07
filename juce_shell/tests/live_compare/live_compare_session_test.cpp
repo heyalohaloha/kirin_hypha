@@ -4,8 +4,8 @@
 #include "../../src/live_compare/LiveCompareSharedRing.h"
 #include "../../src/live_compare/LiveBlindSession.h"
 #include "../ExactPcmOracle.h"
+#include "CandidateTransferTest.h"
 #include "../../src/live_compare/LiveCompareIdle.h"
-
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -27,7 +27,6 @@ void operator delete (void* p) noexcept { if (inRt && p != nullptr) ++rtDeletion
 void operator delete[] (void* p) noexcept { ::operator delete (p); }
 void operator delete (void* p, std::size_t) noexcept { ::operator delete (p); }
 void operator delete[] (void* p, std::size_t) noexcept { ::operator delete (p); }
-
 using namespace hypha::live_compare;
 
 static void require (bool ok, const char* message)
@@ -367,7 +366,7 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc11-", 0) == 0, "versioned name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc16-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");
@@ -376,7 +375,6 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     hypha::tests::verifySharedRingAbi (pre, wrongRate, pairKey, require);
     require (post.open (pairKey, 48000), "POST opens the ring of its PRE");
     require (! wrongRate.open (pairKey, 44100), "a ring for another rate is refused");
-    post.ring()->header.demand.store (1);
     require (pre.ring()->header.demand.load() == 1, "both roles see the same memory");
     post.close();
     require (pre.ring()->header.demand.load() == 0, "closing POST clears its demand");
@@ -391,9 +389,8 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     // new one.
     SharedRingMapping again, newer;
     require (again.create (pairKey, 48000), "PRE creates a new ring while POST holds the old one");
-    post.ring()->header.demand.store (0);
-    again.ring()->header.demand.store (1);
-    require (post.ring()->header.ownerClosed.load() == 1 && post.ring()->header.demand.load() == 0,
+    post.close();
+    require (again.ring()->header.demand.load() == 0,
              "the old ring stays closed and apart from the new one");
     require (newer.open (pairKey, 48000) && newer.ring()->header.demand.load() == 1
                  && newer.ring()->header.ownerClosed.load() == 0,
@@ -481,6 +478,7 @@ int main (int argc, char** argv)
         report = pair.step (true, choosePre, 1.0f, true, 2, false, true);
         require (! report.stableSource && pair.postUntouched(), "gap fallback never counts as anonymous output");
     }
+    verifyCandidateTransfer (require);
     preSoundsOnlyWhenProven();
     userSwitchFadesBothWays();
     approvedGainAppliesToPre();

@@ -58,7 +58,7 @@ inline bool loopAddressIsCurrent (const LoopAnchor& anchor, const BlockClock& pr
     if (reaperRuntimeAge (pre, post) > 0)
     {
         std::int64_t address = 0, expected = 0;
-        return reaperWindowAddress (anchor, pre, post, rate, capacity, address)
+        return reaperProvenAddress (anchor, pre, post, rate, capacity, address)
             && checkedClockSubtract (post.clock, k, expected) && address == expected;
     }
     if ((k < 0 && post.clock > std::numeric_limits<std::int64_t>::max() + k)
@@ -80,7 +80,8 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
                                                 const BlockClock& post,
                                                 std::int64_t postLoopSamples,
                                                 double rate,
-                                                std::int64_t capacity) noexcept
+                                                std::int64_t capacity,
+                                                const std::int64_t* heldK = nullptr) noexcept
 {
     if (logicRender (post))
     {
@@ -114,6 +115,8 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
             const auto upper = reaperRuntimeAge (pre, post);
             if (capacity <= upper || (anchor.loopSamples > 0 && anchor.loopSamples <= upper))
                 return { 0, LoopEntryKind::none, LoopEntryFailure::loopTooShort, false };
+            if (heldK != nullptr && reaperHeldAddress (anchor, pre, post, rate, capacity, *heldK))
+                return { *heldK, LoopEntryKind::reaperBound, LoopEntryFailure::none, true };
             const bool current = reaperWindowAddress (anchor, pre, post, rate, capacity, address)
                 && checkedClockSubtract (post.clock, address, candidate);
             return { candidate, LoopEntryKind::reaperBound,

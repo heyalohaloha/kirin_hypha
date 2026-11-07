@@ -12,7 +12,7 @@ bool Screen::operator== (const Screen& other) const noexcept
     {
         return std::tie (screen.title, screen.instruction, screen.detail, screen.guidanceShown, screen.cause, screen.recovery,
                          screen.sourcesShown, screen.sourceOneEnabled, screen.sourceTwoEnabled, screen.audible,
-                         screen.sourceOne, screen.sourceTwo, screen.revealShown, screen.revealEnabled, screen.revealTitle,
+                         screen.sourceOne, screen.sourceTwo, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle);
     };
@@ -36,9 +36,9 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
         addAndMakeVisible (*label);
     }
     index = 0;
-    for (auto* button : { &one, &two, &reveal, &end, &approve })
+    for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff })
     {
-        const char* ids[] { "source-1", "source-2", "reveal", "end", "approve" };
+        const char* ids[] { "source-1", "source-2", "reveal", "end", "approve", "align-off" };
         button->setComponentID (idPrefix + "-" + juce::String (ids[index++]));
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
         button->setWantsKeyboardFocus (true);
@@ -49,6 +49,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     reveal.onClick = [this] { if (onReveal) onReveal(); };
     end.onClick = [this] { if (onEnd) onEnd(); };
     approve.onClick = [this] { if (onApprove) onApprove(); };
+    alignOff.onClick = [this] { if (onAlignOff) onAlignOff(); };
     apply();
 }
 
@@ -86,11 +87,15 @@ void ScreenComponent::apply()
         button->setDescription (button->getButtonText());
         button->setTooltip (button->getButtonText());
     }
-    reveal.setVisible (shown.revealShown);
+    reveal.setVisible (shown.revealShown && !shown.alignOffShown);
     reveal.setEnabled (shown.revealShown && shown.revealEnabled);
     reveal.setTitle (shown.revealTitle);
     reveal.setDescription (shown.revealTitle);
     reveal.setTooltip (shown.revealTitle);
+    alignOff.setVisible (shown.alignOffShown);
+    alignOff.setTitle ("Turn automatic alignment OFF");
+    alignOff.setDescription (alignOff.getTitle());
+    alignOff.setTooltip (alignOff.getTitle());
     approve.setVisible (shown.approveShown);
     approve.setButtonText (shown.approveText);
     approve.setTitle (shown.approveTitle);
@@ -106,7 +111,7 @@ void ScreenComponent::resized()
 {
     context = presentation::forEditor (getWidth(), getHeight());
     const bool compact = getWidth() < 450;
-    for (auto* button : { &one, &two, &reveal, &end, &approve }) button->setPresentationContext (context);
+    for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff }) button->setPresentationContext (context);
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     detail.setFont (labelFont (context, typography::TextRole::status, typography::Composition::information));
@@ -130,10 +135,11 @@ void ScreenComponent::resized()
     status.setBounds ((!shown.guidanceShown || status.isVisible())
         ? area.removeFromTop (shown.guidanceShown ? needed (status) : compact ? 30 : 48)
         : juce::Rectangle<int>());
-    detail.setBounds (area.removeFromBottom (shown.guidanceShown ? needed (detail) : compact ? 34 : 46));
+    detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
     end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
     reveal.setBounds (actions.reduced (3, 0));
+    alignOff.setBounds (reveal.getBounds());
     area.reduce (0, compact ? 5 : 12);
     const auto causeHeight = needed (cause);
     const auto recoveryHeight = needed (recovery);

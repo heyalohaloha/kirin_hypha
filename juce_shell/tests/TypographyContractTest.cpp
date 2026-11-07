@@ -234,14 +234,6 @@ void verifyPreservedSurfaceText()
             attack_ui::headerHeightFor (context)
             >= attack_ui::titleRowHeight (context) + attack_ui::statusRowHeight (context));
 
-        const auto axisFont = monoFont (
-            context, typography::TextRole::axis,
-            typography::Composition::visualization);
-        KIRIN_TYPOGRAPHY_REQUIRE (fits (
-            axisFont, preset.density == observatory::Density::compact ? "S<0" : "SIDE < 0",
-            space_field::axisLabelWidth (
-                context, preset.density == observatory::Density::compact)));
-
         const auto bodyFont = monoFont (
             context, typography::TextRole::body,
             typography::Composition::visualization);

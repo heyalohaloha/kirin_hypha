@@ -183,7 +183,9 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
     add_test(NAME kirin_live_blind_reuse_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --reuse)
-    set_tests_properties(kirin_live_blind_product kirin_live_blind_reuse_product PROPERTIES TIMEOUT 170)
+    set_tests_properties(kirin_live_blind_reuse_product PROPERTIES TIMEOUT 170)
+    # The full run also walks thirty REAPER loops sample by sample through every wrap.
+    set_tests_properties(kirin_live_blind_product PROPERTIES TIMEOUT 420)
     add_test(NAME kirin_live_blind_loop_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --loop)
     # 100 real-time named PRE laps + 100 real-time Blind laps, plus setup/END assertions.

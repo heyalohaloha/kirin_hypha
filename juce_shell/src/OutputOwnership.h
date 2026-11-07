@@ -38,9 +38,10 @@ enum class State : std::uint8_t
     referenceReturning,  // RETURN で A を上げている途中（0.5 秒）
     liveSession,         // live 比較のセッションがある
     audition,            // B・C・V が出力を持っている
+    candidateSession,    // explicit unsaved A/B, including the return quarantine
     auditionHeld,        // B・C・V の選択を保っている（停止・シークの後に戻す控え、押した後の待ち）
 };
-inline constexpr int stateCount = 16;
+inline constexpr int stateCount = 17;
 
 enum class Verdict : std::uint8_t { allow, refuse, takeOver };
 
@@ -88,15 +89,15 @@ constexpr Rule L = refuse (Reason::layout), R = refuse (Reason::restoring), F = 
                P = refuse (Reason::auditionRunning);
 
 // 行：Activity、列：State（上の並び）。
-//                                layout off byp  rest fin  sLow held lBl  loc  ver  rec  rLow rRet sess aud  held
+//                                layout off byp  rest fin  sLow held lBl  loc  ver  rec  rLow rRet sess aud  cand held
 constexpr Rule table[activityCount][stateCount] {
-    /* liveCompare  */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   A,   H,   U,   A,   A,   T },
-    /* liveBlind    */ { L,     A,  A,   R,   F,   A,   H,   C,   B,   B,   K,   H,   U,   A,   P,   T },
-    /* localBlind   */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   K,   H,   U,   T,   P,   T },
-    /* versionBlind */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   K,   H,   U,   T,   T,   T },
-    /* lowerA       */ { L,     A,  A,   R,   F,   C,   H,   C,   B,   B,   A,   A,   A,   C,   A,   A },
-    /* audition     */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   K,   A,   A,   T,   A,   A },
-    /* recordKeep   */ { L,     A,  A,   A,   A,   A,   A,   B,   B,   B,   A,   A,   A,   A,   P,   A },
+    /* liveCompare  */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   A,   H,   U,   A,   A,   C,   T },
+    /* liveBlind    */ { L,     A,  A,   R,   F,   A,   H,   C,   B,   B,   K,   H,   U,   A,   P,   A,   T },
+    /* localBlind   */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   K,   H,   U,   T,   P,   B,   T },
+    /* versionBlind */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   K,   H,   U,   T,   T,   B,   T },
+    /* lowerA       */ { L,     A,  A,   R,   F,   C,   H,   C,   B,   B,   A,   A,   A,   C,   A,   C,   A },
+    /* audition     */ { L,     A,  A,   R,   F,   H,   H,   C,   B,   B,   K,   A,   A,   T,   A,   C,   A },
+    /* recordKeep   */ { L,     A,  A,   A,   A,   A,   A,   B,   B,   B,   A,   A,   A,   A,   P,   B,   A },
 };
 }
 

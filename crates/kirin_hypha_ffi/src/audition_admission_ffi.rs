@@ -1,6 +1,8 @@
 //! Non-RT admission shared by Reference and local PRE/POST Blind audition.
 
 use super::*;
+#[path = "audition_hold_ffi.rs"]
+mod hold;
 #[path = "reference_analysis_ffi.rs"]
 mod reference_analysis;
 

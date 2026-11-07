@@ -79,7 +79,7 @@ constexpr std::size_t mappingBytes() noexcept
 // slot stamped for its pair and rate that its PRE has not closed.
 constexpr int ringSlots = 4;
 
-// "Local\kh-lc11-" + 16 hex digits + "-" + slot: this logon session's namespace with the creator's
+// "Local\kh-lc16-" + 16 hex digits + "-" + slot: this logon session's namespace with the creator's
 // default access, like the Analysis exchange (INV-LC11).
 std::wstring slotName (std::uint64_t pairKey, int slot)
 {
@@ -173,6 +173,7 @@ bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate, b
         section = handle;
         owner = false;
         ownsDemand = ownsDemandIn;
+        if (ownsDemand) mapped->header.demand.fetch_add (1, std::memory_order_acq_rel);
         pairKeyValue = pairKey;
         sampleRateValue = sampleRate;
         return true;
@@ -188,7 +189,7 @@ void SharedRingMapping::close() noexcept
         if (owner)
             mapped->header.ownerClosed.store (1, std::memory_order_release);
         else if (ownsDemand)
-            mapped->header.demand.store (0, std::memory_order_release);
+            mapped->header.demand.fetch_sub (1, std::memory_order_acq_rel);
         UnmapViewOfFile (mapped);
     }
     if (section != nullptr)
@@ -289,6 +290,7 @@ bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate, b
     mapped = candidate;
     owner = false;
     ownsDemand = ownsDemandIn;
+    if (ownsDemand) mapped->header.demand.fetch_add (1, std::memory_order_acq_rel);
     pairKeyValue = pairKey;
     sampleRateValue = sampleRate;
     return true;
@@ -303,7 +305,7 @@ void SharedRingMapping::close() noexcept
         if (owner)
             mapped->header.ownerClosed.store (1, std::memory_order_release);
         else if (ownsDemand)
-            mapped->header.demand.store (0, std::memory_order_release);
+            mapped->header.demand.fetch_sub (1, std::memory_order_acq_rel);
         munmap (mapped, mappingBytes());
         if (owner)
             shm_unlink (name.c_str());

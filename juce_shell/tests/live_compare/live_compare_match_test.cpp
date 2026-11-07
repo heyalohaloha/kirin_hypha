@@ -256,9 +256,15 @@ static void theMappingShowsAnUnreportedDelay()
     std::printf ("mapping offset: lag %lld (peak %.3f)\n", static_cast<long long> (early.lagFrames), early.peak);
     require (early.determined && early.lagFrames == -480, "an unreported 10 ms delay shows PRE 480 frames early");
     require (early.sampleRate == static_cast<double> (rate), "the lag counts in the ring's stamped rate");
-    Pair early1;
-    early1.run (0.5, 1.0f, 0.5f);
-    require (! measureOffset (*early1.ring, early1.renderer).determined, "without enough history nothing is claimed");
+    Pair insufficient;
+    insufficient.run (0.25, 1.0f, 0.5f);
+    const auto absent = measureOffset (*insufficient.ring, insufficient.renderer);
+    require (!absent.windowReady && !absent.determined, "without enough history nothing is claimed");
+    Pair shortWindow;
+    shortWindow.run (0.5, 1.0f, 0.5f);
+    const auto ready = measureOffset (*shortWindow.ring, shortWindow.renderer);
+    require (ready.windowReady && ready.determined && ready.lagFrames == 0,
+             "a shorter validated window settles before the full window is available");
 }
 
 // INV-LC7 / LC10: one estimate never decides; two agreeing ones settle the offset and the run's

@@ -283,14 +283,14 @@ mod tests {
         let body = between(PLUGIN_EDITOR_CPP, candidate_start, operations_start);
         let operations = between(PLUGIN_EDITOR_CPP, operations_start, operations_end);
         for required in [
-            "const auto cands = processorRef.enumeratePreCandidates();",
+            "const auto cands = processorRef.enumeratePreCandidatesForMenu();",
             "const auto claims = processorRef.enumeratePostPairClaims();",
             "const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (",
             "ownInstanceId, processorRef.pairedPreInstanceId(), claims);",
             "const bool selected = currentPreInstanceId.isNotEmpty()",
             "c.instanceId == currentPreInstanceId",
             "const bool inUse = claimedByOtherPost",
-            "sameNameCount > 1",
+            "hypha::pair_labels::menuLabel (cands, c)",
             "labelEnabled.add (! inUse);",
             "labelChecked.add (selected && ! inUse);",
             "menu.addSectionHeader (\"PRE connection\");",
@@ -301,8 +301,9 @@ mod tests {
             assert!(body.contains(required), "candidate menu missing {required}");
         }
         assert!(
-            body.contains("c.hasName && c.name.isNotEmpty()")
-                && body.contains("c.instanceId.substring (0, 8)"),
+            include_str!("../../juce_shell/src/HyphaPairLabels.h").contains("duplicates > 1")
+                && include_str!("../../juce_shell/src/HyphaPairLabels.h")
+                    .contains("candidate.instanceId.substring (0, 8)"),
             "unnamed PREs must remain independently selectable by an exact-id fallback label"
         );
         assert!(!body.contains("c.name == currentPairName"));

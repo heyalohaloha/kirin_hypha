@@ -22,7 +22,7 @@ void verifySharedRingAbi (live_compare::SharedRingMapping& pre,
    #if ! defined (_WIN32)
     // A POST of the previous version looks for its own versioned name and finds no PRE at all.
     auto olderName = sharedRingName (pairKey);
-    olderName.replace (0, 8, "/kh-lc10");
+    olderName.replace (0, olderName.find ('-', 4), "/kh-lc" + std::to_string (ringVersion - 1));
     require (shm_open (olderName.c_str(), O_RDWR, 0) < 0, "a reader of the previous version cannot find this ring");
    #endif
 }

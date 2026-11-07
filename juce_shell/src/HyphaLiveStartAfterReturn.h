@@ -10,14 +10,15 @@ enum class StartAfterReturn : std::uint8_t { refuse, returnFirst, waitForReturn,
 // 押したときの入口の答えから：RETURN が先なら、戻してから始める。ほかの断りは今までどおり理由を言う。
 constexpr StartAfterReturn onStartPressed (live_compare::StartResult result) noexcept
 {
-    return result == live_compare::StartResult::returnRequired ? StartAfterReturn::returnFirst
+    return (result == live_compare::StartResult::returnRequired || result == live_compare::StartResult::returnPending) ? StartAfterReturn::returnFirst
                                                                 : StartAfterReturn::refuse;
 }
 
 // LISTEN の入口（MENU・足元）を出すか：始められる時と、RETURN してから始められる時（音の側の開始の守りは変えない）。
 constexpr bool entryOffered (live_compare::StartResult admission) noexcept
 {
-    return admission == live_compare::StartResult::started || admission == live_compare::StartResult::returnRequired;
+    return admission == live_compare::StartResult::started || admission == live_compare::StartResult::returnRequired
+        || admission == live_compare::StartResult::returnPending;
 }
 
 // 待たせた押しの今の入口の答えから：戻りの途中は待ち、戻り終えたら始める（ほかの断りは始める側が言う）。

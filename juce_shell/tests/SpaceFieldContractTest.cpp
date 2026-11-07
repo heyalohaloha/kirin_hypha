@@ -1,4 +1,5 @@
 #include "SpaceFieldContractTest.h"
+#include "SpaceLiveContract.h"
 
 #include "../src/HyphaMonoSumPainter.h"
 #include "../src/HyphaMonoSumHistory.h"
@@ -340,6 +341,8 @@ void verifyMonoSumCurveRendering()
 
 void verifySpaceFieldContract()
 {
+    space_live_contract::verify();
+    space_live_contract::verifyRendering (fixture (false));
     verifyMonoSumScale();
     verifyMonoSumHistory();
     verifyMonoSumFieldInk();

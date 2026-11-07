@@ -290,7 +290,7 @@ inline void failInitialSourceOpen (const ref::RuntimeSource& source)
 {
     if (source.absolutePath != initialOpenFailurePath) return;
     ++initialOpenFailures;
-    ref::revision_detail::verifyFailureForTest.store (1);
+    ref::revision_detail::threadOpenFailureForTest = true;
 }
 inline void testReferenceInitialCopyAudition (const juce::File& sandbox)
 {

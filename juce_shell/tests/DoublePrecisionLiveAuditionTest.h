@@ -27,6 +27,8 @@ inline void verifyDoublePrecisionLiveAudition()
         return processor;
     };
     auto pre = prepare (Processor::Role::Pre), post = prepare (Processor::Role::Post);
+    // The deliberately different periodic PCM tests precision, not content correspondence.
+    post->setLiveCompareAutoAlign (false);
     DoublePrecisionListenDiagnostics diagnostic;
     bool allowAudition = false, sawMixedFade = false;
     int stableBlocks = 0;

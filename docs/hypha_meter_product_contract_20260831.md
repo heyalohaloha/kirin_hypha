@@ -305,13 +305,35 @@ M/S中はΔだけをdisabledにし、Δ中はM/Sだけをdisabledにする。
 
 LR、MID、SIDEへ戻ればΔを再び選択でき、targetやpairの状態を自動変更しない。
 
-SPACEはcorrelation差分の定義と知覚上の意味を固定するまでPOSTだけを持つ。
-SPACEの主表示は、同じ100 ms観測境界からMeasure Threadが生成するrolling 3秒のMID/SIDE densityとする。
-MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最大1024点を蓄積する。
-表示用に符号を保つ平方根compandingを行い、3秒窓内の最大cellを255としてdensityを正規化する。
+SPACEはPRE／POSTとも自身の絶対観測を持ち、correlationのPRE／POST差分を作らない。
+画面の主表示は、元のA入力の最新80 msを各audio blockで公開する表示専用の点群とする。
+縦は`(L+R)/2`、横は`(L-R)/2`を符号付き平方根で圧縮した連続座標とし、固定cellへ丸めない。
+点は物理pixelの部分被覆で描き、古い点ほど薄くする。再描画は60 Hz、背景と筐体は静止する。
+MID／SIDEの軸名・符号ラベル、中央と右上のFIELD札を描かず、図を指した説明を日英で残す。
+
+表示tapは事前確保した固定領域へのcopyとlock-free atomic公開だけをAudio Threadで行う。
+読取り競合は1 frame見送り、待機・再試行をしない。競合中も採用済みsnapshotのcallback時刻と期限で点群を消す。
+表示時刻を取得した直後の新しいcallback公開も競合として扱い、有効な直前の点群を保持して次frameで更新する。
+SPACEを隠す／閉じる、別ページやVUへ切り替えると
+取得と描画timerを止める。再表示、seek、停止／再開、callback gap、format再準備は以前の点と混ぜない。
+native窓の最小化／復元は既存editor timerでも再評価し、visibility通知がなくても選択したSPACEへ自動復帰する。
+Windowsは埋込みpeerだけでなくnative親窓の非表示と最小化も確認する。
+macOSはnative祖先ビューの非表示と所属窓の非表示／最小化も確認する。
+停止したproject位置での監視入力は同じ位置なら続け、停止中の前後seekでは新しいPCMだけで窓を始める。
+AUのtransport情報が無い時もrender時計の不連続、時計種別の変更、Reset世代で窓を切る。
+AAXの分割callbackは既存のchunk判定と連続engine時計で表示専用の位置を確かめる。
+同じproject位置の繰返しは正確なchunk終端が実証された後だけ補間し、seek／Reset／時計欠落では旧証明を捨てる。
+Recordへはhostが報告した位置をそのまま渡す。
+callbackが止まったままのときも、最新callbackから`max(120 ms, block長×2+20 ms)`で点群を消す。
+monoとoffline renderは点群を生成しない。monoの理由は全サイズで残す。通常A経路のbit identity、0 sample latencyを維持する。
+
+公開されるFIELDは変更しない。同じ100 ms観測境界からMeasure Threadが生成するrolling 3秒の
+MID/SIDE densityで、25×25の固定fieldへ各観測最大1024点を蓄積する。
+符号を保つ平方根compandingを行い、3秒窓内の最大cellを255としてdensityを正規化する。
 この正規化はstereo形状の事実だけを表し、絶対音量はLEVELが所有する。
-30観測未満は実際の観測数を`WARMING n/30`として表示し、mono、無音、未成立を数値で装わない。
-correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
+Captureの静止密度とその観測数／未成立表示はこの公開値を使い、表示専用tapを保存しない。
+correlationとL/R balanceも従来のrolling 3秒窓と100 ms公開のまま維持する。
+Record／Keep、保存形式、Kirin OSへ渡す値と3秒統計を変えない。発光や点の色を品質判定へ使わない。
 
 ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYはexact PRE/POSTを重ね、
 TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは、POSTをPREのonsetで同じ窓のまま測り直した打音ごとの`POST−PRE`を描く（B-1016）。
@@ -802,7 +824,7 @@ Guideは既定で含めず、明示選択時だけ含める。
 visual方向はConcept Cで確定した。
 情報設計は既存動線を固定せず、`LEVEL / TIME / FREQ / SPACE`を上位構造として進める。
 Meter Sessionはplugin instanceの同一runtime中だけ保持し、DAW project reloadでは空のSessionから開始する。
-SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。
+SPACEはPRE／POST自身の実測stereo表示を持ち、意味未定義のΔ表示は作らない。
 Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合だけHypha対象App License確認をgateとし、未搭載を公開blockerにしない。
 
 2026-10-09の性能修正では、非RTの参照音源rate変換で左右共通係数の重複計算だけを除く。出力PCM、測定値、操作、針や曲線の応答は保持する。FREQの6秒履歴が奥へ流れる表現と表示cadenceを維持し、単体converterの改善を実DAW全体の性能受入へ読み替えない。根拠は[G3 receipt](planning/hypha_drum_psr_g3_20261008/validation-receipt.json)。

@@ -9,12 +9,14 @@ inline void diagnoseReaperWraps()
     for (const auto length : { 383999, 384000, 384001 })
     for (const auto delay : { 0, 4096 })
     for (const auto extraLead : { 0, 512, 4096 })
+    for (const auto phase : { 0, 1, 254 }) // a POST callback need not share PRE's grid
     {
         Host host;
         host.length = length; host.runtimeBound = true;
         host.runtimeDelay = static_cast<std::uint32_t> (delay);
         const auto lead = delay + extraLead;
         for (int i = 0; i < lead / frames; ++i) host.publish();
+        if (phase > 0) { host.preFrames = phase; host.publish(); host.preFrames = frames; }
         hypha::tests::ProductTestClock clock;
         std::uint64_t fallback = 0, mixed = 0, wraps = 0, fallbackBlocks = 0, unverifiedPre = 0;
         bool heard = false;
@@ -51,8 +53,8 @@ inline void diagnoseReaperWraps()
                 ++fallbackBlocks;
             }
         }
-        std::printf ("WRAP_SUMMARY length=%d delay=%d lead=%d wraps=%llu fallbackBlocks=%llu POST=%llu mixed=%llu wrong=%llu unverifiedPRE=%llu heard=%d\n",
-            length, delay, lead, static_cast<unsigned long long> (wraps), static_cast<unsigned long long> (fallbackBlocks),
+        std::printf ("WRAP_SUMMARY length=%d delay=%d lead=%d phase=%d wraps=%llu fallbackBlocks=%llu POST=%llu mixed=%llu wrong=%llu unverifiedPRE=%llu heard=%d\n",
+            length, delay, lead, phase, static_cast<unsigned long long> (wraps), static_cast<unsigned long long> (fallbackBlocks),
             static_cast<unsigned long long> (fallback), static_cast<unsigned long long> (mixed),
             static_cast<unsigned long long> (host.wrongFrames), static_cast<unsigned long long> (unverifiedPre), heard);
         require (heard && host.wrongFrames == 0 && unverifiedPre == 0, "independent PCM occurrence and fail-closed output oracle");

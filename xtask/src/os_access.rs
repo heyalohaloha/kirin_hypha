@@ -2,10 +2,10 @@
 mod tests {
     use crate::rt_contract_surface::PROCESS_COMPARISON_CALL;
 
-    const PROCESSOR: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginProcessor.cpp"
-    ));
+    const PROCESSOR: &str = concat!(
+        include_str!("../../juce_shell/src/ProcessorAudioCallback.h"),
+        include_str!("../../juce_shell/src/PluginProcessor.cpp")
+    );
     const GUIDE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessorGuideTransport.cpp"

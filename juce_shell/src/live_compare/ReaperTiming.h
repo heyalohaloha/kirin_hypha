@@ -25,10 +25,10 @@ inline bool reaperProcessing (const BlockClock& block) noexcept
         && block.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
 }
 
-// The mailbox supplies no token for a callback that a publication raced (or one read torn).
-// An absent token is not a changed one: that block is unverified and sounds POST, but the
-// proven K, the PRE generation and a Blind trial are not revoked. A different token still is
-// a changed proof.
+// The mailbox supplies no token until the timer has seen this run twice, or after a revocation.
+// An absent token is not a changed one: once both sides have supplied one that block is
+// unverified and sounds POST, but the proven K, the PRE generation and a Blind trial are not
+// revoked. A different token still is a changed proof.
 inline bool reaperTokenAbsent (const BlockClock& block) noexcept
 {
     return reaperProcessing (block) && block.runtimeChainA == 0 && block.runtimeChainB == 0
@@ -44,6 +44,17 @@ inline void retainReaperToken (BlockClock& block, const BlockClock& previous) no
     block.runtimeChainB = previous.runtimeChainB;
     block.runtimeRevision = previous.runtimeRevision;
     block.maximumDelaySamples = previous.maximumDelaySamples;
+}
+
+// The first token after a start names the chain those absent blocks ran on; nothing proven
+// yet can disagree with it. Without this the whole pair would re-prove moments after starting.
+inline void adoptFirstReaperToken (BlockClock& proven, const BlockClock& block) noexcept
+{
+    if (! reaperTokenAbsent (proven) || reaperTokenAbsent (block)) return;
+    proven.runtimeChainA = block.runtimeChainA;
+    proven.runtimeChainB = block.runtimeChainB;
+    proven.runtimeRevision = block.runtimeRevision;
+    proven.maximumDelaySamples = block.maximumDelaySamples;
 }
 
 // A burst pause is only a scheduling observation. Defer a raw wall gap to the pair

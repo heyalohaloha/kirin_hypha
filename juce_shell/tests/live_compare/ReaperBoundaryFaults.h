@@ -45,9 +45,11 @@ inline void negative()
         Fault::postRevision };
     for (const auto length : { 383999, 384001 })
     for (const auto after : { false, true })
+    for (const auto phase : { 0, 1, 254 }) // a POST block can straddle PRE's split
     for (const auto fault : faults)
     {
         Host host; host.length = length; host.runtimeBound = true;
+        if (phase > 0) { host.preFrames = phase; host.publish(); host.preFrames = frames; }
         while (host.postPosition / length == 0
                && host.postPosition % length + frames <= length) host.consume();
         if (after) host.consume();
@@ -57,8 +59,8 @@ inline void negative()
         {
             host.consume();
             if (host.report.verdict == Verdict::accepted || host.report.preAudible)
-                std::fprintf (stderr, "boundary failure: length=%d after=%d fault=%d block=%d\n",
-                              length, after, int (fault), n);
+                std::fprintf (stderr, "boundary failure: length=%d after=%d phase=%d fault=%d block=%d\n",
+                              length, after, phase, int (fault), n);
             require (host.report.verdict != Verdict::accepted && !host.report.preAudible,
                      "fault cannot use old K to admit PRE");
         }

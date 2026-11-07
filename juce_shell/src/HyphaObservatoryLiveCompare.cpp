@@ -21,7 +21,7 @@ juce::String signedGain (int tenths)
 
 void View::configureComparisonEntries()
 {
-    for (auto* button : { &localBlindButton, &liveCompareButton, &livePreButton, &livePostButton,
+    for (auto* button : { &localBlindButton, &liveCompareButton, &candidateCompareButton, &livePreButton, &livePostButton,
                           &liveMatchButton, &liveEndButton, &liveReturnButton })
     {
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -33,6 +33,11 @@ void View::configureComparisonEntries()
     localBlindButton.setTooltip (localBlindButton.getDescription());
     localBlindButton.onClick = [this] { if (onLocalBlind) onLocalBlind(); };
 
+    candidateCompareButton.setComponentID ("observatory-candidate-compare");
+    candidateCompareButton.setTitle ("A/B");
+    candidateCompareButton.setDescription ("Compare A and B on one track");
+    candidateCompareButton.setTooltip (candidateCompareButton.getDescription());
+    candidateCompareButton.onClick = [this] { if (onCandidateCompare) onCandidateCompare(); };
     liveCompareButton.setComponentID ("observatory-live-compare");
     liveCompareButton.setTitle ("PRE / POST Listen");
     liveCompareButton.setDescription ("Switch between PRE and POST while playing. Comparison continues when this window closes");
@@ -79,12 +84,13 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 {
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton })
         button->setVisible (false);
+    localBlindButton.setTitle (liveCompareState.candidate ? "A/B Blind Compare" : "PRE / POST Blind Compare");
     if (captureFrame)
         return false;
     if (liveCompareState.finishing)
     {
         // The comparison is closed. Keep the pending rise and MENU, not disabled trial controls.
-        for (auto* button : { &hybridVuButton, &stopButton, &noteButton, &localBlindButton, &liveCompareButton })
+        for (auto* button : { &hybridVuButton, &stopButton, &noteButton, &localBlindButton, &liveCompareButton, &candidateCompareButton })
             button->setVisible (false);
         const auto pending = liveCompareState.postHeldTenthsDb < 0
             ? "RETURNING " + signedGain (-liveCompareState.postHeldTenthsDb) : juce::String ("RETURNING");
@@ -101,17 +107,23 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     }
     if (! liveCompareState.active)
         return liveCompareState.postHeldTenthsDb < 0 && layoutHeldAttenuation (actions);
-    for (auto* button : { &hybridVuButton, &stopButton, &noteButton, &localBlindButton, &liveCompareButton })
+    for (auto* button : { &hybridVuButton, &stopButton, &noteButton, &localBlindButton, &liveCompareButton, &candidateCompareButton })
         button->setVisible (false);
 
     const auto& state = liveCompareState;
-    const juce::String named = state.matched ? "PRE " + signedGain (state.preGainTenthsDb) : juce::String ("PRE");
-    const int namedWidth = juce::jmax (footerButtonWidth (named), footerButtonWidth ("PRE WAIT"));
-    const int briefWidth = juce::jmax (footerButtonWidth ("PRE"), footerButtonWidth ("WAIT"));
+    liveEndButton.setDescription (state.candidate ? "End A/B and restore the chain" : "End listening and restore normal POST level");
+    liveEndButton.setTooltip (liveEndButton.getDescription());
+    const juce::String preLabel = state.candidate ? "A" : "PRE";
+    const juce::String postLabel = state.candidate ? "B" : "POST";
+    const juce::String named = state.matched ? preLabel + " " + signedGain (state.preGainTenthsDb) : preLabel;
+    const int namedWidth = state.candidate ? footerButtonWidth (named)
+        : juce::jmax (footerButtonWidth (named), footerButtonWidth ("PRE WAIT"));
+    const int briefWidth = state.candidate ? juce::jmax (footerButtonWidth (preLabel), footerButtonWidth (postLabel))
+        : juce::jmax (footerButtonWidth ("PRE"), footerButtonWidth ("WAIT"));
     const int matchWidth = juce::jmax (footerButtonWidth ("MATCH"), footerButtonWidth ("TP LIMIT"),
                                        footerButtonWidth ("AUTO"));
     const bool postLowered = state.postHeldTenthsDb < 0;
-    const juce::String postNamed = postLowered ? "POST " + signedGain (state.postHeldTenthsDb) : juce::String ("POST");
+    const juce::String postNamed = postLowered ? postLabel + " " + signedGain (state.postHeldTenthsDb) : postLabel;
     liveEndButton.setButtonText (state.finishing ? "RETURNING"
         : postLowered ? "END " + signedGain (-state.postHeldTenthsDb) : juce::String ("END"));
     liveEndButton.setEnabled (! state.finishing);
@@ -133,10 +145,11 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const auto widthsFor = [&] (const juce::Array<juce::Button*>& set, int preWidth, bool rich)
     {
         juce::Array<int> widths;
+        const auto pairWidth = state.candidate ? juce::jmax (preWidth, footerButtonWidth (rich ? postNamed : postLabel)) : preWidth;
         for (auto* button : set)
-            widths.add (button == &livePreButton ? preWidth
+            widths.add (button == &livePreButton ? pairWidth
                         : button == &liveMatchButton ? matchWidth
-                        : button == &livePostButton ? footerButtonWidth (rich ? postNamed : "POST")
+                        : button == &livePostButton ? (state.candidate ? pairWidth : footerButtonWidth (rich ? postNamed : postLabel))
                                                     : footerButtonWidth (button->getButtonText()));
         return widths;
     };
@@ -158,15 +171,17 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const juce::String preHelp = *state.recoveryHelp != 0 ? state.recoveryHelp
         : state.matched ? "Listen to PRE, the input of this chain, at the level MATCH set"
                         : "Listen to PRE, the input of this chain. MATCH levels it to POST";
-    livePreButton.setButtonText (brief ? "PRE" : named);
-    livePreButton.setDescription (preHelp);
-    livePreButton.setTooltip (preHelp);
+    livePreButton.setButtonText (brief ? preLabel : named);
+    livePreButton.setTitle (preLabel);
+    livePreButton.setDescription (state.candidate ? "Listen to A" : preHelp);
+    livePreButton.setTooltip (livePreButton.getDescription());
     livePreButton.setToggleState (state.preSelected, juce::dontSendNotification);
     const juce::String postHelp = postLowered ? "Listen to POST, lowered by the attenuation you approved"
                                               : "Listen to POST, the output of this chain";
-    livePostButton.setButtonText (brief ? "POST" : postNamed);
-    livePostButton.setDescription (postHelp);
-    livePostButton.setTooltip (postHelp);
+    livePostButton.setButtonText (brief ? postLabel : postNamed);
+    livePostButton.setTitle (postLabel);
+    livePostButton.setDescription (state.candidate ? "Listen to B" : postHelp);
+    livePostButton.setTooltip (livePostButton.getDescription());
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
     const juce::String matchHelp = state.following
         ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO"
@@ -175,13 +190,27 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         : state.matched ? "Press to MATCH again or to let PRE follow POST (AUTO)"
                         : "Match PRE to POST loudness over the latest four seconds";
     liveMatchButton.setButtonText (state.following ? "AUTO" : state.matchLimited ? "TP LIMIT" : "MATCH");
-    liveMatchButton.setDescription (matchHelp);
-    liveMatchButton.setTooltip (matchHelp);
+    const juce::String candidateMatchHelp = state.following
+        ? "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO"
+        : state.matchLimited
+        ? "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again"
+        : state.matched ? "Press MATCH to match again or start AUTO (A follows B)"
+                        : "Match A to B loudness over the latest four seconds";
+    liveMatchButton.setTitle (state.candidate ? liveMatchButton.getButtonText() : "MATCH");
+    liveMatchButton.setDescription (state.candidate ? candidateMatchHelp : matchHelp);
+    liveMatchButton.setTooltip (liveMatchButton.getDescription());
     liveMatchButton.setToggleState (state.matched, juce::dontSendNotification);
     operationsButton.setVisible (chosen->contains (&operationsButton));
     for (auto* button : *chosen)
         button->setVisible (true);
     placeFooterButtons (*chosen, widthsFor (*chosen, brief ? briefWidth : namedWidth, ! brief), actions);
+    if (state.candidate && livePreButton.isVisible() && livePostButton.isVisible())
+    {
+        // The rail's integer remainder can give one slot an extra pixel; keep A/B identical.
+        const auto width = juce::jmin (livePreButton.getWidth(), livePostButton.getWidth());
+        livePreButton.setSize (width, livePreButton.getHeight());
+        livePostButton.setSize (width, livePostButton.getHeight());
+    }
     return true;
 }
 
@@ -190,6 +219,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 // session that keeps it.
 bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
 {
+    candidateCompareButton.setVisible (liveCompareState.entryEnabled);
     localBlindButton.setVisible (localBlindEntryEnabled && liveCompareState.blindAvailable);
     localBlindButton.setEnabled (liveCompareState.blindAvailable && ! keepActive);
     liveReturnButton.setStatusOnly (false);
@@ -199,12 +229,20 @@ bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
     juce::Array<juce::Button*> everything;
     for (auto* button : { static_cast<juce::Button*> (&hybridVuButton), static_cast<juce::Button*> (&stopButton),
                           static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveReturnButton),
-                          static_cast<juce::Button*> (&liveCompareButton), static_cast<juce::Button*> (&localBlindButton),
+                          static_cast<juce::Button*> (&liveCompareButton), static_cast<juce::Button*> (&candidateCompareButton), static_cast<juce::Button*> (&localBlindButton),
                           static_cast<juce::Button*> (&operationsButton) })
         if (button == &liveReturnButton || button->isVisible())
             everything.add (button);
-    const std::array<juce::Array<juce::Button*>, 3> sets {
+    juce::Array<juce::Button*> auditions { &liveReturnButton };
+    for (auto* button : { &liveCompareButton, &candidateCompareButton, &localBlindButton, &operationsButton })
+        if (button->isVisible()) auditions.add (button);
+    juce::Array<juce::Button*> candidateEntry { &liveReturnButton };
+    if (candidateCompareButton.isVisible()) candidateEntry.add (&candidateCompareButton);
+    candidateEntry.add (&operationsButton);
+    const std::array<juce::Array<juce::Button*>, 5> sets {
         everything,
+        auditions,
+        candidateEntry,
         juce::Array<juce::Button*> { &liveReturnButton, &operationsButton },
         juce::Array<juce::Button*> { &liveReturnButton } };
     const auto widthsFor = [&] (const juce::Array<juce::Button*>& set, const juce::String& returnText)
@@ -228,7 +266,7 @@ bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
         if (fits (set, named)) { chosen = &set; returnText = named; break; }
     }
     for (auto* button : { static_cast<juce::Button*> (&hybridVuButton), static_cast<juce::Button*> (&stopButton),
-                          static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveCompareButton),
+                          static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveCompareButton), static_cast<juce::Button*> (&candidateCompareButton),
                           static_cast<juce::Button*> (&localBlindButton), static_cast<juce::Button*> (&operationsButton) })
         button->setVisible (chosen->contains (button));
     liveReturnButton.setButtonText (returnText);

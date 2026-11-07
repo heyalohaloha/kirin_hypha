@@ -174,6 +174,31 @@ try
     require (argc == 3, "channel layout and scenario must be explicit");
     const juce::String layout (argv[1]), scenario (argv[2]);
     require (layout == "mono" || layout == "stereo", "supported channel layout");
+    if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery")
+    {
+        ReferenceValidationStorageSandbox sandbox;
+        hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
+        if (scenario == "alignment_restart") restartingConfirmsNewContent (layout == "mono" ? 1 : 2);
+        if (scenario == "alignment_publication")
+        {
+            publicationKeepsConfirmedAudio (layout == "mono" ? 1 : 2);
+            repeatedAudioKeepsComparisonMoving (layout == "mono" ? 1 : 2);
+        }
+        if (scenario == "alignment_recovery")
+        {
+            newMappingStartsWithOneVote (layout == "mono" ? 1 : 2);
+            waitingBlindCanDisableAlignment (layout == "mono" ? 1 : 2);
+            heardSourcesCanRevealDuringRecheck (layout == "mono" ? 1 : 2);
+        }
+        std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
+        return 0;
+    }
+    if (scenario == "alignment")
+    {
+        verifyAlignSessions (layout == "mono" ? 1 : 2);
+        std::cout << "Alignment sessions: PASS (" << layout << ")\n";
+        return 0;
+    }
     void (*run) (Fixture&) = nullptr;
     if (scenario == "certified") run = certified;
     if (scenario == "uncertified") run = uncertified;

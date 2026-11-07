@@ -51,7 +51,7 @@ void ReaperPdcAdapter::setHost (Steinberg::FUnknown* host)
     if (impl->host) impl->host->release();
     impl->host = host;
 }
-void ReaperPdcAdapter::service (bool interested)
+void ReaperPdcAdapter::service (bool interested, bool returnOnly)
 {
     inspecting = false;
     if (!needsService()) return;
@@ -84,9 +84,9 @@ void ReaperPdcAdapter::service (bool interested)
         // fingerprints. PRE owner/generation separately prevents any old mapping from re-entry.
         const auto process = processId()
             ^ static_cast<std::uint64_t> (reinterpret_cast<std::uintptr_t> (api.named));
-        const auto first = readReaperChain (api, project, track, take, process);
-        const auto second = readReaperChain (api, project, track, take, process, &reason);
-        if (first.same (second) && project == host->getReaperParent (3)
+        const auto first = readReaperChain (api, project, track, take, process, nullptr, returnOnly);
+        const auto second = readReaperChain (api, project, track, take, process, &reason, returnOnly);
+        if (first.sameLayout (second) && project == host->getReaperParent (3)
             && track == host->getReaperParent (1) && take == host->getReaperParent (2))
         { reading = second; playing = true; }
         host->release();
@@ -95,4 +95,46 @@ void ReaperPdcAdapter::service (bool interested)
     mailbox.witness (after);
     mailbox.publish (reading, before, after, playing, callbackWallNanos());
 }
+std::vector<ReaperCandidateName> ReaperPdcAdapter::candidateNames() const
+{
+    std::vector<ReaperCandidateName> result;
+    const auto* manager = juce::MessageManager::getInstanceWithoutCreating();
+    if (!manager || !manager->isThisTheMessageThread()) return result;
+    std::lock_guard<std::mutex> lock (impl->mutex);
+    void* raw = nullptr;
+    if (!impl->host || impl->host->queryInterface (reaperHostId, &raw) != Steinberg::kResultOk || !raw) return result;
+    auto* host = static_cast<ReaperHost*> (raw);
+    ReaperChainApi api;
+    resolve (*host, api.valid, "ValidatePtr2"); resolve (*host, api.count, "TrackFX_GetCount");
+    resolve (*host, api.named, "TrackFX_GetNamedConfigParm"); resolve (*host, api.changes, "GetProjectStateChangeCount");
+    auto* project = host->getReaperParent (3); auto* track = host->getReaperParent (1);
+    if (project && track && !host->getReaperParent (2) && api.valid && api.count && api.named && api.changes
+        && api.valid (project, project, "ReaProject*") && api.valid (project, track, "MediaTrack*"))
+    {
+        const auto revision = api.changes (project), count = api.count (track);
+        std::vector<char> buffer (262144, 0);
+        const auto read = [&] (int slot, const char* key) -> juce::String
+        {
+            std::fill (buffer.begin(), buffer.end(), '\x7f');
+            if (!api.named (track, slot, key, buffer.data(), static_cast<int> (buffer.size()))) return {};
+            const auto end = std::find (buffer.begin(), buffer.end(), '\0');
+            if (end == buffer.end() || end + 1 == buffer.end()) return {};
+            return juce::String::fromUTF8 (buffer.data(), static_cast<int> (end - buffer.begin()));
+        };
+        if (count >= 0 && count <= 256)
+            for (int slot = 0; slot < count; ++slot)
+            {
+                if (read (slot, "fx_type") != "VST3" || !reaperIdentityNamesClass (
+                    read (slot, "fx_ident").toStdString(), "4B6972696E4879706861505245763031")) continue;
+                if (read (slot, "parent_container").isNotEmpty()) continue;
+                const auto id = candidateIdentityFromChunk (read (slot, "vst_chunk"));
+                if (id.isNotEmpty()) result.push_back ({ id, read (slot, "renamed_name"), slot });
+            }
+        if (api.count (track) != count || api.changes (project) != revision
+            || host->getReaperParent (3) != project || host->getReaperParent (1) != track) result.clear();
+    }
+    host->release();
+    return result;
+}
+
 }
