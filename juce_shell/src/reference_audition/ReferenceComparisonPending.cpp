@@ -53,15 +53,7 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     if (binding.source)
     {
         RuntimeV2SourceRepository verifier (juce::File {});
-        const auto revision = verifier.checkSourceRevision (*binding.source);
-        if (revision.state == SourceRevisionState::revalidate) return queueAudition (slot, safety);
-        if (revision.state == SourceRevisionState::refused)
-        {
-            selectA();
-            const juce::ScopedLock lock (selectionLock);
-            pendingAudition.view = { slot, Stage::sourceChanged, revision.reason };
-            return false;
-        }
+        if (verifier.verifySourceRevision (*binding.source).isNotEmpty()) return queueAudition (slot, safety);
     }
     // C は A の音量が何も無いときだけ待たせる（A のまま。待ちの上限を超えたら理由を出す）。A の直近が Cue の長さに
     // 足りないあいだは、今ある A で合わせて鳴らし、たまったら合わせ直す（KirinHyphaEditor::serviceReferenceRematch）。
@@ -74,7 +66,7 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
             return true;
         return waitWhilePreparing (slot);
     }
-    return queueAudition (slot, safety);
+    return queueAudition (slot, safety) || waitWhilePreparing (slot);
 }
 
 // 押した役を待たせる（止まっている・A の音量を待つ・A を下げている途中）。再生で、準備でき次第鳴らす。
@@ -124,7 +116,12 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
             || (now.state == RuntimeState::ready && ! now.auditionBuffered)
             || (now.state == RuntimeState::waiting
                 && (now.rejectionCode == "reference_alignment_waiting_for_content"
-                    || now.rejectionCode == "reference_alignment_ambiguous"))
+                    || now.rejectionCode == "reference_alignment_ambiguous"
+                    || now.rejectionCode == "reference_alignment_source_unavailable"
+                    || now.rejectionCode == "reference_source_read_failed"
+                    || now.rejectionCode == "reference_source_revalidating"
+                    || now.rejectionCode == "reference_source_cache_full"
+                    || now.rejectionCode == "reference_source_copy_failed"))
             || now.matchFailure == MatchFailure::liveLevelUnavailable);
     if (! settles) return false;
     selectA();
@@ -147,12 +144,17 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     PendingIntent intent;
     { const juce::ScopedLock lock (selectionLock); intent = pendingAudition; }
     if (!intent.view.waiting() || activePendingIntent.load (std::memory_order_acquire) != intent.intentId) return;
+    auto& target = slotController (intent.view.slot);
+    const auto state = target.snapshot();
     const auto publish = [&] (Stage stage, bool sawPlayback = false, const juce::String& reason = {})
     {
         const juce::ScopedLock lock (selectionLock);
         if (pendingAudition.intentId == intent.intentId)
         {
-            pendingAudition.view.stage = stage; pendingAudition.sawPlayback |= sawPlayback;
+            pendingAudition.view.stage = stage;
+            // Hosts can keep callbacks alive while stopped. Source revalidation must not
+            // turn that heartbeat into playback and cancel the queued choice next time.
+            pendingAudition.sawPlayback |= sawPlayback && state.transportPlaying;
             pendingAudition.view.reasonCode = reason;
             if (reason != "reference_page_waiting" && reason != "reference_page_wait_slow")
                 pendingAudition.pageWaitSince = -1.0;
@@ -181,8 +183,6 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         publish (Stage::checking, callbackLive, nowSeconds - since >= PendingAuditionView::pageNoticeSeconds
             ? "reference_page_wait_slow" : "reference_page_waiting");
     };
-    auto& target = slotController (intent.view.slot);
-    const auto state = target.snapshot();
     // 戻す控えが消えた（ライブラリが公開を引っ込めた）なら、同じ音が戻っても鳴らさない。音源が変わったと言う。
     if (intent.resume && ! target.hasHeldSelection())
     { dropResume(); publish (Stage::sourceChanged, true, state.rejectionCode); return; }
@@ -217,12 +217,13 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     if (state.state == RuntimeState::ready && binding.source)
     {
         RuntimeV2SourceRepository verifier (juce::File {});
-        const auto revision = verifier.checkSourceRevision (*binding.source);
-        if (revision.state == SourceRevisionState::revalidate)
+        if (verifier.verifySourceRevision (*binding.source).isNotEmpty())
         { publish (Stage::checking, callbackLive); return; }
-        if (revision.state == SourceRevisionState::refused)
-        { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, false, revision.reason); return; }
     }
+    // The monitor can recover before the page worker publishes that recovery. Keep the
+    // request through both observations; only a decoder's confirmed read failure ends it.
+    if (state.auditionPages == AuditionPageState::sourceUnavailable)
+    { publish (Stage::checking, callbackLive); return; }
     if (state.auditionPages == AuditionPageState::outsideSource || state.auditionPages == AuditionPageState::readFailed)
     {
         // 停止の後に同じ V へ戻る自動の戻し（resume）は、再生位置が版の範囲外でも捨てない。範囲外のあいだは A のまま

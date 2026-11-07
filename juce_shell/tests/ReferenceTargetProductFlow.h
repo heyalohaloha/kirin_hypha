@@ -22,6 +22,13 @@ template <auto Timeline, auto Deadline, auto Refresh> struct HoldAccess
 };
 template struct HoldAccess<&KirinHyphaEditor::referenceSwitchTimeline, &KirinHyphaEditor::referenceSwitchHoldUntilMs,
                           &KirinHyphaEditor::refreshReferenceAudition>;
+struct ServiceTag {};
+void serviceProcessor (KirinHyphaProcessorBase&, ServiceTag);
+template <auto Tick> struct ProcessorAccess
+{
+    friend void serviceProcessor (KirinHyphaProcessorBase& processor, ServiceTag) { (processor.*Tick)(); }
+};
+template struct ProcessorAccess<&KirinHyphaProcessorBase::timerCallback>;
 }
 
 // Runs inside the existing product fixture's event loop and real audio callback.
@@ -157,7 +164,7 @@ public:
             if (! processor.selectReferenceAWindow (runtime.aWindowTarget, hypha::reference_audition::AWindowChoice::cue)) return false;
             selected = targets.collection.items.front().id;
             require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "select the new numeric target");
-            writeLongCheck (root);
+            checkSourceReceipt = writeLongCheck (root);
             stage = 3; started = std::chrono::steady_clock::now(); return false;
         }
         if (stage == 3)
@@ -237,7 +244,6 @@ public:
             require (painted && processor.referenceAuditionSnapshot().pendingAudition.waiting(),
                      "the shipping editor paints the async drop failure without cancelling the queued audition");
             require (root.getChildFile ("long-check.wav").appendText ("changed"), "change the queued C fixture source");
-            playing.store (true);
             stage = 5; started = std::chrono::steady_clock::now(); return false;
         }
         if (stage == 7)
@@ -275,11 +281,38 @@ public:
         }
         if (stage == 5)
         {
+            if (! sourceLossObserved)
+            {
+                if (! runtime.checkSelection
+                    || runtime.checkSelection->auditionPages != hypha::reference_audition::AuditionPageState::sourceUnavailable) return false;
+                require (runtime.pendingAudition.waiting() && runtime.pendingAudition.slot == 2
+                    && runtime.audibleComparisonSlot == 0 && runtime.checkSelection->sourceFailureReason == "reference_source_changed",
+                    "confirmed source loss keeps the queued C silent and selected while retrying");
+                hypha::tests::target_editor::serviceProcessor (processor, {});
+                hypha::tests::target_editor::serviceProcessor (processor, {});
+                const auto waiting = processor.referenceAuditionSnapshot();
+                require (waiting.pendingAudition.waiting() && waiting.pendingAudition.slot == 2
+                    && waiting.audibleComparisonSlot == 0,
+                    "stopped callbacks through the real processor service cannot cancel the queued C during source retry");
+                // A changed audio file can recover. A corrupt content-addressed publication
+                // is a definite rejection; use it to exercise numeric C replacing a failure.
+                require (checkSourceReceipt.appendText ("changed"), "corrupt only the queued C source receipt");
+                sourceLossObserved = true; started = std::chrono::steady_clock::now(); return false;
+            }
             if (runtime.pendingAudition.waiting()) return false;
+            if (runtime.pendingAudition.stage != hypha::reference_audition::PendingAuditionView::Stage::sourceChanged
+                || runtime.pendingAudition.reasonCode != "reference_source_receipt_rejected")
+                std::cerr << "Queued C: slot=" << runtime.pendingAudition.slot
+                    << " stage=" << static_cast<int> (runtime.pendingAudition.stage)
+                    << " reason=" << runtime.pendingAudition.reasonCode
+                    << " playing=" << runtime.transportPlaying
+                    << " source=" << (runtime.checkSelection ? runtime.checkSelection->rejectionCode : juce::String {}) << '\n';
             require (runtime.pendingAudition.slot == 2
-                && runtime.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::sourceChanged,
+                && runtime.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::sourceChanged
+                && runtime.pendingAudition.reasonCode == "reference_source_receipt_rejected",
                 "the queued C ends with a visible source failure");
             require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "choose a numeric target after the C failure");
+            playing.store (true);
             stage = 6; started = std::chrono::steady_clock::now(); return false;
         }
         if (stage == 6)
@@ -301,11 +334,12 @@ public:
 private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     juce::MemoryBlock saved;
+    juce::File checkSourceReceipt;
     juce::String selected;
     std::uint64_t openedEpoch = 0;
     bool windowChosen = false, compactRequested = false, expanded = false;
     bool presetChosen = false, channelRoundTripped = false;
-    bool versionChecked = false, unreadableImportStarted = false;
+    bool versionChecked = false, unreadableImportStarted = false, sourceLossObserved = false;
     int stage = 0;
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
     static hypha::reference_ui::Component* findPanel (juce::Component& root)
@@ -314,7 +348,7 @@ private:
         for (auto* child : root.getChildren()) if (auto* panel = findPanel (*child)) return panel;
         return nullptr;
     }
-    static void writeLongCheck (const juce::File& root)
+    static juce::File writeLongCheck (const juce::File& root)
     {
         require (root.getChildFile ("library").createDirectory().wasOk(), "long Check library fixture");
         const auto file = root.getChildFile ("long-check.wav");
@@ -353,6 +387,7 @@ private:
         manifest.getDynamicObject()->setProperty ("version", "1.1");
         manifest.getDynamicObject()->setProperty ("versions", versions["versions"]);
         require (writeJson (root.getChildFile ("library/manifest.json"), manifest), "long Check and Version publication");
+        return root.getChildFile ("sources").getChildFile (receipt.sha256 + ".json");
     }
 };
 

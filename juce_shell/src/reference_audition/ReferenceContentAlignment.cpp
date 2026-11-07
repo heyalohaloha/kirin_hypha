@@ -1,3 +1,4 @@
+#include "ReferenceVerifiedReader.h"
 #include "ReferenceContentAlignment.h"
 #include "ReferenceContentCorrelation.h"
 #include "ReferenceProbeAudio.h"
@@ -126,8 +127,11 @@ namespace hypha::reference_audition
         if (source.audio.sampleRateHz != a.sampleRateHz && !conversionApproved) return result;
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (source.absolutePath)));
-        if (!reader || reader->lengthInSamples != source.audio.totalSampleFrames
+        juce::String failure;
+        auto reader = revision_detail::snapshotReader (formats, source, &failure);
+        if (!reader)
+        { result.reason = "reference_alignment_source_unavailable"; return result; }
+        if (reader->lengthInSamples != source.audio.totalSampleFrames
             || std::abs (reader->sampleRate - source.audio.sampleRateHz) > 0.001
             || reader->numChannels != static_cast<unsigned> (source.audio.channels)) return result;
         const auto positions = expectedSourceStart ? std::vector<std::int64_t> { *expectedSourceStart }
@@ -342,7 +346,10 @@ namespace hypha::reference_audition
         }
         if (matches.empty())
         {
-            if (! expectedSourceStart && informativeA && sourceProbeRead)
+            const auto* verified = dynamic_cast<revision_detail::VerifiedReader*> (reader.get());
+            if (verified && verified->failedReadCount() != 0)
+                result.reason = "reference_alignment_source_unavailable";
+            else if (! expectedSourceStart && informativeA && sourceProbeRead)
                 result.reason = "reference_alignment_no_match";
             return result;
         }

@@ -8,14 +8,14 @@ enum class CheckRepress { none, direct, measured, unavailable };
 
 // Two Checks in one library: the first plays the opening of source.wav, the second a later Cue of
 // the same file or of alternate.wav. Returns the preset; the second Check is preset["checks"][1].
-inline juce::var publishTwoCheckLibrary (const juce::File& root, int channels, bool differentSource)
+inline juce::var publishTwoCheckLibrary (const juce::File& root, int channels, bool differentSource, int totalFrames = 96000)
 {
     const auto makeCandidate = [&] (const juce::String& name, bool alternate)
     {
         const auto file = root.getChildFile (name);
-        juce::AudioBuffer<float> pcm (channels, 96000);
-        std::vector<float> interleaved (static_cast<size_t> (96000 * channels));
-        for (int f = 0; f < 96000; ++f)
+        juce::AudioBuffer<float> pcm (channels, totalFrames);
+        std::vector<float> interleaved (static_cast<size_t> (totalFrames * channels));
+        for (int f = 0; f < totalFrames; ++f)
             for (int ch = 0; ch < channels; ++ch)
             {
                 const auto sample = alternate || f >= 48000 ? 0.5f : 0.25f;
@@ -30,6 +30,7 @@ inline juce::var publishTwoCheckLibrary (const juce::File& root, int channels, b
         const auto hash = juce::SHA256 (file).toHexString(), pcmHash = ref::referenceProbePcmHash (interleaved);
         auto source = makeRuntimeV2Source (file, hash, pcmHash);
         source["audio"].getDynamicObject()->setProperty ("channels", channels);
+        source["audio"].getDynamicObject()->setProperty ("total_sample_frames", totalFrames);
         addRuntimeV2MeasurementSummary (source, -22, -6);
         return bindRuntimeV2PresetToSource ("88888888-8888-4888-8888-888888888888",
             "99999999-9999-4999-8999-999999999999", stageWholeSongArtifact (root, "sources", source), hash, pcmHash);
@@ -132,13 +133,19 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
         require (feed() && block.getSample (0, 511) == 0.25f,
                  "pressing C again keeps the old approved PCM while the next A window is unavailable");
     }
+    std::shared_ptr<const ref::RuntimeSource> changedNext;
     if (invalidateSource)
     {
         require (differentSource, "revision mutation targets only the next source");
+        changedNext = control::preparedSourceFor (control::roleFor (c, {2}), {});
+        require (changedNext != nullptr, "the next source is prepared independently of the audible C");
         const auto file = root.getChildFile ("alternate.wav");
-        auto stream = file.createOutputStream();
-        require (stream && stream->setPosition (file.getSize()) && stream->writeByte (0), "change the prepared fixture file");
-        stream->flush(); require (stream->getStatus().wasOk(), "flush the changed fixture revision");
+        {
+            auto stream = file.createOutputStream();
+            require (stream && stream->setPosition (file.getSize()) && stream->writeByte (0), "change the prepared fixture file");
+            stream->flush(); require (stream->getStatus().wasOk(), "flush the changed fixture revision");
+        }
+        control::probeSourceNow (*changedNext, 4000);
     }
     if (cancel) c.selectA();
     levelAvailable = true;
@@ -156,13 +163,28 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
                      && after.checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded,
                  "a new Cue over the ceiling plays at the ceiling and offers the rest");
     }
-    else if (cancel || invalidateSource)
+    else if (invalidateSource)
+    {
+        require (rendered && c.snapshot().checkSelection->playbackIdentity == state.checkSelection->playbackIdentity
+            && block.getSample (0, 511) == 0.25f && c.pendingSlot() == 2,
+                 "a changed next source keeps the verified old C audible and the new choice pending");
+        {
+            juce::FileOutputStream output (juce::File (changedNext->absolutePath));
+            require (output.openedOk() && output.setPosition (changedNext->revision.sizeBytes.getLargeIntValue())
+                && output.truncate().wasOk(), "restore the prepared source's exact original bytes");
+            output.flush(); require (output.getStatus().wasOk(), "flush the restored fixture source");
+        }
+        control::probeSourceNow (*changedNext); control::service (c);
+        feed();
+        require (feed() && c.snapshot().checkSelection->checkId == second["check_id"].toString()
+            && std::abs (block.getSample (0, 511) - 0.3539729f) < 1.0e-6f,
+                 "the same pending C switches at its approved gain when its exact source returns");
+    }
+    else if (cancel)
     {
         require (!rendered && c.snapshot().audibleComparisonSlot == 0, "cancelled or unsafe new C never acquires output");
         for (int ch = 0; ch < channels; ++ch) for (int f = 0; f < 512; ++f)
             require (block.getSample (ch, f) == 0.125f, "refused new gain preserves live A bit for bit");
-        if (invalidateSource) require (c.snapshot().checkSelection->rejectionCode == "reference_source_changed",
-                                      "a decoded bank never outlives verification of its source revision");
     }
     else
     {

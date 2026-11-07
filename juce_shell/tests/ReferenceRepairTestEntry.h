@@ -1,5 +1,7 @@
 #pragma once
 #include "ReferenceSourceCtimeTest.h"
+#include "ReferenceSourceRecoveryTest.h"
+#include "ReferenceStorageFallbackTest.h"
 #include "ReferenceRetryControllerTest.h"
 #include "ReferenceSourceAuthorityTest.h"
 #include "ReferenceVersionPositionTest.h"
@@ -15,7 +17,11 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
 {
     if (argc != 2) return false;
     const juce::String mode (argv[1]);
-    if (mode == "--pending-audition-only") testReferencePendingAudition (sandbox);
+    if (mode == "--source-recovery-only") testReferenceSourceRecovery (sandbox);
+    else if (mode == "--storage-fallback-only") testReferenceStorageFallback (sandbox);
+    else if (mode == "--source-cache-recovery-only") testReferenceCachedSnapshotRecovery (sandbox);
+    else if (mode == "--initial-copy-audition-only") testReferenceInitialCopyAudition (sandbox);
+    else if (mode == "--pending-audition-only") testReferencePendingAudition (sandbox);
     else if (mode == "--source-ctime-only") testReferenceSourceCtime (sandbox);
     else if (mode == "--source-authority-only") testReferenceSourceAuthorityPerObject();
     else if (mode == "--source-observed-swap-only") testReferenceSourceCtime (sandbox, SourceChange::observedSwap);
@@ -24,6 +30,7 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
         testReferenceSourceCtime (sandbox, SourceChange::modifiedTime);
         testReferenceRetryController (sandbox);
         testReferencePreparedSourceRetry (sandbox);
+        testReferenceInitialSwitchRetry (sandbox);
         testReferenceReselectionRetry (sandbox);
     }
     else if (mode == "--source-page-race-only") testReferenceSourceCtime (sandbox, SourceChange::duringPageRead);
@@ -48,6 +55,7 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
     else if (mode == "--page-switch-only") { testReferencePageStart (sandbox, true); testReferencePageStart (sandbox, true, false, true); testReferencePageStart (sandbox, true, false, false, true); testReferencePageStart (sandbox, true, false, false, false, PageWaitChange::transportStop); testReferencePageStart (sandbox, true, false, false, false, PageWaitChange::newSelection); }
     else if (mode == "--page-first-only") { testReferencePageStart (sandbox, false); testReferencePageStart (sandbox, false, false, true); testReferencePageStart (sandbox, false, false, false, true); testReferencePageStart (sandbox, false, false, false, false, PageWaitChange::transportStop); testReferencePageStart (sandbox, false, false, false, false, PageWaitChange::newSelection); }
     else if (mode == "--version-switch-only") testReferenceVersionSwitch (sandbox);
+    else if (mode == "--version-read-retry-only") testReferenceVersionSwitch (sandbox, false, true);
     else if (mode == "--version-edited-switch-only") testReferenceVersionSwitch (sandbox, true);
     else if (mode == "--content-copy-proof-only") testReferenceWorkingMix (sandbox, true, true);
     else if (mode == "--content-proof-only") testReferenceWorkingMix (sandbox, true);
@@ -68,6 +76,7 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
         testReferenceVersionLoop (sandbox, false, false, true);
         testReferenceVersionSwitch (sandbox);
         testReferenceVersionSwitch (sandbox, true);
+        testReferenceVersionSwitch (sandbox, false, true);
         testReferenceWorkingMix (sandbox);
         testReferenceWorkingMix (sandbox, true);
         testReferenceWorkingMix (sandbox, true, true);

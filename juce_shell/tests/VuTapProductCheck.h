@@ -217,16 +217,29 @@ void verifyVuTapProduct()
                 processor.processBlock (block, midi); clock.position += 512;
                 advanceFrames (512);
             }
+            // Leave a real callback group ahead of wall time, as a fast host can do.
+            for (int callback = 0; callback < 32; ++callback)
+            { processor.processBlock (block, midi); clock.position += 512; }
             const auto recovered = view->onVuLiveReading();
             require (recovered.feeding && recovered.needles[0].value > .15, "finite audio automatically resumes the shipping needle");
             const auto recoveryBegan = hypha::live_compare::callbackWallNanos();
             view->tickVuForTest (1.0 / 60);
             expectVuLiveFrame (*view, recovered, recoveryBegan, hypha::live_compare::callbackWallNanos());
             clock.playing = false; processor.processBlock (block, midi);
-            require (! view->onVuLiveReading().feeding, "unmeasured stop publishes the coast state");
-            view->createComponentSnapshot (view->getLocalBounds()); view->tickVuForTest (1.0 / 60);
-            for (int frame = 0; frame < 18; ++frame)
-            { view->createComponentSnapshot (view->getLocalBounds()); view->tickVuForTest (1.0 / 60); }
+            const auto stopped = view->onVuLiveReading();
+            require (! stopped.feeding, "unmeasured stop publishes the coast state");
+            view->createComponentSnapshot (view->getLocalBounds());
+            const auto returnBegan = hypha::live_compare::callbackWallNanos();
+            view->tickVuForTest (1.0 / 60);
+            const auto returnEnded = hypha::live_compare::callbackWallNanos();
+            // The 300 ms return starts at the processed audio endpoint, not at the stop
+            // callback. Paint speed must not decide how much of that horizon has elapsed.
+            const int returnFrames = 18 + static_cast<int> (std::ceil (stopped.aheadSeconds * 60));
+            for (int frame = 0; frame < returnFrames; ++frame)
+            {
+                view->createComponentSnapshot (view->getLocalBounds()); view->tickVuForTest (1.0 / 60);
+                expectVuLiveFrame (*view, stopped, returnBegan, returnEnded, (frame + 1) / 60.0);
+            }
             require (view->vuPositionForTest (0) < .02, "stale public readings cannot pin the stopped needle");
             advanceFrames (48000);
             vu->onClick(); vu->onClick();

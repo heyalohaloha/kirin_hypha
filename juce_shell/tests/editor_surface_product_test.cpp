@@ -27,7 +27,6 @@
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
-
 namespace {
 using Processor = KirinHyphaProcessorBase;
 static_assert (std::is_same_v<decltype (&Processor::selectReferenceB), bool (Processor::*)()>);
@@ -38,7 +37,6 @@ void require (bool condition, const char* message)
 {
     if (! condition) { std::cerr << "Editor surface: " << message << '\n'; std::exit (1); }
 }
-
 template <typename T> T* component (juce::Component& parent)
 {
     if (auto* result = dynamic_cast<T*> (&parent)) return result;

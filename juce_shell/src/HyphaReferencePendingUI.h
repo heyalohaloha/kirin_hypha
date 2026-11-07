@@ -13,9 +13,9 @@ inline bool settlesByItself (SourceStep step) noexcept
 
 inline bool canQueueSource (const State& state, bool version)
 {
-    const bool waits = state.transportPlaying ? (settlesByItself (version ? state.versionStep : state.checkStep)
-                                                  || (version && state.versionStep == SourceStep::playAnotherPassage))
-                                              : (version ? state.versionArmable : state.checkArmable);
+    const bool waits = settlesByItself (version ? state.versionStep : state.checkStep)
+        || (state.transportPlaying ? (version && state.versionStep == SourceStep::playAnotherPassage)
+                                   : (version ? state.versionArmable : state.checkArmable));
     return state.separateComparisons && state.libraryReceived && waits
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }
@@ -23,7 +23,7 @@ inline bool canQueueSource (const State& state, bool version)
 // B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
 inline bool canQueueReference (const State& state)
 {
-    const bool waits = state.transportPlaying ? settlesByItself (state.referenceStep) : state.referenceArmable;
+    const bool waits = settlesByItself (state.referenceStep) || (!state.transportPlaying && state.referenceArmable);
     return state.separateComparisons && state.libraryReceived && waits
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }

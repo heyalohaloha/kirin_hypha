@@ -220,6 +220,14 @@ private:
                 require (state.referenceSelection && state.audibleComparisonSlot == 3, "B remains selected through the limit");
                 const auto& b = *state.referenceSelection;
                 const bool limited = stage == 10;
+                const auto windowA = post->referenceWindowLoudness (3);
+                std::cerr << "Reference tracking: state=" << static_cast<int> (b.tracking)
+                        << " failure=" << static_cast<int> (b.matchFailure) << " held=" << post->referenceHeldAttenuationDb()
+                        << " gain=" << b.appliedGainDb << " peak-shortfall=" << b.peakShortfallDb
+                        << " range-shortfall=" << b.rangeShortfallDb << " mode=" << b.comparisonMode
+                        << " A=" << b.aIntegratedLoudness << " window-A=" << windowA.loudness
+                        << " window-blocks=" << windowA.blocks << " initial-required=" << initialRequired
+                        << " input-gain=" << inputGain.load() << '\n';
                 require (b.tracking == ref::TrackingState::following && post->referenceHeldAttenuationDb() == 0.0
                              && b.matchFailure == ref::MatchFailure::none,
                          "the processor follows without lowering A or stopping at the range edge");

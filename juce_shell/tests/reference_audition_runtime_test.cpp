@@ -9,6 +9,7 @@
 #include "ReferenceRepairTestEntry.h"
 int main (int argc, char** argv)
 {
+    if (runSnapshotOwnerChild (argc, argv) || runSourceShutdownChild (argc, argv)) return 0;
     if (runReferenceMonoInvocation (argc, argv) || prepareReferenceRuntimeInvocation (argc, argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
@@ -24,6 +25,10 @@ int main (int argc, char** argv)
         require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Preset fixtures must be removed");
         return 0;
     }
+    testReferenceStorageFallback (sandbox);
+    testReferenceCachedSnapshotRecovery (sandbox);
+    testReferenceInitialCopyAudition (sandbox);
+    testReferenceSourceRecovery (sandbox);
     testReferenceAInput();
     testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (hypha::tests::removeFixtureDirectory (sandbox), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);

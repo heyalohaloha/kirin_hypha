@@ -132,6 +132,7 @@ namespace hypha::reference_audition
             && currentPages().readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)
             && mappingAfter == mappingGeneration.load (std::memory_order_acquire);
         // Keep unavailable mapping, missing pages and impossible positions distinct.
+        result.sourceFailureReason = sourceFailureCode (currentPages().sourceFailureReason());
         result.auditionPages = AuditionPageState::positionUnknown;
         if (publishedReady && result.transportPositionValid)
         {
@@ -140,6 +141,8 @@ namespace hypha::reference_audition
                 result.auditionPages = AuditionPageState::mappingUnstable;
             else if (versionComparison && sourcePosition == std::numeric_limits<std::int64_t>::min())
                 result.auditionPages = AuditionPageState::positionUnknown;
+            else if (currentPages().sourceUnavailable())
+                result.auditionPages = AuditionPageState::sourceUnavailable;
             else if (! currentPages().sourceOpen() || currentPages().lengthInSamples() <= 0)
                 result.auditionPages = AuditionPageState::positionUnknown;
             else if (versionComparison && (sourcePosition < 0 || sourcePosition >= currentPages().lengthInSamples()))
@@ -170,6 +173,7 @@ namespace hypha::reference_audition
                 || observationBefore != inputObservationGeneration.load (std::memory_order_acquire)))
             result.auditionPages = AuditionPageState::mappingUnstable;
         result.auditionBuffered = publishedReady
+            && result.auditionPages != AuditionPageState::sourceUnavailable
             && (versionComparison ? blindState.eligible && result.auditionPages == AuditionPageState::ready : blindState.eligible || pageReady);
         result.blindEligible = publishedReady && blindState.eligible
             && (blind.ongoing() || referenceCopyProofCurrent (versionComparison,

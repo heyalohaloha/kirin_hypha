@@ -1,12 +1,45 @@
 #pragma once
 #include "ReferenceControllerTestAccess.h"
+#include "../src/reference_audition/ReferenceSourceRevisionService.h"
 
 // Stop the ordinary worker before using this fixture. Drive its real file reads,
 // capture consumption and publication synchronously, without a wall-clock race.
 namespace hypha::tests::reference_control
 {
+struct PreparationClockTag {};
+void elapsePreparationClocks (Runtime&, PreparationClockTag);
+template <auto Hold, auto Failure> struct PreparationClockAccess
+{
+    friend void elapsePreparationClocks (Runtime& r, PreparationClockTag)
+    {
+        auto& hold = r.*Hold;
+        if (hold.load() != 0) hold.store (juce::Time::getMillisecondCounter() - 21000u);
+        auto& failure = r.*Failure;
+        if (failure != 0) failure = juce::Time::currentTimeMillis() - 4000;
+    }
+};
+template struct PreparationClockAccess<&Runtime::versionHoldSinceMs, &Runtime::pendingSourceFailureSinceMs>;
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+inline void probeSourceNow (const reference_audition::RuntimeSource& source, std::int64_t missingMs = 0)
+{
+    auto& revisions = reference_audition::revision_detail::service();
+    if (!revisions.waitForIdle (std::chrono::seconds (30))) throw std::runtime_error ("source worker did not become idle");
+    revisions.advanceMonitorForTest (source, missingMs);
+    reference_audition::RuntimeV2SourceRepository (juce::File {}).verifySourceRevision (source);
+    if (!revisions.waitForCompletion (source, std::chrono::seconds (30))) throw std::runtime_error ("source probe did not finish");
+}
+#endif
+struct PreparedSourceTag {};
+std::shared_ptr<const reference_audition::RuntimeSource> preparedSourceFor (Runtime&, PreparedSourceTag);
+template <auto Member> struct PreparedSourceAccess
+{
+    friend std::shared_ptr<const reference_audition::RuntimeSource> preparedSourceFor (Runtime& r, PreparedSourceTag)
+    { const auto& p = r.*Member; return p ? p->source : nullptr; }
+};
+template struct PreparedSourceAccess<&Runtime::preparedWorkspace>;
 struct ServiceTag {};
 void serviceFor (Runtime&, ServiceTag);
+void refreshOnlyFor (Runtime&, ServiceTag);
 struct PageServiceTag {};
 void servicePages (reference_audition::AudioPages&, PageServiceTag);
 template <auto Once> struct PageServiceAccess
@@ -17,6 +50,8 @@ template struct PageServiceAccess<&reference_audition::AudioPages::serviceOnce>;
 template <auto Requested, auto Applied, auto Apply, auto Refresh, auto Prepared, auto Pages, auto StagingPages,
           auto Deferred, auto Retirement, auto Fading, auto Capture> struct ManualServiceAccess
 {
+    friend void refreshOnlyFor (Runtime& r, ServiceTag)
+    { (r.*Refresh) (r.*Requested, juce::Time::currentTimeMillis()); }
     friend void serviceFor (Runtime& r, ServiceTag)
     {
         const auto configuration = r.*Requested;
@@ -41,6 +76,17 @@ std::launch& stagedLaunchFor (Runtime&, StagedLaunchTag);
 template <auto Member> struct StagedLaunchAccess
 { friend std::launch& stagedLaunchFor (Runtime& r, StagedLaunchTag) { return r.*Member; } };
 template struct StagedLaunchAccess<&Runtime::stagedSearchLaunch>;
+struct SourceCheckTag {};
+bool waitForSourceCheck (Runtime&, SourceCheckTag);
+template <auto Member> struct SourceCheckAccess
+{
+    friend bool waitForSourceCheck (Runtime& r, SourceCheckTag)
+    {
+        auto& check = (r.*Member).check;
+        return check.valid() && check.wait_for (std::chrono::seconds (30)) == std::future_status::ready;
+    }
+};
+template struct SourceCheckAccess<&Runtime::sourceVerification>;
 struct StopTag {};
 bool stopFor (Runtime&, StopTag);
 template <auto Stop> struct StopAccess

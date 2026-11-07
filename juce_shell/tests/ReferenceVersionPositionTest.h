@@ -140,8 +140,7 @@ inline void testReferenceVersionPosition (const juce::File& sandbox)
                  "the loop returning inside V resumes the same V without another press");
         require (std::abs (c.snapshot().versionSelection->appliedGainDb - gain) < 1.0e-9, "the return keeps the approved gain");
     }
-    // Change disposable file bytes without unlinking an open decoder (Windows
-    // may deny deletion of an open file). The old verified revision must end.
+    // Changed media cannot replace the verified copy or erase the pending choice.
     {
         auto stream = file.createOutputStream();
         require (stream && stream->setPosition (file.getSize()) && stream->writeByte (0),
@@ -149,12 +148,18 @@ inline void testReferenceVersionPosition (const juce::File& sandbox)
         stream->flush();
         require (stream->getStatus().wasOk(), "the fixture revision is durably changed");
     }
+    auto& changedRuntime = control::roleFor (c, {1});
+    const auto changedSource = changedRuntime.visualBinding().source;
+    require (changedSource != nullptr, "changed source keeps its registered identity");
+    control::probeSourceNow (*changedSource);
     control::service (c); c.servicePendingAudition (-22, -6, true);
-    require (! c.snapshot().versionReady
-        && c.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::sourceChanged,
-        "an actual file revision ends V authority with a source-change reason");
-    require (c.snapshot().pendingAudition.reasonCode == "reference_source_changed",
-             "the stop retains its verified file-revision reason for the user-facing message");
+    require (!control::currentPagesFor (changedRuntime, {}).sourceUnavailable(),
+             "the first changed-media probe retains verified playback during its retry window");
+    control::probeSourceNow (*changedSource, 4000);
+    control::service (c); c.servicePendingAudition (-22, -6, true);
+    require (c.snapshot().selectedVersionId == chosen && (changedRuntime.outputSelected() || changedRuntime.hasHeldSelection())
+        && control::currentPagesFor (changedRuntime, {}).sourceUnavailable(),
+        "changed media pauses output and retains the same explicit choice");
     require (! feed (192512, 192512, true), "unverified changed media never plays from an old page");
     for (int ch = 0; ch < 2; ++ch)
         require (std::memcmp (input.getReadPointer (ch), original.getReadPointer (ch), 256 * sizeof (float)) == 0,

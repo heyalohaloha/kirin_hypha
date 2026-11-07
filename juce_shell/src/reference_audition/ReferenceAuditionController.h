@@ -58,7 +58,7 @@ namespace hypha::reference_audition
 
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
 
-    enum class AuditionPageState { positionUnknown, mappingUnstable, waiting, ready, outsideSource, readFailed };
+    enum class AuditionPageState { positionUnknown, mappingUnstable, waiting, ready, outsideSource, readFailed, sourceUnavailable };
 
     struct Snapshot
     {
@@ -66,6 +66,9 @@ namespace hypha::reference_audition
         juce::String title;
         juce::String sourceKind;
         juce::String rejectionCode;
+        juce::String sourceFailureReason;
+        juce::String sourceStorageNotice;
+        juce::String pendingSourceFailure; // The requested source is separate from the audible publication.
         int switchingSlot = 0;  // 選択を替えた・押した役。新しい選択が鳴るまで（鳴っている C・V は前の音、ほかは A）
         MatchFailure matchFailure = MatchFailure::none;
         // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。

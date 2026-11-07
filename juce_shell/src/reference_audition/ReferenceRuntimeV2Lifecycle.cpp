@@ -188,7 +188,9 @@ namespace hypha::reference_audition
             if (positionSearchJustFinished()) untilPoll = 0;
             // 音源の確かめを待つ間も Library の更新は定期に見る（鳴っている役が消えたら hash を待たずに止める）。
             const bool selectionWaits = selectionGeneration != appliedSelectionGeneration && !verifyingSource (selectionGeneration);
-            if (! fading && !prepared && (selectionWaits || untilPoll-- <= 0))
+            const bool sourceChecked = sourceVerification.check.valid()
+                && sourceVerification.check.wait_for (std::chrono::seconds (0)) != std::future_status::timeout;
+            if (! fading && !prepared && (selectionWaits || sourceChecked || untilPoll-- <= 0))
             {
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 if (versionComparison && workspace != nullptr)

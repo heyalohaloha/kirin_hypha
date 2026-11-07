@@ -53,6 +53,9 @@ inline void verifyLookup()
     // English is the source and never changes; neither do labels, units and values in Japanese.
     KIRIN_LANGUAGE_REQUIRE (i18n::translate ("WAITING", Language::english) == "WAITING");
     KIRIN_LANGUAGE_REQUIRE (japanese ("WAITING") == utf8 (u8"待機中"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("SAMPLE RATE") == utf8 (u8"未対応レート"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("LOW DISK SPACE") == utf8 (u8"空き容量わずか"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("NOT ENOUGH DISK SPACE") == utf8 (u8"空き容量不足"));
     for (const auto* kept : { "LEVEL", "MAX TP", "-14.2", "LUFS", "POST", "2MIX", "" })
         KIRIN_LANGUAGE_REQUIRE (japanese (kept) == kept);
 

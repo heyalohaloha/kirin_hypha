@@ -1,8 +1,47 @@
 #pragma once
 #include "ReferenceControllerTestAccess.h"
 #include "ReferenceWholeSongAudioFixture.h"
+#include "ReferencePageWaitTestAccess.h"
 namespace
 {
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    [[maybe_unused]] void verifyWholeSongSourceRecovery (ref::ReferenceComparisonController& controller,
+        const WholeSongFixture& fixture, const std::shared_ptr<const ref::RuntimeSource>& source, int stimulus)
+    {
+        namespace control = hypha::tests::reference_control;
+        auto& runtime = control::roleFor (controller, {1});
+        auto& pages = control::currentPagesFor (runtime, {});
+        control::stopPageRefill (pages);
+        const auto before = control::calibrationFor (runtime, {});
+        juce::AudioBuffer<float> input (2, 1024);
+        int position = 1024;
+        const auto render = [&] {
+            for (int ch = 0; ch < 2; ++ch) input.copyFrom (ch, 0, fixture.audio, ch, position, 1024);
+            controller.observeTransport (position, true, true);
+            controller.observeAInput (input, position, true, true, true);
+            require (controller.renderSelectedB (input, position, true, true, true), "source retry keeps the whole-song Blind session");
+            position += 1024;
+        };
+        ref::revision_detail::persistentPathFailureForTest.store (true);
+        control::probeSourceNow (*source, 4000); control::servicePages (pages, {}); render();
+        const auto held = control::calibrationFor (runtime, {});
+        require (runtime.snapshot().auditionPages == ref::AuditionPageState::sourceUnavailable
+                 && held.phase == ref::BlindPhase::active && held.trialId == before.trialId
+                 && held.assignmentCommitmentSha256 == before.assignmentCommitmentSha256,
+                 "actual Blind source loss publishes retry status without changing its anonymous assignment");
+        if (held.activeStimulus == 0)
+            require (held.stimulusOneAudibleFrames == before.stimulusOneAudibleFrames
+                     && held.stimulusTwoAudibleFrames == before.stimulusTwoAudibleFrames,
+                     "fallback A is not counted as hearing the unavailable anonymous source");
+        ref::revision_detail::persistentPathFailureForTest.store (false);
+        control::probeSourceNow (*source); control::servicePages (pages, {}); render();
+        require (runtime.snapshot().auditionPages != ref::AuditionPageState::sourceUnavailable
+                 && runtime.snapshot().activeBlindStimulus == stimulus
+                 && control::calibrationFor (runtime, {}).trialId == before.trialId,
+                 "the same anonymous choice resumes at its verified position without another selection");
+        require (((juce::Thread&) pages).startThread(), "resume only this fixture's page refill worker");
+    }
+#endif
     [[maybe_unused]] void observeWholeSongFixture (ref::ReferenceComparisonController& controller,
                                   const WholeSongFixture& fixture, int& position, int channels = 2)
     {
@@ -21,6 +60,8 @@ namespace
     {
         controller.observeTransport (0, true, true);
         hypha::tests::reference_control::await ([&] { return controller.snapshot().blindEligible; }, "Version preparation completes before Blind");
+        const auto source = hypha::tests::reference_control::roleFor (controller, {1}).visualBinding().source;
+        require (source != nullptr, "retain the verified source before its identity is hidden");
         require (controller.selectB (-22, -6), "normal Version B can lead directly into Blind");
         require (controller.startBlind (-22, -6), "whole-song Library Blind starts after acoustic confirmation");
         require (! controller.reserveLocalBlind(), "a VERSION BLIND started from a playing V keeps other Blinds out");
@@ -33,12 +74,15 @@ namespace
             if (stimulus == 2) require (controller.selectBlindStimulus (stimulus), "whole-song hidden stimulus switch");
             for (int callback = 0; callback < 155; ++callback)
             {
-                const auto position = callback * input.getNumSamples();
+                const auto position = (callback + (callback > 0 ? 2 : 0)) * input.getNumSamples();
                 for (int channel = 0; channel < 2; ++channel)
                     input.copyFrom (channel, 0, fixture.audio, channel, position, input.getNumSamples());
                 controller.observeTransport (position, true, true);
                 controller.observeAInput (input, position, true, true, true);
                 require (controller.renderSelectedB (input, position, true, true, true), "whole-song audition callback");
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+                if (callback == 0) verifyWholeSongSourceRecovery (controller, fixture, source, stimulus);
+#endif
                 juce::Thread::sleep (5);
             }
             controller.observeTransport (0, false, false);
@@ -83,7 +127,7 @@ namespace
             if (stimulus == 2) require (controller.selectBlindStimulus (2), "switch to second anonymous source");
             for (int callback = 0; callback < 155; ++callback)
             {
-                const auto position = callback * input.getNumSamples();
+                const auto position = (callback + (callback > 0 ? 2 : 0)) * input.getNumSamples();
                 for (int channel = 0; channel < 2; ++channel)
                     input.copyFrom (channel, 0, fixture.audio, channel, position, input.getNumSamples());
                 controller.observeTransport (position, true, true);

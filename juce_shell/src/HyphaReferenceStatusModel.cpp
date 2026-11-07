@@ -15,8 +15,12 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     using Tracking = reference_audition::TrackingState;
     // Blind の間は今の文のまま（どれが鳴っているかを言わない。追従も持ち込まない）。
     if (isBlindSession (state.blindPhase))
-        return { state.blindPhase == BlindPhase::invalidated ? StatusKind::unable
-                     : state.blindPhase == BlindPhase::starting || ! state.transportPlaying ? StatusKind::waiting
+        return { state.blindPhase == BlindPhase::invalidated
+                         || state.status == stageLine (SourceStep::sourceChanged, state.comparisonSlot)
+                         || state.status == stageLine (SourceStep::sourceFormatChanged, state.comparisonSlot)
+                         || state.status == stageLine (SourceStep::sourceUnopenable, state.comparisonSlot) ? StatusKind::unable
+                     : state.blindPhase == BlindPhase::starting || ! state.transportPlaying
+                         || state.status == "SOURCE UNAVAILABLE / RETRYING" ? StatusKind::waiting
                      : StatusKind::ready,
                  state.status };
     const auto& formatCode = state.comparisonSlot == 1 ? state.versionRejectionCode
@@ -26,6 +30,20 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         return {StatusKind::unable, runtime_view::rejectedStatus (formatCode)};
     if (state.bSelected)
     {
+        const auto step = state.audibleComparisonSlot == 1 ? state.versionStep
+            : state.audibleComparisonSlot == 3 ? state.referenceStep : state.checkStep;
+        if (step == SourceStep::retryingSource || step == SourceStep::sourceUnavailable
+            || step == SourceStep::outsideVersion || step == SourceStep::sourceChanged
+            || step == SourceStep::sourceFormatChanged || step == SourceStep::sourceUnopenable)
+            return { kindOf (step), stageLine (step, state.audibleComparisonSlot) };
+        if (state.status == stageLine (SourceStep::sourceChanged, state.comparisonSlot)
+            || state.status == stageLine (SourceStep::sourceFormatChanged, state.comparisonSlot)
+            || state.status == stageLine (SourceStep::sourceUnopenable, state.comparisonSlot))
+            return { StatusKind::unable, state.status };
+        if (state.status == "NEXT SOURCE UNAVAILABLE / RETRYING"
+            || state.status == stageLine (SourceStep::cacheSpaceUnavailable, state.comparisonSlot)
+            || state.status == stageLine (SourceStep::cacheWriteFailed, state.comparisonSlot))
+            return { StatusKind::waiting, state.status };
         // 聴いているあいだは、どう合わせているか（追従か固定か）を言う。PRE の Δ は止まっている。
         const auto role = state.separateComparisons ? juce::String (roleLetter (state.audibleComparisonSlot)) : juce::String ("B");
         const bool rangeLimited = state.tracking == Tracking::following && std::abs (state.rangeShortfallDb) > 0.5 + 1.0e-9;
@@ -48,7 +66,9 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         // 下げた A、PRE の Δ。A を下げるボタンの横では行が狭いので、ボタンが直す差だけを言う。
         if (state.action.kind == ActionKind::lowerAAndPlay && state.peakShortfallDb > 0.05)
             return { StatusKind::ready, juce::String (std::max (state.peakShortfallDb, state.rangeShortfallDb), 1) + " DB UNDER A" };
-        return { StatusKind::ready, how + under + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
+        const auto storage = state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
+            || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {};
+        return { StatusKind::ready, how + under + lowered + storage + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (state.kirinOsRequest && state.action.kind != ActionKind::none)
         return { StatusKind::unable, state.status };
