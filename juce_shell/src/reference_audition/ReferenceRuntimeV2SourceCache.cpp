@@ -49,4 +49,16 @@ namespace hypha::reference_audition
     {
         entries.clear();
     }
+
+    bool RuntimeV2SourceCache::releaseUnused()
+    {
+        const auto before = entries.size();
+        // Readers, published selections and in-flight preparation own their sources.
+        // Drop only cache-owned entries; no active immutable copy loses its owner.
+        entries.erase (std::remove_if (entries.begin(), entries.end(), [] (const auto& entry)
+        {
+            return entry.source.use_count() == 1;
+        }), entries.end());
+        return entries.size() != before;
+    }
 }

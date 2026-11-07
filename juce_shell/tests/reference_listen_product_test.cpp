@@ -216,8 +216,10 @@ void verifyListenWhileReferencePlays (const juce::File& sandbox)
 }
 }
 
-int main()
+int main (int argc, char** argv)
 {
+    const bool sourceOnly = argc == 2 && juce::String (argv[1]) == "--initial-source-only";
+    require (argc == 1 || sourceOnly, "known product test invocation");
     ReferenceValidationStorageSandbox sandbox;
     const auto& box = sandbox.directory();
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
@@ -246,8 +248,14 @@ int main()
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
-    hypha::tests::editor_product::verifyListenWhileReferencePlays (box);
-    hypha::tests::editor_product::verifyAmbiguousVersionFromEditor (box);
-    std::cout << "Reference listen product: PASS (B holds the output, LISTEN's choice kept, notice past 3 s, A returns)\n";
+    if (sourceOnly)
+        hypha::tests::editor_product::verifyInitialSourceRecoveryFromEditor (box);
+    else
+    {
+        hypha::tests::editor_product::verifyListenWhileReferencePlays (box);
+        hypha::tests::editor_product::verifyAmbiguousVersionFromEditor (box);
+    }
+    std::cout << (sourceOnly ? "Reference initial source product: PASS (real buttons, recovery, cancellation, verified PCM)\n"
+        : "Reference listen product: PASS (B holds the output, LISTEN's choice kept, notice past 3 s, A returns)\n");
     return EXIT_SUCCESS;
 }

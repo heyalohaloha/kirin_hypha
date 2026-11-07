@@ -225,12 +225,14 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
         auto playing = base;
         playing.bSelected = true; playing.audibleComparisonSlot = playing.comparisonSlot = slot;
         playing.appliedGainDb = 1.5;
-        for (const auto tracking : { Tracking::following, Tracking::stoppedRange, Tracking::fixed })
+        for (const auto tracking : { Tracking::following, Tracking::fixed })
             for (const bool original : { false, true })
                 for (const double shortfall : { 0.0, 0.3 })
-                    for (const double held : { 0.0, -2.5 })
+                    for (const double residual : { -2.0, 0.0, 2.0 })
+                        for (const double held : { 0.0, -2.5 })
                     {
                         playing.tracking = tracking; playing.originalAudition = original;
+                        playing.rangeShortfallDb = residual;
                         playing.peakShortfallDb = shortfall; playing.heldAttenuationDb = held; playing.gainLimited = shortfall > 0.0;
                         add (playing);
                         texts.insert (reference_ui::gainReadout (playing));
@@ -274,7 +276,6 @@ inline void addGuidesAndNotices (std::set<juce::String>& texts)
                 texts.insert (reference_ui::unavailableText (state, false));
             }
     }
-    texts.insert (reference_ui::notice::trackingStopped());
     for (const int slot : { 1, 2 })
         for (const bool playable : { true, false }) texts.insert (reference_ui::notice::pageOpened (slot, playable));
     using Skipped = reference_audition::RuntimeSkippedItem;  // 名前は Kirin OS の中身（訳さない）なので、英字の無い名前で試す

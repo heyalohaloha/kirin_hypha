@@ -33,7 +33,8 @@ namespace hypha::reference_audition
                            std::function<bool()> rejectionCheck = {},
                            std::shared_ptr<void> authority = {},
                            const std::atomic<std::uint64_t>* invalidation = nullptr,
-                           std::uint64_t initialInvalidation = 0);
+                           std::uint64_t initialInvalidation = 0,
+                           std::function<bool()> readCheck = {});
         juce::String installReaderForTest (std::unique_ptr<juce::AudioFormatReader>,
                                            double hostSampleRate, int hostChannels,
                                            bool sampleRateConversionApproved = false);
@@ -77,6 +78,9 @@ namespace hypha::reference_audition
                 && requiredReadFailures.load (std::memory_order_acquire) >= 3
                 && failed == failedPageStart.load (std::memory_order_acquire);
         }
+        bool sourceUnavailable() const noexcept
+        { return sourceUnavailableState.load (std::memory_order_acquire); }
+        std::uint64_t sourceFailureReason() const noexcept { return sourceUnavailableState.load (std::memory_order_acquire); }
         bool sourceInvalidated() const noexcept { return sourceRejected.load (std::memory_order_acquire); }
         bool sourceOpen() const noexcept
         { return openState.load (std::memory_order_acquire) && readerIdentityValid.load (std::memory_order_acquire)
@@ -141,11 +145,12 @@ namespace hypha::reference_audition
         // publication do not wait for decoding. render/request/readyAt take no lock.
         const ServiceMode serviceMode;
         std::function<bool (RuntimeFileRevision&)> verifySource;
-        std::function<bool()> verifyReaderIdentity, verifySourceRejection;
+        std::function<bool()> verifyReaderIdentity, verifySourceRejection, verifyReadResult;
         std::shared_ptr<void> sourceAuthority;
         const std::atomic<std::uint64_t>* sourceInvalidation = nullptr;
         std::uint64_t initialSourceInvalidation = 0;
         std::atomic<std::uint8_t> sourceVerified { 1 }, readerIdentityValid { 1 }, sourceRejected { 0 };
+        std::atomic<std::uint64_t> sourceUnavailableState { 0 };
         juce::CriticalSection readerLock;
         juce::CriticalSection cueLock;
         juce::AudioFormatManager formats;

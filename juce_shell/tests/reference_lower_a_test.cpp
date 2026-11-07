@@ -228,6 +228,20 @@ void testReferenceLowerA (const juce::File& sandbox)
                  && closeTo (controller.snapshot().referenceSelection->appliedGainDb, 1.0, 1.0e-6),
              "B comes back with the same gain and the same shortfall");
 
+    require (controller.followAudition (steadyA (-28.0), -12.0) == ref::TrackingAction::move,
+             "B reaches the lower MATCH boundary without stopping");
+    const auto limited = *controller.snapshot().referenceSelection;
+    require (limited.tracking == ref::TrackingState::following && limited.rangeShortfallDb < -0.5
+                 && limited.matchFailure == ref::MatchFailure::none, "a range residual does not offer to lower A");
+    for (int n = 0; n < 5; ++n) host (true, false);
+    sounded = false; until ([&] { return sounded; }, "range-limited B resumes after a stop");
+    require (closeTo (controller.snapshot().referenceSelection->rangeShortfallDb, limited.rangeShortfallDb)
+                 && closeTo (controller.snapshot().referenceSelection->appliedGainDb, limited.appliedGainDb),
+             "stop and resume preserve the same limited gain and residual");
+    require (controller.followAudition (steadyA (-20.0), -12.0) == ref::TrackingAction::move
+                 && controller.snapshot().referenceSelection->rangeShortfallDb == 0.0,
+             "the resumed selection follows automatically back inside its original MATCH range");
+
     // ローカル Blind が B の戻す控えを譲らせるのは、Rust の許可が通った後だけ（断られたら利用者の選択は残る）。
     until ([&] { return ! controller.outputDecision (hypha::output_owner::Activity::localBlind).refused(); },
            "B returns its output while stopped", false);

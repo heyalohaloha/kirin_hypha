@@ -1,5 +1,6 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaTextStyle.h"
+#include "HyphaSurfacePresentation.h"
 #include "HyphaFooterNoticeFont.h"
 namespace hypha::observatory
 {
@@ -111,38 +112,56 @@ void View::resized()
     // the strip over the body's bottom edge; the cycle keeps its whole row.
     const bool folded = footerFolds (preset.density) && ! captureFrame;
     contextButton.setVisible (! captureFrame);
-    if (contextButton.isVisible())
+    auto headerSlot = layout.contextSelector;
+    auto headerSelectors = surface_presentation::headerSelectors (headerSlot, preset.density);
+    const auto actionFont = labelFont (context, typography::TextRole::action);
+    const auto referenceWidth = std::max (headerSelectors[1].width,
+        juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, "REF"))) + 8);
+    const auto contextWidth = juce::roundToInt (std::ceil (
+        text_style::shownWidth (actionFont, contextButton.getButtonText()))) + 8;
+    const int headerGap = preset.density == Density::compact ? 2 : 4;
+    if (! captureFrame)
     {
-        auto contextSelectorBounds = toJuce (layout.contextSelector);
-        contextButton.setBounds (contextSelectorBounds.withSizeKeepingCentre (
-            juce::jmin (136, contextSelectorBounds.getWidth()),
-            contextSelectorBounds.getHeight()).reduced (1, 2));
+        const auto titleFont = labelFont (context, typography::TextRole::shellTitle);
+        const auto titleStyle = typography::resolve (context, typography::TextRole::shellTitle);
+        const auto titleMinimum = 12 + text_style::requiredWidth (
+            titleFont, role == Role::post ? "POST" : "PRE", titleStyle)
+            + (preset.density == Density::compact ? 3 : 5)
+            + juce::roundToInt (std::ceil (text_style::shownWidth (titleFont, "HYPHA")));
+        const auto needed = std::max (0, contextWidth + referenceWidth + headerGap - headerSlot.width);
+        // Borrow only unused title pixels. Its glyph positions, font and connection slot stay fixed.
+        const auto reclaimed = std::min (needed, std::max (0, layout.roleTitle.width - titleMinimum));
+        informationButton.setBounds (toJuce (layout.roleTitle).withTrimmedRight (reclaimed));
+        headerSlot.x -= reclaimed;
+        headerSlot.width += reclaimed;
     }
+    headerSelectors = surface_presentation::headerSelectors (headerSlot, preset.density);
+    headerSelectors[0].width = std::min (136, headerSlot.width - referenceWidth - headerGap);
+    headerSelectors[1] = { headerSlot.x + headerSelectors[0].width + headerGap,
+                         headerSlot.y, referenceWidth, headerSlot.height };
+    contextButton.setBounds (toJuce (headerSelectors[0]).reduced (1, 2));
+    referenceButton.setVisible (! captureFrame && ! measurementOnlySurround);
+    referenceButton.setBounds (toJuce (headerSelectors[1]).reduced (1, 2));
     domainCycleButton.setVisible (singleDomainControl);
     levelButton.setVisible (! singleDomainControl);
     timeButton.setVisible (! singleDomainControl);
-    frequencyButton.setVisible (! measurementOnlySurround && ! singleDomainControl
-                                && domainCapabilities (role).frequency);
+    frequencyButton.setVisible (! measurementOnlySurround && ! singleDomainControl);
+    frequencyButton.setEnabled (domainCapabilities (role).frequency);
     spaceButton.setVisible (! measurementOnlySurround && ! singleDomainControl);
-    referenceButton.setVisible (! measurementOnlySurround && ! singleDomainControl
-                                && domainCapabilities (role).reference);
     if (singleDomainControl)
         domainCycleButton.setBounds (navigation);
     else
     {
         auto remaining = navigation;
-        const auto domainCount = measurementOnlySurround ? 2
-            : domainCapabilities (role).reference ? 5 : 3;
+        const auto domainCount = measurementOnlySurround ? 2 : 4;
         const auto width = remaining.getWidth() / domainCount;
         levelButton.setBounds (remaining.removeFromLeft (width));
         timeButton.setBounds (measurementOnlySurround ? remaining
                                                       : remaining.removeFromLeft (width));
-        if (! measurementOnlySurround && domainCapabilities (role).frequency)
+        if (! measurementOnlySurround)
             frequencyButton.setBounds (remaining.removeFromLeft (width));
         if (! measurementOnlySurround)
             spaceButton.setBounds (remaining.removeFromLeft (width));
-        if (! measurementOnlySurround && domainCapabilities (role).reference)
-            referenceButton.setBounds (remaining);
     }
 
     const bool splitTargets = role == Role::post
@@ -153,11 +172,10 @@ void View::resized()
     auto targetArea = toJuce (layout.observationTarget);
     if (deltaButton.isVisible())
     {
-        targetButton.setBounds (
-            targetArea.removeFromLeft (juce::roundToInt (targetArea.getWidth() * 0.62f))
-                      .reduced (0, 2));
+        const auto width = (targetArea.getWidth() - 4) / 2;
+        targetButton.setBounds (targetArea.removeFromLeft (width).reduced (0, 2));
         targetArea.removeFromLeft (4);
-        deltaButton.setBounds (targetArea.reduced (0, 2));
+        deltaButton.setBounds (targetArea.withWidth (width).reduced (0, 2));
     }
     else
         targetButton.setBounds (targetArea.reduced (0, 2));

@@ -1,5 +1,5 @@
 #include "ReferenceControllerTestAccess.h"
-// B・V の追従 gain（1 秒ごと・0.5 dB 以内は動かさない・50 ms の ramp・上限で止めて知らせる）と、
+// B・V の追従 gain（1 秒ごと・0.5 dB 以内は動かさない・50 ms の ramp・上限で保って知らせる）と、
 // C の固定 Match（Kirin OS の Cue の値 × A の同じ長さ）。
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "KirinLibraryFixture.h"
@@ -12,6 +12,7 @@
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceTrackingGain.h"
 #include "../src/HyphaReferenceRematchWait.h"
+#include "ReferenceTrackingLimitsTest.h"
 
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
@@ -38,47 +39,8 @@ std::vector<KirinMeterHistoryEntry> steady (double lufs, int count = 100, std::u
     return std::vector<KirinMeterHistoryEntry> (static_cast<std::size_t> (count), block (lufs, unknownTimeline, run));
 }
 
-// Windows の windef.h は near と far を空のマクロにするので、名前に使わない。
 bool closeTo (double value, double expected, double tolerance = 1.0e-9) { return std::abs (value - expected) <= tolerance; }
 
-void rampsAndSteps()
-{
-    namespace r = ref;
-    require (closeTo (r::referenceGainHeadroomDb (-6.0, -2.0), 5.0) && closeTo (r::referenceGainHeadroomDb (-6.0, -0.5), 5.5)
-                 && closeTo (r::referenceGainHeadroomDb (-0.5, -3.0), 0.0) && closeTo (r::referenceGainHeadroomDb (NAN, -3.0), 0.0),
-             "the ceiling is the louder of -1 dBTP, A's peak and the reference's own peak");
-    require (r::trackingStep (2.3, 2.0, -6.0, -2.0).action == r::TrackingAction::keep
-                 && r::trackingStep (NAN, 2.0, -6.0, -2.0).action == r::TrackingAction::keep
-                 && r::trackingStep (150.0, 2.0, -6.0, -2.0).action == r::TrackingAction::keep,
-             "within 0.5 dB, or nothing measured, keeps the gain");
-    const auto down = r::trackingStep (-10.0, 2.0, -6.0, -2.0);
-    const auto up = r::trackingStep (4.5, 2.0, -6.0, -2.0);
-    const auto withinShortfall = r::trackingStep (5.5, 2.0, -6.0, -2.0);  // 上限（+5.0）に 0.5 dB 届かない
-    const auto over = r::trackingStep (5.6, 2.0, -6.0, -2.0);  // 0.6 dB 届かない
-    require (down.action == r::TrackingAction::move && closeTo (down.gainDb, -10.0)
-                 && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5) && closeTo (up.shortfallDb, 0.0)
-                 && withinShortfall.action == r::TrackingAction::move && closeTo (withinShortfall.gainDb, 5.0, 1.0e-9) && closeTo (withinShortfall.shortfallDb, 0.5, 1.0e-9)
-                 && over.action == r::TrackingAction::move && closeTo (over.gainDb, 5.0, 1.0e-9) && closeTo (over.shortfallDb, 0.6, 1.0e-9),
-             "lowering always moves; raising moves within the ceiling and otherwise stays at the ceiling, following");
-    require (closeTo (r::referencePeakShortfallDb (5.5, -6.0, -2.0), 0.5, 1.0e-9) && r::referencePeakShortfallDb (4.0, -6.0, -2.0) == 0.0
-                 && closeTo (r::referencePeakShortfallDb (10.0, -2.0, -20.0, -8.0), 1.0, 1.0e-9),
-             "the shortfall is how far the gain would pass the ceiling, after any A lowering");
-    require (r::trackingStep (-4.0, 2.0, -6.0, -2.0, 2.0).action == r::TrackingAction::move
-                 && r::trackingStep (-4.5, 2.0, -6.0, -2.0, 2.0).action == r::TrackingAction::stopRange
-                 && r::trackingStep (-4.5, 2.0, -6.0, -2.0).action == r::TrackingAction::move,
-             "following stays within 6 dB of the MATCH gain (as live compare AUTO) and stops beyond it");
-
-    r::TrackingGainRamp ramp;
-    ramp.settle (1.0f);
-    float first = ramp.next (2.0f, 2400), middle = 0.0f, last = 0.0f;
-    for (int frame = 2; frame <= 2400; ++frame) (frame == 1200 ? middle : last) = ramp.next (2.0f, 2400);
-    require (closeTo (first, 1.0 + 1.0 / 2400.0, 1.0e-6) && closeTo (middle, 1.5, 1.0e-6) && closeTo (last, 2.0, 0.0)
-                 && closeTo (ramp.next (2.0f, 2400), 2.0, 0.0),
-             "a new gain arrives on a straight 50 ms line and then stays");
-    ramp.next (1.0f, 2400);
-    ramp.settle (0.5f);
-    require (closeTo (ramp.next (0.5f, 2400), 0.5, 0.0), "while nothing is heard the gain is set at once");
-}
 
 void pairsVersionContent()
 {
@@ -117,7 +79,7 @@ void pairsVersionContent()
 
 void testReferenceTrackingRules()
 {
-    rampsAndSteps();
+    reference_tracking_limits::verify();
     pairsVersionContent();
     std::cout << "Reference tracking rules PASS\n";
 }
@@ -360,6 +322,30 @@ void matchesAndFollows (const juce::File& sandbox)
     controller.setTrackingEnabled (true);
     require (controller.selectB (-14.0, -2.0) && controller.snapshot().tracking == ref::TrackingState::following,
              "B follows A");
+    require (controller.followSelection (steady (-13.4), -2.0) == ref::TrackingAction::move,
+             "B first follows to 0.4 dB below the ceiling");
+    for (int n = 0; n < 6; ++n) render();
+    const auto crossingStart = buffer.getSample (0, 479);
+    require (controller.followSelection (steady (-12.8), -2.0) == ref::TrackingAction::move
+                 && controller.snapshot().tracking == ref::TrackingState::following
+                 && closeTo (controller.snapshot().appliedGainDb, 3.0)
+                 && closeTo (controller.snapshot().peakShortfallDb, 0.2, 1.0e-6)
+                 && controller.snapshot().rangeShortfallDb == 0.0,
+             "a 0.6 dB request reaches the ceiling even when the remaining gain change is only 0.4 dB");
+    std::vector<float> crossingAudio;
+    for (int n = 0; n < 6; ++n) { render(); for (int f = 0; f < 480; ++f) crossingAudio.push_back (buffer.getSample (0, f)); }
+    const auto crossingTarget = 0.1 * std::pow (10.0, 3.0 / 20.0);
+    require (closeTo (crossingAudio.front(), crossingStart, 0.0005)
+                 && closeTo (crossingAudio[1199], (crossingStart + crossingTarget) / 2.0, 0.0005)
+                 && closeTo (crossingAudio[2399], crossingTarget, 1.0e-6)
+                 && closeTo (crossingAudio.back(), crossingTarget, 1.0e-6),
+             "the actual B output reaches the ceiling on the 50 ms ramp");
+    require (controller.followSelection (steady (-12.8), -2.0) == ref::TrackingAction::keep
+                 && closeTo (controller.snapshot().peakShortfallDb, 0.2, 1.0e-6)
+                 && controller.followSelection (steady (-14.0), -2.0) == ref::TrackingAction::move
+                 && closeTo (controller.snapshot().appliedGainDb, 2.0) && controller.snapshot().peakShortfallDb == 0.0,
+             "B holds the ceiling without stopping and follows a quieter A without another selection");
+    for (int n = 0; n < 6; ++n) render();
     render(); render();
     const auto before = buffer.getSample (0, 479);
     require (controller.followSelection (steady (-20.0, 20), -2.0) == ref::TrackingAction::keep,
@@ -392,8 +378,8 @@ void matchesAndFollows (const juce::File& sandbox)
                  && closeTo (controller.snapshot().appliedGainDb, 3.0, 1.0e-6) && closeTo (controller.snapshot().peakShortfallDb, 0.2, 1.0e-6)
                  && controller.snapshot().matchFailure == ref::MatchFailure::none,
              "a gain that stays put still says how far short it is now, and withdraws the offer");
-    require (controller.followSelection (steady (-8.0), -2.0) == ref::TrackingAction::move, "the offer comes back");
-    require ([&, offerSerial = controller.snapshot().matchFailureSerial] { return controller.followSelection (steady (-7.0), -2.0) == ref::TrackingAction::move && controller.snapshot().matchFailureSerial == offerSerial; }()
+    require (controller.followSelection (steady (-8.0), -2.0) == ref::TrackingAction::keep, "the offer comes back without moving a gain already at the ceiling");
+    require ([&, offerSerial = controller.snapshot().matchFailureSerial] { return controller.followSelection (steady (-7.0), -2.0) == ref::TrackingAction::keep && controller.snapshot().matchFailureSerial == offerSerial; }()
                  && closeTo (controller.snapshot().neededAttenuationDb, -9.0, 1.0e-6), "the offer stays the same offer while its amount moves");
     require (controller.followSelection (steady (-17.0), -2.0) == ref::TrackingAction::move
                  && closeTo (controller.snapshot().appliedGainDb, -1.0) && controller.snapshot().peakShortfallDb == 0.0
@@ -403,22 +389,25 @@ void matchesAndFollows (const juce::File& sandbox)
     controller.selectA(); render(); render();
     require (controller.selectB (-8.0, -2.0) && controller.snapshot().matchFailure == ref::MatchFailure::ceilingExceeded, "an offer at the start");
     render(); render();
-    require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::stopRange
+    require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::move
+                 && closeTo (controller.snapshot().appliedGainDb, -3.0)
+                 && closeTo (controller.snapshot().rangeShortfallDb, -1.0)
                  && controller.snapshot().matchFailure == ref::MatchFailure::none && controller.snapshot().peakShortfallDb == 0.0,
-             "a follow stopped 6 dB from the MATCH withdraws an offer it no longer needs");
-    controller.selectA();
-    require (controller.selectB (-18.0, -2.0) && controller.snapshot().tracking == ref::TrackingState::following,
-             "choosing B again follows again");
-    // 追従は MATCH の gain（−18 − −16 = −2 dB）から ±6 dB まで。−9 dB は超えるので止めて今の gain を保つ。
-    require (controller.followSelection (steady (-25.0), -2.0) == ref::TrackingAction::stopRange
-                 && controller.snapshot().tracking == ref::TrackingState::stoppedRange
-                 && closeTo (controller.snapshot().appliedGainDb, -2.0),
-             "a gain more than 6 dB from the MATCH stops following and keeps the current gain");
-    // 下げる向きの要求でも、±6 dB で止めた追従は戻らない（上限で止めたものだけが下げる向きで戻る）。
-    require (controller.followSelection (steady (-19.0), -2.0) == ref::TrackingAction::keep
-                 && controller.snapshot().tracking == ref::TrackingState::stoppedRange
-                 && closeTo (controller.snapshot().appliedGainDb, -2.0),
-             "a follow stopped 6 dB from the MATCH stays stopped, even when A asks for a lower gain");
+             "the lower range limit keeps following and withdraws an obsolete ceiling offer");
+    controller.selectA(); render(); render();
+    require (controller.selectB (-18.0, -2.0), "a new MATCH anchors B at -2 dB");
+    require (controller.followSelection (steady (-25.0), -2.0) == ref::TrackingAction::move
+                 && controller.snapshot().tracking == ref::TrackingState::following
+                 && closeTo (controller.snapshot().appliedGainDb, -8.0)
+                 && closeTo (controller.snapshot().rangeShortfallDb, -1.0),
+             "beyond MATCH minus 6 dB B plays at the boundary and keeps following");
+    for (int n = 0; n < 6; ++n) render();
+    require (closeTo (buffer.getSample (0, 479), 0.1 * std::pow (10.0, -8.0 / 20.0), 1.0e-6),
+             "the range-limited gain reaches the actual audition output");
+    require (controller.followSelection (steady (-19.0), -2.0) == ref::TrackingAction::move
+                 && controller.snapshot().tracking == ref::TrackingState::following
+                 && closeTo (controller.snapshot().appliedGainDb, -3.0) && controller.snapshot().rangeShortfallDb == 0.0,
+             "returning inside the range follows automatically from the original MATCH");
     controller.selectA();
     render(); render();
 }

@@ -14,6 +14,7 @@
 
 #include "HyphaReferenceAction.h"
 #include "HyphaReferenceAWindowControl.h"
+#include "HyphaReferenceTargetBar.h"
 #include "HyphaReferenceGainText.h"
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
@@ -105,6 +106,8 @@ enum class CueSubstitute { none, wholeSong, noSpectrum };
 
 struct State
 {
+    bool targetsEnabled = false, targetSelected = false;
+    reference_audition::TargetSnapshot targets;
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     bool separateComparisons = false, versionReady = false, checkReady = false;
     // Where B and C each stand, whichever of them the page shows (the guide names both).
@@ -194,7 +197,8 @@ struct State
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
     reference_audition::CuePart cuePart = reference_audition::CuePart::unknown;  // C の Cue が曲のどの部分か（凡例）
     std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（図の代わりに聴き比べの案内を出す）
-    double peakShortfallDb = 0.0;  // 鳴っている役が上限まで上げても A に届かない量（0.5 dB 以下）
+    double peakShortfallDb = 0.0;  // 鳴っている役が上限まで上げても A に届かない量（0 なら上限による不足なし）
+    double rangeShortfallDb = 0.0; // MATCH の幅で残る差（正：A より小さい、負：大きい）
     double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
     double cueLoudnessOffsetLu = 0.0;  // C の鳴らす音が cueLoudness より大きく測れる量（mono を stereo の track で +3.01 LU）
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
@@ -258,7 +262,7 @@ inline bool canHearReference (const State& state) noexcept
         && state.libraryReceived && state.aAvailable && state.referenceReady;
 }
 
-class Component final : public juce::Component
+class Component final : public juce::Component, public juce::FileDragAndDropTarget
 {
 public:
     Component();
@@ -298,6 +302,13 @@ public:
     // A B or C that cannot be heard yet says why when it is clicked.
     std::function<void(const juce::String&)> onExplain;
 
+    std::function<void(const reference_audition::TargetRequest&)> onTargetRequest;
+    bool isInterestedInFileDrag (const juce::StringArray&) override
+    { return current.targetsEnabled && ! isBlindSession (current.blindPhase); }
+    void filesDropped (const juce::StringArray& files, int, int) override
+    { dragActive = false; repaint(); if (isInterestedInFileDrag (files) && onTargetRequest) onTargetRequest ({ reference_audition::TargetRequest::Action::importFiles, files, {} }); }
+    void fileDragEnter (const juce::StringArray&, int, int) override { dragActive = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override { dragActive = false; repaint(); }
     void setState (State);
     // 状態の行は、足元の段があるとき（150% 以上）はどの画面でも足元の左に出す（エディターが決めて置く。
     // 2026-10-04）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
@@ -331,7 +342,7 @@ public:
     int panelHeaderHeight() const noexcept { return shortPanel() ? 20 : detailedLayout() ? 42 : 34; }
     int panelPickerHeight() const noexcept { return shortPanel() ? 18 : 24; }
     int panelGap() const noexcept { return shortPanel() ? 2 : 4; }
-    juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6); }
+    juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6).withTrimmedBottom (targetBar.isVisible() ? targetBar.rowHeight() + 3 : 0); }
 
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
@@ -373,6 +384,9 @@ private:
         }
     }
 
+    TargetBar targetBar;
+    TargetBadge targetBadge;
+    bool dragActive = false;
     State current;
     bool guideShown = false;
     GuideFit lastGuideFit;

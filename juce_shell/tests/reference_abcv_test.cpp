@@ -6,6 +6,7 @@ void testReferenceLibrarySkipped (const juce::File&);
 void testReferenceLiveWindow();
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
+void testReferenceMonoVersion (const juce::File&, const juce::String&);
 void testReferenceRoles (const juce::File&);
 void testReferenceCueRestart (const juce::File&);
 void testReferenceLowerA (const juce::File&);
@@ -24,6 +25,7 @@ void testReferenceAbcv (const juce::File& sandbox)
     testReferenceLiveWindow();
     testReferenceTrackingRules();
     testReferenceCueMatch (sandbox);
+    testReferenceMonoVersion (sandbox, "follow");
     testReferenceRoles (sandbox);
     testReferenceCueRestart (sandbox);
     testReferenceLowerA (sandbox);       // 2026-10-03：上限超えは承認して A を下げて合わせる（R-12）

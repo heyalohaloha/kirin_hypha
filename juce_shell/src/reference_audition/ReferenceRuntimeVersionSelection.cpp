@@ -40,7 +40,7 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
         requestedSelection.cueId.clear();
         ++requestedSelection.generation;
         keepPlaying = beginSelectionPreparationLocked();
-        versionHoldSinceMs.store (keepPlaying ? juce::jmax (1u, juce::Time::getMillisecondCounter()) : 0u, std::memory_order_release);
+        versionHoldSinceMs.store (0, std::memory_order_release);
     }
     if (!keepPlaying) selectA();
     notify();

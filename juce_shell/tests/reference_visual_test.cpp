@@ -6,14 +6,17 @@
 #include "../src/reference_audition/ReferenceVisualObservation.h"
 #include "../src/reference_audition/ReferenceAInputRelay.h"
 #include "../src/reference_audition/ReferenceVisualAudio.h"
+#include "../src/reference_audition/ReferenceSourceRevisionService.h"
 #include "reference_rt_probe.h"
 #include <thread>
 #include <ctime>
 #include "ReferenceVisualAudioParity.h"
 #include "ReferenceAWindowRuntimeTest.h"
+#include "ReferenceMeasuredTargetTest.h"
 void testReferenceVisual (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
 {
+    testMeasuredTargets (sandbox);
     testAWindowTargets (sandbox);
     testAWindowResetRing();
     const auto root = sandbox.getChildFile ("visual"); require (root.createDirectory().wasOk(), "visual fixture directory");
@@ -211,10 +214,36 @@ void testReferenceVisual (const juce::File& sandbox)
         require (std::memcmp (audible.getReadPointer (c,i), display.getReadPointer (c,i), sizeof(float)) == 0, "display PCM equals audition PCM at non-integer phase");
     observation.setPresented (true);
     require (wait ([] (const auto& state) { return state.observing; }), "reopen can reacquire after handoff");
+    auto& revisions = ref::revision_detail::service();
+    const auto probeSource = [&] {
+        require (revisions.waitForIdle (std::chrono::seconds (30)), "previous source check completes");
+        revisions.advanceMonitorForTest (*source);
+        ref::RuntimeV2SourceRepository (root).verifySourceRevision (*source);
+        require (revisions.waitForCompletion (*source, std::chrono::seconds (30)), "source bytes check completes");
+    };
+    require (wait ([] (const auto& state) { return state.binding.aligned && state.observing && state.pairedObserving; }),
+             "paired observation is ready before metadata changes");
+    const auto metadataPass = observation.snapshot()->pass;
     require (file.setLastModificationTime (juce::Time::getCurrentTime()+juce::RelativeTime::seconds (5)), "source revision change fixture");
+    probeSource();
+    require (observation.snapshot()->pass == metadataPass && observation.snapshot()->pairedObserving,
+             "unchanged bytes preserve the measured comparison across metadata changes");
+    juce::MemoryBlock originalBytes;
+    require (file.loadFileAsData (originalBytes), "preserve the actual visual fixture bytes");
+    auto alteredBytes = originalBytes;
+    static_cast<char*> (alteredBytes.getData())[alteredBytes.getSize()-1] ^= 1;
+    const auto overwriteSource = [&] (const juce::MemoryBlock& bytes) {
+        juce::FileOutputStream output (file);
+        require (output.openedOk() && output.setPosition (0) && output.write (bytes.getData(), bytes.getSize()), "overwrite only the visual fixture in place");
+        output.flush(); require (output.getStatus().wasOk(), "visual fixture overwrite completes");
+    };
+    overwriteSource (alteredBytes); probeSource();
     require (wait ([] (const auto& state) {
         return !state.binding.aligned && state.observing && !state.pairedObserving;
-    }), "changed B disables paired observation while A keeps being observed");
+    }), "changed B bytes disable paired observation while A keeps being observed");
+    overwriteSource (originalBytes); probeSource();
+    require (wait ([] (const auto& state) { return state.binding.aligned && state.observing && state.pairedObserving; }),
+             "restored B bytes resume the same paired observation automatically");
     std::int64_t mapped = 0;
     auto preroll = map; preroll.hostAnchor = -24000;
     require (preroll.mapPosition (-24000,mapped) && mapped == 0, "negative host preroll can map to source frame zero");

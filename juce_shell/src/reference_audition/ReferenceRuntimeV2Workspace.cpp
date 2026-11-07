@@ -334,27 +334,45 @@ namespace hypha::reference_audition
         // worker's own failure reaches this clock as the verification reason.
         const bool freshAttempt = ! rejectedPageSource
             && (freshSelection || (sourceRetryFailure.isNotEmpty() && nowMs >= sourceRetryAtMs));
+        const bool retryCopy = revision_detail::sourceCopyFailure (sourceRetryFailure);
         if (freshAttempt) { sourceRetryFailure.clear(); sourceRetryAtMs = 0; }
         if (sourceVerification.key != retryKey) retireSourceVerification();
         const auto sourceFailure = rejectedPageSource ? juce::String ("reference_source_changed")
             : nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified && !sourceVerification.check.valid()
             ? sourceRepository.verifySourceRevision (*selectedSource)
-            : verifySourceBehindWorker (selectedSource, retryKey, selection.generation, freshAttempt);
-        if (sourceFailure == "reference_source_revalidating") return;
+            : verifySourceBehindWorker (selectedSource, retryKey, selection.generation, freshAttempt && !retryCopy);
+        if (sourceFailure == "reference_source_revalidating")
+        {
+            const auto reason = sourceFailureCode (revision_detail::service().watch (*selectedSource)->unavailable.load (std::memory_order_acquire));
+            if (!holdSelectionForSourceRetry (reason.isNotEmpty() ? reason : sourceFailure, reason.isNotEmpty())
+                && !ready.load (std::memory_order_acquire))
+            {
+                next.state = RuntimeState::waiting; next.rejectionCode = sourceFailure;
+                publish (std::move (next));
+            }
+            return;
+        }
         if (sourceFailure.isNotEmpty())
         {
+            const bool keepsSelection = holdSelectionForSourceRetry (sourceFailure);
             if (nowMs >= sourceRetryAtMs)
             {
                 sourceRetryFailure = sourceFailure;
-                sourceRetryAtMs = nowMs + std::min (60000, 5000 * (1 << std::min (sourceRetryCount++, 4)));
+                sourceRetryAtMs = nowMs + (keepsSelection && !revision_detail::sourceCopyFailure (sourceFailure) ? 1000
+                    : std::min (60000, 5000 * (1 << std::min (sourceRetryCount++, 4))));
             }
             sourceCache.forget (candidate->sourceArtifact.sha256);
+            if (sourceFailure == "reference_source_cache_full" && sourceCache.releaseUnused())
+            { sourceRetryAtMs = nowMs; sourceRetryCount = 0; }
+            if (keepsSelection) return;
             failClosedToA();
-            next.state = sourceFailure == "reference_source_read_failed" ? RuntimeState::waiting : RuntimeState::rejected;
+            next.state = sourceFailure == "reference_source_read_failed" || revision_detail::sourceCopyFailure (sourceFailure)
+                ? RuntimeState::waiting : RuntimeState::rejected;
             next.rejectionCode = sourceFailure;
             publish (std::move (next));
             return;
         }
+        holdSelectionForSourceRetry ({});
         sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0;
         if (! previouslyVerified)
             sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
@@ -446,10 +464,11 @@ namespace hypha::reference_audition
             const auto failure = staging.open (*selectedSource, configuration.sampleRate, configuration.channels, true,
                 [this, pinned] (RuntimeFileRevision& revision) { return pinned->verified (sourceRepository, revision); }, pinned->input(),
                 [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
-                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation());
+                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation(), [pinned] { return pinned->readSucceeded(); });
             if (failure.isNotEmpty())
             {
-                failClosedToA(); prepared.next.state = RuntimeState::rejected;
+                if (holdSelectionForSourceRetry (failure, failure != "reference_source_revalidating")) return;
+                failClosedToA(); prepared.next.state = failure == "reference_source_revalidating" ? RuntimeState::waiting : RuntimeState::rejected;
                 prepared.next.rejectionCode = failure; publish (std::move (prepared.next)); return;
             }
             staging.setPinnedCue (mappedCueStart, mappedCueEnd, true);

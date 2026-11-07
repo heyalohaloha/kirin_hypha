@@ -34,6 +34,8 @@ inline juce::String rejectedStatus (const juce::String& code)
 {
     if (formatUnreadableCode (code))
         return "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND HYPHA";
+    if (code == "reference_source_cache_full") return "NOT ENOUGH DISK SPACE / FREE DISK SPACE";
+    if (code == "reference_source_copy_failed") return "REFERENCE COPY FAILED / CHECK TEMPORARY STORAGE";
     if (code.startsWith ("reference_library_") || code.startsWith ("reference_manifest_"))
         return "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS";
     if (code == "source_changed") return "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS";
@@ -41,7 +43,7 @@ inline juce::String rejectedStatus (const juce::String& code)
         || code == "reference_source_open_failed"
         || code == "reference_source_decode_failed")
         return "SOURCE COULD NOT BE OPENED";
-    if (code == "reference_source_changed") return "SOURCE CHANGED / VERIFY IN KIRIN OS";
+    if (code == "reference_source_changed") return "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS";
     if (code == "reference_source_audio_mismatch")
         return "SOURCE FORMAT CHANGED / VERIFY IN KIRIN OS";
     // 2026-10-18：知らない理由を「Kirin OS で準備し直す」と推測しない（Kirin OS では準備済みで直す手段が無かった）。
@@ -90,6 +92,8 @@ inline hypha::reference_ui::BlindPhase referenceBlindPhase (
 // 断られた音源の段階（理由ごとに直し方が違う）。
 inline SourceStep rejectedStep (const juce::String& code)
 {
+    if (code == "reference_source_cache_full") return SourceStep::cacheSpaceUnavailable;
+    if (code == "reference_source_copy_failed") return SourceStep::cacheWriteFailed;
     if (code == "source_changed" || code == "reference_source_changed") return SourceStep::sourceChanged;
     if (code == "reference_source_audio_mismatch") return SourceStep::sourceFormatChanged;
     if (code == "source_open_failed" || code == "source_decode_failed"
@@ -118,6 +122,10 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
     switch (slot.state)
     {
         case Runtime::ready:
+            if (slot.auditionPages == reference_audition::AuditionPageState::sourceUnavailable)
+                return slot.sourceFailureReason.isEmpty() || slot.sourceFailureReason == "reference_source_revalidating"
+                    ? SourceStep::retryingSource : rejectedStep (slot.sourceFailureReason);
+            if (slot.auditionPages == reference_audition::AuditionPageState::readFailed) return SourceStep::sourceUnavailable;
             return ! playing ? SourceStep::playDaw
                  : slot.auditionOutsideCue ? SourceStep::outsideCue
                   : slot.auditionBuffered ? SourceStep::ready
@@ -130,6 +138,7 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
         case Runtime::verifying: return SourceStep::verifyingSource;
         case Runtime::rejected: return rejectedStep (code);
         case Runtime::waiting:
+            if (code == "reference_source_cache_full" || code == "reference_source_copy_failed") return rejectedStep (code);
             if (code == "reference_alignment_waiting_for_content")
                 return playing ? SourceStep::aligning : SourceStep::playDaw;
             if (code == "reference_alignment_no_match") return SourceStep::noMatchingPassage;

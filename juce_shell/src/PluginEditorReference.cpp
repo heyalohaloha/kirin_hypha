@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaReferenceTargetView.h"
 #include "HyphaReferencePendingUI.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include <algorithm>
@@ -123,6 +124,10 @@ void KirinHyphaEditor::configureReferenceAudition()
           [this] { return processorRef.revealReferenceBlind(); }, [this] { processorRef.endReferenceBlind(); } },
         [this] (const auto& notice) { versionBlindNotice = notice; versionBlindNoticeUntil = juce::Time::getMillisecondCounter() + 5000; });
     scaleRoot.addChildComponent (versionBlindView);
+    referenceView.onTargetRequest = [this] (const auto& request) {
+        if (! processorRef.changeReferenceTarget (request) && processorRef.referenceTargetSnapshot().issue.isEmpty())
+            showToast ("TARGET UNAVAILABLE");
+    };
     scaleRoot.addChildComponent (referenceView);
 }
 void KirinHyphaEditor::layoutReferenceAudition()
@@ -176,14 +181,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const auto& audible = runtime.audibleComparisonSlot == 1 || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive
         ? versionSelection : runtime.audibleComparisonSlot == 3 ? referenceSelection : checkSelection;
     const bool callbackLive = processorRef.heartbeatLive();
-    // 追従が上限（True Peak）か MATCH から ±6 dB で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
-    // 上限で止めた追従は A が静かになると下げる向きで戻るので、同じ役を聴いているあいだは止まり直しても知らせない
-    // （止まっているかは状態の行が言う）。
-    // 鍵は役と MATCH の試みの番号：停止・シーク・ループで自動に戻っても同じ試みなので、知らせは出し直さない。
-    using Tracking = hypha::reference_audition::TrackingState;
-    if (referenceTrackingStop.update (runtime.bSelected, runtime.audibleComparisonSlot, audible.matchAttempt,
-                                      audible.tracking == Tracking::stoppedRange))
-        showToast (hypha::reference_ui::notice::trackingStopped());
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
     const bool connected = runtime.libraryReceived;
@@ -269,7 +266,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.detailedMeasurement = runtime.detailedMeasurement;
     // V の Version を替えて A へ戻った一瞬は図を前のまま保つ（曲の頭の図へ跳ばない）。前の V が鳴っているあいだは今の図。
     const auto timelineNow = juce::Time::getMillisecondCounterHiRes();
-    if (runtime.switchingSlot == 1 && runtime.audibleComparisonSlot != 1
+    if (runtime.comparisonSlot == 1 && runtime.switchingSlot == 1 && runtime.audibleComparisonSlot != 1
         && referenceSwitchTimeline != nullptr && timelineNow < referenceSwitchHoldUntilMs)
         state.visualTimeline = referenceSwitchTimeline;
     else
@@ -304,6 +301,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     state.appliedGainDb = runtime.bSelected ? audible.appliedGainDb : runtime.appliedGainDb;
     state.peakShortfallDb = runtime.bSelected ? audible.peakShortfallDb : 0.0;
+    state.rangeShortfallDb = runtime.bSelected ? audible.rangeShortfallDb : 0.0;
     {
         auto shown = hypha::reference_ui::runtimeStatus (runtime, state);
         state.status = std::move (shown.status);
@@ -316,6 +314,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         pending.isNotEmpty() && state.action.kind != hypha::reference_ui::ActionKind::lowerAAndPlay
             && ! (state.kirinOsRequest && state.action.kind != hypha::reference_ui::ActionKind::none))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
+    hypha::reference_ui::applyMeasuredTarget (state, processorRef.referenceTargetSnapshot(), processorRef.licenseIsOs());
     referenceView.setState (std::move (state));
     serviceReferenceOpenedNotice();  // C・V を開いて 0.2 秒後、今の状態で窓と押下を確かめて言う
     if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};

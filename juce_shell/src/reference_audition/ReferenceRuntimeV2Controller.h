@@ -76,6 +76,8 @@ namespace hypha::reference_audition
                       std::uint64_t queuedGeneration = 0, const juce::String& expectedPlaybackIdentity = {}) noexcept;
         std::uint64_t normalSelectionTicket() const noexcept { return normalSelectionGeneration.load (std::memory_order_acquire); }
         void selectA (bool allowFade = true) noexcept;
+        void invalidateMatchOffer();
+        void setDataOnlySelection (bool selected) noexcept { dataOnlySelection.store (selected, std::memory_order_release); }
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
         bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
         bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
@@ -190,6 +192,7 @@ namespace hypha::reference_audition
             TrackingState tracking = TrackingState::none;
             double anchorGainDb = 0.0; // 利用者の MATCH の gain。追従はここから ±6 dB まで（戻すときも同じ値）
             double peakShortfallDb = 0.0;  // 上限で届かない量
+            double rangeShortfallDb = 0.0; // MATCH の幅で残る差（正：A より小さい、負：大きい）
             double requiredGainDb = 0.0;   // 上限が無ければ掛ける gain（A を下げる申し出の量）
             bool valid = false;
         };
@@ -217,6 +220,7 @@ namespace hypha::reference_audition
         {
             juce::String key;
             std::uint64_t generation = 0;
+            std::shared_ptr<const RuntimeSource> source;
             std::future<juce::String> check;
         };
         struct WorkspaceSelection
@@ -235,6 +239,7 @@ namespace hypha::reference_audition
             StagedVersionPosition versionPosition;
         };
         bool beginSelectionPreparationLocked() noexcept;
+        bool holdSelectionForSourceRetry (const juce::String&, bool confirmed = false);
         void clearPreparedWorkspace();
         bool servicePreparedWorkspace (const Configuration&);
         bool stagedVersionReady (WorkspaceSelection&, AudioPages&);
@@ -246,7 +251,7 @@ namespace hypha::reference_audition
         bool finishPositionSearch (const std::shared_ptr<const RuntimeACaptureAudio>&, const std::shared_ptr<const RuntimeSource>&,
                                    const std::shared_ptr<const RuntimeDetailedMeasurement>&, std::optional<std::int64_t>, RuntimeContentAlignment&);
         bool positionSearchJustFinished();
-        juce::String verifySourceBehindWorker (const std::shared_ptr<const RuntimeSource>&, const juce::String& key,
+        juce::String verifySourceBehindWorker (std::shared_ptr<const RuntimeSource>&, const juce::String& key,
                                                std::uint64_t generation, bool freshAttempt);
         bool verifyingSource (std::uint64_t generation) const;
         void retireSourceVerification();
@@ -309,6 +314,7 @@ namespace hypha::reference_audition
         const juce::File root;
         const bool versionComparison;
         const SelectionGate selectionGate;
+        std::atomic<bool> dataOnlySelection { false }; // Non-RT starts also check this when an output gate is retained for a fade.
         RuntimeV2Repository repository;
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;
@@ -326,13 +332,15 @@ namespace hypha::reference_audition
         LibraryReceivedWriter libraryReceivedWriter; // 作業スレッドだけが触る
         juce::String sourceRetryKey, sourceRetryFailure;
         std::int64_t sourceRetryAtMs = 0;
+        std::int64_t pendingSourceFailureSinceMs = 0; // stateLock; no saved or RT state.
+        juce::String pendingSourceFailureReason;
         int sourceRetryCount = 0;
         AudioPages pages;
         AudioPages preparedPages;
         std::atomic<AudioPages*> activePages { &pages };
         std::atomic<bool> prepareBeforeReturn { false }, reportsLibraryReceived { false };
         std::optional<WorkspaceSelection> preparedWorkspace; // Worker-owned; never read by the callback.
-        std::uint32_t stagedVersionLimitMs = 20'000;  // 替えられないまま前の V を保つ上限。過ぎたら A で待つ
+        std::uint32_t stagedVersionLimitMs = 20'000;  // 検証後の位置合わせの上限。読取り・再試行の時間は別。
         std::launch stagedSearchLaunch = std::launch::async;
         PositionSearch positionSearch;  // Worker-owned.
         SourceVerification sourceVerification;  // Worker-owned.

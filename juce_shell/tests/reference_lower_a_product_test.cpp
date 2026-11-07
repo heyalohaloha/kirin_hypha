@@ -18,6 +18,7 @@
 #include <type_traits>
 #include "reference_rt_probe.h"
 #include "TestProcessorStorage.h"
+#include "ReferenceTargetProductFlow.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -44,7 +45,7 @@ struct Clock final : juce::AudioPlayHead
 };
 
 // 静かで peak の大きい B の曲：A（−6 dBFS の正弦）に合わせると上限を超え、A を下げる承認が要る。
-void writeLibrary (const juce::File& root) { OneSongLibrary song; song.frequencyHz = 1500; writeOneSongLibrary (root, song); }
+void writeLibrary (const juce::File& root) { OneSongLibrary song; song.frequencyHz = 1500; writeOneSongLibrary (root, song, 2); }
 
 template <typename Sample>
 double referenceTonePower (const Sample* audio, int frames)
@@ -62,7 +63,8 @@ template <typename Sample>
 class LowerAProduct final : private juce::Timer
 {
 public:
-    explicit LowerAProduct (std::vector<float> input) : signal (std::move (input))
+    explicit LowerAProduct (std::vector<float> input, juce::File source, juce::File root)
+        : signal (std::move (input)), targetSource (std::move (source)), referenceRoot (std::move (root))
     {
         require (signal.size() >= frames && referenceTonePower (signal.data(), frames) < 0.01,
                  "the independent tone oracle rejects the known A fixture");
@@ -83,13 +85,17 @@ public:
         audio = std::thread ([this] { processAudio(); });
         startTimer (20);
     }
-    ~LowerAProduct() override { stopTimer(); running.store (false); audio.join(); }
+    ~LowerAProduct() override
+    {
+        stopTimer(); running.store (false); audio.join();
+        if (trackingEditor) post->editorBeingDeleted (trackingEditor.get());
+    }
     bool passed = false;
 
 private:
     Sample input (std::int64_t position) const
     {
-        const auto value = signal[static_cast<std::size_t> (position) % signal.size()];
+        const auto value = signal[static_cast<std::size_t> (position) % signal.size()] * inputGain.load();
         if constexpr (std::is_same_v<Sample, double>) return std::nextafter (static_cast<double> (value), 1.0);
         return value;
     }
@@ -100,6 +106,13 @@ private:
         require (Steady::now() - lastProgressAt < std::chrono::minutes (5), "audio worker stopped making progress");
         require (progress < 48000 * 300 / frames, "scenario exceeds its input-content budget");
         const auto state = post->referenceAuditionSnapshot();
+        if (stage.load() == -1)
+        {
+            if (! targetFlow.advance (*post, targetSource, referenceRoot, clock.playing)) return;
+            require (mismatches.load() == 0, "target creation, file import, cancel and restore preserve bit-identical A");
+            writeLibrary (referenceRoot);
+            stage = 0;
+        }
         switch (stage.load())
         {
             case 0:  // B の曲が準備でき、A の 4 秒が測れてから B を押す
@@ -186,13 +199,73 @@ private:
                              && ! post->outputDecision (Activity::versionBlind).refused(),
                          "after RETURN, LISTEN and Blind may start");
                 require (post->getLatencySamples() == 0, "Reference, offline, bypass and RETURN add no latency");
+                mode.store (0);
+                post->setObservatoryDomainPreference (static_cast<uint8_t> (hypha::observatory::Domain::reference));
+                trackingEditor.reset (dynamic_cast<KirinHyphaEditor*> (post->createEditorIfNeeded()));
+                require (trackingEditor != nullptr, "create the shipping editor for tracking");
+                trackingEditor->setVisible (true);
+                require (post->selectReferenceRef(), "B starts a new MATCH before the tracking scenario");
+                stage = 9;
+                break;
+            case 9:
+                if (state.audibleComparisonSlot != 3 || ! state.referenceSelection) break;
+                initialRequired = state.referenceSelection->appliedGainDb + state.referenceSelection->peakShortfallDb;
+                inputGain.store (static_cast<float> (std::pow (10.0, -(initialRequired + 10.0) / 20.0)));
+                stageBlocks = blocks.load(); stage = 10;
+                break;
+            case 10:
+            case 11:
+            {
+                if (blocks.load() < stageBlocks + 48000 * 12 / frames) break;
+                require (state.referenceSelection && state.audibleComparisonSlot == 3, "B remains selected through the limit");
+                const auto& b = *state.referenceSelection;
+                const bool limited = stage == 10;
+                const auto windowA = post->referenceWindowLoudness (3);
+                std::cerr << "Reference tracking: state=" << static_cast<int> (b.tracking)
+                        << " failure=" << static_cast<int> (b.matchFailure) << " held=" << post->referenceHeldAttenuationDb()
+                        << " gain=" << b.appliedGainDb << " peak-shortfall=" << b.peakShortfallDb
+                        << " range-shortfall=" << b.rangeShortfallDb << " mode=" << b.comparisonMode
+                        << " A=" << b.aIntegratedLoudness << " window-A=" << windowA.loudness
+                        << " window-blocks=" << windowA.blocks << " initial-required=" << initialRequired
+                        << " input-gain=" << inputGain.load() << '\n';
+                require (b.tracking == ref::TrackingState::following && post->referenceHeldAttenuationDb() == 0.0
+                             && b.matchFailure == ref::MatchFailure::none,
+                         "the processor follows without lowering A or stopping at the range edge");
+                require (std::abs (b.appliedGainDb - (limited ? -6.0 : -3.0)) <= ref::trackingToleranceDb + 1.0e-6
+                             && (limited ? b.rangeShortfallDb < -3.5 : b.rangeShortfallDb == 0.0),
+                         "real A history clamps at MATCH minus 6 dB, then automatically follows back inside");
+                auto* editor = dynamic_cast<KirinHyphaEditor*> (post->getActiveEditor());
+                require (editor != nullptr, "the real editor remains available");
+                hypha::tests::target_editor::refresh (*editor, {});
+                auto* panel = findPanel (*editor);
+                require (panel && std::abs (panel->state().rangeShortfallDb - b.rangeShortfallDb) < 0.01
+                             && hypha::reference_ui::referenceStatusLine (panel->state()).text.contains ("FOLLOW LIMIT") == limited,
+                         "the real editor publishes the remaining difference and clears the tag on return");
+                require (std::abs (auditionPeak.load() - 0.05 * std::pow (10.0, b.appliedGainDb / 20.0)) < 0.001,
+                         "the range-limited gain reaches the actual processor audition output");
+                KirinMeterSession meter {};
+                require (post->pollMeterSession (meter) && std::abs (meter.lufs_m - (beforeLufs + 20 * std::log10 (inputGain.load()))) < 0.2,
+                         "measurements still describe the unchanged A input while B is range-limited");
+                if (limited)
+                {
+                    inputGain.store (static_cast<float> (std::pow (10.0, -(initialRequired + 3.0) / 20.0)));
+                    stageBlocks = blocks.load(); stage = 11; break;
+                }
+                post->selectReferenceA();
                 std::cout << "Reference lower A product: PASS lowered " << needed << " dB\n";
                 passed = true;
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();
                 break;
+            }
             default: break;
         }
+    }
+    static hypha::reference_ui::Component* findPanel (juce::Component& root)
+    {
+        if (auto* panel = dynamic_cast<hypha::reference_ui::Component*> (&root)) return panel;
+        for (auto* child : root.getChildren()) if (auto* panel = findPanel (*child)) return panel;
+        return nullptr;
     }
     void processAudio()
     {
@@ -232,10 +305,11 @@ private:
                     }
 
                 }
+            if (stage >= 10) auditionPeak.store (loudest);
             if (current == 0 && stage == 3 && referenceTonePower (buffer.getReadPointer (0), frames) > 0.99) heardB.store (true);
             if (current == 0 && stage == 3) loweredPeak.store (std::max (loweredPeak.load(), loudest));
             if ((current == 0 && stage == 6) || current == 3) risePeak.store (std::max (risePeak.load(), loudest));
-            if ((current == 1 || current == 2 || current == 4) && settle == 0)
+            if ((current == 1 || current == 2 || current == 4 || stage.load() == -1) && settle == 0)
             {
                 verified.fetch_add (1);
                 if (differences != 0) mismatches.fetch_add (1);
@@ -253,13 +327,18 @@ private:
     std::vector<float> signal;
     Clock clock;
     std::unique_ptr<Processor> post;
+    std::unique_ptr<KirinHyphaEditor> trackingEditor;
     std::thread audio;
     std::atomic<bool> running { true }, heardB { false };
     std::atomic<int> mode { 0 }, verified { 0 }, mismatches { 0 };  // 0 通常、1 オフライン、2 bypass、3 RETURN、4 確かめ
     std::atomic<std::int64_t> blocks { 0 };
+    std::atomic<float> inputGain { 1.0f }, auditionPeak { 0.0f };
+    double initialRequired = 0.0;
     std::atomic<float> loweredPeak { 0.0f }, risePeak { 0.0f };
     std::int64_t stageBlocks = 0;
-    std::atomic<int> stage { 0 };
+    std::atomic<int> stage { -1 };
+    ReferenceTargetProductFlow targetFlow;
+    juce::File targetSource, referenceRoot;
     double needed = 0.0, beforeLufs = 0.0;
     std::int64_t lastProgress = 0;
     Steady::time_point lastProgressAt = Steady::now();
@@ -287,15 +366,16 @@ int main (int argc, char** argv)
                  && ref::RuntimeV2Repository::transportRoot() == reference,
              "every write stays inside the sandbox");
     std::cout << "Reference lower A product: sandbox " << box.getFullPathName() << '\n';
-    require (identity.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (identity, "{\"license\":\"os\"}"),
-             "sandbox Kirin OS identity");
-    writeLibrary (reference);
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
+    verifyUnlicensedTargetEntry();
+    require (identity.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (identity, "{\"license\":\"os\"}"),
+             "sandbox Kirin OS identity");
+
     const auto run = [&] (auto sample) {
-        LowerAProduct<decltype (sample)> contract (std::move (signal));
+        LowerAProduct<decltype (sample)> contract (std::move (signal), juce::File (argv[1]), reference);
         juce::MessageManager::getInstance()->runDispatchLoop();
         return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
     };

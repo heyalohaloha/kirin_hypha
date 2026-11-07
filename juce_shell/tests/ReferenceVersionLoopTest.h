@@ -156,12 +156,20 @@ inline void testReferenceVersionLoop (const juce::File& sandbox, bool workingMix
     require (control::retirePagesFor (pages, {}), "a second page wait precedes source withdrawal");
     require (!feed (144000, 144000, true, false), "a missing page still preserves the complete A block");
     const auto source = runtime.visualBinding().source;
-    pages.close(); // Release the fixture decoder before removing its file on every platform.
-    require (source && juce::File (source->absolutePath).deleteFile(), "remove only the disposable registered source");
+    require (source != nullptr, "the selected Version keeps its registered source");
+    const juce::File file (source->absolutePath), held = file.getSiblingFile ("held-version.wav");
+    require (file.moveFileTo (held), "withdraw only the disposable registered source");
+    control::probeSourceNow (*source, 4000);
     control::service (c);
     const auto withdrawn = runtime.snapshot();
-    require (!feed (144256, 144256, true, false) && !runtime.outputSelected()
-        && withdrawn.state != ref::RuntimeState::ready && withdrawn.rejectionCode.isNotEmpty(),
-             "source loss during a page wait revokes V and exposes the failure reason");
+    require (!feed (144256, 144256, true, false) && c.snapshot().selectedVersionId == id
+        && withdrawn.auditionPages == ref::AuditionPageState::sourceUnavailable
+        && std::abs (c.snapshot().versionSelection->appliedGainDb - approvedGain) < 1.0e-9,
+             "source loss during a page wait retains V and exposes the temporary failure");
+    require (held.moveFileTo (file), "restore the same Version source object");
+    control::probeSourceNow (*source); control::service (c);
+    bool recovered = false;
+    for (int at = 144512; at < 192000 && !recovered; at += 256) recovered = feed (at, at, true);
+    require (recovered && c.snapshot().selectedVersionId == id, "the same V resumes without another press after source recovery");
     c.selectA();
 }

@@ -90,7 +90,7 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
     for (std::uint8_t mode = 0; mode < 4; ++mode) texts.add (channelModeTooltip (mode), true);
     for (const auto absolute : { false, true })
         for (const auto stereo : { false, true }) texts.add (midSideModeTooltip (absolute, stereo), true);
-    for (const auto& text : { midSideSpectrumPlotTooltip(), spectrumPlotTooltip(), absoluteSpectrumPlotTooltip(),
+    for (const auto& text : { midSideSpectrumPlotTooltip(), spectrumPlotTooltip(), absoluteSpectrumPlotTooltip(), absoluteSpectrumPlotTooltip (false),
                               approximateFrequencyTooltip(), deltaLegendTooltip(), preLegendTooltip(), postLegendTooltip(),
                               markTooltip (true), markTooltip (false), focusTrailTooltip (true), focusTrailTooltip (false),
                               sharpnessDeltaTooltip(), liveOverviewTooltip(), liveMetricTooltip (0), liveMetricTooltip (1),

@@ -1,52 +1,55 @@
 #pragma once
 #include "ReferenceSourceRevisionService.h"
+#include "ReferenceSourceSnapshot.h"
 
 namespace hypha::reference_audition::revision_detail
 {
-// Keep the decoder on the exact handle whose identity is checked before and after each page read.
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER) || defined(KIRIN_HYPHA_TEST_WALL_CLOCK)
+inline std::atomic<void (*) (const RuntimeSource&)> sourcePageOpenHookForTest { nullptr };
+#endif
 class PinnedSource final
 {
 public:
     explicit PinnedSource (std::shared_ptr<const RuntimeSource> sourceIn)
-        : source (std::move (sourceIn)), authority (service().watch (*source)),
-          observedInvalidation (authority->invalidation.load (std::memory_order_acquire)),
-          file (std::make_shared<OpenFile> (juce::File (source->absolutePath))) {}
-    std::unique_ptr<juce::InputStream> input() const { return std::make_unique<SharedInput> (file); }
-    bool sameIdentity() const
+        : source (std::move (sourceIn)), authority (service().watch (*source)), snapshot (snapshotFor (*source))
     {
-        RuntimeFileRevision open;
-        if (!file->revision (open)) return false;
-        const bool same = sameObject (open, source->revision);
-        if (!same) { service().noteFailure (*source); rejected.store (true, std::memory_order_release); }
-        return same && !wasRejected();
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER) || defined(KIRIN_HYPHA_TEST_WALL_CLOCK)
+        if (auto hook = sourcePageOpenHookForTest.load()) hook (*source);
+#endif
+        file = snapshot->open();
+    }
+    std::unique_ptr<juce::InputStream> input() const
+    {
+        if (file) return std::make_unique<SharedInput> (file, snapshot);
+        return std::make_unique<juce::MemoryInputStream> (nullptr, 0, false);
+    }
+    bool sameIdentity() const { return file != nullptr; }
+    bool readSucceeded() const
+    {
+        auto* direct = dynamic_cast<VerifiedInput*> (file.get());
+        if (direct == nullptr) return true;
+        const auto failures = direct->failureCount();
+        const bool succeeded = failures == observedFailures;
+        observedFailures = failures; return succeeded;
     }
     bool verified (const RuntimeV2SourceRepository& repository, RuntimeFileRevision& revision) const
     {
-        const auto checked = repository.checkSourceRevision (*source);
-        if (checked.state == SourceRevisionState::refused || wasRejected()) rejected.store (true, std::memory_order_release);
-        if (checked.state != SourceRevisionState::matched || wasRejected()) return false;
-        RuntimeFileRevision open, path;
-        if (!file->revision (open) || !repository.readSourceRevision (*source, path))
-            return false;
-        if (!sameObject (open, source->revision) || !sameObject (path, source->revision))
-        { service().noteFailure (*source); rejected.store (true, std::memory_order_release); return false; }
-        if (!equal (open, checked.revision) || !equal (path, checked.revision) || wasRejected()) return false;
-        revision = checked.revision;
+        if (!sameIdentity()) return false;
+        // The monitor is shared and asynchronous; no NAS stat is performed by a page fill.
+        repository.verifySourceRevision (*source);
+        if (authority->unavailable.load (std::memory_order_acquire) != 0) return false;
+        revision = source->revision;
         return true;
     }
     std::shared_ptr<void> authorityOwner() const { return authority; }
-    const std::atomic<std::uint64_t>* invalidation() const noexcept { return &authority->invalidation; }
-    std::uint64_t initialInvalidation() const noexcept { return observedInvalidation; }
-    bool wasRejected() const noexcept
-    {
-        return rejected.load (std::memory_order_acquire)
-            || authority->invalidation.load (std::memory_order_acquire) != observedInvalidation;
-    }
+    const std::atomic<std::uint64_t>* invalidation() const noexcept { return &authority->unavailable; }
+    std::uint64_t initialInvalidation() const noexcept { return 0; }
+    bool wasRejected() const noexcept { return file == nullptr; }
 private:
-    mutable std::atomic<bool> rejected { false };
     std::shared_ptr<const RuntimeSource> source;
     std::shared_ptr<Authority> authority;
-    std::uint64_t observedInvalidation = 0;
-    std::shared_ptr<OpenFile> file;
+    std::shared_ptr<SourceSnapshot> snapshot;
+    std::shared_ptr<juce::InputStream> file;
+    mutable std::uint64_t observedFailures = 0;
 };
 }

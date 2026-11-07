@@ -8,6 +8,8 @@ namespace hypha::reference_ui
 {
 void Component::resized()
 {
+    if (targetBar.isVisible())
+        targetBar.setBounds (getLocalBounds().reduced (6, shortPanel() ? 3 : 6).removeFromBottom (targetBar.rowHeight()));
     const int comparisonWidth = comparisonButtonWidth();
     connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 4 : 2) - 42, 6, 24, 18);
     auto area = panelArea();
@@ -23,10 +25,12 @@ void Component::resized()
     place (bButton, comparisonWidth);
     if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
     place (aButton, comparisonWidth);
+    targetBadge.setBounds (cButton.getBounds());
     if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
     // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
     auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
-    if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // C・V の画面（HyphaReferenceCheckPage.cpp）
+    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived)) {} // Leave the initial guide clear.
+    else if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // C・V の画面（HyphaReferenceCheckPage.cpp）
     else if (rolePage() && current.comparisonSlot == 3)
     {
         // B の画面：B SET と曲。V・C の選択欄と Preset・Cue は B では出さない。

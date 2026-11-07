@@ -32,7 +32,7 @@ namespace hypha::spectrum_painter
                       const SpectrumBins* mark,
                       const SpectrumValidity* markValid);
 
-    // The six seconds behind the POST curve: the landscape at 200% and 300%, the flat field below.
+    // Retained history presentation for MID and SIDE only; LR keeps its current and hold curves.
     void paintAbsoluteHistory (juce::Graphics& graphics,
                                juce::Rectangle<float> plot,
                                const absolute_spectrum::History& history);
@@ -43,7 +43,8 @@ namespace hypha::spectrum_painter
                         const SpectrumBins& post,
                         const SpectrumBins& peakHold,
                         const absolute_spectrum::History& history,
-                        presentation::Context);
+                        presentation::Context,
+                        bool showHistory = true);
 
     void paintMidSide (juce::Graphics& graphics,
                        juce::Rectangle<float> plot,

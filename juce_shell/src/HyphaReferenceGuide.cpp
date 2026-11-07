@@ -191,7 +191,7 @@ void Component::syncSourceButtons()
     cButton.setReady (! opensLarge && (checkAudible || cQueue));
     cButton.setTooltip (opensLarge ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
         : checkAudible ? "Audition the Check's song from Kirin OS (C)." : unavailableText (current, false));
-    guideShown = guide (current).shown;
+    guideShown = ! current.targetSelected && guide (current).shown;
 }
 
 bool Component::explainUnavailable (bool version)

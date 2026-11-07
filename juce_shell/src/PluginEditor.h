@@ -34,7 +34,6 @@
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
 #include "HyphaVersionBlindScreen.h"
-#include "HyphaReferenceTrackingNotice.h"
  #include "HyphaReferencePreparationWatch.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
@@ -378,7 +377,6 @@ private:
         double shortDb = 0.0, peakDbtp = -std::numeric_limits<double>::infinity();
     };
     LiveCompareAuto liveCompareAuto;
-    hypha::reference_ui::TrackingStopNotice referenceTrackingStop;  // 追従が止まった知らせ（同じ役の同じ試みで一度）
     juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
     juce::StringArray liveCompareStory; // its cause and its next step, for the help line and the status window

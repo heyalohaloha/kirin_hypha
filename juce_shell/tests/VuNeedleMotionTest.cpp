@@ -5,273 +5,305 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <vector>
 
 namespace
 {
+using namespace hypha::hybrid_vu;
 void require (bool value, const char* message)
 {
     if (! value) { std::cerr << message << '\n'; std::exit (1); }
 }
+// Independent continuous-time oracle; the implementation uses the prepare-time state matrix.
+double response (double seconds)
+{
+    const auto z = NeedleStep::zeta, w = NeedleStep::omega;
+    const auto b = std::sqrt (1.0 - z * z);
+    return 1.0 - std::exp (-z * w * seconds)
+        * (std::cos (w * b * seconds) + z / b * std::sin (w * b * seconds));
 }
-
+void verifyRate (int rate)
+{
+    LiveTap tap;
+    tap.prepare (rate, 2048);
+    const auto initial = tap.publications();
+    float sample = static_cast<float> (2.0 / 3.14159265358979323846);
+    tap.push (&sample, 1, 1);
+    require (tap.publications() == initial && ! std::isfinite (tap.read()[0]), "disabled tap does no work");
+    tap.setEnabled (true);
+    double half = 0, crossing = 0, maximum = 0;
+    const double input = static_cast<double> (sample) * 1.5707963267948966;
+    for (int frame = 1; frame <= rate * 2; ++frame)
+    {
+        tap.push (&sample, 1, 1);
+        const auto reading = tap.reading();
+        require (reading.coherent && reading.channels == 1 && reading.feeding, "a block publishes a coherent state");
+        const auto y = reading.needles[0].value / input;
+        const double t = static_cast<double> (frame) / rate;
+        require (std::abs (y - response (t)) < 1.0e-7, "sample response matches independent continuous oracle at every rate");
+        if (half == 0 && y >= 0.5) half = t;
+        if (crossing == 0 && y >= 0.99) crossing = t;
+        maximum = std::max (maximum, y);
+    }
+    require (std::abs (half - 0.1121089769) <= 1.1 / rate, "half crossing is 112.109 ms");
+    require (std::abs (crossing - 0.3) <= 1.1 / rate, "first 99% crossing is 300 ms");
+    require (std::abs (maximum - 1.0125) < 1.0e-6, "overswing is 1.25%, not clamped away");
+    require (std::abs (tap.reading().needles[0].value - input) < 1.0e-8, "DC gain is exactly unity");
+    sample = 0.0f;
+    double fallHalf = 0, fall99 = 0, minimum = 1;
+    for (int frame = 1; frame <= rate; ++frame)
+    {
+        tap.push (&sample, 1, 1);
+        const double t = static_cast<double> (frame) / rate;
+        const auto y = tap.reading().needles[0].value / input;
+        require (std::abs (y - (1.0 - response (t))) < 1.0e-7, "return is the same physical response as attack");
+        if (fallHalf == 0 && y <= 0.5) fallHalf = t;
+        if (fall99 == 0 && y <= 0.01) fall99 = t;
+        minimum = std::min (minimum, y);
+    }
+    require (std::abs (fallHalf - half) <= 1.1 / rate && std::abs (fall99 - crossing) <= 1.1 / rate,
+             "rise and return have matching crossings");
+    require (std::abs (minimum + 0.0125) < 1.0e-6, "return underswing is preserved internally");
+    std::cout << rate << " Hz: half=" << half * 1000 << " ms, 99%=" << crossing * 1000
+              << " ms, overswing=" << (maximum - 1) * 100 << "%, return half=" << fallHalf * 1000 << " ms\n";
+    for (int frame = 0; frame < rate * 10; ++frame) tap.push (&sample, 1, 1);
+    require (tap.reading().needles[0].value == 0.0 && tap.reading().needles[0].velocity == 0.0,
+             "zero tail flushes without subnormal state");
+}
+void verifySineAndBlocks()
+{
+    for (int rate : { 44100, 48000, 88200, 96000, 176400, 192000 })
+    {
+        LiveTap tap; tap.prepare (rate, 2048); tap.setEnabled (true);
+        double oldSum = 0;
+        const int frames = rate * 2, window = static_cast<int> (std::lround (rate * .3));
+        std::vector<float> input (static_cast<size_t> (frames) * 2);
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            const auto v = static_cast<float> (.1 * std::sin (2 * 3.14159265358979323846 * 1000 * frame / rate));
+            input[(size_t) frame * 2] = v; input[(size_t) frame * 2 + 1] = v * .5f;
+            if (frame >= frames - window) oldSum += std::abs (v);
+        }
+        int at = 0, block = 0;
+        while (at < frames)
+        {
+            const auto count = std::min (block++ % 2 == 0 ? 2048 : 63, frames - at);
+            tap.push (input.data() + at * 2, count, 2); at += count;
+        }
+        const auto legacy = 20 * std::log10 (oldSum / window * 1.5707963267948966);
+        require (std::abs (tap.level (0) - legacy) < 0.0002, "steady sine matches the old full-wave mean calibration");
+        require (std::abs (tap.level (1) - tap.level (0) + 6.020599913) < 1.0e-7, "channels stay independent");
+        LiveTap singles; singles.prepare (rate, 1); singles.setEnabled (true);
+        for (int frame = 0; frame < frames; ++frame) singles.push (input.data() + frame * 2, 1, 2);
+        require (singles.reading().needles[0].value == tap.reading().needles[0].value,
+                 "callback size cannot change a bit of the response");
+        std::cout << rate << " Hz steady: old=" << legacy << " new=" << tap.level (0) << " dBFS\n";
+    }
+}
+void verifyInvalidBlocks()
+{
+    for (const auto invalid : { std::numeric_limits<float>::quiet_NaN(),
+                               std::numeric_limits<float>::infinity() })
+        for (int offset : { 0, 511 })
+        {
+            LiveTap tap; tap.prepare (48000, 512); tap.setEnabled (true);
+            std::vector<float> samples (1024, .1f);
+            for (int block = 0; block < 200; ++block) tap.push (samples.data(), 512, 2);
+            const auto settled = tap.reading();
+            NeedleMotionPair ui; ui.setVisible (true);
+            for (int block = 0; block < 48; ++block)
+            {
+                samples[(size_t) offset * 2] = invalid;
+                tap.push (samples.data(), 512, 2);
+                ui.accept (tap.reading()); ui.tick (1.0 / 60);
+            }
+            require (std::abs (ui.position (0)) < settled.needles[0].value * .01
+                     && std::abs (ui.position (1)) < settled.needles[1].value * .01,
+                     "repeated invalid blocks return both needles instead of pinning their last reading");
+            samples.assign (1024, .1f);
+            tap.push (samples.data(), 512, 2);
+            require (tap.reading().feeding && std::isfinite (tap.level (0)), "finite input resumes after repeated invalid blocks");
+        }
+}
+void verifyStops()
+{
+    LiveTap tap; tap.prepare (48000, 512); tap.setEnabled (true);
+    std::vector<float> samples (512, static_cast<float> (.1 * 2 / 3.14159265358979323846));
+    std::int64_t position = 0; std::uint64_t time = 1'000'000'000;
+    for (int block = 0; block < 200; ++block)
+    {
+        tap.push (samples.data(), 512, 1, true, true, position, time);
+        position += 512; time += 10'666'666;
+    }
+    auto settled = tap.reading();
+    for (const bool interrupted : { false, true })
+    {
+        NeedleMotionPair ui; ui.setVisible (true);
+        auto reading = settled;
+        if (interrupted) { tap.interrupt(); reading = tap.reading(); }
+        const auto endpoint = reading.wallNanos + static_cast<std::uint64_t> (std::llround (reading.aheadSeconds * 1.0e9));
+        ui.accept (reading, endpoint); ui.tick (1.0 / 60);
+        for (int frame = 1; frame <= 30; ++frame)
+        {
+            ui.accept (reading); ui.tick (1.0 / 60);
+            require (std::abs (ui.position (0) / settled.needles[0].value - (1 - response (frame / 60.0))) < 1.0e-7,
+                     "missing callbacks and explicit stops return at the audio response speed");
+        }
+    }
+    // Resume after silence must not resurrect the old deflection, even at a seek or stop edge.
+    time += 2'000'000'000; position += 48000;
+    samples.assign (512, 0.0f);
+    tap.push (samples.data(), 512, 1, false, true, position, time);
+    require (std::abs (tap.reading().needles[0].value) < 1.0e-9, "resume after a gap does not restore stale motion");
+    samples[0] = std::numeric_limits<float>::quiet_NaN();
+    tap.push (samples.data(), 512, 1);
+    require (! tap.reading().feeding && std::isfinite (tap.reading().needles[0].value), "invalid input coasts without poisoning state");
+    samples.assign (512, .1f); tap.push (samples.data(), 512, 1);
+    require (tap.reading().feeding && std::isfinite (tap.level (0)), "the first finite block automatically resumes");
+    NeedleMotionPair hidden; hidden.accept (tap.reading());
+    require (! hidden.tick (1.0 / 60), "hidden callbacks do no frame work");
+    hidden.setVisible (true); hidden.tick (1.0 / 60);
+    for (int frame = 0; frame < 300; ++frame) hidden.tick (1.0 / 60);
+    require (! hidden.active() && ! hidden.tick (1.0 / 60), "settled frames do no work");
+    NeedleMotion invalid; invalid.snap (1); invalid.setTarget (NAN);
+    require (! invalid.advance (0) && ! invalid.advance (-.1), "invalid durations do no work");
+    invalid.advance (.3);
+    require (std::abs (invalid.position() - .01) < 1.0e-10, "long UI frames integrate elapsed time without snapping");
+}
+void verifyReopening()
+{
+    LiveTap tap; tap.prepare (48000, 512); tap.setEnabled (true);
+    std::vector<float> samples (512, .1f);
+    std::uint64_t now = 1'000'000'000;
+    for (int block = 0; block < 200; ++block)
+    {
+        tap.push (samples.data(), 512, 1, true, false, 0, now);
+        now += 10'666'666;
+    }
+    for (const bool stopped : { false, true })
+    {
+        if (stopped) tap.interrupt();
+        const auto reading = tap.reading();
+        NeedleMotionPair ui; ui.setVisible (true);
+        ui.accept (reading, now); ui.tick (1.0 / 60);
+        for (int frame = 0; frame < 180; ++frame) ui.tick (1.0 / 60);
+        require (std::abs (ui.position (0)) < 1.0e-10, "stopped needle finishes returning");
+        ui.setVisible (false); ui.setVisible (true);
+        ui.accept (reading, now + 3'000'000'000);
+        require (std::abs (ui.position (0)) < 1.0e-10, "reopening after return cannot resurrect the last deflection");
+        NeedleMotionPair reopened; reopened.setVisible (true);
+        reopened.accept (reading, now + 3'000'000'000);
+        require (std::abs (reopened.position (0)) < 1.0e-10, "a newly opened editor accounts for hidden elapsed time");
+        NeedleMotionPair hidden; hidden.setVisible (true); hidden.accept (reading, now);
+        hidden.setVisible (false);
+        require (! hidden.tick (3), "hidden views do no animation work");
+        hidden.setVisible (true); hidden.accept (reading, now + 3'000'000'000);
+        require (std::abs (hidden.position (0)) < 1.0e-10, "hidden return uses the publication's time on first paint");
+    }
+}
+void verifyBursts()
+{
+    for (const auto sizes : { std::vector<int> (32, 64), std::vector<int> { 63, 2048 },
+                              std::vector<int> { 2048, 63 } })
+    {
+        LiveTap tap; tap.prepare (48000, 2048); tap.setEnabled (true);
+        std::vector<float> samples (96000, .1f);
+        tap.push (samples.data(), 96000, 1);
+        const auto level = tap.reading().needles[0].value;
+        NeedleMotionPair ui; ui.setVisible (true);
+        std::uint64_t start = 1'000'000'000;
+        std::int64_t position = 0;
+        for (int burst = 0; burst < 24; ++burst)
+        {
+            int total = 0;
+            for (int frames : sizes)
+            {
+                tap.push (samples.data(), frames, 1, true, true, position, start);
+                position += frames; total += frames;
+            }
+            const double duration = static_cast<double> (total) / 48000;
+            const auto reading = tap.reading();
+            require (reading.aheadSeconds >= duration - 1.0e-7, "publication includes every block processed ahead of wall time");
+            ui.accept (reading, start); ui.tick (1.0 / 60);
+            for (double elapsed = 1.0 / 60; elapsed < duration; elapsed += 1.0 / 60)
+            {
+                ui.tick (1.0 / 60);
+                require (std::abs (ui.position (0) - level) < 1.0e-8, "normal callback bursts do not make a steady needle pump");
+            }
+            start += static_cast<std::uint64_t> (std::llround (duration * 1.0e9));
+        }
+        NeedleMotionPair gap; gap.setVisible (true);
+        gap.accept (tap.reading(), start + 300'000'000);
+        require (std::abs (gap.position (0) / level - .01) < 1.0e-7, "a real gap returns after the processed audio horizon");
+        const auto before = tap.reading();
+        auto expected = before.needles[0];
+        NeedleStep::forSeconds (.06 - before.aheadSeconds + 64.0 / 48000).apply (expected, 0.0);
+        std::array<float, 64> zero {};
+        tap.push (zero.data(), 64, 1, true, true, position, before.wallNanos + 60'000'000);
+        require (std::abs (tap.reading().needles[0].value - expected.value) < .00005,
+                 "resuming a burst without a stop notification coasts from the same endpoint as the UI");
+    }
+}
+void verifyLargeBlockResumption()
+{
+    int cases = 0;
+    for (int rate : { 44100, 48000, 88200, 96000, 176400, 192000 })
+        for (int frames : { 4096, 8192 })
+        {
+            const auto duration = static_cast<std::uint64_t> (frames * 1.0e9 / rate);
+            // The former jitter threshold was two block durations plus 20 ms from the
+            // callback start, or one block duration plus 20 ms from the audio endpoint.
+            for (const auto gap : { 0ull, 1'000'000ull, 100'000'000ull, 129'333'334ull,
+                                   duration + 19'000'000ull, duration + 20'000'000ull,
+                                   duration + 21'000'000ull })
+                for (const float resumedInput : { 0.0f, .001f })
+                    // No stop notification with continuous position, no position, or an explicit stop.
+                    for (int stopKind : { 0, 1, 2 })
+                {
+                    const bool hasPosition = stopKind != 1;
+                    LiveTap tap; tap.prepare (rate, frames); tap.setEnabled (true);
+                    std::vector<float> samples (static_cast<size_t> (rate) * 4, .1f);
+                    for (size_t index = 1; index < samples.size(); index += 2) samples[index] = -.05f;
+                    tap.push (samples.data(), rate * 2, 2);
+                    tap.push (samples.data(), frames, 2, true, hasPosition, 0, 1'000'000'000);
+                    if (stopKind == 2) { tap.interrupt(); tap.interrupt(); }
+                    const auto stopped = tap.reading();
+                    const auto resumeTime = stopped.wallNanos + duration + gap;
+                    NeedleMotionPair ui; ui.setVisible (true); ui.accept (stopped, resumeTime);
+                    for (int ch = 0; ch < 2; ++ch)
+                        require (std::abs (ui.position (ch) / stopped.needles[(size_t) ch].value
+                                          - (1.0 - response (gap * 1.0e-9))) < 1.0e-7,
+                                 "UI returns from the large block's endpoint with or without a stop notification");
+                    samples.assign (128, resumedInput);
+                    tap.push (samples.data(), 64, 2, true, hasPosition, frames, resumeTime);
+                    const auto resumed = tap.reading();
+                    require (resumed.feeding && resumed.coherent, "the first resumed block publishes automatically");
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        auto expected = stopped.needles[(size_t) ch];
+                        NeedleStep::forSeconds (gap * 1.0e-9).apply (expected, 0.0);
+                        NeedleStep::forSeconds (64.0 / rate).apply (expected, resumedInput * 1.5707963267948966);
+                        require (std::abs (resumed.needles[(size_t) ch].value - expected.value) < .00005
+                                 && std::abs (resumed.needles[(size_t) ch].velocity - expected.velocity) < .001,
+                                 "callback gaps preserve both position and velocity on resumption without a jitter threshold");
+                        if (resumedInput == 0.0f)
+                        {
+                            NeedleMotionPair silent; silent.setVisible (true);
+                            silent.accept (stopped, resumeTime + static_cast<std::uint64_t> (64.0e9 / rate));
+                            require (std::abs (resumed.needles[(size_t) ch].value - silent.position (ch)) < .00005,
+                                     "silent resumption cannot resurrect the pre-stop deflection");
+                        }
+                    }
+                    ++cases;
+                }
+        }
+    std::cout << "Large-block resumption with/without stop and position notifications: " << cases << " boundary cases PASS\n";
+}
+}
 int main()
 {
-    using hypha::hybrid_vu::NeedleMotion;
-    NeedleMotion sixty, fast;
-    sixty.setTarget (1.0);
-    fast.setTarget (1.0);
-    double previous = 0.0;
-    for (int i = 1; i <= 6; ++i)
-    {
-        sixty.advance (1.0 / 60.0);
-        require (sixty.position() >= previous && sixty.position() <= 1.0,
-                 "step must be monotone and not overshoot");
-        previous = sixty.position();
-    }
-    require (sixty.position() >= 0.99, "step must reach 99% within 100 ms");
-    for (int i = 0; i < 12; ++i) fast.advance (1.0 / 144.0);
-    NeedleMotion other;
-    other.setTarget (1.0);
-    for (int i = 0; i < 5; ++i) other.advance (1.0 / 60.0);
-    require (std::abs (fast.position() - other.position()) < 1.0e-10,
-             "elapsed time must determine position");
-    NeedleMotion ramp;
-    double largestFrame = 0.0;
-    double previousFrame = 0.0;
-    bool foundIntermediate = false;
-    for (int frame = 0; frame < 60; ++frame)
-    {
-        if (frame % 6 == 0) ramp.setTarget (0.1 * (frame / 6 + 1));
-        ramp.advance (1.0 / 60.0);
-        const auto position = ramp.position();
-        largestFrame = std::max (largestFrame, std::abs (position - previousFrame));
-        foundIntermediate |= position > previousFrame && position < ramp.target();
-        previousFrame = position;
-    }
-    require (foundIntermediate && largestFrame < 0.05,
-             "60 Hz ramp must interpolate the 100 ms publication steps");
-    hypha::hybrid_vu::NeedleMotionPair pair;
-    pair.setTarget (0, 1.0);
-    int work = 0;
-    for (int frame = 0; frame < 30; ++frame) work += pair.tick (1.0 / 60.0);
-    require (work == 0, "hidden callbacks must do no frame work");
-    pair.setVisible (true);
-    for (int frame = 0; frame < 120; ++frame) work += pair.tick (1.0 / 60.0);
-    const auto settledWork = work;
-    for (int frame = 0; frame < 30; ++frame) work += pair.tick (1.0 / 60.0);
-    require (settledWork > 0 && work == settledWork, "settled callbacks must do no frame work");
-    pair.setTarget (1, 0.5);
-    require (pair.active(), "a new publication must resume work");
-    pair.setVisible (false);
-    require (! pair.tick (1.0 / 60.0), "hiding must stop frame work");
-    NeedleMotion missing;
-    missing.snap (1.0);
-    missing.setTarget (std::numeric_limits<double>::quiet_NaN());
-    require (! missing.advance (0.0) && ! missing.advance (-0.1), "invalid dt must do no work");
-    missing.advance (0.251);
-    require (missing.position() == 0.0 && ! missing.active(), "missing value must rest at zero");
-    NeedleMotion jump;
-    jump.setTarget (0.7);
-    jump.advance (0.251);
-    require (jump.position() == 0.7 && ! jump.active(), "long pause must snap");
-    for (int i = 0; i < 120 && sixty.active(); ++i) sixty.advance (1.0 / 60.0);
-    require (! sixty.active() && sixty.position() == 1.0, "motion must settle");
-    require (! sixty.advance (1.0 / 60.0), "settled motion must do no work");
-    sixty.setTarget (0.0);
-    previous = sixty.position();
-    for (int frame = 0; frame < 6; ++frame)
-    {
-        sixty.advance (1.0 / 60.0);
-        require (sixty.position() <= previous && sixty.position() >= 0.0,
-                 "falling step must be monotone and not overshoot");
-        previous = sixty.position();
-    }
-    require (sixty.position() <= 0.01, "falling step must reach 99% within 100 ms");
-    sixty.setTarget (1.0);
-    for (int i = 0; i < 120 && sixty.active(); ++i)
-    {
-        sixty.advance (1.0 / 60.0);
-        require (sixty.position() >= 0.0 && sixty.position() <= 1.0,
-                 "retarget must stay within the scale");
-    }
-    // 針の値が毎 frame（60 Hz）届くとき：300 ms で立ち上がる VU の積分（段差への応答）に 30 ms 以内で追い、
-    // 行き過ぎず、段にならない。
-    {
-        NeedleMotion live;
-        live.setLive (true);
-        const double dt = 1.0 / 60.0, top = 0.6;
-        double reachedHalfAt = -1.0, largestJump = 0.0, previousPosition = 0.0;
-        for (int frame = 1; frame <= 60; ++frame)
-        {
-            const double t = frame * dt;
-            const double fed = std::min (top, top * t / 0.3);
-            live.setTarget (fed);
-            live.advance (dt);
-            const auto position = live.position();
-            require (position <= fed + 1.0e-9 && position >= previousPosition - 1.0e-9,
-                     "a live-fed needle never passes the integrated value and never reverses on a rising ramp");
-            largestJump = std::max (largestJump, position - previousPosition);
-            if (reachedHalfAt < 0.0 && position >= top * 0.5) reachedHalfAt = t;
-            previousPosition = position;
-        }
-        std::cout << "live needle: half reached at " << reachedHalfAt * 1000.0 << " ms (fed value reached half at 150 ms)"
-                  << " largest frame jump=" << largestJump << '\n';
-        require (reachedHalfAt > 0.0 && reachedHalfAt - 0.15 <= 0.030, "a live-fed needle lags the integrated VU by at most 30 ms");
-        require (largestJump < top / 18.0 * 1.5, "a live-fed needle moves smoothly, not in steps");
-        require (live.position() >= top - 0.01, "a live-fed needle settles on the held value");
-        live.setTarget (0.2);
-        for (int frame = 0; frame < 30; ++frame)
-        {
-            live.advance (dt);
-            require (live.position() >= 0.2 - 1.0e-9, "a live-fed needle does not overshoot a falling target");
-        }
-    }
-    // 針の値を audio thread で作って block ごとに公開する tap：公開の間隔は 1 block、窓はちょうど 300 ms、
-    // 校正は Rust の VU と同じ（正弦波の peak が dBFS になる）。
-    {
-        using hypha::hybrid_vu::LiveTap;
-        LiveTap tap;
-        tap.prepare (48000.0, 512);
-        std::vector<float> block (512 * 2, 0.0f);
-        require (! std::isfinite (tap.read()[0]) && tap.publications() == 0, "an unprepared or disabled tap publishes nothing");
-        tap.push (block.data(), 512, 2);
-        require (tap.publications() == 0 && ! std::isfinite (tap.read()[0]), "a disabled tap does no work");
-        tap.setEnabled (true);
-        auto publications = tap.publications();
-        for (int n = 0; n < 40; ++n)   // 426 ms of silence covers the window
-        {
-            tap.push (block.data(), 512, 2);
-            require (tap.publications() == ++publications, "every pushed block publishes once");
-        }
-        require (! std::isfinite (tap.read()[0]), "a silent window reads as no level, like the Rust meter");
-        double phase = 0.0;
-        const auto sine = [&] (float peak)
-        {
-            for (int f = 0; f < 512; ++f)
-            {
-                const auto v = static_cast<float> (peak * std::sin (phase));
-                block[(std::size_t) f * 2] = v; block[(std::size_t) f * 2 + 1] = 0.5f * v;
-                phase += 2.0 * 3.14159265358979323846 * 1000.0 / 48000.0;
-            }
-        };
-        int pushed = 0; double atHalf = 0.0, atFull = 0.0, previous = -300.0; bool monotone = true;
-        while (pushed < 14400 + 512)
-        {
-            sine (0.1f); tap.push (block.data(), 512, 2); pushed += 512;
-            const auto level = tap.read()[0];
-            if (std::isfinite (level)) { monotone = monotone && level >= previous - 1.0e-9; previous = level; }
-            if (pushed == 7168) atHalf = level;
-            if (pushed == 14336) atFull = level;
-        }
-        std::cout << "live tap: at 7168 frames=" << atHalf << " dBFS, at 14336 frames=" << atFull << " dBFS, final=" << tap.read()[0] << '\n';
-        require (std::abs (tap.read()[0] - (-20.0)) < 0.05, "a -20 dBFS peak sine reads -20 dBFS after a full window");
-        require (std::abs (tap.read()[1] - (-26.02)) < 0.05, "the second channel is integrated separately");
-        require (atHalf < -25.0 && atHalf > -27.5 && atFull > -20.3, "the window is a 300 ms average that rises for exactly 300 ms");
-        require (monotone, "a rising step integrates without steps backwards");
-        tap.setEnabled (false);
-        tap.push (block.data(), 512, 2);
-        require (! std::isfinite (tap.read()[0]), "disabling clears the published level");
-        tap.setEnabled (true);
-        for (int n = 0; n < 10; ++n) { sine (0.1f); tap.push (block.data(), 512, 2); }
-        require (! std::isfinite (tap.read()[0]), "after re-enabling a whole window must pass before a level is published");
-        // 非有限の入力が 1 つでも混ざると、和と ring が食い違ったまま残らない：窓・和・公開を一緒に失効し、
-        // 有限な連続 300 ms の後に正しい値へ戻る。
-        for (int n = 0; n < 40; ++n) { sine (0.1f); tap.push (block.data(), 512, 2); }
-        require (std::abs (tap.read()[0] - (-20.0)) < 0.05, "a settled sine reads its level before the fault");
-        sine (0.1f); block[7] = std::numeric_limits<float>::quiet_NaN(); tap.push (block.data(), 512, 2);
-        require (! std::isfinite (tap.read()[0]), "a non-finite sample invalidates the published level");
-        for (int n = 0; n < 28; ++n) { sine (0.1f); tap.push (block.data(), 512, 2); }   // 298.7 ms
-        require (! std::isfinite (tap.read()[0]), "no level until a whole finite window has passed");
-        sine (0.1f); tap.push (block.data(), 512, 2);
-        require (std::abs (tap.read()[0] - (-20.0)) < 0.05, "a whole finite window restores the exact level after a NaN");
-        // 計測の不連続（seek・停止⇄再生・callback の空白）で窓を失効し、新しい連続 300 ms まで公開しない。
-        LiveTap continuous; continuous.prepare (48000.0, 512); continuous.setEnabled (true);
-        std::int64_t position = 96000; std::uint64_t nanos = 1'000'000'000ull;
-        const auto feed = [&] (bool playing, bool hasPosition)
-        {
-            sine (0.1f);
-            continuous.push (block.data(), 512, 2, playing, hasPosition, position, nanos);
-            position += 512; nanos += 512ull * 1'000'000'000ull / 48000ull;
-        };
-        for (int n = 0; n < 40; ++n) feed (true, true);
-        require (std::abs (continuous.read()[0] - (-20.0)) < 0.05, "continuous playback reads its level");
-        position += 48000; feed (true, true);
-        require (! std::isfinite (continuous.read()[0]), "a seek invalidates the window");
-        for (int n = 0; n < 29; ++n) feed (true, true);
-        require (std::abs (continuous.read()[0] - (-20.0)) < 0.05, "300 ms after the seek the level is back");
-        feed (false, true);
-        require (! std::isfinite (continuous.read()[0]), "a stop invalidates the window");
-        for (int n = 0; n < 30; ++n) feed (false, true);
-        require (std::isfinite (continuous.read()[0]), "steady callbacks while stopped (monitoring) integrate again");
-        feed (true, true);
-        require (! std::isfinite (continuous.read()[0]), "starting playback after a stop invalidates the window");
-        for (int n = 0; n < 30; ++n) feed (true, true);
-        nanos += 500'000'000ull; feed (true, false);
-        require (! std::isfinite (continuous.read()[0]), "a gap in callbacks (bypass, hidden) invalidates the window");
-        for (int n = 0; n < 30; ++n) feed (true, false);
-        require (std::isfinite (continuous.read()[0]), "without a position, steady callbacks are continuous");
-        // 実の processor に近い道：(a) 可変長の callback（2048 と 64 が交互、時刻はその長さぶん進む）は連続、
-        // (b) PRE（時刻が常に 0）は計測しない callback の「途切れ」の印と再生の切替で見つける、
-        // (c) 停止中（tap が呼ばれない間）の off→on は次の push で失効する。
-        LiveTap realistic; realistic.prepare (48000.0, 2048); realistic.setEnabled (true);
-        std::int64_t at = 48000; std::uint64_t clockNanos = 5'000'000'000ull;
-        const auto pushVariable = [&] (int frames, bool playing, bool timed)
-        {
-            std::vector<float> wide (static_cast<std::size_t> (frames) * 2, 0.0f);
-            for (int f = 0; f < frames; ++f)
-            {
-                const auto v = static_cast<float> (0.1 * std::sin (phase));
-                wide[(std::size_t) f * 2] = v; wide[(std::size_t) f * 2 + 1] = v;
-                phase += 2.0 * 3.14159265358979323846 * 1000.0 / 48000.0;
-            }
-            realistic.push (wide.data(), frames, 2, playing, true, at, timed ? clockNanos : 0);
-            at += frames; clockNanos += static_cast<std::uint64_t> (frames) * 1'000'000'000ull / 48000ull;
-        };
-        for (int n = 0; n < 24; ++n) { pushVariable (2048, true, true); pushVariable (64, true, true); }
-        require (std::abs (realistic.read()[0] - (-20.0)) < 0.05, "alternating 2048/64 callbacks are continuous");
-        // 1 周期の 2048 を 64 × 32 で続けて呼び、次の周期まで待つ host（時刻は束の頭だけ進む）も連続。
-        for (int period = 0; period < 12; ++period)
-        {
-            const auto periodStart = clockNanos;
-            for (int n = 0; n < 32; ++n) { const auto saved = clockNanos; pushVariable (64, true, true); clockNanos = saved; }
-            clockNanos = periodStart + 2048ull * 1'000'000'000ull / 48000ull;
-        }
-        require (std::abs (realistic.read()[0] - (-20.0)) < 0.05, "bursts of short callbacks within one period are continuous");
-        clockNanos += 400'000'000ull; pushVariable (64, true, true);
-        require (! std::isfinite (realistic.read()[0]), "a real gap after short callbacks still ends the window");
-        for (int n = 0; n < 7; ++n) { pushVariable (2048, true, true); pushVariable (64, true, true); }
-        require (std::isfinite (realistic.read()[0]), "and the level is back after a whole new window");
-        LiveTap pre; pre.prepare (48000.0, 512); pre.setEnabled (true);
-        LiveTap* target = &pre;
-        const auto pushPre = [&] (int frames, bool playing)
-        {
-            std::vector<float> wide (static_cast<std::size_t> (frames) * 2, 0.0f);
-            for (int f = 0; f < frames; ++f)
-            {
-                const auto v = static_cast<float> (0.1 * std::sin (phase));
-                wide[(std::size_t) f * 2] = v; wide[(std::size_t) f * 2 + 1] = v;
-                phase += 2.0 * 3.14159265358979323846 * 1000.0 / 48000.0;
-            }
-            target->push (wide.data(), frames, 2, playing, true, at, 0);
-            at += frames;
-        };
-        for (int n = 0; n < 40; ++n) pushPre (512, true);
-        require (std::isfinite (pre.read()[0]), "PRE without a wall clock integrates while playing");
-        for (int n = 0; n < 5; ++n) pre.interrupt();   // stopped: callbacks that do not measure
-        require (! std::isfinite (pre.read()[0]), "a callback that does not measure ends the window at once");
-        for (int n = 0; n < 28; ++n) pushPre (512, true);  // resumes at the position where it ended (298.7 ms)
-        require (! std::isfinite (pre.read()[0]), "resuming at the same position still needs a whole new window");
-        pushPre (512, true);
-        require (std::isfinite (pre.read()[0]), "300 ms after the resume the level is back");
-        pre.setEnabled (false); pre.setEnabled (true);     // off -> on while stopped: no push in between
-        pushPre (512, true);
-        require (! std::isfinite (pre.read()[0]), "enabling again invalidates the window even at a continuing position");
-        for (int n = 0; n < 29; ++n) pushPre (512, true);
-        require (std::isfinite (pre.read()[0]), "and publishes again after a whole window");
-        std::vector<float> mono (512, 0.1f);
-        LiveTap single; single.prepare (48000.0, 512); single.setEnabled (true);
-        for (int n = 0; n < 40; ++n) single.push (mono.data(), 512, 1);
-        require (std::isfinite (single.read()[0]) && ! std::isfinite (single.read()[1]), "a mono input leaves the second needle without a value");
-    }
-    return 0;
+    for (int rate : { 44100, 48000, 88200, 96000, 176400, 192000 }) verifyRate (rate);
+    verifySineAndBlocks(); verifyStops(); verifyInvalidBlocks(); verifyReopening(); verifyBursts();
+    verifyLargeBlockResumption();
+    std::cout << "Legacy rectangle: half 150 ms, 99% 297 ms, overswing 0%; live follower adds about 14 ms\n";
 }

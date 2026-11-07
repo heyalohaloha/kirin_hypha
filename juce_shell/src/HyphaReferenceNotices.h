@@ -27,12 +27,6 @@ inline juce::String lowerAOfferAction (double neededAttenuationDb)
     return "LOWER A " + juce::String (-neededAttenuationDb, 1) + " DB";
 }
 
-// 追従が止まった（MATCH から ±6 dB）。
-inline juce::String trackingStopped()
-{
-    return "Level follow stopped 6 dB from the MATCH. The current gain is kept.";
-}
-
 // Kirin OS の項目を外した：最初の名前と数、なぜ（名前の字）と直し方（Kirin OS で名前を直す。ほかは準備し直す）。
 inline juce::String librarySkipped (const std::vector<reference_audition::RuntimeSkippedItem>& items)
 {

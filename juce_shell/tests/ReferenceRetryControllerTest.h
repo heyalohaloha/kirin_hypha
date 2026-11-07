@@ -1,5 +1,7 @@
 #pragma once
 #include "ReferenceCheckSwitchTest.h"
+#include "../src/reference_audition/ReferencePinnedSource.h"
+#include "../src/reference_audition/ReferenceVerifiedReader.h"
 
 // An uncached source whose timestamp differs from its receipt, with every hash read failing:
 // the worker's failure must reach the workspace retry clock, polls inside a reservation start
@@ -79,10 +81,8 @@ inline void testReferenceRetryController (const juce::File& sandbox)
              "the unchanged source becomes ready after reads recover");
 }
 
-// During a prepare-before-return Check switch, the next source's timestamp changes and its hash
-// read keeps failing: the preparation hands the failure to the retry reservation instead of
-// waiting forever, the playing C returns to A, and the same selection becomes ready again once
-// reads recover, without another choice.
+// A prepared Check shares the same retry monitor: the current C remains audible until the
+// requested source can be confirmed, then the same request completes without another click.
 inline void testReferencePreparedSourceRetry (const juce::File& sandbox)
 {
     namespace control = hypha::tests::reference_control;
@@ -124,32 +124,111 @@ inline void testReferencePreparedSourceRetry (const juce::File& sandbox)
     ref::revision_detail::persistentReadFailureForTest.store (true);
     require (file.setLastModificationTime (file.getLastModificationTime() + juce::RelativeTime::seconds (2)),
              "change only the next source's timestamp during preparation");
-    const auto before = juce::Time::currentTimeMillis();
-    control::service (c);
-    require (service.waitForIdle (std::chrono::seconds (30)), "the preparation's hash attempt finishes");
-    control::service (c);
-    require (control::sourceRetryDeadline (runtime, {}) >= before + 5000,
-             "a read failure during preparation reserves the retry clock");
-    bool rendered = true;
-    for (int n = 0; n < 4 && rendered; ++n) rendered = feed();
-    require (!rendered && c.snapshot().audibleComparisonSlot == 0, "the unverifiable next Check returns to A");
-    require (c.snapshot().checkSelection->state == ref::RuntimeState::waiting
-             && c.snapshot().checkSelection->rejectionCode == "reference_source_read_failed"
-             && runtime.requestedGeneration() == generation, "the same selection waits without a new choice");
-    const auto started = service.startedCount();
-    for (int n = 0; n < 8; ++n) feed();
-    require (service.startedCount() == started, "polls during the reservation start no hash");
+    const auto prepared = control::preparedSourceFor (runtime, {});
+    require (prepared != nullptr, "next Check retains its prepared source");
+    const auto probe = [&] (std::int64_t missingMs = 0) {
+        require (service.waitForIdle (std::chrono::seconds (30)), "previous source probe completes");
+        service.advanceMonitorForTest (*prepared, missingMs);
+        ref::RuntimeV2SourceRepository (root).verifySourceRevision (*prepared);
+        require (service.waitForCompletion (*prepared, std::chrono::seconds (30)), "prepared source probe completes");
+    };
+    probe();
+    for (int n = 0; n < 4; ++n) require (feed(), "a transient next-source read failure keeps C audible");
+    probe (4000); levelAvailable = true;
+    for (int n = 0; n < 4; ++n) require (feed(), "an unavailable next source does not cut the verified current C");
+    require (runtime.requestedGeneration() == generation, "the same next Check remains requested");
+    require (c.snapshot().checkSelection->pendingSourceFailure.isNotEmpty(),
+             "a persistent next-source failure is published separately from the audible C");
+    require (c.requestAudition (2, -25, -6) && feed()
+             && c.snapshot().checkSelection->pendingSourceFailure.isNotEmpty(),
+             "pressing C again keeps the failure notice and the same requested switch");
     ref::revision_detail::persistentReadFailureForTest.store (false);
-    levelAvailable = true;
-    control::sourceRetryDeadline (runtime, {}) = juce::Time::currentTimeMillis() - 1;
-    control::service (c);
-    require (service.waitForIdle (std::chrono::seconds (30)), "the retry attempt finishes");
-    for (int n = 0; n < 16 && !c.snapshot().checkReady; ++n) feed();
+    juce::MemoryBlock original;
+    require (file.loadFileAsData (original), "retain the next-source fixture bytes");
+    auto altered = original; static_cast<char*> (altered.getData())[altered.getSize() - 1] ^= 1;
+    const auto overwrite = [&] (const juce::MemoryBlock& bytes) {
+        juce::FileOutputStream out (file);
+        require (out.openedOk() && out.setPosition (0) && out.write (bytes.getData(), bytes.getSize()), "overwrite only the prepared next-source fixture");
+        out.flush(); require (out.getStatus().wasOk(), "flush the next-source fixture");
+    };
+    overwrite (altered); probe (4000);
+    require (feed() && c.snapshot().checkSelection->pendingSourceFailure == "reference_source_changed"
+        && runtime.requestedGeneration() == generation,
+        "the actual prepared switch preserves audible C and publishes its confirmed change reason");
+    overwrite (original); probe();
+    for (int n = 0; n < 16 && c.snapshot().checkSelection->checkId != secondCheckId; ++n) feed();
     const auto after = c.snapshot();
     require (after.checkReady && after.checkSelection->checkId == secondCheckId
-             && after.checkSelection->rejectionCode.isEmpty() && runtime.requestedGeneration() == generation,
+             && after.checkSelection->rejectionCode.isEmpty() && after.checkSelection->pendingSourceFailure.isEmpty()
+             && runtime.requestedGeneration() == generation,
              "the same next Check becomes ready after reads recover without another choice");
     c.selectA(); feed();
+}
+
+inline void testReferenceInitialSwitchRetry (const juce::File& sandbox)
+{
+    namespace control = hypha::tests::reference_control;
+    namespace revision = ref::revision_detail;
+    for (int failure = 0; failure < 3; ++failure)
+    {
+        const auto root = sandbox.getChildFile ("initial-switch-retry-" + juce::String (failure));
+        require (root.createDirectory().wasOk(), "isolated first verification fixture");
+        publishTwoCheckLibrary (root, 2, true);
+        ref::ReferenceComparisonController c (root);
+        control::stopWorkers (c); c.configure ({"initial-switch-post", {}, 42, true}, 48000, 2);
+        require (((juce::Thread&) control::sourceVisual (c, {})).stopThread (-1), "stop the visual owner");
+        c.setPresented (true); control::service (c); c.observeTransport (0, true, true); control::service (c);
+        auto& runtime = control::roleFor (c, {2});
+        for (int role = 1; role <= 3; ++role)
+            control::stopPageRefill (control::currentPagesFor (control::roleFor (c, {role}), {}));
+        juce::AudioBuffer<float> block (2, 512);
+        int cursor = 0;
+        bool prepare = false;
+        const auto feed = [&] {
+            for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (block.getWritePointer (ch), 0.125f, 512);
+            c.observeTransport (cursor, true, true); c.observeAInput (block, cursor, true, true, true);
+            beginReferenceRtProbe();
+            const bool rendered = c.renderSelectedB (block, cursor, true, true, true);
+            require (endReferenceRtProbe() == 0, "first verification retries allocate nothing on the callback");
+            cursor += 512; control::service (c);
+            c.servicePendingAudition (prepare ? -25.0 : std::numeric_limits<double>::quiet_NaN(), -6, true);
+            return rendered;
+        };
+        require (c.requestAudition (2, -22, -6) && feed() && feed(), "C renders before the new initial verification");
+        const auto before = c.snapshot();
+        control::probeSourceNow (*runtime.visualBinding().source);
+        const auto file = root.getChildFile ("alternate.wav"), saved = root.getChildFile ("held.wav");
+        if (failure == 0) require (file.moveFileTo (saved), "remove only the requested path for its first stat");
+        else if (failure < 3) revision::verifyFailureForTest.store (failure);
+        require (c.selectCheck (before.checkTargets[1].id), "choose the next C through the real entry");
+        const auto generation = runtime.requestedGeneration();
+        control::service (c);
+        require (revision::service().waitForIdle (std::chrono::seconds (30)), "first verification completes");
+        control::service (c);
+        if (failure == 0) require (saved.moveFileTo (file), "restore the requested path after one failed stat");
+        else if (failure < 3) require (revision::verifyFailureForTest.load() == 0, "the real verifier consumed the one-shot failure");
+        require (control::preparedSourceFor (runtime, {}) == nullptr, "failure occurred before playback preparation");
+        const auto deadline = control::sourceRetryDeadline (runtime, {});
+        require (deadline > 0 && deadline <= juce::Time::currentTimeMillis() + 1000,
+                 "a retained C retries source reads promptly and bounds failed copy attempts");
+        for (int n = 0; n < 4; ++n)
+        {
+            require (feed() && std::abs (block.getSample (0, 511) - 0.25f) < 1.0e-7f,
+                     "the first failed verification preserves the exact approved old C PCM");
+            const auto held = c.snapshot().checkSelection;
+            require (held->playbackIdentity == before.checkSelection->playbackIdentity
+                     && std::abs (held->appliedGainDb - before.checkSelection->appliedGainDb) < 1.0e-9
+                     && held->pendingSourceFailure.isEmpty(), "a brief failure keeps identity and gain without a notice");
+        }
+        control::sourceRetryDeadline (runtime, {}) = juce::Time::currentTimeMillis() - 1;
+        prepare = true;
+        for (int n = 0; n < 16 && c.snapshot().checkSelection->checkId == before.checkSelection->checkId; ++n)
+        { feed(); require (revision::service().waitForIdle (std::chrono::seconds (30)), "recovery verification completes"); }
+        require (c.snapshot().checkSelection->checkId != before.checkSelection->checkId
+                 && c.snapshot().checkSelection->pendingSourceFailure.isEmpty()
+                 && runtime.requestedGeneration() == generation, "the original switch completes after recovery without another choice");
+        c.selectA(); feed();
+    }
 }
 
 // A source whose earlier attempt ended in a read failure is chosen again after the disk returns:
@@ -201,4 +280,104 @@ inline void testReferenceReselectionRetry (const juce::File& sandbox)
     }
     require (c.snapshot().versionReady && c.snapshot().versionSelection->rejectionCode.isEmpty(),
              "the chosen-again source becomes ready without the old reservation");
+}
+
+// No prepared publication exists yet: an explicit press during a failed first copy
+// must survive until the same requested selection is verified and can really play.
+inline juce::String initialOpenFailurePath;
+inline std::atomic<int> initialOpenFailures { 0 };
+inline void failInitialSourceOpen (const ref::RuntimeSource& source)
+{
+    if (source.absolutePath != initialOpenFailurePath) return;
+    ++initialOpenFailures;
+    ref::revision_detail::verifyFailureForTest.store (1);
+}
+inline void testReferenceInitialCopyAudition (const juce::File& sandbox)
+{
+    namespace control = hypha::tests::reference_control;
+    namespace revision = ref::revision_detail;
+    for (int failure = 0; failure < 5; ++failure)
+    for (const bool stopped : {false, true})
+    for (const bool cancel : {false, true})
+    {
+        const auto root = sandbox.getChildFile ("initial-copy-" + juce::String (failure)
+            + juce::String (stopped ? 1 : 0) + juce::String (cancel ? 1 : 0));
+        require (root.createDirectory().wasOk(), "isolated initial copy fixture");
+        publishTwoCheckLibrary (root, 2, true);
+        ref::ReferenceComparisonController c (root);
+        control::stopWorkers (c); c.configure ({"initial-copy-post", {}, 42, true}, 48000, 2);
+        require (((juce::Thread&) control::sourceVisual (c, {})).stopThread (-1), "deterministic visual owner");
+        struct Reset { ~Reset() {
+            revision::snapshotFreeBytesForTest.store (-1); revision::snapshotWriteLimitForTest.store (-1);
+            revision::persistentPathFailureForTest.store (false); revision::persistentReadFailureForTest.store (false);
+            revision::sourceReaderOpenHookForTest.store (nullptr); revision::sourcePageOpenHookForTest.store (nullptr);
+            revision::sourceInitialFormatOpenHookForTest.store (nullptr);
+            revision::verifyFailureForTest.store (0);
+        } } reset;
+        if (failure == 0) revision::persistentPathFailureForTest.store (true);
+        else if (failure == 1) revision::persistentReadFailureForTest.store (true);
+        else
+        {
+            revision::snapshotFreeBytesForTest.store (128 * 1024 * 1024);
+            initialOpenFailurePath = root.getChildFile ("source.wav").getFullPathName(); initialOpenFailures.store (0);
+            if (failure == 2) revision::sourceReaderOpenHookForTest.store (&failInitialSourceOpen);
+            else if (failure == 3) revision::sourcePageOpenHookForTest.store (&failInitialSourceOpen);
+            else revision::sourceInitialFormatOpenHookForTest.store (&failInitialSourceOpen);
+        }
+        c.setPresented (true); control::service (c);
+        require (revision::service().waitForIdle (std::chrono::seconds (30)), "initial verification finishes");
+        control::service (c);
+        auto& runtime = control::roleFor (c, {2});
+        const auto failed = runtime.snapshot();
+        const bool unpublished = !runtime.visualBinding().source && !c.snapshot().checkArmable;
+        if (failed.state != ref::RuntimeState::waiting || !unpublished
+            || failed.rejectionCode != (failure < 2 ? "reference_source_read_failed" : "reference_source_revalidating"))
+            std::cerr << "initial open case=" << failure << " stopped=" << stopped << " cancel=" << cancel
+                      << " state=" << static_cast<int> (failed.state) << " reason=" << failed.rejectionCode
+                      << " identity=" << failed.playbackIdentity << " failures=" << initialOpenFailures.load() << '\n';
+        require (failed.state == ref::RuntimeState::waiting && unpublished
+            && failed.rejectionCode == (failure < 2 ? "reference_source_read_failed" : "reference_source_revalidating"),
+            "initial source I/O failure waits before any playback publication");
+        if (failure >= 2) require (initialOpenFailures.load() > 0, "the real page or decoder open boundary fails after verification");
+        const auto generation = runtime.requestedGeneration();
+        juce::AudioBuffer<float> block (2, 512);
+        const auto feed = [&] (bool playing) {
+            for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (block.getWritePointer (ch), 0.125f, 512);
+            c.observeTransport (0, true, playing); c.observeAInput (block, 0, true, playing, true);
+            beginReferenceRtProbe();
+            const auto rendered = c.renderSelectedB (block, 0, true, true, true);
+            require (endReferenceRtProbe() == 0, "initial-copy waiting allocates nothing on the audio callback");
+            if (!rendered) for (int ch = 0; ch < 2; ++ch) for (int f = 0; f < 512; ++f)
+                require (block.getSample (ch, f) == 0.125f, "an unverified initial source preserves every A sample");
+            control::service (c); c.servicePendingAudition (-22, -6, playing); return rendered;
+        };
+        require (!feed (!stopped), "initial failure preserves A before the explicit press");
+        require (!c.snapshot().checkArmable, "the initial failure precedes any armable playback identity");
+        require (c.requestAudition (2, -22, -6),
+                 "the real audition entry accepts a press during initial storage failure");
+        for (int poll = 0; poll < 4; ++poll) require (!feed (!stopped), "failed source stays silent while the explicit choice waits");
+        require (c.pendingSlot() == 2 && c.pendingAuditionNeedsService() && runtime.requestedGeneration() == generation,
+                 "the pending audition belongs to the same requested selection generation");
+        if (cancel) c.selectA();
+        if (failure < 2) revision::snapshotFreeBytesForTest.store (-1);
+        revision::snapshotWriteLimitForTest.store (-1);
+        revision::persistentPathFailureForTest.store (false); revision::persistentReadFailureForTest.store (false);
+        revision::sourceReaderOpenHookForTest.store (nullptr); revision::sourcePageOpenHookForTest.store (nullptr);
+        revision::sourceInitialFormatOpenHookForTest.store (nullptr);
+        control::sourceRetryDeadline (runtime, {}) = juce::Time::currentTimeMillis() - 1;
+        bool rendered = false;
+        for (int poll = 0; poll < 12; ++poll) rendered = feed (!stopped) || rendered;
+        require (c.snapshot().checkReady && runtime.requestedGeneration() == generation, "the original source becomes ready after storage recovers");
+        if (failure >= 2) require (!runtime.visualBinding().source->preparedAudio->snapshot->hasPrivateCopy(),
+                                  "initial open recovery uses authenticated reads while capacity is still unavailable");
+        if (stopped)
+        {
+            require (!rendered && !c.snapshot().bSelected, "storage recovery while stopped does not start output");
+            for (int poll = 0; poll < 4; ++poll) rendered = feed (true) || rendered;
+        }
+        require (rendered == !cancel && c.snapshot().bSelected == !cancel,
+                 "the held press starts automatically after recovery; A cancels it before recovery");
+        if (!cancel) require (block.getSample (0, 511) == 0.25f, "the recovered source reaches actual matched PCM output");
+        c.selectA();
+    }
 }

@@ -126,6 +126,13 @@ compares another version of the same song from the same place.
 <br><sub>A tour: Hybrid VU, LEVEL, TIME, DRUM, FREQ, SPACE, LISTEN and PRE/POST Blind</sub>
 </p>
 
+In REF, drop an audio file to measure a target in the background, or use **MAKE TARGET** to save
+the current A window (at least three seconds). Select it for C to compare its spectrum and Balance.
+These targets contain measurements only and cannot play audio. Up to eight targets are kept in the
+DAW project; audio and source paths are never saved. A Kirin OS license is required; registration and
+measurement preparation in Kirin OS are unnecessary for these targets. File support uses JUCE's
+basic formats: WAV, AIFF and FLAC; MP3 and M4A depend on the operating system.
+
 Also inside: the Hybrid VU with true-peak bars and clip lamps, the SHARP and LIVE timelines, the
 time your chain takes between PRE and POST, and a screen in English or Japanese.
 
@@ -602,8 +609,9 @@ SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exa
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
 
-When POST has no verified PRE, Spectrum shows POST on its own: the current curve, a rolling peak
-hold, and the **six-second field** behind them. The field is a second axis inside the same
+When POST has no verified PRE, Spectrum shows POST on its own: the current curve and a rolling
+peak hold. **LR** keeps this flat view at every size, without a history field or receding ridges.
+**MID** and **SIDE** retain the **six-second field** behind them. The field is a second axis inside the same
 rectangle — vertical is time, not level. The newest observation is drawn along the bottom edge and
 rises as it ages, leaving the top edge six seconds later, so a resonance that appeared, a sweep, or
 a level move traces a visible shape. Each of its 180 rows is one thirtieth of a second and shows
@@ -613,14 +621,15 @@ between observations. A row stays empty when the nearest observation is further 
 cadence the host is actually publishing at, so the field is continuous at any buffer size while a
 break in the measurement stays a break in the field.
 
-At 200% and 300% the same six seconds are drawn as a landscape instead of a flat field. The newest
+For MID and SIDE at 200% and 300%, the same six seconds are drawn as a landscape instead of a flat field. The newest
 spectrum stands on the plot itself as the front ridge, on the same frequency and level axes as the
 curve, and older spectra recede toward a horizon: higher, narrower, and fainter with age. Each of
 the 24 ridges is the one observation nearest its age, keeping the loudest band in each of its 96
 columns so a narrow peak is not thinned away. A ridge with no observation within half a ridge
 spacing is left out and grid lines join only neighbouring ridges, so a gap stays a gap and two lone
 observations never grow a range between them. The landscape adds no value to the reading; the
-current curve drawn over it does. The paired Δ view stays flat. At these two sizes the plot also
+current curve drawn over it does. LR and the paired Δ view stay flat. Hiding LR history does not
+change measurement, peak hold or the retained history; changing the display does not discard it. At these two sizes the plot also
 names what it draws (`Δ(f) = POST(f) - PRE(f)` or `L(f) = POST(f)`) and the analysis behind it —
 aperture, FFT size, band count, and presentation rate — read from the frame itself.
 
@@ -638,7 +647,7 @@ an unobtrusive `~` prefix. The measured band and Δ remain visible and are not d
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
 All Analysis hover help wraps and repositions inside the plug-in at every size. At 300 % and above,
 pointing at an item on LEVEL, TIME, FREQ, SPACE or REF's B, C and V shows its help in one line over
-the footer instead of a popup: across the whole footer row for the graphs, values and tabs (what the
+the footer instead of a popup, in readable ivory text: across the whole footer row for the graphs, values and tabs (what the
 item is and how it is used; PLR, for one, reads as the song's average dynamics, compared between PRE
 and POST to see how much limiting reduced it), and in the status at the left for the footer's own
 controls, which stay in view. The popup at 200 % and below keeps the full text. **MENU → Display →
@@ -912,7 +921,7 @@ its own Factory library. POST tells Kirin OS which library it has read and which
 
 Reference has four roles, each with its own button in the same place at every size: **A B C V**.
 
-- **A — LIVE**: the DAW input. A is never processed; every other role is an audition copy.
+- **A — LIVE**: the DAW input. A is never processed; audible comparisons use audition copies.
 - **B — REF**: Reference songs from Kirin OS. Rank up to three Reference sets for Hypha in Kirin OS;
   choose the set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
   head; when you press B, or B returns after a stop or seek, at a point outside that Cue (you moved
@@ -923,7 +932,20 @@ Reference has four roles, each with its own button in the same place at every si
   stay usable, and while Kirin OS is publishing new sets the current ones stay.
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
   to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
+  C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
+
+**Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
+longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
+pending import. MAKE TARGET copies the current A display window once it contains at least three
+seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
+with no audio to audition. The project stores up to eight targets: 64-band p10, median and p90,
+four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count.
+Comparisons normalize the loudness channel sum to A's layout; the original measurements stay intact.
+The saved A window starts with fresh K-weighting state, matching a file of that window. Audio and source paths
+are not stored, and no target is written into Kirin OS. The Kirin OS license is required; its library
+registration and measurement preparation are unnecessary for these targets. Remove a selected target
+with the minus button.
 
 Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
 display. Choosing a different song, Check, Cue or Version changes only that role: if it was playing,
@@ -936,9 +958,12 @@ playing. Receiving or restoring settings never starts a role.
 Integrated loudness from Kirin OS (the whole song when the Cue has no value); V pairs A with the
 aligned V content over the same window. Following never raises the copy above
 max(−1 dBTP, A's maximum true peak, the source's maximum true peak): at the ceiling it stays there,
-keeps following and says how far under A it plays. It never moves more than 6 dB from the gain of
-the MATCH you started (the same range as AUTO in the live PRE/POST compare); at that limit it stops, keeps the
-current gain and says so, once while you listen to the same role. C compares A's gated loudness over
+keeps following and says how far under A it plays. Following stays within 6 dB of the gain of
+that MATCH (the same range as AUTO in the live PRE/POST compare), except lower when the ceiling
+requires it. At either edge it keeps following; a difference over 0.5 dB appears as a short status
+tag (2.0 DB UNDER A / OVER A (FOLLOW LIMIT)). It automatically matches again when the level returns
+within range, using the same MATCH. Only the audition gain changes: A, measurements and Record stay
+unchanged. C compares A's gated loudness over
 the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated loudness. Pressing C
 plays it at once, matched to the A heard so far, and when A has played for the Cue's length (at most
 30 s) C matches once more and stays fixed, so that a fixed gain is not set from a few seconds; until
@@ -978,8 +1003,8 @@ match exceeds the ceiling still requires explicit approval. Offline render, a mi
 source, or a failed check leaves A playing.
 
 **Status.** The status line says one of three things, with a dot: ready (cyan: what plays
-and how its level is held — following A, matched and fixed, stopped 6 dB from the match, or original
-level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
+and how its level is held — following A, held at a limit with its remaining difference, matched
+and fixed, or original level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
 unavailable (grey: the reason and its one fix, such as ranking a Reference set in Kirin OS). Its parts are in
 order of importance — how the role plays, how far it is under A, then the rest — and where the line is
 narrower than all of them it shows the parts that fit whole instead of cutting one; pointing at a
@@ -1127,10 +1152,10 @@ over the same length, and compares at the level the role plays at. V is measured
 way over the section aligned with A.
 
 A is compared live: while REF is open and the song plays, Hypha measures A for the role you
-are looking at (B, C or V) and fills V's WHOLE timeline as you play. There is no separate step
-to capture A; the page of the role you open decides what is compared, and the space goes to the
-charts. A capture saved in a session by an older version is skipped on reopen (it neither changes
-the display nor uses analysis) and is dropped at the next save.
+are looking at (B, C or V) and fills V's WHOLE timeline as you play. The page decides what is compared;
+MAKE TARGET can preserve the displayed A window's measured facts for a later comparison on C,
+without capturing audio or running a second analysis. The older A capture format is skipped on reopen
+(it neither changes the display nor uses analysis) and is dropped at the next save.
 
 ## Live PRE/POST compare
 
@@ -1432,6 +1457,12 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
+The header places **REF** immediately after **2MIX / TRACK/STEM**. It opens the same Reference
+page, lights when that page is open, and retains the existing Kirin OS license and connection help.
+PRE shows the same header action disabled. The measurement row and its view menu contain
+**LEVEL / TIME / FREQ / SPACE**; PRE keeps unavailable FREQ disabled. POST and Δ have equal-width
+buttons wherever both are shown. Reference shortcuts and saved page selection are unchanged.
+
 At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
 and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
 persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
@@ -1455,6 +1486,17 @@ the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
+
+The live needles use a second-order moving-coil response on full-wave rectified input, with unity
+steady gain: 300 ms to the first 99% crossing, 1.25% overswing, and about 112 ms to halfway,
+identically on rise and return. Coefficients are prepared for the current sample rate. The UI
+continues the same position and velocity toward rest if callbacks stop; it never substitutes a
+stale published reading. Publications retain their monotonic time and processed audio horizon,
+so reopening accounts for hidden time and normal callback bursts keep a steady needle. Invalid
+blocks advance both needles with zero input for the entire block. This display path leaves Rust's 300 ms VU values, footer numerals,
+Capture, Record and calibration unchanged. The engraved dial mapping is retained; its coordinates
+are not a linear amplitude scale. These are specified model timings, not a measurement of a
+particular physical meter.
 
 Click **0 VU = −18 dBFS** below the meter to choose **−12, −14, −16, −18 or −20 dBFS**
 (default −18). Both needles use the same reference, and an exact PRE/POST pair shares that

@@ -13,7 +13,7 @@ bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const j
 RuntimeV2Controller::StartResult RuntimeV2Controller::resumeHeldResult (
     std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept
 {
-    if (blind.ongoing()) return StartResult::refused;
+    if (blind.ongoing() || dataOnlySelection.load (std::memory_order_acquire)) return StartResult::refused;
     if (revokeAfterFade.load (std::memory_order_acquire)) return StartResult::preparing;
     if (bSelected.load (std::memory_order_acquire)) return StartResult::stale;
     {
@@ -66,6 +66,12 @@ void RuntimeV2Controller::beginMatchLocked() noexcept
     ++currentSnapshot.matchFailureSerial;
 }
 
+void RuntimeV2Controller::invalidateMatchOffer()
+{
+    const juce::ScopedLock lock (stateLock);
+    beginMatchLocked();
+}
+
 void RuntimeV2Controller::failMatchLocked (MatchFailure reason, double neededAttenuationDb) noexcept
 {
     currentSnapshot.matchFailure = reason;
@@ -99,6 +105,7 @@ void RuntimeV2Controller::holdCurrentGainLocked() noexcept
     facts.loudnessDeltaBMinusA = currentSnapshot.loudnessDeltaBMinusA;
     facts.truePeakDeltaBMinusA = currentSnapshot.truePeakDeltaBMinusA;
     facts.tracking = currentSnapshot.tracking;
+    facts.rangeShortfallDb = currentSnapshot.rangeShortfallDb;
     facts.peakShortfallDb = currentSnapshot.peakShortfallDb;  // 戻したときも同じ「上限で届かない量」を言う
 }
 }

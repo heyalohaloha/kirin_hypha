@@ -52,6 +52,30 @@ void verifyABindingReadClockContract()
              "a missing file never reuses a previous receipt or samples the clock");
     publish (afterRead, afterRead + 9'000);
     require (repository.loadCurrent (identity).has_value(), "a valid publication recovers after missing or malformed files");
+    {
+        std::int64_t now = afterRead;
+        ref::RuntimeABindingRepository reader (root, [&] { return now; });
+        ref::RuntimeACapture capture (root);
+        const auto accepted = reader.loadCurrent (identity);
+        require (accepted.has_value(), "capture uses the actual authority read entry");
+        juce::AudioBuffer<float> audio (2, 8000);
+        for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (audio.getWritePointer (ch), 0.125f, 8000);
+        capture.service (accepted, 8000, 2, now);
+        for (int n = 0; n < 4; ++n) capture.observe (audio, n * 8000, true, true, true);
+        capture.service (accepted, 8000, 2, now);
+        const auto measured = capture.currentAudio();
+        require (measured && file.deleteFile(), "A is captured before the authority file disappears");
+        now += 100;
+        capture.service (reader.loadCurrent (identity), 8000, 2, now);
+        require (capture.currentAudio() == measured, "one failed authority read preserves A measurement");
+        publish (afterRead, afterRead + 9000);
+        capture.service (reader.loadCurrent (identity), 8000, 2, now);
+        require (capture.currentAudio() == measured, "the same authority returns without resetting A");
+        require (file.deleteFile(), "authority is really lost"); now = afterRead + 9001;
+        capture.service (reader.loadCurrent (identity), 8000, 2, now);
+        require (!capture.currentAudio(), "a lost authority cannot extend its original lease");
+        publish (afterRead, afterRead + 9000);
+    }
     ref::RuntimeABindingRepository negativeClock (root, [] { return std::int64_t { -1 }; });
     require (! negativeClock.loadCurrent (identity), "an invalid clock does not accept a lease");
     bool emptyClockRejected = false;

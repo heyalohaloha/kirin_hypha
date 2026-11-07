@@ -123,10 +123,7 @@ namespace hypha::reference_audition
                         if (!previous.eligible) next.rejectionCode = positionSearch.reason;
                         break;
                     }
-                    const auto revision = sourceRepository.checkSourceRevision (*selectedSource);
-                    if (revision.state == SourceRevisionState::revalidate) break;
-                    if (revision.state == SourceRevisionState::refused)
-                    { failClosedToA(); blind.clear(); next.state = RuntimeState::rejected; next.rejectionCode = revision.reason; return; }
+                    if (sourceRepository.verifySourceRevision (*selectedSource).isNotEmpty()) break;
                     const bool mappingChanged = previous.eligible
                         && ((capturedA->cuePcmSha256 == previous.aCuePcmSha256 && capturedA->startSample != previous.aStartSample)
                             || (matched.established && referenceAlignmentMoved (matched.sourceStartSample, predicted, previous.bSampleRateHz, hostRate))

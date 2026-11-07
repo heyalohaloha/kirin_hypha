@@ -18,7 +18,7 @@ struct OneSongLibrary
     juce::String fileName { "quiet-peak.wav" }, displayName { "Quiet peak" };
 };
 
-inline void writeOneSongLibrary (const juce::File& root, const OneSongLibrary& song)
+inline void writeOneSongLibrary (const juce::File& root, const OneSongLibrary& song, int revision = 1)
 {
     require (root.getChildFile ("library").createDirectory().wasOk(), "sandbox Reference library folder");
     const auto file = root.getChildFile (song.fileName);
@@ -70,10 +70,10 @@ inline void writeOneSongLibrary (const juce::File& root, const OneSongLibrary& s
     set->setProperty ("songs", juce::Array<juce::var> { juce::var (entry) });
     auto* sets = new juce::DynamicObject();
     sets->setProperty ("format", "kirin_hypha_reference_library_sets"); sets->setProperty ("version", "1.0");
-    sets->setProperty ("revision", 1); sets->setProperty ("manifest_revision", 1);
+    sets->setProperty ("revision", revision); sets->setProperty ("manifest_revision", revision);
     sets->setProperty ("song_sets", juce::Array<juce::var> { juce::var (set) });
     sets->setProperty ("check_sets", juce::Array<juce::var>()); sets->setProperty ("source_ranges", juce::Array<juce::var>());
     require (writeJson (root.getChildFile ("library/sets.json"), juce::var (sets))
-                 && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
+                 && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, revision)),
              "a library with one B song");
 }

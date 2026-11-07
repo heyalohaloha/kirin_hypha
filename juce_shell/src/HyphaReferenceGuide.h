@@ -40,6 +40,9 @@ enum class SourceStep
     sourceFormatChanged,
     sourceUnopenable,       // the source could not be opened or decoded
     sourceUnavailable,      // Kirin OS cannot make the source available
+    retryingSource,         // the local source monitor retries without ending the selection
+    cacheSpaceUnavailable,  // temporary storage cannot accommodate the verified audio copy
+    cacheWriteFailed,
     savedChoiceUnavailable, // the saved choice is no longer in Kirin OS
     channelsDiffer,         // the source is stereo and the track mono (a mono source plays on both)
     sourceRecordMismatch,   // Kirin OS's record of the source does not match its file

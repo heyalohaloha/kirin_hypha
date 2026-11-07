@@ -1,4 +1,5 @@
 #include "ReferenceVisualAudio.h"
+#include "ReferenceVerifiedReader.h"
 #include "ReferenceAudioPages.h"
 #include "ReferenceTestCommitObserver.h"
 
@@ -16,6 +17,12 @@ namespace hypha::reference_audition
     static_assert (std::atomic<float>::is_always_lock_free);
     namespace
     {
+        std::uint64_t sourceFailure (const std::atomic<std::uint64_t>* status, std::uint64_t initial)
+        {
+            if (status == nullptr) return 0;
+            const auto value = status->load (std::memory_order_acquire);
+            return value == initial ? 0 : value == 0 ? 1 : value;
+        }
         bool sameRevision (const RuntimeFileRevision& a, const RuntimeFileRevision& b)
         {
             return a.deviceId == b.deviceId && a.fileId == b.fileId && a.sizeBytes == b.sizeBytes
@@ -57,9 +64,10 @@ namespace hypha::reference_audition
             formats.createReaderFor (juce::File (receipt.filePath)));
         if (nextReader == nullptr)
             return "source_decode_failed";
-        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {};
+        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {}; verifyReadResult = {};
         sourceAuthority.reset(); sourceInvalidation = nullptr; initialSourceInvalidation = 0;
         sourceRejected.store (false, std::memory_order_release);
+        sourceUnavailableState.store (false, std::memory_order_release);
         sourceVerified.store (true, std::memory_order_release);
         readerIdentityValid.store (true, std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels, false);
@@ -74,26 +82,28 @@ namespace hypha::reference_audition
                                    std::function<bool()> rejectionCheck,
                                    std::shared_ptr<void> authority,
                                    const std::atomic<std::uint64_t>* invalidation,
-                                   std::uint64_t initialInvalidation)
+                                   std::uint64_t initialInvalidation, std::function<bool()> readCheck)
     {
         const juce::ScopedLock lock (readerLock);
         if ((invalidation != nullptr) != static_cast<bool> (authority)) return "runtime_format_invalid";
-        auto nextReader = std::unique_ptr<juce::AudioFormatReader> (input
-            ? formats.createReaderFor (std::move (input))
-            : formats.createReaderFor (juce::File (source.absolutePath)));
+        juce::String readerFailure;
+        auto nextReader = input ? revision_detail::sourceReader (formats, std::move (input), source, &readerFailure)
+            : std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (juce::File (source.absolutePath)));
         if (nextReader == nullptr)
-            return "reference_source_decode_failed";
+            return readerFailure.isNotEmpty() ? readerFailure : "reference_source_decode_failed";
         verifySource = std::move (sourceCheck); verifyReaderIdentity = std::move (readerCheck);
-        verifySourceRejection = std::move (rejectionCheck);
+        verifySourceRejection = std::move (rejectionCheck); verifyReadResult = std::move (readCheck);
         sourceAuthority = std::move (authority); sourceInvalidation = invalidation;
         initialSourceInvalidation = initialInvalidation;
         sourceRejected.store (false, std::memory_order_release);
+        sourceUnavailableState.store (false, std::memory_order_release);
         readerIdentityValid.store (!verifyReaderIdentity || verifyReaderIdentity(), std::memory_order_release);
         RuntimeFileRevision revision;
         const bool verified = !verifySource || verifySource (revision);
         const bool rejected = verifySourceRejection && verifySourceRejection();
         if (rejected) sourceRejected.store (true, std::memory_order_release);
         sourceVerified.store (verified && !rejected, std::memory_order_release);
+        sourceUnavailableState.store (sourceFailure (sourceInvalidation, initialSourceInvalidation), std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels,
                               sampleRateConversionApproved);
     }
@@ -103,9 +113,10 @@ namespace hypha::reference_audition
         double hostSampleRate, int hostChannels, bool sampleRateConversionApproved)
     {
         const juce::ScopedLock lock (readerLock);
-        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {};
+        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {}; verifyReadResult = {};
         sourceAuthority.reset(); sourceInvalidation = nullptr; initialSourceInvalidation = 0;
         sourceRejected.store (false, std::memory_order_release);
+        sourceUnavailableState.store (false, std::memory_order_release);
         sourceVerified.store (true, std::memory_order_release);
         readerIdentityValid.store (true, std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels,
@@ -178,9 +189,10 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (readerLock);
         openState.store (false, std::memory_order_release);
-        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {};
+        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {}; verifyReadResult = {};
         sourceAuthority.reset(); sourceInvalidation = nullptr; initialSourceInvalidation = 0;
         sourceRejected.store (false, std::memory_order_release);
+        sourceUnavailableState.store (false, std::memory_order_release);
         sourceVerified.store (true, std::memory_order_release);
         readerIdentityValid.store (true, std::memory_order_release);
         activeGeneration.fetch_add (1, std::memory_order_acq_rel);
@@ -269,6 +281,7 @@ namespace hypha::reference_audition
         const bool rejected = verifySourceRejection && verifySourceRejection();
         if (rejected) sourceRejected.store (true, std::memory_order_release);
         sourceVerified.store (verified && !rejected, std::memory_order_release);
+        sourceUnavailableState.store (sourceFailure (sourceInvalidation, initialSourceInvalidation), std::memory_order_release);
         if (!verified || rejected)
         {
             if (!rejected) { requiredReadFailures.store (0, std::memory_order_release); failedPageStart.store (-1, std::memory_order_release); }
@@ -385,6 +398,10 @@ namespace hypha::reference_audition
             ? fillConverted (*selected, pageStart)
             : reader->read (&selected->audio, 0, framesPerPage,
                             pageStart, true, channels > 1);
+        // A source chunk that could not be authenticated only rejects this fill.
+        // Confirmed source outages still gate every page through the shared authority.
+        const bool verifiedRead = !verifyReadResult || verifyReadResult();
+        if (!verifiedRead) { requiredReadFailures.store (0, std::memory_order_release); failedPageStart.store (-1, std::memory_order_release); }
         const bool stillReaderValid = !verifyReaderIdentity || verifyReaderIdentity();
         readerIdentityValid.store (stillReaderValid, std::memory_order_release);
         RuntimeFileRevision after;
@@ -397,11 +414,11 @@ namespace hypha::reference_audition
         // Capacity contention is retryable. Only actual failed reads of the
         // currently requested page count as repeated decoder failure.
         // A successful prefetch also retires earlier failure evidence for that page.
-        if (stillVerified && readOk && generation == activeGeneration.load (std::memory_order_acquire)
+        if (stillVerified && verifiedRead && readOk && generation == activeGeneration.load (std::memory_order_acquire)
             && failedPageStart.load (std::memory_order_acquire) == pageStart)
             requiredReadFailures.store (0, std::memory_order_release);
         const auto requested = juce::jmax<std::int64_t> (0, requestedPosition.load (std::memory_order_acquire));
-        if (stillVerified && generation == activeGeneration.load (std::memory_order_acquire)
+        if (stillVerified && verifiedRead && generation == activeGeneration.load (std::memory_order_acquire)
             && pageStart == (requested / framesPerPage) * framesPerPage)
         {
             if (failedPageStart.load (std::memory_order_relaxed) != pageStart)
@@ -412,7 +429,7 @@ namespace hypha::reference_audition
             requiredReadFailures.store (readOk ? 0u
                 : std::min (3u, requiredReadFailures.load (std::memory_order_relaxed) + 1u), std::memory_order_release);
         }
-        if (! readOk || !stillVerified || generation != activeGeneration.load (std::memory_order_acquire))
+        if (! readOk || !verifiedRead || !stillVerified || generation != activeGeneration.load (std::memory_order_acquire))
         {
             selected->publicationSequence.fetch_add (1, std::memory_order_release);
             selected->state.store (empty, std::memory_order_release);

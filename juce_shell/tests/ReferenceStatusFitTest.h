@@ -50,6 +50,8 @@ inline void verifyReferenceStatusFits()
         offer.action = { reference_ui::ActionKind::lowerAAndPlay, { 3, -0.8, "b-song", 1, 1 } };
         offer.actionText = "LOWER A 0.8 DB";
         cases.push_back ({ "B approval", offer });
+        offer.rangeShortfallDb = 4.0;
+        cases.push_back ({ "B range limit with approval", offer });
     }
     for (const double shortfall : { 0.0, 0.4 })
     {
@@ -74,6 +76,15 @@ inline void verifyReferenceStatusFits()
         version.bSelected = false;
         cases.push_back ({ "V Blind needs headroom", version });
     }
+    for (const int slot : { 1, 3 })
+        for (const double residual : { -12.3, 12.3 })
+        {
+            auto limited = base;
+            limited.comparisonSlot = limited.audibleComparisonSlot = slot;
+            limited.bSelected = true; limited.tracking = Tracking::following;
+            limited.rangeShortfallDb = residual;
+            cases.push_back ({ "following at range limit", limited });
+        }
     // 2026-10-06：段階の表の全部の段階 × 全部の役（今までは 5 つの状態だけだった）。
     std::vector<juce::String> stageNames;
     stageNames.reserve (static_cast<size_t> (reference_ui::stageCount) * 3);  // Case は名前の文字を指すので動かさない

@@ -20,6 +20,7 @@ namespace hypha::reference_audition
         void remember (juce::String artifactSha256,
                        std::shared_ptr<const RuntimeSource> source);
         void forget (const juce::String& artifactSha256);
+        bool releaseUnused();
         void clear() noexcept;
         size_t size() const noexcept { return entries.size(); }
 

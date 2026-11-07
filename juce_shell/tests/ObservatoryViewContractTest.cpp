@@ -1,4 +1,5 @@
 #include "ObservatoryViewContractTest.h"
+#include "UiRefinementContract.h"
 #include "ObservatoryCaptureContractTest.h"
 #include "JungleAppearanceContractTest.h"
 #include "SurroundObservatoryContractTest.h"
@@ -291,6 +292,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
 }
 void verifyObservatoryViewContract()
 {
+    ui_refinement::verify();
     lra_state_bounds::verify (activeFrame());
     verifyObservatoryBackdropContract();
     verifyObservatoryDomainBedContract();

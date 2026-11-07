@@ -327,7 +327,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     require (owners == 0, "A return releases audition ownership after the tail");
     for (int channel = 0; channel < 2; ++channel)
         for (int n = 0; n < 128; ++n) require (buffer.getSample (channel, n) == 0.125f, "A remains bit identical");
-    controller.configure (identity, 48000, 2);
+    configureWholeSongCapture (controller, identity, 48000, 2);
     wait ([] (const auto& state) { return state.versionReady && state.checkReady; });
     require (! controller.snapshot().bSelected && controller.snapshot().selectedVersionId == bId
         && controller.snapshot().checkSelection->checkLabel == "Dynamics", "host reprepare retains choices and starts at A");
@@ -390,8 +390,9 @@ void testReferenceComparisons (const juce::File& sandbox)
              "malformed saved B does not destroy valid C");
     exerciseWholeSongLibraryTrial (controller, fixture, root);
     require (bFile.deleteFile(), "remove Version source");
-    wait ([] (const auto& state) { return ! state.versionReady && state.checkReady; });
-    require (! controller.selectB (-14, -2) && ! block(), "missing Version leaves A");
+    wait ([] (const auto& state) { return state.versionSelection->auditionPages == ref::AuditionPageState::sourceUnavailable && state.checkReady; });
+    require (controller.snapshot().selectedVersionId == bId && ! controller.selectB (-14, -2) && ! block(),
+             "a missing Version retains its choice and leaves A");
     require (controller.selectC (-14, -2) && block() && block() && block()
         && std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f,
         "missing B source leaves the independently prepared C usable");

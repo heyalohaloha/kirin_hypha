@@ -133,8 +133,8 @@ void View::setMeterContext (meter_context::MeterContext value)
     if (selectedMeterContext == value)
         return;
     selectedMeterContext = value;
-    updateControls();
-    repaint (bodyArea);
+    resized();
+    repaint();
 }
 
 void View::setScaleMode (meter_context::ScaleMode value)

@@ -1,5 +1,6 @@
 #include "ReferenceRuntimeV2Source.h"
 #include "ReferenceSourceRevisionService.h"
+#include "ReferenceSourceSnapshot.h"
 
 #include <charconv>
 #include <cmath>
@@ -312,11 +313,14 @@ namespace hypha::reference_audition
         bool currentRevision (const juce::File& file, RuntimeFileRevision& result)
         {
            #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-            if (revision_detail::pathFailureForTest.exchange (false)) return false;
+            revision_detail::pathChecksForTest.fetch_add (1);
+            if (revision_detail::persistentPathFailureForTest.load()
+                || revision_detail::pathFailureForTest.exchange (false)) return false;
+            if (revision_detail::unchangedRevisionForTest (file.getFullPathName(), result)) return true;
            #endif
            #if JUCE_WINDOWS
             const auto path = file.getFullPathName().toWideCharPointer();
-            const auto handle = CreateFileW (path, GENERIC_READ, FILE_SHARE_READ, nullptr,
+            const auto handle = CreateFileW (path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                              OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
             if (handle == INVALID_HANDLE_VALUE)
                 return false;
@@ -411,9 +415,8 @@ namespace hypha::reference_audition
 
     juce::String RuntimeV2SourceRepository::verifySourceRevision (const RuntimeSource& source) const
     {
-        const auto result = checkSourceRevision (source);
-        return result.state == SourceRevisionState::matched ? juce::String {}
-            : result.state == SourceRevisionState::revalidate && result.reason.isEmpty() ? "reference_source_revalidating" : result.reason;
+        return revision_detail::service().monitor (source, currentRevision) == 0
+            ? juce::String {} : juce::String ("reference_source_revalidating");
     }
 
     juce::String RuntimeV2SourceRepository::verifySourceFile (const RuntimeSource& source, bool freshAttempt) const
@@ -432,8 +435,9 @@ namespace hypha::reference_audition
             if (!currentRevision (juce::File (source.absolutePath), after)
                 || !revision_detail::equal (current, state.revision)
                 || !revision_detail::equal (current, after)) return "reference_source_revalidating";
-            return {};
+            return revision_detail::snapshotFor (source)->reason();
         }
-        return revision_detail::service().verifyInitial (source, current, currentRevision);
+        const auto failure = revision_detail::service().verifyInitial (source, current, currentRevision);
+        return failure.isNotEmpty() ? failure : revision_detail::snapshotFor (source)->reason();
     }
 }

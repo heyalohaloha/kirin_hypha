@@ -132,6 +132,7 @@ namespace hypha::reference_audition
             && currentPages().readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)
             && mappingAfter == mappingGeneration.load (std::memory_order_acquire);
         // Keep unavailable mapping, missing pages and impossible positions distinct.
+        result.sourceFailureReason = sourceFailureCode (currentPages().sourceFailureReason());
         result.auditionPages = AuditionPageState::positionUnknown;
         if (publishedReady && result.transportPositionValid)
         {
@@ -140,6 +141,8 @@ namespace hypha::reference_audition
                 result.auditionPages = AuditionPageState::mappingUnstable;
             else if (versionComparison && sourcePosition == std::numeric_limits<std::int64_t>::min())
                 result.auditionPages = AuditionPageState::positionUnknown;
+            else if (currentPages().sourceUnavailable())
+                result.auditionPages = AuditionPageState::sourceUnavailable;
             else if (! currentPages().sourceOpen() || currentPages().lengthInSamples() <= 0)
                 result.auditionPages = AuditionPageState::positionUnknown;
             else if (versionComparison && (sourcePosition < 0 || sourcePosition >= currentPages().lengthInSamples()))
@@ -170,6 +173,7 @@ namespace hypha::reference_audition
                 || observationBefore != inputObservationGeneration.load (std::memory_order_acquire)))
             result.auditionPages = AuditionPageState::mappingUnstable;
         result.auditionBuffered = publishedReady
+            && result.auditionPages != AuditionPageState::sourceUnavailable
             && (versionComparison ? blindState.eligible && result.auditionPages == AuditionPageState::ready : blindState.eligible || pageReady);
         result.blindEligible = publishedReady && blindState.eligible
             && (blind.ongoing() || referenceCopyProofCurrent (versionComparison,
@@ -258,6 +262,7 @@ namespace hypha::reference_audition
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
     {
         const juce::ScopedLock lock (outputGateLock);
+        if (dataOnlySelection.load (std::memory_order_acquire)) return 0;
         const bool retained = activeOutputGateToken.load (std::memory_order_acquire) != 0;
         if (retained && (bSelected.load (std::memory_order_acquire) || blind.ongoing())) return 0;
         auto token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
@@ -306,6 +311,7 @@ namespace hypha::reference_audition
             next.appliedGainDb = currentSnapshot.appliedGainDb;
             next.gainLimited = currentSnapshot.gainLimited;
             next.peakShortfallDb = currentSnapshot.peakShortfallDb;
+            next.rangeShortfallDb = currentSnapshot.rangeShortfallDb;
             next.comparisonFallbackOriginal = currentSnapshot.comparisonFallbackOriginal;
             next.aIntegratedLoudness = currentSnapshot.aIntegratedLoudness;
             next.aMaximumTruePeakDbtp = currentSnapshot.aMaximumTruePeakDbtp;

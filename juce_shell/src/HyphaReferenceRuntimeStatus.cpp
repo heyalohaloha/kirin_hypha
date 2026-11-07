@@ -13,12 +13,19 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
         : runtime.audibleComparisonSlot == 3 && runtime.referenceSelection ? runtime.referenceSelection.get() : &runtime;
     using Runtime = hypha::reference_audition::RuntimeState;
     using Access = hypha::os_access::State;
+    const bool blindListening = runtime.blindPhase == reference_audition::BlindPhase::starting
+        || runtime.blindPhase == reference_audition::BlindPhase::active;
+    const auto pages = blindListening && runtime.versionSelection ? runtime.versionSelection->auditionPages
+        : runtime.bSelected ? selected->auditionPages : runtime.auditionPages;
     if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
         result.status = runtime.blindRequiredAAttenuationDb > 0.0
             ? "BLIND STOPPED / A HELD -"
                 + juce::String (runtime.blindRequiredAAttenuationDb, 1)
                 + " dB / RETURN A EXPLICITLY"
             : "BLIND STOPPED / RETURN A EXPLICITLY";
+    else if (pages == reference_audition::AuditionPageState::sourceUnavailable)
+        result.status = stageLine (runtime_view::slotStep (
+            blindListening && runtime.versionSelection ? *runtime.versionSelection : *selected, true), runtime.comparisonSlot);
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active && !runtime.transportPlaying)
         result.status = "PAUSED / PLAY TO RESUME BLIND";
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active
@@ -34,6 +41,22 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
             : "BLIND / SOURCE IDENTITY HIDDEN";
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::revealed)
         result.status = "BLIND / REVEALED";
+    else if (pages == reference_audition::AuditionPageState::readFailed)
+        result.status = stageLine (SourceStep::sourceUnavailable, runtime.comparisonSlot);
+    else if (pages == reference_audition::AuditionPageState::outsideSource)
+        result.status = stageLine (SourceStep::outsideVersion, 1);
+    else if (runtime.bSelected && selected->pendingSourceFailure.isNotEmpty())
+    {
+        const auto step = runtime_view::rejectedStep (selected->pendingSourceFailure);
+        result.status = step == SourceStep::sourceChanged || step == SourceStep::sourceFormatChanged
+            || step == SourceStep::sourceUnopenable ? stageLine (step, runtime.comparisonSlot)
+            : selected->pendingSourceFailure == "reference_source_cache_full"
+                || selected->pendingSourceFailure == "reference_source_copy_failed"
+            ? runtime_view::rejectedStatus (selected->pendingSourceFailure) : "NEXT SOURCE UNAVAILABLE / RETRYING";
+    }
+    else if (runtime.bSelected && selected->sourceStorageNotice.isNotEmpty())
+        result.status = selected->sourceStorageNotice == "reference_source_cache_full"
+            ? "LOW DISK SPACE / REFERENCE AVAILABLE" : "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE";
     else if (runtime.bSelected)
         result.status = selected->auditionBuffered
             ? juce::String (hypha::reference_ui::roleLetter (runtime.audibleComparisonSlot)) + " AUDITION / PRE DELTA PAUSED"
@@ -55,6 +78,8 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
         result.status = "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN";
     else if (runtime.state == Runtime::verifying)
         result.status = "VERIFYING SOURCE";
+    else if (runtime.rejectionCode == "reference_source_cache_full" || runtime.rejectionCode == "reference_source_copy_failed")
+        result.status = runtime_view::rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
         result.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION V"
             : runtime.rejectionCode == "reference_alignment_waiting_for_content" ? "PLAY A / ALIGNING VERSION V"
