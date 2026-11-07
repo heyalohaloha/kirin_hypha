@@ -63,7 +63,7 @@ AutoReadiness autoReadiness (const Status& state, std::uint64_t generation) noex
     switch (state.observation)
     {
         case Reason::none: case Reason::stopped: case Reason::positionChanged: case Reason::callbackGap:
-        case Reason::projectClockMissing: case Reason::clockMissing: case Reason::calibrating:
+        case Reason::projectClockMissing: case Reason::clockMissing: case Reason::calibrating: case Reason::contentAmbiguous:
         case Reason::writing: case Reason::beforeRun: case Reason::notWritten: case Reason::overwritten:
         case Reason::torn: case Reason::loopUnproven: case Reason::loopWaiting: case Reason::loopTooShort:
         case Reason::loopClockUnavailable: case Reason::cycleUnverified: case Reason::reaperFirstCycle:

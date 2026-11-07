@@ -72,6 +72,8 @@ public:
             alternate->setPlayHead (&preClock); hypha::tests::prepareFixtureProcessor (*alternate, 48000, frames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*alternate), "alternate has the same exact clock policy");
         }
+        // This periodic fixture isolates clock/authority recovery, not content alignment.
+        post->setLiveCompareAutoAlign (false);
         audio = std::thread ([this] { processAudio(); }); startTimer (20);
     }
     ~Recovery() override

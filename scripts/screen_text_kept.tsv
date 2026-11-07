@@ -117,3 +117,4 @@ C TARGET	Reference chart legend; simple English retained in both languages
 C / KIRIN OS	Reference comparison source selector label
 A WINDOW / 3 S	Reference minimum observation window label
 MONO / STEREO	channel layout names retained in both languages
+ALIGN OFF	Fixed action label for explicitly disabling automatic alignment during a Blind timing wait; its explanation is localized

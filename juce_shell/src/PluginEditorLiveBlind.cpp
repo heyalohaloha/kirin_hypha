@@ -21,6 +21,11 @@ void KirinHyphaEditor::configureLiveBlind()
         processorRef.finishLiveCompare();
         refreshLiveBlind();
     };
+    liveBlindView.onAlignOff = [this]
+    {
+        processorRef.setLiveCompareAutoAlign (false);
+        refreshLiveBlind();
+    };
     liveBlindView.onApprove = [this]
     {
         processorRef.approveLiveBlindMatch (liveBlindView.state().generation);
@@ -99,7 +104,8 @@ void KirinHyphaEditor::refreshLiveBlind()
         refreshObservatory();
         return;
     }
-    liveBlindView.setState (blind, processorRef.isPlaying(), status.postActual);
+    liveBlindView.setState (blind, processorRef.isPlaying(), status.postActual,
+                           processorRef.liveContentTimingObservation().verifySamples);
 }
 
 void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActive)

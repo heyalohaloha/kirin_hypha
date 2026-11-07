@@ -180,6 +180,71 @@ static void aaxPendingCycleCannotSurviveASeek()
              "a newly closed chunk cannot reuse a cycle from before a seek");
 }
 
+static void alignPublicationIncludesTheRecheckGeneration()
+{
+    using namespace hypha::live_compare;
+    AlignReadiness readiness;
+    readiness.observe (true, true, false, 0);
+    const auto beforeClock = readiness.generation();
+    readiness.confirm (beforeClock);
+    readiness.observe (true, true, true, 512);
+    require (readiness.pending() && readiness.generation() != beforeClock && readiness.clockK() == 512,
+             "an estimate before the first proven K cannot authorize that K's address");
+    readiness.confirm (readiness.generation());
+    readiness.observe (true, true, true, -512);
+    require (readiness.pending(),
+             "a changed K rechecks a confirmed zero correction with strong content evidence");
+    readiness.observe (false, true, true, 768);
+    require (readiness.clockK() == 768, "disabled correction still publishes the observed clock mapping");
+    readiness.observe (false, true, true, 1536);
+    require (readiness.clockK() == 1536, "disabled monitoring follows a changed mapping too");
+    readiness.ambiguous (readiness.generation());
+    require (readiness.ambiguous() && readiness.pending(), "ambiguous evidence explains a wait but cannot confirm it");
+    readiness.confirm (readiness.generation());
+    require (!readiness.ambiguous(), "confirmation clears the current ambiguous wait");
+    const auto confirmed = readiness.generation();
+    readiness.recheck(); readiness.recheck();
+    require (readiness.pending() && readiness.generation() == confirmed + 1 && readiness.clockK() == 1536,
+             "changed waveform requests one new content check without changing the clock proof");
+    AlignRequest request;
+    const AlignContext context { 4, 6, 8, 10 };
+    request.publish ({ 1024 }, context, 7);
+    bool current = false;
+    require (request.read (context, {}, 7, &current).frames == 1024 && current,
+             "the read address and recheck generation are one publication");
+    current = false;
+    require (request.read (context, { 256 }, 8, &current).frames == 256 && !current,
+             "an old correction cannot confirm a newer recheck");
+    current = false;
+    require (request.read ({ 5, 6, 8, 10 }, { 256 }, 8, &current).frames == 0 && !current,
+             "a foreign context is rejected even when the generation also differs");
+    request.publish ({ 0 }, context, 8);
+    current = false;
+    require (request.read (context, { 1024 }, 8, &current).frames == 0 && current,
+             "a fresh zero correction also confirms the recheck");
+}
+
+static void repeatedWaveformChecksEverySample()
+{
+    using namespace hypha::live_compare;
+    float a[2][16] {}, b[2][16] {};
+    float* post[] { a[0], a[1] }; float* pre[] { b[0], b[1] };
+    for (int ch = 0; ch < 2; ++ch)
+        for (int i = 0; i < 16; ++i) { b[ch][i] = static_cast<float> (i + 1 + ch) * 0.01f; a[ch][i] = 0.5f * b[ch][i]; }
+    require (matchingScaledBlock (post, pre, 2, 16), "one positive scale confirms both channels of this block");
+    a[1][15] += 0.001f;
+    require (!matchingScaledBlock (post, pre, 2, 16), "the last sample is checked, not a sparse selection");
+    a[1][15] -= 0.001f;
+    a[0][0] = std::numeric_limits<float>::quiet_NaN();
+    require (!matchingScaledBlock (post, pre, 2, 16), "non-finite content never confirms a repeated waveform");
+    a[0][0] = -0.5f * b[0][0];
+    require (!matchingScaledBlock (post, pre, 2, 16), "a phase or channel change cannot inherit the previous block's confirmation");
+    AlignRequest request; const AlignContext context { 2, 4, 6, 8 };
+    request.publish ({ 48, true }, context, 9);
+    require (request.read (context, {}, 9).verifySamples, "block verification is in the same atomic tuple as the address");
+    require (!request.read ({ 3, 4, 6, 8 }, {}, 9).verifySamples, "a foreign owner cannot retain the verification mode");
+}
+
 static void liveCompareAlignContract()
 {
     // A contended publication retains the last proven context's value, never a torn tuple or
@@ -197,6 +262,8 @@ static void liveCompareAlignContract()
     writer.join();
     require (request.read ({ 9, 12 }, prior).frames == 0 && request.read ({ 8, 13 }, prior).frames == 0,
              "neither a pair nor a format change can retain the prior context's value");
+    repeatedWaveformChecksEverySample();
+    alignPublicationIncludesTheRecheckGeneration();
     alignMovesOnlyTheReadAddress();
     alignFadesInsteadOfJumping();
     alignWaitsForSilenceInATrial();

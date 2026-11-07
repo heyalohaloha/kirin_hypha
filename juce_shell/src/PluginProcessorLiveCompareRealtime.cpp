@@ -284,7 +284,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    ceiling, blindCommand.active() && ! blindRejected,
                                                    cycleUnverified ? Reason::cycleUnverified : Reason::none,
                                                    trace != nullptr ? &trace->decision : nullptr,
-                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff });
+                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff, true });
         if (trace != nullptr)
         {
             trace->render = report; trace->renderSeen = true;
@@ -331,7 +331,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             if (coherent && (!gainCurrent || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision))
                 liveCompare.blind.invalidate (blindCommand, Reason::gainChanged);
             else if (report.verdict != hypha::live_compare::Verdict::accepted || report.guardTripped
-                || contentHeld || compensationOff || !coherent)
+                || report.preWaiting || report.alignWaiting || contentHeld || compensationOff || !coherent)
             {
                 if (hypha::live_compare::endsComparison (report.reason))
                     liveCompare.blind.invalidate (blindCommand, report.reason);
@@ -368,6 +368,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     }
     liveCompare.waitNotice.observe (liveCompare.sessionActive.load (std::memory_order_acquire)
         && (!rendered || !usable || outputTaken || contentHeld || compensationOff || !coherent
+            || (liveCompareAutoAlign() && liveCompare.renderer.alignPending())
             || liveCompare.verdict.load (std::memory_order_acquire)
                 != static_cast<std::uint8_t> (hypha::live_compare::Verdict::accepted)
             || liveCompare.observationReason.load (std::memory_order_acquire) == Reason::ceiling

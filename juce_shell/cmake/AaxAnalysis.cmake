@@ -50,6 +50,13 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
     target_compile_definitions(KirinAaxAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
     target_include_directories(KirinAaxAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinAaxAnalysisProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
+    foreach(layout stereo mono)
+        foreach(scenario alignment_restart alignment_publication alignment_recovery)
+            set(name kirin_aax_${layout}_${scenario}_product)
+            add_test(NAME ${name} COMMAND KirinAaxAnalysisProductTests ${layout} ${scenario})
+            set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+        endforeach()
+    endforeach()
     # Each condition supplies up to twelve seconds of input; one real watchdog bounds the
     # entire scenario. Every audio/clock assertion still runs, regardless of callback cadence.
     foreach(layout stereo mono)

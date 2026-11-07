@@ -14,7 +14,7 @@ enum class RecoveryReason : std::uint8_t
     pairChanged, preUnavailable, formatChanged, restored, compensationOff, contentChanged,
     bypassed, offline, outputTaken, gainChanged, nonFinite, ceiling, blockTooLarge,
     randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable, cycleUnverified,
-    reaperFirstCycle, reaperDelayUnverified, reaperLoopTooShort
+    reaperFirstCycle, reaperDelayUnverified, reaperLoopTooShort, preLate, contentAmbiguous
 };
 inline RecoveryReason recoveryReason (TimelineBreak cause) noexcept
 {

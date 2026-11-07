@@ -289,6 +289,11 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
     const auto alignedMs = processorRef.liveCompareAlignMs();
     liveCompareWarning = status.prolongedWait && status.contentHeld
         ? "Timing changed: check chain delay (POST)"
+        : status.active && status.observation == hypha::live_compare::RecoveryReason::preLate
+            ? offsetText (observed.lagFrames, observed.sampleRate) + " / Check chain delay and DAW compensation; POST plays"
+        : status.active && status.verdict == hypha::live_compare::Verdict::accepted
+            && processorRef.liveCompareAlignPending() ? "Aligning PRE"
+        : status.active && observed.verifySamples ? "Repeated audio: checked per block"
         : status.active && alignedMs > 0.0 ? alignedText (alignedMs)
         : status.active && observed.settled && std::llabs (observed.lagFrames) > 1
             ? offsetText (observed.lagFrames, observed.sampleRate) : juce::String();
@@ -352,7 +357,8 @@ bool KirinHyphaEditor::refreshLiveCompare()
     liveCompareStory.clear();
     if (*presentation.instruction != 0)
     {
-        liveCompareWarning = presentation.instruction;
+        if (presentation.reason != hypha::live_compare::RecoveryReason::preLate)
+            liveCompareWarning = presentation.instruction;
         const auto why = presentation.reason != hypha::live_compare::RecoveryReason::none ? presentation.reason
                                                                                          : status.observation;
         if (const auto* next = hypha::live_compare_ui::auditionHoldsListen (status, auditionSlot)

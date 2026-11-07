@@ -150,7 +150,8 @@ struct ProcessorState
     OffsetMonitor contentMonitor;
     OffsetMonitor::Step contentStep;
     std::uint32_t contentMonitorRun = 0;
-    std::uint64_t contentMonitorNext = 0;
+    std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
+    OffsetWindow contentWindow;
     ContentHold contentHold;      // INV-LC10: the content offset jumped
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions

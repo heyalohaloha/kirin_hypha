@@ -7,7 +7,7 @@ namespace hypha::live_blind_ui
 {
 using Stage = live_compare::BlindStage;
 
-blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool playing, float actualPost)
+blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool playing, float actualPost, bool repeatingAudio)
 {
     blind_ui::Screen screen;
     const bool live = current.stage == Stage::active && !current.trial.invalidated;
@@ -52,6 +52,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             : "POST played for timing and the PRE ceiling";
     screen.instruction = screen.guidanceShown ? juce::String() : instruction;
     screen.detail = explanation;
+    if (live && !revealed && repeatingAudio) screen.detail = "Repeated audio: checked per block";
     screen.sourceOne = revealed ? (current.trial.firstPre ? "1: PRE" : "1: POST") : "SOURCE 1";
     screen.sourceTwo = revealed ? (current.trial.firstPre ? "2: POST" : "2: PRE") : "SOURCE 2";
     screen.sourceOneEnabled = screen.sourceTwoEnabled = live;
@@ -60,6 +61,11 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.audible = current.trial.selected; // selected button, not an audio receipt
     screen.revealShown = live && ! revealed;
     screen.revealEnabled = current.trial.played == 3;
+    // Keep an earned REVEAL reachable; ALIGN OFF only replaces an unavailable action.
+    screen.alignOffShown = !stopped && !finishing && current.prolongedWait
+        && (guidance.reason == live_compare::RecoveryReason::contentAmbiguous
+            || guidance.reason == live_compare::RecoveryReason::preLate)
+        && !(screen.revealShown && screen.revealEnabled);
     screen.approveShown = current.stage == Stage::approval && !current.compensationOff;
     screen.approveTitle = "Lower POST and begin Blind";
     screen.approveDescription = explanation;

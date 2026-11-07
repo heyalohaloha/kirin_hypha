@@ -171,10 +171,10 @@ void verifyLiveCompareOffset()
 
     // Nothing to say: silence, a pure tone (every period looks alike), an echo as strong as the direct.
     require (! estimate ([] (std::int64_t) { return 0.0f; }, 0).determined, "silence is undetermined");
-    const auto tone = estimate ([] (std::int64_t n) { return 0.3f * std::sin (0.1308996939f * static_cast<float> (n)); }, 300);
+    const auto tone = estimate ([] (std::int64_t n) { return static_cast<float> (0.3 * std::sin (2.0 * 3.14159265358979323846 * static_cast<double> (n % 48) / 48.0)); }, 300);
     std::printf ("offset: pure tone -> determined %d, lag %lld (peak %.3f, dominance %.2f)\n", tone.determined ? 1 : 0,
                  static_cast<long long> (tone.lagFrames), tone.peak, tone.dominance);
-    require (! tone.determined, "a pure tone is undetermined");
+    require (tone.determined && tone.verifySamples, "a repeating tone requires a check of every output block");
     const auto echo = [] (std::int64_t n) { return noise (n) + noise (n - 500); };
     for (std::int64_t n = 0; n < frames; ++n)
         post[static_cast<std::size_t> (n)] = echo (n);

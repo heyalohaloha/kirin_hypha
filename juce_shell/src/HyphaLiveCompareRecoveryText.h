@@ -20,6 +20,8 @@ inline const char* cause (Reason reason) noexcept
         case Reason::callbackGap: return "Audio callback gap detected";
         case Reason::projectClockMissing: return "DAW position unavailable";
         case Reason::clockMissing: return "Audio clock unavailable";
+        case Reason::preLate: return "PRE arrives after POST";
+        case Reason::contentAmbiguous: return "Audio timing is ambiguous";
         case Reason::calibrating: return "PRE timing is not confirmed";
         case Reason::loopUnproven: return "The PRE loop occurrence is not verified";
         case Reason::loopWaiting: return "Loop boundary timing is not confirmed";
@@ -122,6 +124,10 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
         return { reason, RecoveryAction::play, "DAW stopped: play to resume (POST)" };
     if (!stopped && (reason == Reason::ceiling || reason == Reason::nonFinite))
         return { reason, RecoveryAction::checkLevels, "Check chain levels; resumes automatically (POST)" };
+    if (!stopped && state.observation == Reason::contentAmbiguous)
+        return { Reason::contentAmbiguous, RecoveryAction::none, "Position unconfirmed; POST plays" };
+    if (!stopped && state.observation == Reason::preLate)
+        return { Reason::preLate, RecoveryAction::none, "Check chain delay and DAW compensation; POST plays" };
     if (state.contentHeld)
         return { Reason::contentChanged, RecoveryAction::stopPlay, "Timing changed: check chain delay (POST)" };
     // An uncertified AAX host looping a range observes an unidentifiable loop too; loop playback off
@@ -173,6 +179,10 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         && (state.loopBlock != live_compare::LoopPairingBlock::none
             || *loopRecovery (state.observation, state.reaperRestriction).instruction)) return {};
     if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
+    if (state.active && !state.interrupted && state.observation == Reason::contentAmbiguous)
+        return { Reason::contentAmbiguous, RecoveryAction::none, "Position unconfirmed; POST plays" };
+    if (state.active && !state.interrupted && state.observation == Reason::preLate)
+        return { Reason::preLate, RecoveryAction::none, "Check chain delay and DAW compensation; POST plays" };
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: check chain delay (POST)");
     // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
     // off restores the linear proof: this actionable remedy comes before any host boundary below.

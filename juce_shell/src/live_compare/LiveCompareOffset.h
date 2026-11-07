@@ -12,18 +12,35 @@ namespace hypha::live_compare
 // rely on every plug-in between reporting its latency and on the DAW compensating it; nothing in
 // the clocks shows a wrong report, the content does. Positive lagFrames: the PRE that matches
 // POST lies later than the mapped PRE, so PRE plays late; negative: PRE plays early, as when a
-// plug-in between under-reports its latency. Undetermined when the window is too quiet, periodic
-// or too heavily processed to show one clear peak; then nothing is claimed either way.
+// plug-in between under-reports its latency. Undetermined when the window is too quiet or
+// heavily processed. Repeated scaled copies require block checks, not a unique-position claim.
+struct OffsetWindow
+{
+    std::int64_t end = 0;
+    std::uint64_t proof = 0, preRun = 0;
+    bool operator== (const OffsetWindow& other) const noexcept
+    { return end == other.end && proof == other.proof && preRun == other.preRun; }
+};
+
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+inline void (*beforeOffsetWindowForTest)() = nullptr;
+inline void (*beforeContentEstimateForTest)() = nullptr;
+#endif
+
 struct OffsetEstimate
 {
     bool determined = false;
+    bool verifySamples = false; // repeated full-window copies; the renderer must check every block
     std::int64_t lagFrames = 0;
-    double peak = 0.0;      // GCC-PHAT peak, 1 for a delayed copy
-    double dominance = 0.0; // the peak over the strongest peak away from it
+    double peak = 0.0;      // GCC-PHAT peak or full-window scaled sample agreement
+    double dominance = 0.0; // spectral peak ratio; infinite for a unique full-window sample match
     std::int64_t clockK = 0;
     std::int32_t blockFrames = 0;
     std::uint64_t stopGeneration = 0, timelineGeneration = 0;
     AlignContext alignContext;
+    std::uint64_t alignRevision = 0;
+    OffsetWindow window; // identity of the actual copied history, never a separate pre-copy sample
+    bool windowReady = false; // copies validated, even if the content has no distinct peak
     double sampleRate = 0.0; // the rate lagFrames counts in: the rate the ring is stamped with
 };
 
@@ -62,6 +79,7 @@ public:
         std::int64_t lagFrames = 0;
         bool jumped = false, recovered = false;
         double sampleRate = 0.0;
+        bool verifySamples = false;
     };
     Step observe (const OffsetEstimate& estimate, bool alreadyHeld) noexcept
     {
@@ -70,13 +88,17 @@ public:
         if (std::abs (rate - estimate.sampleRate) > 0.0) { *this = {}; rate = estimate.sampleRate; }
         const auto distance = [] (std::int64_t a, std::int64_t b)
         { return std::abs (static_cast<long double> (a) - static_cast<long double> (b)); };
-        const bool agrees = candidateCount > 0 && distance (estimate.lagFrames, candidate) <= std::floor (rate * offsetAgreementSeconds);
+        const bool agrees = candidateCount > 0 && estimate.verifySamples == candidateVerifySamples
+            && distance (estimate.lagFrames, candidate) <= std::floor (rate * offsetAgreementSeconds);
         candidateCount = agrees ? 2 : 1; // bounded, even during a long uninterrupted playback
         candidate = estimate.lagFrames;
+        candidateVerifySamples = estimate.verifySamples;
         if (candidateCount < 2) return step;
         step.settled = true;
         step.lagFrames = candidate;
         step.sampleRate = estimate.sampleRate;
+        step.verifySamples = estimate.verifySamples;
+        if (step.verifySamples) return step; // no unique position: never establish a jump baseline
         if (! hasBaseline) { hasBaseline = true; baseline = candidate; }
         else if (distance (candidate, baseline) >= std::ceil (rate * offsetJumpSeconds) && ! alreadyHeld)
             step.jumped = true; // retain the original run baseline while held
@@ -86,6 +108,7 @@ public:
     }
 private:
     bool hasBaseline = false;
+    bool candidateVerifySamples = false;
     int candidateCount = 0;
     double rate = 0.0;
     std::int64_t baseline = 0, candidate = 0;

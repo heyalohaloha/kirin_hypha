@@ -88,6 +88,9 @@ struct Fixture
             LiveTimingFixtureAccess::enableFixtureWrites (*processor);
             (role == Processor::Role::Pre ? pre : post) = std::move (processor);
         }
+        // Periodic audio isolates the clock proof; automatic content alignment is exercised
+        // with broadband PCM through ChunkedPost's real processors instead.
+        post->setLiveCompareAutoAlign (false);
         postClock.project = -delay;
         // POST hears PRE's audio K samples later, whatever position the host names for it.
         delayLine.resize (static_cast<std::size_t> (channels));

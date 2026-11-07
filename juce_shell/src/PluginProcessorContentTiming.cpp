@@ -21,14 +21,18 @@ hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareO
     const auto stop = liveCompare.contentHold.generation();
     const auto timeline = liveCompare.timelineGeneration.load (std::memory_order_acquire);
     const auto context = liveCompare.alignContext();
+    const auto revision = liveCompare.renderer.alignRevision();
     auto estimate = hypha::live_compare::measureOffset (*mapping->ring(), liveCompare.renderer);
     estimate.stopGeneration = stop;
     estimate.timelineGeneration = timeline;
     estimate.alignContext = context;
+    estimate.alignRevision = revision;
     if (stop != liveCompare.contentHold.generation()
         || timeline != liveCompare.timelineGeneration.load (std::memory_order_acquire)
         || context != liveCompare.alignContext()
-        || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0) estimate.determined = false;
+        || revision != liveCompare.renderer.alignRevision()
+        || (estimate.windowReady && estimate.clockK != liveCompare.renderer.alignClockK())
+        || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0) { estimate.determined = false; estimate.windowReady = false; }
     liveCompare.offsetFacts = estimate;
     return estimate;
 }
@@ -37,8 +41,10 @@ bool KirinHyphaProcessorBase::holdLiveCompareForContentJump (const hypha::live_c
 {
     const juce::ScopedTryLock formatLock (handleLock);
     if (! formatLock.isLocked() || formatChangeHeld.load (std::memory_order_acquire)) return false;
-    if (role != Role::Post || ! hypha::live_compare::offsetCanVote (estimate)
+    if (role != Role::Post || estimate.verifySamples || ! hypha::live_compare::offsetCanVote (estimate)
         || estimate.alignContext != liveCompare.alignContext()
+        || estimate.alignRevision != liveCompare.renderer.alignRevision()
+        || (estimate.windowReady && estimate.clockK != liveCompare.renderer.alignClockK())
         || estimate.timelineGeneration != liveCompare.timelineGeneration.load (std::memory_order_acquire)
         || estimate.stopGeneration != liveCompare.contentHold.generation()) return false;
     liveCompare.contentJumpFacts = estimate;
@@ -84,6 +90,16 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentMonitor = {};
         liveCompare.contentStep = {};
         liveCompare.contentMonitorNext = 0;
+        liveCompare.contentWindow = {};
+    }
+    const auto revision = liveCompare.renderer.alignRevision();
+    if (revision != liveCompare.contentAlignRevision)
+    {
+        liveCompare.contentAlignRevision = revision;
+        liveCompare.contentMonitor = {};
+        liveCompare.contentStep = {};
+        liveCompare.contentMonitorNext = 0;
+        liveCompare.contentWindow = {};
     }
     const auto state = liveCompareStatus();
     const auto run = liveComparePlaybackRun();
@@ -93,12 +109,39 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentStep = {};
         liveCompare.contentMonitorRun = run;
         liveCompare.contentMonitorNext = 0;
+        liveCompare.contentWindow = {};
     }
     const auto now = hypha::live_compare::callbackWallNanos();
     if (!state.active || state.compensationOff || state.verdict != hypha::live_compare::Verdict::accepted
         || now < liveCompare.contentMonitorNext) return;
-    liveCompare.contentMonitorNext = now + 2'000'000'000;
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare::beforeContentEstimateForTest != nullptr)
+        hypha::live_compare::beforeContentEstimateForTest();
+   #endif
     const auto estimate = measureLiveCompareOffset();
+    // The Audio Thread may have advanced K after the checks above but before acquisition.
+    // Scope the votes to the estimate actually copied, never the earlier service snapshot.
+    if (estimate.windowReady && (estimate.alignRevision != liveCompare.contentAlignRevision
+        || estimate.alignContext != liveCompare.alignServiced))
+    {
+        liveCompare.contentAlignRevision = estimate.alignRevision;
+        liveCompare.alignServiced = estimate.alignContext;
+        liveCompare.contentMonitor = {};
+        liveCompare.contentStep = {};
+        liveCompare.contentWindow = {};
+    }
+    const bool fast = liveCompareAutoAlign() && (liveCompare.renderer.alignPending() || ! liveCompare.contentStep.settled);
+    liveCompare.contentMonitorNext = now + (fast ? 100'000'000 : 2'000'000'000);
+    if (estimate.windowReady)
+    {
+        if (estimate.window == liveCompare.contentWindow) return; // a copied window never votes twice
+        liveCompare.contentWindow = estimate.window;
+    }
+    // A validated but ambiguous window cannot confirm any read position, including zero.
+    // Keep the choice and explain how to obtain content evidence if the wait persists.
+    if (estimate.windowReady && ! hypha::live_compare::offsetCanVote (estimate)
+        && estimate.alignRevision == liveCompare.renderer.alignRevision())
+        liveCompare.renderer.reportAlignAmbiguous (estimate.alignRevision);
     const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
     if (step.settled) liveCompare.contentStep = step;
     const bool aligned = step.settled && alignLiveCompare (step, estimate);
@@ -110,7 +153,8 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
 
 // INV-LC28: PRE early by a settled amount is read that much later. Silence and an undetermined
 // window never get here, so they change nothing. In a Blind trial the renderer keeps the address
-// until the listener switches away from PRE; timing interruptions never count as that switch.
+// until the listener switches away from PRE. A known changed mapping instead keeps POST
+// sounding until fresh evidence permits the new address; the selection and gain survive.
 bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step& step,
                                                 const hypha::live_compare::OffsetEstimate& estimate) noexcept
 {
@@ -118,16 +162,31 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
     if (! formatLock.isLocked() || formatChangeHeld.load (std::memory_order_acquire)) return false;
     if (! liveCompareAutoAlign() || ! step.settled || ! hypha::live_compare::offsetCanVote (estimate)
         || estimate.alignContext != liveCompare.alignContext()
+        || estimate.alignRevision != liveCompare.renderer.alignRevision()
+        || (estimate.windowReady && estimate.clockK != liveCompare.renderer.alignClockK())
         || estimate.timelineGeneration != liveCompare.timelineGeneration.load (std::memory_order_acquire)
         || estimate.stopGeneration != liveCompare.contentHold.generation()) return false;
-    const auto value = hypha::live_compare::alignValue (step.lagFrames);
+    auto value = hypha::live_compare::alignValue (step.lagFrames);
+    value.verifySamples = step.verifySamples;
+    if (value.frames == 0 && (step.lagFrames < -1 || step.lagFrames > 1))
+    {
+        if (step.lagFrames > 1) liveCompare.renderer.reportAlignLate (estimate.alignRevision);
+        return false;
+    }
     // An estimate within its own agreement of the value in use moves nothing: no fade for that.
-    const auto current = liveCompare.renderer.alignRequested (estimate.alignContext).frames;
+    const auto requested = liveCompare.renderer.alignRequested (estimate.alignContext);
+    const auto current = requested.frames;
     const auto settled = value.frames;
     const auto agreement = std::floor (step.sampleRate * hypha::live_compare::offsetAgreementSeconds);
-    if (value.frames == 0 || current == 0 || static_cast<double> (std::llabs (settled - current)) > agreement)
-        liveCompare.renderer.requestAlign (value, estimate.alignContext);
+    if (liveCompare.renderer.alignPending() || value.verifySamples != requested.verifySamples || value.frames == 0 || current == 0
+        || static_cast<double> (std::llabs (settled - current)) > agreement)
+        liveCompare.renderer.requestAlign (value, estimate.alignContext, estimate.alignRevision);
     return value.frames != 0 || std::llabs (step.lagFrames) <= 1;
+}
+
+bool KirinHyphaProcessorBase::liveCompareAlignPending() const noexcept
+{
+    return liveCompareAutoAlign() && (liveCompare.renderer.alignPending() || ! liveCompare.contentStep.settled);
 }
 
 bool KirinHyphaProcessorBase::liveCompareAutoAlign() const noexcept

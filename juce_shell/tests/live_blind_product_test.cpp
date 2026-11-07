@@ -69,6 +69,8 @@ public:
                          "nominal LOOP uses the qualified synthetic VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
+        // This periodic fixture isolates Blind gain/clock recovery, not content alignment.
+        post->setLiveCompareAutoAlign (false);
         editor.reset (post->createEditorIfNeeded());
         require (editor != nullptr, "real product editor opens");
         editor->setSize (900, 600);

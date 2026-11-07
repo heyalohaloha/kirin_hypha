@@ -1,6 +1,7 @@
 #pragma once
 #include "AaxChunkProductFixture.h"
 #include "AlignContextProductTest.h"
+#include "AlignSessionProductTest.h"
 
 namespace aax_analysis_product
 {
@@ -43,10 +44,11 @@ inline void staleAlignmentCannotCrossContext (int channels)
         require (post.startLiveCompare() == StartResult::started, "the same pair can start in the new context");
         post.selectLiveComparePre (true);
         LiveTimingFixtureAccess::publishMeasuredAlign (post, estimate);
+        chain.postScale = 0.0f; // every new-context window must be ambiguous, even at the faster cadence
         for (int i = 0; i < 40; ++i) chain.chunk (false);
-        require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 0,
-                 "RT rejects stale alignment even at the same K before another service");
-        chain.postScale = 0.0f;
+        require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected
+                 && post.liveCompareAlignFrames() == 0,
+                 "RT keeps the choice on POST until fresh alignment can replace the stale publication");
         chain.run (220);
         require (post.liveCompareAlignFrames() == 0, "undetermined content cannot revive the stale frame count");
         chain.clean ("restore and format races never play a stale address");
@@ -55,6 +57,13 @@ inline void staleAlignmentCannotCrossContext (int channels)
 
 inline void chunkedPost (int channels)
 {
+    copiedOffsetWindowVotesOnlyOnce (channels);
+    stereoAlignmentPreservesChannelEvidence (channels);
+    alignmentRechecksPromptly (channels);
+    initialAlignmentWaitsForEvidence (channels);
+    disabledAlignmentStillMonitorsContent (channels);
+    zeroAlignmentRechecksAmbiguousAudio (channels);
+    blindRecheckDoesNotRevealAssignment (channels);
     staleAlignmentCannotCrossContext (channels);
     alignmentRejectsChangingFormat (channels);
     alignmentBelongsToPreOwner (channels);
@@ -110,8 +119,9 @@ inline void chunkedPost (int channels)
     require (post.startLiveCompare() == hypha::live_compare::StartResult::started, "start immediately after the pair change");
     post.selectLiveComparePre (true);
     for (int i = 0; i < 30; ++i) chain.chunk (false);
-    require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 0,
-             "a pair change discards alignment before the next service timer");
+    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected
+             && post.liveCompareAlignFrames() == 0,
+             "a pair change discards alignment and keeps the choice on POST until fresh service evidence");
     chain.until (400, [&] { return post.liveCompareAlignFrames() == 1024; }, "the new pair measures its own alignment");
     chain.contentK = 1536;
     chain.until (400, [&] { return post.liveCompareAlignFrames() == 2048; }, "a changed delay is aligned again");
@@ -135,11 +145,12 @@ inline void chunkedPost (int channels)
     chain.clean ("alignment never played a wrong frame");
 
     // H/W Insert Delay 21.33 ms from zero: the host moves the position and K is proven afresh.
-    // Keep the content delay until new content measurements establish that it is no longer needed.
+    // Keep PRE silent until new content measurements establish the new read position.
     const auto delayed = chain.withheld;
     chain.setDelay (512);
     chain.settled (40, "PRE returns on the new K");
-    require (chain.withheld > delayed && post.liveCompareAlignFrames() == 1024, "new K proof keeps the content delay");
+    require (chain.withheld > delayed && post.liveCompareAlignFrames() == 0 && post.liveCompareStatus().preSelected,
+             "new K proof rechecks the content position before the selected PRE returns");
     chain.until (400, [&] { return post.liveCompareAlignFrames() == 0 && post.measureLiveCompareOffset().determined
                                    && post.measureLiveCompareOffset().lagFrames == 0; }, "fresh content removes the unnecessary correction");
     chain.clean ("the delay change never played the old K");
@@ -218,10 +229,21 @@ inline void chunkedPost (int channels)
     require (post.selectLiveBlind (firstIsPre ? 1 : 2), "PRE's source is selected");
     chain.settled (10, "BLIND plays PRE");
 
+    bool contended = false;
+    publicationInterleave = [&] (std::int64_t alignmentFrames) {
+        if (alignmentFrames != 2048 || contended) return;
+        contended = true;
+        chain.chunk (false); // actual processBlock while the content publication is incomplete
+        require (post.liveCompareStatus().preAudible, "same-generation publication retains the confirmed PRE during contention");
+    };
+    hypha::live_compare::duringAlignPublicationForTest = [] (std::int64_t alignmentFrames) { publicationInterleave (alignmentFrames); };
     chain.contentK = 1536;
     chain.run (400); // two fresh strong estimates, and another service after any hold
+    hypha::live_compare::duringAlignPublicationForTest = nullptr;
+    publicationInterleave = {};
+    require (contended, "the trial crossed a real incomplete content publication");
     require (post.liveCompareAlignFrames() == 1024 && post.liveCompareStatus().preAudible
-             && ! post.liveCompareStatus().contentHeld, "a trial keeps its address until the listener switches");
+             && ! post.liveCompareStatus().contentHeld, "a trial keeps its address after publication contention until the listener switches");
     auto& revision = LiveTimingFixtureAccess::gainRevision (post);
     const auto coherentRevision = revision.load();
     revision.store (coherentRevision + 1); // writer in progress, no new gain tuple

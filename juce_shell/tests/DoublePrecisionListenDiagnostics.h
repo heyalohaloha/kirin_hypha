@@ -20,6 +20,7 @@ inline const char* listenReasonName (live_compare::RecoveryReason reason)
         KIRIN_LISTEN_REASON(ceiling); KIRIN_LISTEN_REASON(blockTooLarge); KIRIN_LISTEN_REASON(randomUnavailable);
         KIRIN_LISTEN_REASON(unknown); KIRIN_LISTEN_REASON(loopUnproven); KIRIN_LISTEN_REASON(loopWaiting);
         KIRIN_LISTEN_REASON(loopTooShort); KIRIN_LISTEN_REASON(loopClockUnavailable); KIRIN_LISTEN_REASON(cycleUnverified);
+        KIRIN_LISTEN_REASON(preLate); KIRIN_LISTEN_REASON(contentAmbiguous);
         KIRIN_LISTEN_REASON(reaperFirstCycle); KIRIN_LISTEN_REASON(reaperDelayUnverified); KIRIN_LISTEN_REASON(reaperLoopTooShort);
     }
    #undef KIRIN_LISTEN_REASON

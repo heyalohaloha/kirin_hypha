@@ -56,12 +56,78 @@ double rms (const std::vector<float>& x)
     return x.empty() ? 0.0 : std::sqrt (sum / static_cast<double> (x.size()));
 }
 
-std::vector<float> monoSum (const std::vector<float>& interleaved)
+std::vector<float> channelSamples (const std::vector<float>& interleaved, std::size_t channel)
 {
     std::vector<float> mono (interleaved.size() / 2);
     for (std::size_t i = 0; i < mono.size(); ++i)
-        mono[i] = 0.5f * (interleaved[i * 2] + interleaved[i * 2 + 1]);
+        mono[i] = interleaved[i * 2 + channel];
     return mono;
+}
+
+// A narrow spectrum can still match sampled PCM. A unique full-window match establishes
+// its position; repeated alternatives instead require the renderer to check every output
+// block independently. Processing differences and silence remain undetermined. Non-RT.
+OffsetEstimate scaledCopyOffset (const std::vector<float>& post, const std::vector<float>& pre,
+                                 std::int64_t maxLag)
+{
+    constexpr double precision = 8.0 * std::numeric_limits<float>::epsilon();
+    constexpr double tolerance = precision * precision;
+    double energy = 0.0, probeEnergy = 0.0;
+    for (float value : post)
+    {
+        if (! std::isfinite (value)) return {};
+        energy += static_cast<double> (value) * value;
+    }
+    for (int i = 0; i < 32; ++i)
+    {
+        const auto value = static_cast<double> (post[static_cast<std::size_t> (i) * (post.size() - 1) / 31]);
+        probeEnergy += value * value;
+    }
+    if (energy <= 0.0 || probeEnergy <= 0.0) return {};
+    std::int64_t found = -1;
+    bool repeated = false;
+    for (std::int64_t probe = 0; probe <= 2 * maxLag; ++probe)
+    {
+        // Prefer the closest already available address. Two alternatives suffice to require
+        // block checks; do not rescan a full window at every lag of a constant/periodic signal.
+        const auto start = probe <= maxLag ? maxLag - probe : probe;
+        double cross = 0.0, sourceEnergy = 0.0;
+        for (int i = 0; i < 32; ++i)
+        {
+            const auto index = static_cast<std::size_t> (i) * (post.size() - 1) / 31;
+            const auto value = static_cast<double> (pre[static_cast<std::size_t> (start) + index]);
+            cross += value * post[index];
+            sourceEnergy += value * value;
+        }
+        if (! std::isfinite (sourceEnergy) || sourceEnergy <= 0.0) continue;
+        const auto gain = cross / sourceEnergy;
+        if (gain <= 0.0) continue; // a repeated half-period with inverted polarity is not equivalent output
+        double error = 0.0;
+        for (int i = 0; i < 32; ++i)
+        {
+            const auto index = static_cast<std::size_t> (i) * (post.size() - 1) / 31;
+            const auto delta = post[index] - gain * pre[static_cast<std::size_t> (start) + index];
+            error += delta * delta;
+        }
+        if (! (error <= tolerance * probeEnergy)) continue;
+        error = 0.0;
+        for (std::size_t i = 0; i < post.size(); ++i)
+        {
+            const auto delta = post[i] - gain * pre[static_cast<std::size_t> (start) + i];
+            error += delta * delta;
+        }
+        if (! (error <= tolerance * energy)) continue;
+        if (found >= 0 && std::llabs (start - found) > 1) { repeated = true; break; }
+        if (found < 0) found = start;
+    }
+    OffsetEstimate result;
+    if (found <= 32 || found + 32 >= 2 * maxLag) return result;
+    result.determined = true;
+    result.verifySamples = repeated;
+    result.lagFrames = found - maxLag;
+    result.peak = 1.0; // full-window normalized sample agreement, not a spectral peak
+    result.dominance = std::numeric_limits<double>::infinity(); // full-window sample agreement
+    return result;
 }
 }
 
@@ -88,8 +154,7 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
         y[i] = pre[i];
     transform (x, false);
     transform (y, false);
-    // A narrowband window (a held tone) repeats every period: nothing to say. Its energy sits in a
-    // few bins; broadband music spreads it.
+    // A narrow spectrum needs a full-window sample check instead of a spectral peak.
     std::vector<double> energy (size / 2);
     double total = 0.0;
     for (std::size_t k = 0; k < size / 2; ++k)
@@ -99,8 +164,8 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     double top = 0.0;
     for (std::size_t k = 0; k <= energy.size() / 100; ++k)
         top += energy[k];
-    if (total <= 0.0 || top > 0.8 * total)
-        return estimate;
+    if (total <= 0.0) return estimate;
+    if (top > 0.8 * total) return scaledCopyOffset (post, pre, maxLag);
     double meanMagnitude = 0.0;
     for (std::size_t k = 0; k < size; ++k)
     {
@@ -130,29 +195,67 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     // A peak at the edge of the search is out of range, not an offset.
     const bool inside = best > 32 && best + 32 < span;
     estimate.determined = inside && peak >= 0.05 && estimate.dominance >= 3.0;
-    return estimate;
+    return estimate.determined ? estimate : scaledCopyOffset (post, pre, maxLag);
 }
 
 OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
 {
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (beforeOffsetWindowForTest != nullptr) beforeOffsetWindowForTest();
+   #endif
     const auto view = renderer.historyView();
     if (view.samples == nullptr || ! view.kValid)
         return {};
-    const auto frames = offsetWindowFrames;
     const auto lag = offsetSearchFrames;
-    if (std::min (view.end - view.start, view.frames - 1) < frames + lag)
-        return {};
-    const auto postStart = view.end - lag - frames;
+    const auto preStart = ring.header.runStart.load (std::memory_order_acquire);
+    std::int64_t postEnd = 0, mappedStart = 0, retainedStart = 0, available = 0;
+    if (! checkedClockSubtract (view.end, lag, postEnd)
+        || ! checkedClockAdd (preStart, view.k, mappedStart)
+        || ! checkedClockAdd (mappedStart, lag, mappedStart)
+        || ! checkedClockSubtract (view.end, view.frames - 1, retainedStart)) return {};
+    const auto availableStart = std::max ({ view.start, retainedStart, mappedStart });
+    if (! checkedClockSubtract (postEnd, availableStart, available)) return {};
+    const auto frames = std::min (offsetWindowFrames, available);
+    if (frames < 4096) return {};
+    const auto postStart = postEnd - frames;
+    std::int64_t readStart = 0;
+    if (! checkedClockSubtract (postStart, view.k, readStart)
+        || ! checkedClockSubtract (readStart, lag, readStart)) return {};
     std::vector<float> post (static_cast<std::size_t> (frames) * 2);
     std::vector<float> pre (static_cast<std::size_t> (frames + 2 * lag) * 2);
     copyPostHistory (view, postStart, frames, post);
-    if (! copyPreRing (ring, postStart - view.k - lag, frames + 2 * lag, pre, view.preRun)
+    if (! copyPreRing (ring, readStart, frames + 2 * lag, pre, view.preRun)
         || ! renderer.historyStillValid (view, postStart))
         return {};
-    auto estimate = estimateOffset (monoSum (post), monoSum (pre), lag);
+    // Preserve information in either channel, including opposite-polarity stereo. If both
+    // channels provide strong but different positions, neither position is safe to adopt.
+    const auto rate = static_cast<double> (ring.header.sampleRate.load (std::memory_order_relaxed));
+    auto left = estimateOffset (channelSamples (post, 0), channelSamples (pre, 0), lag);
+    auto right = estimateOffset (channelSamples (post, 1), channelSamples (pre, 1), lag);
+    left.sampleRate = right.sampleRate = rate;
+    const bool leftVotes = offsetCanVote (left), rightVotes = offsetCanVote (right);
+    auto estimate = rightVotes && !leftVotes ? right : left;
+    if (leftVotes && rightVotes
+        && std::llabs (left.lagFrames - right.lagFrames) > std::floor (rate * offsetAgreementSeconds))
+        estimate.determined = false;
+    if (!leftVotes && !rightVotes)
+    {
+        // Retain the original common-channel evidence for crossfeed or exchanged channels.
+        // It can add evidence when neither channel votes, but cannot overrule a disagreement.
+        const auto sum = [] (const std::vector<float>& stereo)
+        {
+            std::vector<float> mono (stereo.size() / 2);
+            for (std::size_t i = 0; i < mono.size(); ++i)
+                mono[i] = 0.5f * (stereo[i * 2] + stereo[i * 2 + 1]);
+            return mono;
+        };
+        estimate = estimateOffset (sum (post), sum (pre), lag);
+    }
+    estimate.window = { postEnd, view.proof, view.preRun };
+    estimate.windowReady = true;
     estimate.clockK = view.k;
     estimate.blockFrames = view.blockFrames;
-    estimate.sampleRate = static_cast<double> (ring.header.sampleRate.load (std::memory_order_relaxed));
+    estimate.sampleRate = rate;
     return estimate;
 }
 }

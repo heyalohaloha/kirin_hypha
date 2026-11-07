@@ -28,6 +28,7 @@ bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
 void serviceLiveContentTiming();
 bool alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step&, const hypha::live_compare::OffsetEstimate&) noexcept;
+bool liveCompareAlignPending() const noexcept;
 bool liveCompareAutoAlign() const noexcept; // INV-LC28, on unless the user turned it off
 void setLiveCompareAutoAlign (bool enabled) noexcept;
 std::int64_t liveCompareAlignFrames() const noexcept; // frames PRE is read later than K alone says

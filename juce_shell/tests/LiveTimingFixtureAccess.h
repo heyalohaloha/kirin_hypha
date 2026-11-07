@@ -48,6 +48,8 @@ public:
     { processor.enableWritesNow(); }
     static void serviceTiming (KirinHyphaProcessorBase& processor)
     { processor.serviceLiveCompare(); }
+    static void serviceContentTiming (KirinHyphaProcessorBase& processor)
+    { processor.serviceLiveContentTiming(); }
     static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
     { processor.timerCallback(); }
     static void retirePreparedFormatRing (KirinHyphaProcessorBase& processor)
@@ -110,6 +112,7 @@ public:
         e.stopGeneration = processor.liveCompare.contentHold.generation();
         e.timelineGeneration = processor.liveCompare.timelineGeneration.load();
         e.alignContext = processor.liveCompare.alignContext();
+        e.alignRevision = processor.liveCompare.renderer.alignRevision();
         processor.holdLiveCompareForContentJump (e);
         return e;
     }
@@ -124,7 +127,7 @@ public:
     // Simulate invalidation immediately after the publisher's final context check. The real RT
     // entry must reject this stale tuple too, even before the service timer can retire it.
     static void publishMeasuredAlign (KirinHyphaProcessorBase& processor, const hypha::live_compare::OffsetEstimate& estimate)
-    { processor.liveCompare.renderer.requestAlign (hypha::live_compare::alignValue (estimate.lagFrames), estimate.alignContext); }
+    { processor.liveCompare.renderer.requestAlign (hypha::live_compare::alignValue (estimate.lagFrames), estimate.alignContext, estimate.alignRevision); }
     // Advance only the local counter to model a long-lived instance, before any audio is fed.
     static void advanceReaperOrigin (KirinHyphaProcessorBase& processor, std::int64_t frames)
     {
@@ -136,6 +139,8 @@ public:
             frames -= count;
         }
     }
+    static void assignBlind (KirinHyphaProcessorBase& processor, bool firstPre)
+    { processor.liveCompare.blind.start (firstPre); }
     static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.renderer.historyView().kValid; }
     static void heldGains (KirinHyphaProcessorBase& processor)

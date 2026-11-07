@@ -13,9 +13,15 @@ const CHAIN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompar
 #[test]
 fn content_alignment_moves_only_the_audition_address() {
     let render = function_body(SESSION_H, "RenderReport render (");
-    assert!(render.contains("weight <= 0.0f && (! blind || ! preSelected)"));
+    assert!(render.contains("wantedAlign != alignApplied && weight <= 0.0f"));
+    assert!(render
+        .contains("(! blind || ! preSelected || ! align.enabled || alignApplied.verifySamples)"));
+    assert!(render.contains("! matchingScaledBlock (io, scratch, channels, block.frames)"));
     assert!(render.contains("align.outputAllowed && ! alignFading"));
-    assert!(render.contains("alignRequest.read (align.context, alignApplied)"));
+    assert!(render
+        .contains("alignRequest.read (align.context, alignApplied, alignRevision, &alignCurrent,"));
+    assert!(render.contains("alignAppliedRevision == alignRevision"));
+    assert!(function_body(SESSION_H, "void prepare (").contains("alignReadiness.newContext()"));
     assert!(render
         .contains("consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignApplied)"));
     let history = function_body(SESSION_H, "void recordHistory (");
@@ -42,7 +48,7 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
     assert!(measure.contains("estimate.alignContext = context"));
     let publish = function_body(content, "bool KirinHyphaProcessorBase::alignLiveCompare (");
     assert!(publish.contains("estimate.alignContext != liveCompare.alignContext()"));
-    assert!(publish.contains("requestAlign (value, estimate.alignContext)"));
+    assert!(publish.contains("requestAlign (value, estimate.alignContext, estimate.alignRevision)"));
     let read = function_body(ALIGN_H, "AlignValue read (");
     assert!(read.contains("if (before != sequence.load()) return unchanged"));
     assert!(read.contains("return measured == context ? value : AlignValue {}"));

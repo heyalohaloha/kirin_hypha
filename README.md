@@ -1373,17 +1373,28 @@ before enough audio is available and completes on the processor, including while
 closed. If lowering POST is needed, it still asks for approval when the editor is available.
 
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
-  two seconds of playback Hypha also compares the audio itself. When PRE is early, as with a
+  two seconds of settled playback Hypha also compares the audio itself. Initial alignment and
+  a changed clock mapping are checked every 100 ms using fresh, validated audio windows;
+  **Aligning PRE** shows that this check is incomplete. Initial silence or a held tone cannot
+  confirm a read position: POST plays until content confirms PRE. If this persists, Hypha asks
+  for another section and resumes automatically when it can confirm the timing. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
   follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
   shows the difference instead (**PRE 2.31 ms early**, **late**). An intentional delay, reverb or
-  heavy processing can look the same, and silence or a held tone cannot be judged. Only the
+  heavy processing can look the same, and silence cannot establish a position. Repeated audio uses a check of each current block, with a short notice; a nonmatching block uses POST immediately. Only the
   audition's read position moves: the clock proof, MATCH, A, the meters and Record stay as they are.
 - During a BLIND trial a new alignment waits until you switch to POST and the fade finishes.
-  A seek, stop or timing interruption does not move it under the same selected source.
+  A seek, stop or timing interruption alone does not move it under the same selected source.
+  When the clock mapping changes, an unverified correction uses POST until fresh content
+  confirms the new read position, including when the previous correction was zero. A publication
+  collision alone keeps the trial's fixed read position. Recheck guidance is the same for both
+  anonymous sources; neither source earns a listening receipt from substitute POST.
+  PRE then returns with the same selection and approved gain;
+  no samples at the old, invalid position are used for a fade.
 - If a strong, unambiguous content offset changes to a difference Hypha cannot align, Hypha uses
-  POST while preserving the comparison. Two fresh estimates back at the
+  POST while preserving the comparison. A confirmed late PRE during a changed clock mapping
+  shows the measured delay and asks to check chain delay and DAW compensation. Two fresh estimates back at the
   original baseline clear the hold automatically; stopping and restarting also resets it. Weak
   peaks caused by processing do not create a hold.
 - While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume

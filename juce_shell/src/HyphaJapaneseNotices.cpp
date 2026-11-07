@@ -8,6 +8,11 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Audio timing is ambiguous", u8"音から位置を確認できません" },
+    { "Position unconfirmed; POST plays", u8"位置未確認（POST出力）" },
+    { "Repeated audio: checked per block", u8"周期的な音：波形を都度確認" },
+    { "PRE arrives after POST", u8"PREの音がPOSTより遅れています" },
+    { "Check chain delay and DAW compensation; POST plays", u8"チェーンの遅延とDAWの遅延補正を確認（POST）" },
     { "Paired with PRE  %1", u8"PRE  %1 と組みました" },
     { "Unpaired", u8"外しました" },
     { "Capture could not be prepared", u8"画像を準備できませんでした" },
@@ -126,6 +131,7 @@ const Entry entries[] = {
     { "The offer changed. Press the role again.", u8"内容が変わりました。ボタンを押し直してください。" },
     { "PRE %1 ms early", u8"PREが%1 ms早く鳴っています" },
     { "PRE %1 ms late", u8"PREが%1 ms遅れて鳴っています" },
+    { "Aligning PRE", u8"PRE位置を確認中" },
     { "PRE %1 ms aligned", u8"PRE %1 ms 合わせ済み" },
     { "AUTO on: within 0.5 dB", u8"AUTO：0.5 dB以内で追従" },
     { "AUTO off", u8"AUTOを止めました" },
@@ -137,6 +143,7 @@ const Entry entries[] = {
     { "AUTO at 24 dB: PRE %1 dB quieter", u8"AUTOは24 dBまで：PREが%1 dB小さい" },
     { "AUTO at 24 dB: PRE %1 dB louder", u8"AUTOは24 dBまで：PREが%1 dB大きい" },
     { "AUTO stopped: editor hidden", u8"AUTO停止：画面が非表示" },
+    { "Turn automatic alignment OFF", u8"自動合わせをOFFにする" },
 };
 }
 
