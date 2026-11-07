@@ -28,6 +28,9 @@ double unavailable() noexcept { return std::numeric_limits<double>::quiet_NaN();
 
 bool RuntimeV2Controller::beginSelectionPreparationLocked() noexcept
 {
+    pendingSourceFailureSinceMs = 0;
+    pendingSourceFailureReason.clear();
+    currentSnapshot.pendingSourceFailure.clear();
     if (prepareBeforeReturn.load (std::memory_order_acquire)
         && bSelected.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire)
         && latestPlaying.load (std::memory_order_acquire) && !blind.ongoing())
@@ -37,6 +40,27 @@ bool RuntimeV2Controller::beginSelectionPreparationLocked() noexcept
     }
     revokeAfterFadeLocked();
     return false;
+}
+
+bool RuntimeV2Controller::holdSelectionForSourceRetry (const juce::String& failure, bool confirmed)
+{
+    const juce::ScopedLock lock (stateLock);
+    if (!prepareBeforeReturn.load (std::memory_order_acquire)
+        || !bSelected.load (std::memory_order_acquire) || !ready.load (std::memory_order_acquire)
+        || requestedSelection.generation == currentSnapshot.selectionGeneration
+        || blind.ongoing()) return false;
+    if (failure.isEmpty())
+    { pendingSourceFailureSinceMs = 0; pendingSourceFailureReason.clear(); currentSnapshot.pendingSourceFailure.clear(); }
+    else if (confirmed || failure != "reference_source_revalidating")
+    {
+        if (pendingSourceFailureSinceMs == 0) pendingSourceFailureSinceMs = juce::Time::currentTimeMillis();
+        pendingSourceFailureReason = failure;
+    }
+    if (pendingSourceFailureSinceMs != 0
+        && (confirmed || juce::Time::currentTimeMillis() - pendingSourceFailureSinceMs >= 3000))
+        currentSnapshot.pendingSourceFailure = pendingSourceFailureReason;
+    if (workerSource) sourceRepository.verifySourceRevision (*workerSource);
+    return true;
 }
 
 void RuntimeV2Controller::retireVersionSearch (std::future<RuntimeContentAlignment>& search)
@@ -55,7 +79,7 @@ bool RuntimeV2Controller::verifyingSource (std::uint64_t generation) const
 }
 
 juce::String RuntimeV2Controller::verifySourceBehindWorker (
-    const std::shared_ptr<const RuntimeSource>& source, const juce::String& key, std::uint64_t generation, bool freshAttempt)
+    std::shared_ptr<const RuntimeSource>& source, const juce::String& key, std::uint64_t generation, bool freshAttempt)
 {
     auto& running = sourceVerification;
     if (!running.check.valid())
@@ -66,11 +90,13 @@ juce::String RuntimeV2Controller::verifySourceBehindWorker (
                 { return repository.verifySourceFile (*source, freshAttempt); });
         }
         catch (const std::system_error&) { return "reference_source_revalidating"; }  // 次の周期にやり直す
-        running.key = key; running.generation = generation;
+        running.key = key; running.generation = generation; running.source = source;
     }
     if (running.check.wait_for (std::chrono::seconds (0)) == std::future_status::timeout) return "reference_source_revalidating";
     juce::String failure;
     try { failure = running.check.get(); } catch (...) { failure = "reference_source_revalidating"; }
+    // Carry the verified private copy across refreshes into playback preparation.
+    if (failure.isEmpty()) source = running.source;
     running = {};
     return failure;
 }
@@ -90,6 +116,7 @@ std::future<RuntimeContentAlignment> RuntimeV2Controller::searchAlignment (
 
 void RuntimeV2Controller::clearPreparedWorkspace()
 {
+    versionHoldSinceMs.store (0, std::memory_order_release);
     if (preparedWorkspace) retireVersionSearch (preparedWorkspace->versionPosition.search);
     preparedWorkspace.reset();
     const juce::ScopedLock lock (stateLock);
@@ -122,13 +149,14 @@ void RuntimeV2Controller::supplyPreparedLevel (double loudness, double peak)
     }
 }
 
-// 選んでから上限を過ぎても替えられないなら（読めない・確かめられない）前の V を手放し、今までの A の待ちへ進む。
+// この期限は位置合わせだけに使う。音源の読取り・検証と再試行の時間は含めない。
 void RuntimeV2Controller::serviceVersionHold()
 {
-    if (versionHoldSinceMs.load (std::memory_order_acquire) == 0) return;
     const juce::ScopedLock lock (stateLock);
     const auto since = versionHoldSinceMs.load (std::memory_order_acquire);
-    if (since == 0 || (bSelected.load (std::memory_order_acquire) && juce::Time::getMillisecondCounter() - since < stagedVersionLimitMs)) return;
+    if (since == 0)
+    { versionHoldSinceMs.store (juce::jmax (1u, juce::Time::getMillisecondCounter()), std::memory_order_release); return; }
+    if (bSelected.load (std::memory_order_acquire) && juce::Time::getMillisecondCounter() - since < stagedVersionLimitMs) return;
     versionHoldSinceMs.store (0, std::memory_order_release);
     if (!bSelected.load (std::memory_order_acquire)) return;
     revokeAfterFadeLocked();
@@ -137,7 +165,6 @@ void RuntimeV2Controller::serviceVersionHold()
 
 bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configuration)
 {
-    serviceVersionHold();
     if (!preparedWorkspace) return false;
     auto& prepared = *preparedWorkspace;
     std::shared_ptr<const RuntimeSource> audibleSource;
@@ -151,23 +178,21 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
     // A withdrawn publication cannot gain authority by finishing an earlier preparation.
     const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
         : repository.refresh (configuration.identity.workId, workspace);
-    // A hash still running keeps the preparation. A read that already failed (revalidate with a
-    // reason) cannot retry from here, so the preparation is dropped and refreshWorkspace takes the
-    // same selection to its retry reservation; a playing source in that state returns to A.
-    const auto waiting = [] (const SourceRevisionResult& r)
-    { return r.state == SourceRevisionState::revalidate && r.reason.isEmpty(); };
-    const auto preparedRevision = sourceRepository.checkSourceRevision (*prepared.source);
-    if (waiting (preparedRevision)) return true;
     if (!loaded.workspace || loaded.rejectionCode.isNotEmpty()
-        || loaded.workspace->publicationHash != workspace->publicationHash
-        || preparedRevision.state != SourceRevisionState::matched)
+        || loaded.workspace->publicationHash != workspace->publicationHash)
     { clearPreparedWorkspace(); return false; }
+    // Keep the audible source and the requested choice while the shared monitor retries.
+    // Page output independently pauses only a confirmed unavailable source.
     if (audibleSource && audibleSource != prepared.source)
-    {
-        const auto audibleRevision = sourceRepository.checkSourceRevision (*audibleSource);
-        if (waiting (audibleRevision)) return true;
-        if (audibleRevision.state != SourceRevisionState::matched) failClosedToA();
-    }
+        sourceRepository.verifySourceRevision (*audibleSource);
+    auto sourceFailure = sourceRepository.verifySourceRevision (*prepared.source);
+    // Keep the control contract retryable. Only the pending notice takes the
+    // confirmed reason; it must not revoke the source currently being auditioned.
+    if (sourceFailure.isNotEmpty())
+        sourceFailure = sourceFailureCode (revision_detail::service().watch (*prepared.source)->unavailable.load (std::memory_order_acquire));
+    holdSelectionForSourceRetry (sourceFailure, sourceFailure.isNotEmpty());
+    if (sourceFailure.isNotEmpty())
+    { versionHoldSinceMs.store (0, std::memory_order_release); return true; }
     auto& staging = nextPages();
     const auto start = outputSample (prepared.cue.startSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);
     const auto end = outputSample (prepared.cue.endSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);
@@ -216,13 +241,21 @@ bool RuntimeV2Controller::stagedVersionReady (WorkspaceSelection& prepared, Audi
     {
         if (staged.search.wait_for (std::chrono::seconds (0)) == std::future_status::timeout) return false;
         RuntimeContentAlignment found;
-        try { found = staged.search.get(); } catch (...) { found.reason = "reference_alignment_waiting_for_content"; }
+        try { found = staged.search.get(); } catch (...) { found.reason = "reference_alignment_source_unavailable"; }
         if (found.established) staged.match = std::make_shared<RuntimeContentAlignment> (std::move (found));
-        else if (found.reason == "reference_alignment_busy") staged.capture.reset();
+        else if (found.reason == "reference_alignment_busy" || found.reason == "reference_alignment_source_unavailable")
+        {
+            // No content comparison completed. Retry the same capture without
+            // charging a miss or letting storage time expire the audible V.
+            staged.capture.reset(); versionHoldSinceMs.store (0, std::memory_order_release);
+            return false;
+        }
         else if (++staged.misses >= 2) return true;  // この Version は A の今の所と合わない。A の待ちが理由を言う
     }
     if (staged.match == nullptr)
     {
+        serviceVersionHold();
+        if (!bSelected.load (std::memory_order_acquire)) return true;
         const auto capture = aCapture.currentAudio();
         if (capture == nullptr || capture->continuity != continuity || capture == staged.capture) return false;
         staged.capture = capture;
@@ -275,16 +308,17 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
         const auto openFailure = currentPages().open (*selectedSource, configuration.sampleRate,
             configuration.channels, true, [this, pinned] (RuntimeFileRevision& revision) { return pinned->verified (sourceRepository, revision); },
             pinned->input(), [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
-                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation());
+                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation(), [pinned] { return pinned->readSucceeded(); });
         if (openFailure.isNotEmpty() || currentPages().sourceInvalidated())
         {
-            next.state = RuntimeState::rejected;
+            next.state = openFailure == "reference_source_revalidating" ? RuntimeState::waiting : RuntimeState::rejected;
             next.rejectionCode = openFailure.isNotEmpty() ? openFailure : "reference_source_changed";
             publish (std::move (next));
             return;
         }
         activeSourceKey = sourceKey;
     }
+    next.sourceStorageNotice = revision_detail::snapshotFor (*selectedSource)->storageNotice();
     KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open_done"); workerSource = selectedSource;
     workerSourceGeneration = selection.generation;
 

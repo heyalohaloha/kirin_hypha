@@ -1,3 +1,5 @@
+#include "ReferenceVerifiedReader.h"
+#include "ReferenceSourceSnapshot.h"
 #include "ReferenceVisualObservation.h"
 #include "ReferenceTestCommitObserver.h"
 #include "ReferenceVisualAudio.h"
@@ -280,11 +282,12 @@ void VisualObservation::run()
                 consumeKirin (block, rate);
                 if (timeline.pairedObserving)
                 {
-                    if (readerKey != next.key)
-                    { reader.reset (formats.createReaderFor (juce::File (next.source->absolutePath))); readerKey = next.key; }
                     RuntimeV2SourceRepository verifier (juce::File {});
+                    const bool sourceAvailable = verifier.verifySourceRevision (*next.source).isEmpty();
+                    if (sourceAvailable && (readerKey != next.key || !reader))
+                    { reader = revision_detail::snapshotReader (formats, *next.source); readerKey = next.key; }
                     std::int64_t position = 0;
-                    if (reader && next.mapPosition (block.position, position) && verifier.verifySourceRevision (*next.source).isEmpty())
+                    if (reader && sourceAvailable && next.mapPosition (block.position, position))
                     {
                         decoded = true;
                         for (int offset = 0; offset < block.frames && decoded; offset += 256)

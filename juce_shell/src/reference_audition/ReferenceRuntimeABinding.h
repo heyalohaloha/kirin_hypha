@@ -39,5 +39,6 @@ namespace hypha::reference_audition
         std::optional<RuntimeABinding> loadWithClock (const RuntimeIdentity&, const ReadClock&) const;
         const juce::File root;
         const ReadClock readClock;
+        mutable std::optional<RuntimeABinding> lastBinding;
     };
 }

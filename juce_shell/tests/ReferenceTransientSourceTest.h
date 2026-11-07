@@ -9,9 +9,14 @@ inline void testTransientSourceFailures (const juce::File& root, const std::shar
         ref::revision_detail::PinnedSource pinned (source);
         ref::RuntimeFileRevision revision;
         ref::revision_detail::pathFailureForTest.store (true);
-        require (!pinned.verified (repository, revision), "unavailable path pauses page");
+        auto& monitor = ref::revision_detail::service();
+        monitor.advanceMonitorForTest (*source);
+        require (pinned.verified (repository, revision), "one unavailable path retains the immutable page");
+        require (monitor.waitForCompletion (*source, std::chrono::seconds (30)), "transient path probe completes");
         require (!pinned.wasRejected(), "unavailable path does not reject page");
-        require (pinned.verified (repository, revision), "page recovers after path returns");
+        monitor.advanceMonitorForTest (*source);
+        require (pinned.verified (repository, revision), "page remains usable after path returns");
+        require (monitor.waitForCompletion (*source, std::chrono::seconds (30)), "recovery probe completes");
     }
     for (int failure : { 1, 2 })
     {

@@ -1,6 +1,8 @@
 #pragma once
 #include "ReferenceRuntimeV2Source.h"
 #include <atomic>
+#include <array>
+#include <algorithm>
 #include <condition_variable>
 #include <chrono>
 #include <cmath>
@@ -23,182 +25,58 @@
 #include <unistd.h>
 #endif
 
+#include "ReferenceSourceFile.h"
+#include "ReferenceSourceSnapshot.h"
+
 namespace hypha::reference_audition::revision_detail
 {
-inline bool equal (const RuntimeFileRevision& a, const RuntimeFileRevision& b)
-{
-    return a.deviceId == b.deviceId && a.fileId == b.fileId && a.sizeBytes == b.sizeBytes
-        && a.modifiedTimeNs == b.modifiedTimeNs && a.changedTimeNs == b.changedTimeNs;
-}
-inline bool sameObject (const RuntimeFileRevision& a, const RuntimeFileRevision& b)
-{ return a.deviceId == b.deviceId && a.fileId == b.fileId && a.sizeBytes == b.sizeBytes; }
-inline juce::String number (std::uint64_t n) { return juce::String (std::to_string (n)); }
-
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER) || defined(KIRIN_HYPHA_TEST_WALL_CLOCK)
+inline std::atomic<void (*) (const RuntimeSource&)> sourceInitialFormatOpenHookForTest { nullptr };
+#endif
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-class OpenFile;
-inline std::atomic<void (*)()> hashReadHook { nullptr }, pageReadHook { nullptr };
-inline std::atomic<OpenFile*> watchedPageFile { nullptr };
-inline std::atomic<int> verifyFailureForTest { 0 };
-inline std::atomic<bool> persistentReadFailureForTest { false };
-inline std::atomic<bool> pathFailureForTest { false };
+inline std::atomic<std::int64_t> monitorClockOffsetMsForTest { 0 };
+inline std::atomic<void (*)()> sourceServiceStoppingHookForTest { nullptr };
 #endif
-
-// The hash stream and both revision observations use this same OS handle.
-class OpenFile final : public juce::InputStream
-{
-public:
-    explicit OpenFile (const juce::File& file)
-    {
-#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-        int expected = 1;
-        if (verifyFailureForTest.compare_exchange_strong (expected, 0)) return;
-#endif
-#if JUCE_WINDOWS
-        handle = CreateFileW (file.getFullPathName().toWideCharPointer(), GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-            FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-#else
-        handle = ::open (file.getFullPathName().toRawUTF8(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-#endif
-        RuntimeFileRevision r;
-        if (revision (r)) length = r.sizeBytes.getLargeIntValue();
-    }
-    ~OpenFile() override
-    {
-#if JUCE_WINDOWS
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle (handle);
-#else
-        if (handle >= 0) ::close (handle);
-#endif
-    }
-    bool revision (RuntimeFileRevision& r) const
-    {
-#if JUCE_WINDOWS
-        BY_HANDLE_FILE_INFORMATION i {}; FILE_BASIC_INFO b {};
-        if (handle == INVALID_HANDLE_VALUE || !GetFileInformationByHandle (handle, &i)
-            || !GetFileInformationByHandleEx (handle, FileBasicInfo, &b, sizeof (b))
-            || (i.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0
-            || b.LastWriteTime.QuadPart < 116444736000000000LL || b.ChangeTime.QuadPart < 116444736000000000LL)
-            return false;
-        const auto ticks = [] (LONGLONG t) -> juce::String {
-            const auto n = static_cast<std::uint64_t> (t - 116444736000000000LL);
-            return n <= std::numeric_limits<std::uint64_t>::max() / 100 ? number (n * 100) : juce::String {};
-        };
-        r.deviceId = number (i.dwVolumeSerialNumber);
-        r.fileId = number ((std::uint64_t (i.nFileIndexHigh) << 32) | i.nFileIndexLow);
-        r.sizeBytes = number ((std::uint64_t (i.nFileSizeHigh) << 32) | i.nFileSizeLow);
-        r.modifiedTimeNs = ticks (b.LastWriteTime.QuadPart); r.changedTimeNs = ticks (b.ChangeTime.QuadPart);
-        return r.modifiedTimeNs.isNotEmpty() && r.changedTimeNs.isNotEmpty();
-#else
-        struct stat i {};
-        if (handle < 0 || ::fstat (handle, &i) != 0 || !S_ISREG (i.st_mode) || i.st_size < 0) return false;
-        r.deviceId = number (std::uint64_t (i.st_dev)); r.fileId = number (std::uint64_t (i.st_ino));
-        r.sizeBytes = number (std::uint64_t (i.st_size));
-#if JUCE_MAC
-        const auto mt = i.st_mtimespec, ct = i.st_ctimespec;
-#else
-        const auto mt = i.st_mtim, ct = i.st_ctim;
-#endif
-        r.modifiedTimeNs = number (std::uint64_t (mt.tv_sec) * 1000000000 + std::uint64_t (mt.tv_nsec));
-        r.changedTimeNs = number (std::uint64_t (ct.tv_sec) * 1000000000 + std::uint64_t (ct.tv_nsec));
-        return true;
-#endif
-    }
-    juce::int64 getTotalLength() override { return length; }
-    juce::int64 getPosition() override { return position; }
-    bool isExhausted() override { return failed || position >= length; }
-    bool setPosition (juce::int64 p) override
-    {
-#if JUCE_WINDOWS
-        LARGE_INTEGER v {}; v.QuadPart = p;
-        if (handle == INVALID_HANDLE_VALUE || !SetFilePointerEx (handle, v, nullptr, FILE_BEGIN)) return false;
-#else
-        if (handle < 0 || ::lseek (handle, p, SEEK_SET) < 0) return false;
-#endif
-        position = p; return true;
-    }
-    int read (void* data, int n) override
-    {
-#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-        int expected = 2;
-        if (hashingForTest && hashReadStarted && (persistentReadFailureForTest.load()
-            || verifyFailureForTest.compare_exchange_strong (expected, 0)))
-        { failed = true; return 0; }
-#endif
-#if JUCE_WINDOWS
-        DWORD got = 0; if (handle == INVALID_HANDLE_VALUE || !ReadFile (handle, data, DWORD (n), &got, nullptr)) { failed = true; return 0; }
-        const auto result = int (got);
-#else
-        const auto got = handle < 0 ? -1 : ::read (handle, data, size_t (n));
-        if (got < 0) { failed = true; return 0; } const auto result = int (got);
-#endif
-        if (n > 0 && result == 0 && position < length) failed = true;
-        position += result;
-#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-        if (result > 0)
-        {
-            if (hashingForTest) { hashReadStarted = true; if (auto hook = hashReadHook.exchange (nullptr)) hook(); }
-            else if (watchedPageFile.load() == this)
-                if (auto hook = pageReadHook.exchange (nullptr)) hook();
-        }
-#endif
-        return result;
-    }
-    bool complete() const { return !failed && position == length; }
-    bool readFailed() const { return failed; }
-#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-    void enableHashHook() noexcept { hashingForTest = true; }
-#endif
-private:
-#if JUCE_WINDOWS
-    HANDLE handle = INVALID_HANDLE_VALUE;
-#else
-    int handle = -1;
-#endif
-    juce::int64 length = -1, position = 0;
-    bool failed = false;
-#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-    bool hashingForTest = false, hashReadStarted = false;
-#endif
-};
-
-class BorrowedInput final : public juce::InputStream
-{
-public:
-    explicit BorrowedInput (OpenFile& fileIn) : file (fileIn) {}
-    juce::int64 getTotalLength() override { return file.getTotalLength(); }
-    bool isExhausted() override { return file.isExhausted(); }
-    int read (void* data, int size) override { return file.read (data, size); }
-    juce::int64 getPosition() override { return file.getPosition(); }
-    bool setPosition (juce::int64 position) override { return file.setPosition (position); }
-private:
-    OpenFile& file;
-};
-
-class SharedInput final : public juce::InputStream
-{
-public:
-    explicit SharedInput (std::shared_ptr<OpenFile> fileIn) : file (std::move (fileIn)) {}
-    juce::int64 getTotalLength() override { return file->getTotalLength(); }
-    bool isExhausted() override { return file->isExhausted(); }
-    int read (void* data, int size) override { return file->read (data, size); }
-    juce::int64 getPosition() override { return file->getPosition(); }
-    bool setPosition (juce::int64 position) override { return file->setPosition (position); }
-#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-    OpenFile* fileForTest() const noexcept { return file.get(); }
-#endif
-private:
-    std::shared_ptr<OpenFile> file;
-};
-
 // currentPathRevision must reject links and use the same five-field representation.
 using PathRevision = bool (*) (const juce::File&, RuntimeFileRevision&);
-inline juce::String verify (const RuntimeSource& source, PathRevision pathRevision, RuntimeFileRevision& verified)
+inline juce::String verify (const RuntimeSource& source, PathRevision pathRevision, RuntimeFileRevision& verified,
+                           bool prepareAudio = false, SourceSnapshotCache& snapshots = snapshotCache())
 {
     const juce::File path (source.absolutePath);
+    if (prepareAudio)
+    {
+        bool fresh = false;
+        const auto snapshot = snapshots.get (source, &fresh);
+        if (!snapshot->available()) return snapshot->reason();
+        RuntimeFileRevision current;
+        if (!pathRevision (path, current)) return "reference_source_read_failed";
+        if (fresh && equal (current, snapshot->revision()))
+        {
+            juce::AudioFormatManager formats; formats.registerBasicFormats();
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER) || defined(KIRIN_HYPHA_TEST_WALL_CLOCK)
+            if (auto hook = sourceInitialFormatOpenHookForTest.load()) hook (source);
+#endif
+            auto input = snapshot->open();
+            if (!input) return "reference_source_read_failed";
+            std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (
+                std::make_unique<SharedInput> (input, snapshot)));
+            if (auto* direct = dynamic_cast<VerifiedInput*> (input.get()); direct && direct->takeReadFailure())
+                return "reference_source_revalidating";
+            if (!reader) return "reference_source_decode_failed";
+            if (static_cast<std::int64_t> (std::llround (reader->sampleRate)) != source.audio.sampleRateHz
+                || reader->numChannels != source.audio.channels || reader->lengthInSamples != source.audio.totalSampleFrames)
+                return "reference_source_audio_mismatch";
+            RuntimeFileRevision after;
+            if (!pathRevision (path, after)) return "reference_source_read_failed";
+            if (!equal (current, after)) return "reference_source_revalidating";
+            verified = current; return {};
+        }
+        // A shared immutable copy does not attest to later changes of the published file.
+    }
     OpenFile stream (path); RuntimeFileRevision before, after, pathBefore, pathAfter;
     if (!stream.revision (before) || !pathRevision (path, pathBefore)) return "reference_source_read_failed";
-    if (!sameObject (before, source.revision) || !equal (before, pathBefore)) return "reference_source_changed";
+    if (!equal (before, pathBefore)) return "reference_source_revalidating";
+    if (!sameObject (before, source.revision)) return "reference_source_changed";
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     stream.enableHashHook();
 #endif
@@ -209,7 +87,7 @@ inline juce::String verify (const RuntimeSource& source, PathRevision pathRevisi
         if (buffered.getPosition() != stream.getTotalLength()) return "reference_source_read_failed";
     }
     if (!stream.complete() || !stream.revision (after) || !pathRevision (path, pathAfter)) return "reference_source_read_failed";
-    if (!equal (before, after) || !equal (before, pathAfter)) return "reference_source_changed";
+    if (!equal (before, after) || !equal (before, pathAfter)) return "reference_source_revalidating";
     if (hash != source.sourceFileSha256) return "reference_source_changed";
     if (!stream.setPosition (0)) return "reference_source_read_failed";
     juce::AudioFormatManager formats; formats.registerBasicFormats();
@@ -220,7 +98,7 @@ inline juce::String verify (const RuntimeSource& source, PathRevision pathRevisi
         || reader->numChannels != source.audio.channels || reader->lengthInSamples != source.audio.totalSampleFrames)
         return "reference_source_audio_mismatch";
     if (!stream.revision (after) || !pathRevision (path, pathAfter)) return "reference_source_read_failed";
-    if (!equal (before, after) || !equal (before, pathAfter)) return "reference_source_changed";
+    if (!equal (before, after) || !equal (before, pathAfter)) return "reference_source_revalidating";
     verified = before; return {};
 }
 
@@ -233,7 +111,10 @@ inline juce::String keyFor (const RuntimeSource& s)
         + "\n" + s.revision.deviceId + ":" + s.revision.fileId + ":" + s.revision.sizeBytes;
 }
 
-struct Authority { std::atomic<std::uint64_t> invalidation { 0 }; };
+struct Authority
+{
+    std::atomic<std::uint64_t> invalidation { 0 }, unavailable { 0 };
+};
 class Service final
 {
     struct Entry
@@ -241,20 +122,24 @@ class Service final
         RuntimeFileRevision revision; juce::String failure, transientFailure;
         std::shared_ptr<Authority> authority = std::make_shared<Authority>();
         bool complete = false, queued = false, failureActive = false;
+        std::int64_t nextMonitorMs = 0, auditAtMs = 0, missingSinceMs = -1;
     };
-    struct Job { juce::String key; RuntimeSource source; RuntimeFileRevision requested; PathRevision path; };
+    struct Job { juce::String key; RuntimeSource source; RuntimeFileRevision requested; PathRevision path; bool monitor = false; };
 public:
     Service()
     {
-        try { worker = std::thread ([this] { run(); }); }
-        catch (...) {}
+        startWorkers();
     }
     ~Service()
     {
         { std::lock_guard<std::mutex> l (mutex); stopping = true; }
-        wake.notify_one();
-        if (worker.joinable()) worker.join();
+        wake.notify_all();
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        if (auto hook = sourceServiceStoppingHookForTest.load()) hook();
+#endif
+        for (auto& worker : workers) if (worker.joinable()) worker.join();
     }
+    SourceSnapshotCache& snapshotCache() noexcept { return snapshots; }
     SourceRevisionResult check (const RuntimeSource& source, const RuntimeFileRevision& now, PathRevision path)
     {
         const auto key = keyFor (source);
@@ -262,47 +147,73 @@ public:
         auto& e = entries[key];
         trim (key);
         if (!sameObject (source.revision, now))
-        { markFailure (e); return { SourceRevisionState::refused, "reference_source_changed" }; }
+        { return { SourceRevisionState::refused, "reference_source_changed" }; }
         if (e.transientFailure.isNotEmpty()) return { SourceRevisionState::revalidate, e.transientFailure };
         if (e.complete && equal (e.revision, now))
         {
-            if (e.failure.isNotEmpty()) { markFailure (e); return { SourceRevisionState::refused, e.failure }; }
+            if (e.failure.isNotEmpty()) return { SourceRevisionState::refused, e.failure };
             e.failureActive = false; return { SourceRevisionState::matched, {} };
         }
         if (equal (source.revision, now))
         { e.failureActive = false; return { SourceRevisionState::matched, {} }; }
         if (!e.queued)
         {
-            if (!worker.joinable())
-            {
-                try { worker = std::thread ([this] { run(); }); }
-                catch (...) { return { SourceRevisionState::revalidate, {} }; }
-            }
+            if (!startWorkers()) return { SourceRevisionState::revalidate, {} };
             try { jobs.push_back ({ key, source, now, path }); }
             catch (...) { return { SourceRevisionState::revalidate, {} }; }
             e.queued = true; wake.notify_one();
         }
         return { SourceRevisionState::revalidate, {} };
     }
+    // Each receipt has one probe in flight. A bounded worker pool lets other sources
+    // recover while one source's stat or hash is waiting for storage.
+    std::uint64_t monitor (const RuntimeSource& source, PathRevision path)
+    {
+        const auto key = keyFor (source);
+        const auto now = monotonicMs();
+        std::lock_guard<std::mutex> l (mutex);
+        auto& e = entries[key]; trim (key);
+        if (!e.queued && now >= e.nextMonitorMs && startWorkers())
+        {
+            jobs.push_back ({ key, source, {}, path, true });
+            e.queued = true; e.nextMonitorMs = now + 1000; wake.notify_one();
+        }
+        return e.authority->unavailable.load (std::memory_order_acquire);
+    }
     std::shared_ptr<Authority> watch (const RuntimeSource& source)
     {
         const auto key = keyFor (source); std::lock_guard<std::mutex> l (mutex);
         auto& e = entries[key]; trim (key); return e.authority;
     }
-    void noteFailure (const RuntimeSource& source)
+    void requestAudit (const RuntimeSource& source) noexcept
     {
-        const auto key = keyFor (source); std::lock_guard<std::mutex> l (mutex);
-        auto& e = entries[key]; trim (key); markFailure (e);
+        try
+        {
+            const std::lock_guard<std::mutex> lock (mutex);
+            auto i = entries.find (keyFor (source));
+            if (i != entries.end() && !i->second.failureActive && i->second.missingSinceMs < 0)
+            { i->second.auditAtMs = 0; i->second.nextMonitorMs = 0; }
+        }
+        catch (...) {} // The unverified fill still fails safely if its audit cannot be requested.
     }
     void retry (const RuntimeSource& source)
     {
         std::lock_guard<std::mutex> l (mutex);
         auto i = entries.find (keyFor (source));
-        if (i != entries.end()) i->second.transientFailure.clear();
+        if (i != entries.end())
+        {
+            auto& entry = i->second;
+            // Another role may select the same freshly verified source. Reuse that
+            // success; only failed or unavailable attempts need their cache retired.
+            if (entry.failure.isNotEmpty() || entry.transientFailure.isNotEmpty()
+                || entry.authority->unavailable.load (std::memory_order_acquire) != 0)
+                entry.complete = false;
+            entry.transientFailure.clear();
+        }
     }
     juce::String verifyInitial (const RuntimeSource& source, const RuntimeFileRevision& requested, PathRevision path)
     {
-        if (!sameObject (source.revision, requested)) { noteFailure (source); return "reference_source_changed"; }
+        if (!sameObject (source.revision, requested)) return "reference_source_changed";
         const auto key = keyFor (source);
         {
             std::lock_guard<std::mutex> l (mutex);
@@ -310,7 +221,7 @@ public:
             trim (key);
             if (e.complete && equal (e.revision, requested))
             {
-                if (e.failure.isNotEmpty()) markFailure (e); else e.failureActive = false;
+                if (e.failure.isEmpty()) markAvailable (e);
                 return e.failure;
             }
             if (e.queued) return "reference_source_revalidating";
@@ -320,7 +231,7 @@ public:
         juce::String failure; bool stable = false;
         try
         {
-            failure = verify (source, path, verified);
+            failure = verify (source, path, verified, true, snapshots);
             stable = path (juce::File (source.absolutePath), current) && equal (current, requested);
         }
         catch (...) { failure = "reference_source_revalidating"; }
@@ -330,13 +241,22 @@ public:
             if (stable && failure != "reference_source_read_failed" && failure != "reference_source_revalidating")
             {
                 e.revision = current; e.failure = failure; e.complete = true; e.transientFailure.clear();
-                if (failure.isNotEmpty()) markFailure (e); else e.failureActive = false;
+                e.auditAtMs = monotonicMs() + auditIntervalMs; e.nextMonitorMs = monotonicMs() + 1000;
+                if (failure.isEmpty()) markAvailable (e);
             }
         }
         finished.notify_all();
         return stable || failure == "reference_source_read_failed" ? failure : "reference_source_revalidating";
     }
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    void pollMonitorForTest (const RuntimeSource& source)
+    { std::lock_guard<std::mutex> l (mutex); entries[keyFor (source)].nextMonitorMs = 0; }
+    void advanceMonitorForTest (const RuntimeSource& source, std::int64_t missingMs = 0, bool rehash = true)
+    {
+        std::lock_guard<std::mutex> l (mutex); auto& e = entries[keyFor (source)];
+        e.nextMonitorMs = 0; e.auditAtMs = rehash ? 0 : monotonicMs() + 60000;
+        if (missingMs) e.missingSinceMs = monotonicMs() - missingMs;
+    }
     std::uint64_t startedCount() const noexcept { return testStarted.load(); }
     bool waitForIdle (std::chrono::milliseconds timeout)
     {
@@ -354,10 +274,78 @@ public:
     }
 #endif
 private:
+    static constexpr std::int64_t auditIntervalMs = 5 * 60 * 1000;
+    bool startWorkers()
+    {
+        for (auto& worker : workers)
+            if (!worker.joinable())
+            { try { worker = std::thread ([this] { run(); }); } catch (...) {} }
+        return std::any_of (workers.begin(), workers.end(), [] (const auto& worker) { return worker.joinable(); });
+    }
+    static std::int64_t monotonicMs()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds> (
+            std::chrono::steady_clock::now().time_since_epoch()).count()
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            + monitorClockOffsetMsForTest.load()
+#endif
+            ;
+    }
+    void monitorOnce (const Job& job)
+    {
+        RuntimeFileRevision current, verified;
+        juce::String failure;
+        const auto now = monotonicMs();
+        bool cached = false;
+        if (!job.path (juce::File (job.source.absolutePath), current)) failure = "reference_source_read_failed";
+        else
+        {
+            { std::lock_guard<std::mutex> l (mutex); const auto& e = entries[job.key];
+              cached = e.complete && e.missingSinceMs < 0 && equal (e.revision, current) && now < e.auditAtMs;
+              if (cached) failure = e.failure; }
+            if (!cached) failure = verify (job.source, job.path, verified, false, snapshots);
+        }
+        const auto completedAt = monotonicMs();
+        std::lock_guard<std::mutex> l (mutex);
+        auto& e = entries[job.key]; e.queued = false;
+        e.nextMonitorMs = completedAt + 1000;
+        if (failure.isEmpty())
+        {
+            e.revision = cached ? current : verified; e.complete = true;
+            e.failure.clear(); e.transientFailure.clear();
+            if (!cached) e.auditAtMs = completedAt + auditIntervalMs;
+            markAvailable (e);
+        }
+        else
+        {
+            // A writer may truncate and restore this path, or change attributes during a
+            // hash. Keep verified private PCM through the same short retry window as I/O.
+            if (e.missingSinceMs < 0) e.missingSinceMs = now;
+            if ((e.failureActive && failure == e.failure && equal (current, e.revision))
+                || now - e.missingSinceMs >= 3000)
+            {
+                if (failure == "reference_source_read_failed" || failure == "reference_source_revalidating")
+                    e.authority->unavailable.store (1, std::memory_order_release);
+                else
+                {
+                    e.revision = current; e.complete = true; e.failure = failure; e.missingSinceMs = -1;
+                    if (!cached) e.auditAtMs = completedAt + auditIntervalMs;
+                    markFailure (e);
+                }
+            }
+        }
+    }
+    static void markAvailable (Entry& entry)
+    {
+        entry.failureActive = false;
+        entry.missingSinceMs = -1;
+        entry.authority->unavailable.store (0, std::memory_order_release);
+    }
     static void markFailure (Entry& entry)
     {
         if (!entry.failureActive) entry.authority->invalidation.fetch_add (1, std::memory_order_acq_rel);
         entry.failureActive = true;
+        entry.authority->unavailable.store (sourceFailureValue (entry.failure), std::memory_order_release);
     }
     void trim (const juce::String& preserve)
     {
@@ -379,11 +367,17 @@ private:
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
             testStarted.fetch_add (1);
 #endif
+            if (job.monitor)
+            {
+                try { monitorOnce (job); }
+                catch (...) { std::lock_guard<std::mutex> l (mutex); entries[job.key].queued = false; }
+                finished.notify_all(); continue;
+            }
             RuntimeFileRevision verified, current;
             juce::String failure; bool stable = false;
             try
             {
-                failure = verify (job.source, job.path, verified);
+                failure = verify (job.source, job.path, verified, true, snapshots);
                 stable = job.path (juce::File (job.source.absolutePath), current) && equal (current, job.requested);
             }
             catch (...) { failure = "reference_source_revalidating"; }
@@ -391,7 +385,10 @@ private:
               if (stable && failure != "reference_source_read_failed" && failure != "reference_source_revalidating")
               {
                   e.revision = current; e.failure = failure; e.complete = true; e.transientFailure.clear();
-                  if (failure.isNotEmpty()) markFailure (e); else e.failureActive = false;
+                e.auditAtMs = monotonicMs() + auditIntervalMs; e.nextMonitorMs = monotonicMs() + 1000;
+                  // Refusing a new reader does not revoke an existing verified copy.
+                  // Only monitorOnce may confirm a failure after its retry window.
+                  if (failure.isEmpty()) markAvailable (e);
               }
               // The worker keeps a read failure until a fresh attempt (Service::retry) drops it, so
               // polls that only wait for that attempt do not queue another hash.
@@ -400,12 +397,14 @@ private:
             finished.notify_all();
         }
     }
+    SourceSnapshotCache snapshots;
     std::mutex mutex; std::condition_variable wake, finished; std::map<juce::String, Entry> entries;
     std::deque<Job> jobs; bool stopping = false;
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     std::atomic<std::uint64_t> testStarted { 0 };
 #endif
-    std::thread worker;
+    std::array<std::thread, 4> workers;
 };
 inline Service& service() { static Service instance; return instance; }
+inline SourceSnapshotCache& snapshotCache() { return service().snapshotCache(); }
 }

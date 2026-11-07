@@ -476,8 +476,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
         }
 
         require (hypha::storage::writeText (source, "changed after receipt")
-                 && sourceRepository.verifySourceRevision (*exactSource.source)
-                      == "reference_source_changed"
+                 && sourceRepository.checkSourceRevision (*exactSource.source).state
+                      == ref::SourceRevisionState::refused
                  && sourceRepository.verifySourceFile (*exactSource.source)
                       == "reference_source_changed",
                  "a changed source revision must stop recurring audition before the expensive full check");

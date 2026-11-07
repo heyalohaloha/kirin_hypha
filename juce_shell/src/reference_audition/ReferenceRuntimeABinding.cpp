@@ -61,8 +61,9 @@ namespace hypha::reference_audition
             return result >= minimum && result <= maximum;
         }
 
-        bool readBoundedJson (const juce::File& file, juce::var& value)
+        bool readBoundedJson (const juce::File& file, juce::var& value, bool& unavailable)
         {
+            unavailable = true;
            #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
             const bool exists = file.existsAsFile();
            #if JUCE_WINDOWS
@@ -73,15 +74,17 @@ namespace hypha::reference_audition
             const bool symbolic = exists && file.isSymbolicLink();
             KIRIN_REFERENCE_BINDING_ERROR_FOR_TEST (error);
             KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST (!exists ? "file_not_regular" : symbolic ? "file_symlink" : "file_facts");
-            if (!exists || symbolic) return false;
+            if (symbolic) { unavailable = false; return false; }
+            if (!exists) return false;
            #else
-            if (! file.existsAsFile() || file.isSymbolicLink()) return false;
+            if (file.isSymbolicLink()) { unavailable = false; return false; }
+            if (! file.existsAsFile()) return false;
            #endif
             KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("file_size");
             const auto size = file.getSize();
-            if (size < 1 || size > maximumBindingBytes
-                || size > std::numeric_limits<int>::max())
-                return false;
+            if (size > maximumBindingBytes || size > std::numeric_limits<int>::max())
+            { unavailable = false; return false; }
+            if (size < 1) return false;
             KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("file_open");
             auto stream = file.createInputStream();
             if (stream == nullptr || ! stream->openedOk())
@@ -90,6 +93,7 @@ namespace hypha::reference_audition
             KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("file_read");
             if (stream->read (bytes.getData(), static_cast<int> (size)) != size)
                 return false;
+            unavailable = false;
             KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("encoding");
             const auto* raw = static_cast<const char*> (bytes.getData());
             if (size >= 3 && static_cast<unsigned char> (raw[0]) == 0xef
@@ -138,8 +142,19 @@ namespace hypha::reference_audition
             || ! canonicalUuid (identity.workId))
             return std::nullopt;
         juce::var value;
-        if (! readBoundedJson (bindingFile (identity.runtimeInstanceId), value))
+        bool unavailable = false;
+        if (! readBoundedJson (bindingFile (identity.runtimeInstanceId), value, unavailable))
+        {
+            if (!unavailable) lastBinding.reset();
+            if (lastBinding && lastBinding->runtimeInstanceId == identity.runtimeInstanceId
+                && lastBinding->hostProcessId == identity.hostProcessId && lastBinding->workId == identity.workId)
+            {
+                const auto now = clock();
+                if (now >= lastBinding->issuedAtMs && now <= lastBinding->leaseExpiresAtMs) return lastBinding;
+            }
             return std::nullopt;
+        }
+        lastBinding.reset();
         KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("schema");
         const auto* object = value.getDynamicObject();
         if (object == nullptr || ! exactProperties (*object, {
@@ -181,6 +196,7 @@ namespace hypha::reference_audition
             return std::nullopt;
         KIRIN_REFERENCE_BINDING_ACCEPT_FOR_TEST();
         result.hostProcessId = static_cast<std::uint32_t> (processId);
+        lastBinding = result;
         return result;
     }
 }

@@ -182,6 +182,8 @@ namespace
         auto source = std::make_shared<ref::RuntimeSource>();
         source->sourceKind = "work_version";
         source->absolutePath = bFile.getFullPathName();
+        source->sourceFileSha256 = juce::SHA256 (bFile).toHexString();
+        require (ref::RuntimeV2SourceRepository (sandbox).readSourceRevision (*source, source->revision), "Blind fixture has actual file facts");
         source->audio.sampleRateHz = 48'000;
         source->audio.channels = 2;
         source->audio.totalSampleFrames = a->frameCount;
@@ -359,6 +361,8 @@ namespace
                  "headroom-limited Blind B fixture must be written");
         auto limitedSource = std::make_shared<ref::RuntimeSource> (*source);
         limitedSource->absolutePath = limitedBFile.getFullPathName();
+        limitedSource->sourceFileSha256 = juce::SHA256 (limitedBFile).toHexString();
+        require (ref::RuntimeV2SourceRepository (sandbox).readSourceRevision (*limitedSource, limitedSource->revision), "limited Blind fixture has actual file facts");
         ref::RuntimeV2Blind approvalBlind;
         approvalBlind.prepare (a, candidate, cue, limitedSource, false);
         state = approvalBlind.snapshot();

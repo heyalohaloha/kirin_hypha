@@ -50,6 +50,7 @@ void contentAndBlind (const juce::File& root, const juce::String& mode)
     source->sourceKind = "work_version"; source->absolutePath = file.getFullPathName();
     source->sourceFileSha256 = juce::SHA256 (file).toHexString(); source->sourcePcmSha256 = fixture.pcmHash;
     source->audio = {48000, 1, fixture.audio.getNumSamples()};
+    require (ref::RuntimeV2SourceRepository (root).readSourceRevision (*source, source->revision), "mono fixture has its actual source revision");
     source->measurementSummary.emplace(); source->measurementSummary->maximumTruePeakDbtp = -6;
     ref::RuntimeDetailedMeasurement measured;
     measured.audio = source->audio; measured.sourceFileSha256 = source->sourceFileSha256; measured.sourcePcmSha256 = fixture.pcmHash;

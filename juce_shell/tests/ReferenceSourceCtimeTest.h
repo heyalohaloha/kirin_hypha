@@ -167,15 +167,14 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
         testTransientSourceFailures (root, control::roleFor (c, { 1 }).visualBinding().source);
         auto& runtime = control::roleFor (c, { 1 });
         ref::revision_detail::pathFailureForTest.store (true);
-        const auto before = juce::Time::currentTimeMillis();
+        auto& monitor = ref::revision_detail::service();
+        const auto source = runtime.visualBinding().source;
+        monitor.advanceMonitorForTest (*source);
         control::serviceFor (runtime, {});
-        const auto deadline = control::sourceRetryDeadline (runtime, {});
-        require (deadline >= before + 5000, "unavailable source uses retry clock");
-        require (!feed (true, false), "unavailable path does not play cached audio");
-        control::sourceRetryDeadline (runtime, {}) = 0;
-        for (int n = 0; n < 16 && !c.snapshot().versionReady; ++n) feed (false);
-        require (c.snapshot().versionReady, "source becomes ready after retry deadline");
-        require (c.requestAudition (1, -22, -6) && feed (true), "same source plays after retry");
+        require (monitor.waitForCompletion (*source, std::chrono::seconds (30)), "path probe finishes");
+        require (feed (true, false), "one failed path probe preserves audible audio");
+        monitor.advanceMonitorForTest (*source); control::serviceFor (runtime, {});
+        require (monitor.waitForCompletion (*source, std::chrono::seconds (30)), "returned path is verified");
     }
     if (change == SourceChange::duringRender)
     {
@@ -194,20 +193,20 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
         const auto source = runtime.visualBinding().source;
         require (source != nullptr, "source is available for page read race");
         auto* reader = control::sourcePageReader (currentPages, {});
-        auto* input = reader ? dynamic_cast<ref::revision_detail::SharedInput*> (reader->input) : nullptr;
-        require (input != nullptr, "page reader owns the pinned source handle");
+        auto* readerInput = reader ? dynamic_cast<ref::revision_detail::SharedInput*> (reader->input) : nullptr;
+        require (readerInput != nullptr, "page reader owns the pinned source handle");
         std::int64_t absent = -1;
         for (std::int64_t at = 0; at < currentPages.lengthInSamples(); at += currentPages.cachedPageFrames())
             if (!control::cachedSourcePage (currentPages, at, {})) { absent = at; break; }
         require (absent >= 0, "page read race needs an unfilled page");
         const auto hash = juce::SHA256 (file).toHexString();
         sourcePageMutationTarget = &file;
-        ref::revision_detail::watchedPageFile.store (input->fileForTest());
+        ref::revision_detail::watchedPageFile.store (readerInput->fileForTest());
         ref::revision_detail::pageReadHook.store (&changeAttributesDuringPageRead);
         currentPages.request (absent); control::servicePages (currentPages, {});
         require (ref::revision_detail::pageReadHook.load() == nullptr, "metadata changed during decoder read");
         ref::revision_detail::watchedPageFile.store (nullptr); sourcePageMutationTarget = nullptr;
-        require (!control::cachedSourcePage (currentPages, absent, {}), "page read across revisions is discarded");
+        require (control::cachedSourcePage (currentPages, absent, {}), "an immutable page is unaffected by original metadata changes");
         require (hash == juce::SHA256 (file).toHexString(), "page read mutation leaves content unchanged");
         ref::RuntimeV2SourceRepository repository (root);
         auto result = repository.checkSourceRevision (*source);
@@ -231,24 +230,17 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
         ref::RuntimeV2SourceRepository otherObserver (root);
         require (source && otherObserver.checkSourceRevision (*source).state == ref::SourceRevisionState::refused,
                  "another observer detects the different file identity");
-        require (!feed (true, false), "another observer's definite refusal blocks the next audio callback");
+        require (feed (true, false), "a new reader's refusal preserves the immutable copy during the retry window");
+        control::probeSourceNow (*source, 4000);
+        require (!feed (true, false), "the monitor's confirmed refusal blocks the next audio callback");
         require (file.deleteFile() && saved.moveFileTo (file), "restore source after the observed replacement");
         currentPages.request (cursor); control::servicePages (currentPages, {});
-        require (currentPages.sourceInvalidated(), "decoder retains the other observer's definite refusal");
+        auto& monitor = ref::revision_detail::service();
+        monitor.advanceMonitorForTest (*source);
+        otherObserver.verifySourceRevision (*source);
+        require (monitor.waitForCompletion (*source, std::chrono::seconds (30)), "restored source is rechecked");
         control::service (c);
-        require (c.snapshot().versionSelection->rejectionCode == "reference_source_changed" && !feed (true),
-                 "an observed replacement remains refused after the original path returns");
-        require (c.selectVersion (selection), "a new explicit selection can retry the restored source");
-        auto retry = otherObserver.checkSourceRevision (*source);
-        for (int attempt = 0; attempt < 4 && retry.state == ref::SourceRevisionState::revalidate; ++attempt)
-        {
-            require (ref::revision_detail::service().waitForCompletion (*source, std::chrono::seconds (30)), "restored source verification completes");
-            retry = otherObserver.checkSourceRevision (*source);
-        }
-        require (retry.state == ref::SourceRevisionState::matched, "restored source matches the registered hash");
-        for (int n = 0; n < 16 && !c.snapshot().versionReady; ++n) feed (false);
-        require (c.snapshot().versionReady && c.requestAudition (1, -22, -6) && feed (true),
-                 "the new explicit selection can play after the restored source is verified");
+        require (!currentPages.sourceInvalidated() && feed (true), "the same selection resumes when the original path returns");
         c.selectA(); return;
     }
     if (change == SourceChange::readerSwap)
@@ -260,7 +252,7 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
         const auto pinned = std::make_shared<ref::revision_detail::PinnedSource> (source);
         const auto alternate = root.getChildFile ("alternate-open.wav");
         require (file.moveFileTo (alternate) && saved.moveFileTo (file), "restore original source path");
-        require (!pinned->sameIdentity(), "decoder handle belongs to the substituted file");
+        require (pinned->sameIdentity(), "decoder keeps the already verified private copy across path substitution");
         ref::RuntimeV2SourceRepository repository (root);
         ref::AudioPages pages (ref::AudioPages::ServiceMode::manual);
         require (pages.open (*source, 48000, 2, true,
@@ -268,8 +260,8 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
                     [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
                     pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation()).isEmpty(), "open alternate decoder in fixture");
         pages.request (0); control::servicePages (pages, {});
-        require (pages.sourceInvalidated() && !pages.sourceOpen() && !pages.readyAt (0, 256),
-                 "substituted decoder is definitively refused and cannot publish a page");
+        require (!pages.sourceInvalidated() && pages.sourceOpen() && pages.readyAt (0, 256),
+                 "a substituted path cannot change the immutable decoder's audio");
         c.selectA(); return;
     }
     if (change == SourceChange::duringHash)
@@ -305,8 +297,8 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
         ref::RuntimeFileRevision verified;
         const auto direct = ref::revision_detail::verify (*source, [] (const juce::File& f, ref::RuntimeFileRevision& r)
             { ref::revision_detail::OpenFile opened (f); return opened.revision (r); }, verified);
-        require (ref::revision_detail::hashReadHook.load() == nullptr && direct == "reference_source_changed",
-                 "a byte changed after the hash read it is refused by the revision check");
+        require (ref::revision_detail::hashReadHook.load() == nullptr && direct == "reference_source_revalidating",
+                 "a byte changed after the hash read it requires a fresh stable verification");
         sourceHashMutationTarget = nullptr; return;
     }
     const auto startedBefore = ref::revision_detail::service().startedCount();
@@ -448,8 +440,8 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
             if (!control::cachedSourcePage (pages, at, {})) { absent = at; break; }
         require (absent >= 0, "an unfilled source page exists");
         pages.request (absent); control::servicePages (pages, {});
-        require (!control::cachedSourcePage (pages, absent, {}), "no new page is published during verification");
-        require (!feed (true), "unverified source falls back to A");
+        require (control::cachedSourcePage (pages, absent, {}), "verified private bytes can fill pages during a path audit");
+        require (feed (true), "verified private bytes remain audible during a path audit");
         require (runtime.normalSelectionTicket() == generation && c.snapshot().selectedVersionId == selection
                  && c.snapshot().versionSelection->rejectionCode.isEmpty(), "waiting keeps selection and generation");
         if (change == SourceChange::startPending)
@@ -457,7 +449,7 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
             c.selectA(); generation = runtime.normalSelectionTicket();
             require (c.requestAudition (1, -22, -6), "a press during revalidation is queued");
             c.servicePendingAudition (-22, -6, true);
-            require (c.snapshot().pendingAudition.waiting(), "pending start is retained without source changed");
+            require (c.snapshot().bSelected, "verified prepared bytes allow an immediate explicit start during an audit");
         }
         { std::lock_guard<std::mutex> lock (sourceHashPauseMutex); sourceHashRelease = true; }
         sourceHashPauseCondition.notify_all();
@@ -486,6 +478,13 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
             control::service (c);
         }
     }
+    if (change == SourceChange::replacement || change == SourceChange::contents)
+    {
+        const auto source = control::roleFor (c, {1}).visualBinding().source;
+        ref::revision_detail::service().advanceMonitorForTest (*source, 4000);
+        ref::RuntimeV2SourceRepository (root).verifySourceRevision (*source);
+        require (ref::revision_detail::service().waitForCompletion (*source, std::chrono::seconds (30)), "replacement probe finishes");
+    }
     bool resumed = false;
     for (int n = 0; n < 16; ++n) resumed = feed (true) || resumed;
     const auto state = c.snapshot();
@@ -493,7 +492,8 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
         require (state.selectedVersionId == selection && state.versionSelection->rejectionCode.isEmpty()
                  && state.versionReady && resumed, "ctime-only change retains and resumes the same V");
     else
-        require (!state.versionReady && state.versionSelection->rejectionCode == "reference_source_changed"
-                 && !feed (true), "changed content or file identity is rejected without playing an old page");
+        require (state.bSelected && !feed (true)
+            && state.versionSelection->sourceFailureReason == "reference_source_changed",
+            "changed content pauses output and retains both the selection and the confirmed reason");
     c.selectA();
 }

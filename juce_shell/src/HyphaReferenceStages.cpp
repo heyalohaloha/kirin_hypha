@@ -84,6 +84,14 @@ const std::array<Stage, stageCount> stages { {
     // sourceUnavailable
     { K::unable, W::none, "SOURCE UNAVAILABLE / CHECK THE SOURCE IN KIRIN OS", "", "Check the source in Kirin OS", "%1's source is unavailable",
       "Check the source file in Kirin OS. A stays live." },
+    // retryingSource
+    { K::waiting, W::pages, "SOURCE UNAVAILABLE / RETRYING", "SOURCE UNAVAILABLE / RETRYING", "Verifying source",
+      "Verifying %1 source", "The source is being checked. A stays live." },
+    // cacheSpaceUnavailable / cacheWriteFailed
+    { K::waiting, W::pages, "NOT ENOUGH DISK SPACE / FREE DISK SPACE", "NOT ENOUGH DISK SPACE / FREE DISK SPACE", "Free disk space",
+      "Not enough disk space", "Free space on the temporary storage volume. The selection retries automatically." },
+    { K::waiting, W::pages, "REFERENCE COPY FAILED / CHECK TEMPORARY STORAGE", "REFERENCE COPY FAILED / CHECK TEMPORARY STORAGE", "Check temporary storage",
+      "Reference copy failed", "Check that temporary storage is writable. The selection retries automatically." },
     // savedChoiceUnavailable
     { K::unable, W::none, "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN", "", "Choose again", "The saved choice for %1 is gone",
       "Choose the source again. A stays live." },

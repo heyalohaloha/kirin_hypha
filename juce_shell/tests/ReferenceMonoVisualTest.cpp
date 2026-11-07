@@ -1,3 +1,4 @@
+#include <juce_cryptography/juce_cryptography.h>
 #include "ReferenceMonoVisualTest.h"
 #include "reference_runtime_v2_manifest_test_support.h"
 #include "ValidationStorageSandbox.h"
@@ -45,6 +46,7 @@ try
     check (reader && reader->read (&audio, 0, audio.getNumSamples(), 0, true, false), "read back stored mono PCM");
     auto source = std::make_shared<ref::RuntimeSource>();
     source->absolutePath = file.getFullPathName(); source->audio = {48000, 1, audio.getNumSamples()};
+    source->sourceFileSha256 = juce::SHA256 (file).toHexString();
     const auto rev = makeRuntimeV2FileRevision (file);
     source->revision = {rev["device_id"].toString(), rev["file_id"].toString(), rev["size_bytes"].toString(),
                         rev["mtime_ns"].toString(), rev["ctime_ns"].toString()};

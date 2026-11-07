@@ -2,7 +2,9 @@
 #include "ReferenceSourceCtimeTest.h"
 #include "ReferenceVersionFormatFixture.h"
 #include "ReferenceManualService.h"
+#include "../src/reference_audition/ReferenceVerifiedReader.h"
 #include "reference_rt_probe.h"
+#include <cstring>
 
 namespace hypha::tests::reference_control
 {
@@ -51,9 +53,115 @@ template struct PositionSearchAccess<&Runtime::positionSearch, &Runtime::prepare
                                      &Runtime::retiredVersionSearches, &Runtime::retiredSourceVerifications>;
 }
 
-inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited = false)
+inline juce::File versionRetryFile, versionRetrySaved;
+inline std::atomic<int> versionRetryOpens { 0 };
+inline void failVersionAlignmentOpen (const ref::RuntimeSource& source)
+{
+    if (source.absolutePath != versionRetryFile.getFullPathName()) return;
+    ref::revision_detail::sourceReaderOpenHookForTest.store (nullptr);
+    require (versionRetryFile.moveFileTo (versionRetrySaved), "fail only the next Version's actual alignment decoder open");
+    ++versionRetryOpens;
+}
+
+inline void testReferenceInitialVersionReadRetry (const juce::File& sandbox, bool cancel)
 {
     namespace control = hypha::tests::reference_control;
+    namespace revision = ref::revision_detail;
+    const auto root = sandbox.getChildFile (cancel ? "initial-version-read-cancel" : "initial-version-read-retry");
+    require (root.createDirectory().wasOk(), "isolated initial Version read fixture");
+    auto base = makeWholeSongFixture (root, root.getChildFile ("input.wav"),
+        "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333");
+    const int originalFrames = base.audio.getNumSamples();
+    base.audio.setSize (2, originalFrames + 48000 * 4, true);
+    std::uint32_t noise = 593;
+    for (int f = originalFrames; f < base.audio.getNumSamples(); ++f)
+    {
+        noise = noise * 1664525u + 1013904223u;
+        const float value = (static_cast<float> (noise >> 8) / 16777216.0f - 0.5f) * 0.1f;
+        base.audio.setSample (0, f, value); base.audio.setSample (1, f, -value);
+    }
+    const auto manifest = hypha::tests::version_formats::publish (root, base.audio, 48000, false, 6576, 1);
+    require (writeJson (root.getChildFile ("library/manifest.json"), manifest), "publish an initially unaligned Version");
+    struct Reset { ~Reset() {
+        revision::snapshotFreeBytesForTest.store (-1);
+        revision::sourceReaderOpenHookForTest.store (nullptr);
+    } } reset;
+    revision::snapshotFreeBytesForTest.store (128 * 1024 * 1024);
+    ref::ReferenceComparisonController c (root);
+    control::stopWorkers (c); c.configure ({"initial-version-post", {}, 42, true}, 48000, 2);
+    require (((juce::Thread&) control::sourceVisual (c, {})).stopThread (-1), "deterministic initial alignment reader owner");
+    control::service (c);
+    require (!c.snapshot().versions.empty(), "the real library exposes the initial Version choice");
+    const auto id = c.snapshot().versions.front().id;
+    require (c.selectVersion (id), "select the first Version without starting an audition");
+    c.setPresented (true); control::service (c);
+    auto& runtime = control::roleFor (c, {1});
+    const auto source = runtime.visualBinding().source;
+    require (source && !source->preparedAudio->snapshot->hasPrivateCopy() && !c.snapshot().versionReady,
+             "initial Version verification succeeds through direct reads before content alignment");
+    versionRetryFile = juce::File (source->absolutePath); versionRetrySaved = root.getChildFile ("saved-version.wav");
+    versionRetryOpens.store (0); revision::sourceReaderOpenHookForTest.store (&failVersionAlignmentOpen);
+    juce::AudioBuffer<float> block (2, 256);
+    int cursor = 0;
+    const auto feed = [&] (bool service = true) {
+        require (cursor + 256 <= base.audio.getNumSamples(), "initial retry stays within the synthetic song");
+        for (int ch = 0; ch < 2; ++ch) block.copyFrom (ch, 0, base.audio, ch, cursor, 256);
+        beginReferenceRtProbe();
+        c.observeTransport (cursor, true, true); c.observeAInput (block, cursor, true, true, true);
+        const bool sounded = c.renderSelectedB (block, cursor, true, true, true);
+        require (endReferenceRtProbe() == 0, "initial retry callback performs no I/O or allocation");
+        if (!sounded) for (int ch = 0; ch < 2; ++ch)
+            require (std::memcmp (block.getReadPointer (ch), base.audio.getReadPointer (ch, cursor), 256 * sizeof (float)) == 0,
+                     "unconfirmed initial V preserves every A sample");
+        cursor += 256;
+        if (service) { control::service (c); c.servicePendingAudition (-22, -6, true); }
+        return sounded;
+    };
+    for (int n = 0; n < 1000 && runtime.snapshot().rejectionCode != "reference_alignment_source_unavailable"; ++n)
+        require (!feed(), "initial V never sounds before alignment is verified");
+    require (versionRetryOpens.load() == 1 && runtime.snapshot().state == ref::RuntimeState::waiting
+        && runtime.snapshot().rejectionCode == "reference_alignment_source_unavailable", "the actual initial alignment decoder open fails transiently");
+    control::probeSourceNow (*source);
+    require (ref::RuntimeV2SourceRepository (root).verifySourceRevision (*source).isEmpty(),
+             "the monitor has not confirmed source loss when the initial alignment read fails");
+    const auto generation = runtime.requestedGeneration();
+    require (runtime.snapshot().selectionGeneration == generation
+        && runtime.snapshot().matchFailure != ref::MatchFailure::liveLevelUnavailable,
+             "the first V press has no unrelated selection-generation or live-level wait");
+    require (c.requestAudition (1, -22, -6), "the real V button retains its first press during a transient alignment read failure");
+    require (c.snapshot().switchingSlot == 1 && !feed (false), "the pending first press keeps A until verified alignment");
+    if (cancel) c.selectA();
+    require (versionRetrySaved.moveFileTo (versionRetryFile), "restore exact source bytes after the V press, before the monitor confirms source loss");
+    control::probeSourceNow (*source);
+    bool sounded = false;
+    for (int n = 0; n < 1000 && (!c.snapshot().versionReady || (!cancel && !sounded)); ++n)
+    {
+        sounded = feed(); control::waitBehindWorkerFor (runtime, {});
+        if (cancel) require (!sounded, "A cancels the initial V press throughout automatic recovery");
+    }
+    require (c.snapshot().versionReady && runtime.requestedGeneration() == generation,
+             "the same Version generation recovers and establishes alignment without reselection");
+    for (int n = 0; n < 4; ++n) require (feed() == !cancel, "recovery respects the held V press or its explicit A cancellation");
+    if (!cancel)
+    {
+        juce::AudioFormatManager formats; formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (versionRetryFile));
+        std::vector<float> expected;
+        require (reader && ref::readReferenceProbe (*reader, cursor - 256 + 6576, 256, 48000, 2, expected),
+                 "independently decode the constructed shifted Version passage");
+        const auto gain = std::pow (10.0, runtime.snapshot().appliedGainDb / 20.0);
+        for (int ch = 0; ch < 2; ++ch) for (int f = 0; f < 256; ++f)
+            require (std::abs (block.getSample (ch, f) - expected[static_cast<size_t> (f * 2 + ch)] * gain) < 1.0e-4,
+                     "the first V press automatically outputs the correct aligned PCM and MATCH gain");
+    }
+    else require (c.snapshot().switchingSlot == 0 && !c.snapshot().pendingAudition.waiting(), "A leaves no pending start after recovery");
+    c.selectA();
+}
+
+inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited = false, bool readRetry = false)
+{
+    namespace control = hypha::tests::reference_control;
+    if (readRetry) for (bool cancel : {false, true}) testReferenceInitialVersionReadRetry (sandbox, cancel);
     // 192 kHz の Version は host の 1 sample が音源の 2 sample。探した結果のこの差で V を止めない。
     require (! ref::referenceAlignmentMoved (13553526, 13553524, 192000, 96000) && ref::referenceAlignmentMoved (13553527, 13553524, 192000, 96000),
              "a higher source rate tolerates one host sample");
@@ -61,7 +169,7 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
              "a fractional rate ratio rounds up to one host sample");
     require (! ref::referenceAlignmentMoved (1001, 1000, 48000, 96000) && ref::referenceAlignmentMoved (1002, 1000, 48000, 96000),
              "a source below the host rate keeps the one sample limit");
-    const auto root = sandbox.getChildFile (edited ? "version-switch-edited" : "version-switch");
+    const auto root = sandbox.getChildFile (readRetry ? "version-switch-read-retry" : edited ? "version-switch-edited" : "version-switch");
     require (root.createDirectory().wasOk(), "version switch fixture directory");
     const auto base = makeWholeSongFixture (root, root.getChildFile ("input.wav"),
         "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333");
@@ -81,6 +189,11 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     }
     manifest.getDynamicObject()->setProperty ("versions", entries);
     require (writeJson (root.getChildFile ("library/manifest.json"), manifest), "publish all format versions together");
+    struct Reset { ~Reset() {
+        ref::revision_detail::snapshotFreeBytesForTest.store (-1);
+        ref::revision_detail::sourceReaderOpenHookForTest.store (nullptr);
+    } } reset;
+    if (readRetry) ref::revision_detail::snapshotFreeBytesForTest.store (128 * 1024 * 1024);
     ref::ReferenceComparisonController c (root);
     control::stopWorkers (c); c.configure ({"switch-post", {}, 42, true}, 48000, 2);
     control::service (c); require (c.selectVersion (ids[0]), "select initial Version");
@@ -89,7 +202,7 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     int cursor = 0;
     bool playing = true;
     int contentShift = 0;
-    const auto feed = [&] (bool render)
+    const auto feed = [&] (bool render, bool service = true)
     {
         for (int ch = 0; ch < 2; ++ch) input.copyFrom (ch, 0, base.audio, ch, cursor + contentShift, 256);
         beginReferenceRtProbe();
@@ -108,7 +221,8 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
             require (energy > 0.0 && error < energy * 0.25,
                      "decoded and converted V plays the current passage, not unrelated future PCM");
         }
-        cursor += playing ? 256 : 0; control::service (c); c.servicePendingAudition (-22, -6, true);
+        cursor += playing ? 256 : 0;
+        if (service) { control::service (c); c.servicePendingAudition (-22, -6, true); }
         return sounded;
     };
     // 新しい Version が鳴るまで回し、V が鳴らなかった block を数える。前の V は位置が確かめられるまで鳴り続ける。
@@ -146,6 +260,35 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     while (cursor < 192000) feed (false);
     require (c.snapshot().versionReady && c.requestAudition (1, -22, -6), "initial V is matched and explicitly started");
     require (feed (true), "positive control: initial V is audible");
+    if (readRetry)
+    {
+        auto& runtime = control::roleFor (c, {1});
+        require (((juce::Thread&) control::sourceVisual (c, {})).stopThread (-1), "deterministic alignment reader owner");
+        const auto identity = runtime.snapshot().playbackIdentity;
+        const auto gain = runtime.snapshot().appliedGainDb;
+        require (c.selectVersion (ids[1]), "choose the next Version with no snapshot capacity");
+        for (int n = 0; n < 8 && !control::positionSearchFor (runtime, {}).staged; ++n)
+        { control::refreshOnlyFor (runtime, {}); control::waitSourceCheckFor (runtime, {}); }
+        const auto source = control::preparedSourceFor (runtime, {});
+        require (source && !source->preparedAudio->snapshot->hasPrivateCopy()
+            && control::positionSearchFor (runtime, {}).staged, "the actual next Version reaches alignment using authenticated direct reads");
+        versionRetryFile = juce::File (source->absolutePath); versionRetrySaved = root.getChildFile ("saved-version.flac");
+        versionRetryOpens.store (0);
+        for (int attempt = 0; attempt < 3; ++attempt)
+        {
+            if (attempt != 0) control::refreshOnlyFor (runtime, {});
+            ref::revision_detail::sourceReaderOpenHookForTest.store (&failVersionAlignmentOpen);
+            if (attempt == 2) control::elapsePreparationClocks (runtime, {});
+            control::refreshOnlyFor (runtime, {});
+            require (versionRetryOpens.load() == attempt + 1, "each attempt fails at the real alignment decoder open");
+            require (versionRetrySaved.moveFileTo (versionRetryFile), "restore the same source before the shared monitor confirms any outage");
+            require (runtime.outputSelected() && runtime.snapshot().playbackIdentity == identity
+                && std::abs (runtime.snapshot().appliedGainDb - gain) < 1.0e-9 && feed (true, false), "repeated alignment read failures preserve the old V, its PCM and approved gain beyond the alignment deadline");
+            verifyOutput (1);
+        }
+        require (switchTo (ids[1]) <= 8, "the held Version choice switches automatically on its first verified alignment");
+        verifyOutput (2); c.selectA(); return;
+    }
     // 初めて選ぶ Version の hash は作業スレッドの外。終わるまで前の V は鳴り続ける（止まると A の窓も消える）。
     auto& launch = control::stagedLaunchFor (control::roleFor (c, {1}), {});
     launch = std::launch::async;
@@ -159,7 +302,16 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     };
     for (int n = 0; n < 400 && ! hashStarted (std::chrono::milliseconds (1)); ++n) require (feed (true), "V sounds while the hash starts");
     require (hashStarted (std::chrono::seconds (30)), "the first read of the Version hashes its file");
-    for (int n = 0; n < 32; ++n) require (feed (true), "V sounds while the hash runs behind the worker");
+    const auto heldGain = c.snapshot().versionSelection->appliedGainDb;
+    for (int n = 0; n < 32; ++n)
+    {
+        control::elapsePreparationClocks (control::roleFor (c, {1}), {});
+        require (feed (true), "V sounds while the next hash exceeds both notice and alignment deadlines");
+        const auto held = c.snapshot().versionSelection;
+        require (held->pendingSourceFailure.isEmpty() && std::abs (held->appliedGainDb - heldGain) < 1.0e-9,
+                 "normal long verification keeps approved V gain without a failure notice");
+    }
+    verifyOutput (1);
     // hash の途中で鳴っている Version が Library から消えたら、hash を待たずに止める。
     const auto publish = [&] (const juce::Array<juce::var>& versions)
     {
@@ -233,11 +385,22 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     launch = std::launch::async;
     const auto periodic = [&] { return control::positionSearchFor (control::roleFor (c, {1}), {}); };
     require (c.selectVersion (ids[2]), "choose during the search");
-    for (int n = 0; n < 1200 && ! periodic().staged && c.snapshot().switchingSlot != 0; ++n)
+    auto& switchingRuntime = control::roleFor (c, {1});
+    const auto audibleBeforeRefresh = switchingRuntime.snapshot().playbackIdentity;
+    // Drive one real refresh at a time so the staged search is observed before
+    // another service pass can consume it, even on a fast host.
+    for (int n = 0; n < 8 && !periodic().staged; ++n)
     {
-        require (feed (true), "V sounds until the search starts");
-        control::waitSourceCheckFor (control::roleFor (c, {1}), {});
+        control::refreshOnlyFor (switchingRuntime, {});
+        control::waitSourceCheckFor (switchingRuntime, {});
     }
+    require (periodic().staged, "the actual next Version has begun its staged alignment");
+    control::elapsePreparationClocks (switchingRuntime, {});
+    publish (entries);
+    control::refreshOnlyFor (switchingRuntime, {});
+    require (switchingRuntime.outputSelected() && switchingRuntime.snapshot().playbackIdentity == audibleBeforeRefresh,
+             "rebuilding preparation after a publication refresh discards the previous alignment deadline");
+    require (feed (true), "the verified old Version still sounds after preparation is rebuilt");
     require (c.selectVersion (ids[1]), "choose again during the search");
     require (switchTo (ids[1]) <= 8, "the last choice swaps");
     require (c.selectVersion (ids[0]) && switchTo (ids[0]) <= 8, "the search also finishes on its own thread");

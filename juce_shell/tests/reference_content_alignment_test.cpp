@@ -47,6 +47,7 @@ void testReferenceContentAlignment (const juce::File& sandbox)
     source.sourceKind = "work_version";
     source.absolutePath = file.getFullPathName();
     source.sourceFileSha256 = juce::SHA256 (file).toHexString();
+    require (ref::RuntimeV2SourceRepository (sandbox).readSourceRevision (source, source.revision), "alignment fixture has an actual source revision");
     std::vector<float> wholePcm (static_cast<size_t> (buffer.getNumSamples() * channels));
     for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
         for (int channel = 0; channel < channels; ++channel)
@@ -308,7 +309,7 @@ void testReferenceContentAlignment (const juce::File& sandbox)
                  && masteredDisplacedCached.sourceStartSample == masteredDisplaced.sourceStartSample,
              "a verified mastered source map must remain stable on the next observation");
     require (file.deleteFile(), "source removal must succeed");
-    require (!ref::alignReferenceContent (a, source, measured, false).established, "missing source must reject without fabricating alignment");
+    require (ref::alignReferenceContent (a, source, measured, false).established, "a private verified source remains usable across a temporary path loss");
     // Two identical choruses at different song positions cannot be disambiguated
     // by choosing the first one or trusting the DAW time hint.
     reader.reset();
@@ -323,6 +324,7 @@ void testReferenceContentAlignment (const juce::File& sandbox)
         require (writer && writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples()), "repeated source fixture must be written");
     }
     source.sourceFileSha256 = measured.sourceFileSha256 = juce::SHA256 (file).toHexString();
+    require (ref::RuntimeV2SourceRepository (sandbox).readSourceRevision (source, source.revision), "replacement alignment fixture has its own revision");
     for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
         for (int channel = 0; channel < channels; ++channel)
             wholePcm[static_cast<size_t> (frame * channels + channel)] = buffer.getSample (channel, frame);

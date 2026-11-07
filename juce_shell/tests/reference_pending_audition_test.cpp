@@ -299,15 +299,17 @@ void testReferencePendingAudition (const juce::File& sandbox)
     host (false);
     require (juce::SHA256 (file).toHexString() == hash, "all auditions preserve the OS source file");
     require (controller.requestAudition (2, -28, -12), "queue before source removal");
+    const auto pendingPlayback = controller.snapshot().checkSelection->playbackIdentity;
     const auto heldFile = file.getSiblingFile ("temporarily-unavailable.wav");
     require (file.moveFileTo (heldFile), "temporarily move only the disposable fixture source");
-    wait ([] (const auto& s) { return s.checkSelection->state == ref::RuntimeState::waiting
-                                   && s.checkSelection->rejectionCode == "reference_source_read_failed"; });
+    wait ([] (const auto& s) { return s.checkSelection->auditionPages == ref::AuditionPageState::sourceUnavailable; });
     controller.servicePendingAudition (-28, -12, false);
     require (controller.snapshot().pendingAudition.waiting()
-        && controller.pendingAuditionNeedsService() && !host (false), "unavailable source keeps the pending choice silent");
+        && controller.pendingAuditionNeedsService() && !host (false)
+        && controller.snapshot().checkSelection->playbackIdentity == pendingPlayback,
+        "unavailable source keeps the same pending choice silent");
     require (heldFile.moveFileTo (file), "restore the same fixture source");
-    host (true); wait ([] (const auto& s) { return s.checkReady; });
+    host (true); wait ([] (const auto& s) { return s.checkReady && s.checkSelection->auditionPages != ref::AuditionPageState::sourceUnavailable; });
     controller.servicePendingAudition (-28, -12, true);
     require (controller.snapshot().audibleComparisonSlot == 2 && host (true), "pending choice plays when source returns");
     std::cout << "Queued ABC: identity, readiness, cancel, restore, SRC, gain ceiling, missing source and RT safety PASS\n";

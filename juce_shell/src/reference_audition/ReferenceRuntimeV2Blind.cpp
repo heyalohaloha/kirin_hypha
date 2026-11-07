@@ -1,3 +1,5 @@
+#include "ReferenceVerifiedReader.h"
+#include "ReferenceSourceSnapshot.h"
 #include "ReferenceRuntimeV2Blind.h"
 #include "ReferenceProbeAudio.h"
 #include <algorithm>
@@ -198,8 +200,7 @@ namespace hypha::reference_audition
         }
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
-        auto reader = std::unique_ptr<juce::AudioFormatReader> (
-            formats.createReaderFor (juce::File (source->absolutePath)));
+        auto reader = revision_detail::snapshotReader (formats, *source);
         if (reader == nullptr || reader->numChannels != static_cast<unsigned> (source->audio.channels)
             || (source->audio.channels != a->channels && ! (source->audio.channels == 1 && a->channels == 2))
             || (std::abs (reader->sampleRate - a->sampleRateHz) > 0.001
