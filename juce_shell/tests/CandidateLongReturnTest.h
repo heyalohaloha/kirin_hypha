@@ -34,7 +34,7 @@ template<class Require> void verifyCandidateLongReturn (Require require)
     require (!post.candidateMeasurementIsolated() && !post.candidateReturning(),
              "the passed marker and four seconds of processing restore normal measurement");
     host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
-    require (post.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE, "normal POST measurement resumes");
+    require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }), "normal POST measurement resumes");
     host.requireKeep (post, "the real Keep entry is available after return");
 }
 }

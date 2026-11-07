@@ -221,6 +221,27 @@ private:
                 const auto& b = *state.referenceSelection;
                 const bool limited = stage == 10;
                 const auto windowA = post->referenceWindowLoudness (3);
+                // The processor follows the last ten seconds it has measured, once a second, and
+                // one point of the old level holds that gated window. The measure thread and the
+                // timer fall behind the audio on a slow machine, so the follow is timed on the
+                // audio clock from the moment the window reads only the new level.
+                if (windowCurrentAt < 0)
+                {
+                    if (! (std::abs (windowA.loudness - (beforeLufs + 20 * std::log10 (inputGain.load()))) < 0.2))
+                    {
+                        require (blocks.load() < stageBlocks + 48000 * 30 / frames,
+                                 "the measured A window reaches the changed input level");
+                        break;
+                    }
+                    windowCurrentAt = blocks.load();
+                }
+                const bool followed = b.tracking == ref::TrackingState::following
+                    && b.matchFailure == ref::MatchFailure::none
+                    && std::abs (b.appliedGainDb - (limited ? -6.0 : -3.0)) <= ref::trackingToleranceDb + 1.0e-6;
+                if (followed && followedAt < 0) followedAt = blocks.load();
+                // A follow that has happened still needs its 50 ms ramp to reach the output.
+                if (followed ? blocks.load() < followedAt + 48000 / 10 / frames
+                             : blocks.load() < windowCurrentAt + 48000 * 5 / frames) break;
                 std::cerr << "Reference tracking: state=" << static_cast<int> (b.tracking)
                         << " failure=" << static_cast<int> (b.matchFailure) << " held=" << post->referenceHeldAttenuationDb()
                         << " gain=" << b.appliedGainDb << " peak-shortfall=" << b.peakShortfallDb
@@ -249,6 +270,7 @@ private:
                 if (limited)
                 {
                     inputGain.store (static_cast<float> (std::pow (10.0, -(initialRequired + 3.0) / 20.0)));
+                    windowCurrentAt = followedAt = -1;
                     stageBlocks = blocks.load(); stage = 11; break;
                 }
                 post->selectReferenceA();
@@ -335,7 +357,7 @@ private:
     std::atomic<float> inputGain { 1.0f }, auditionPeak { 0.0f };
     double initialRequired = 0.0;
     std::atomic<float> loweredPeak { 0.0f }, risePeak { 0.0f };
-    std::int64_t stageBlocks = 0;
+    std::int64_t stageBlocks = 0, windowCurrentAt = -1, followedAt = -1;
     std::atomic<int> stage { -1 };
     ReferenceTargetProductFlow targetFlow;
     juce::File targetSource, referenceRoot;

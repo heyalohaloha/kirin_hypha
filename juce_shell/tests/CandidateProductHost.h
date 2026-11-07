@@ -100,6 +100,7 @@ public:
     std::array<CandidateClock, 3> clocks;
     std::array<std::unique_ptr<P>, 3> instances;
     std::vector<P*> passengers; // other pairs of the project, fed after POST
+    std::vector<P*> sourcePassengers; // another pair's PRE reading PRE1's input, ahead of PRE2
     juce::AudioBuffer<float> audio;
     juce::MidiBuffer midi;
     std::array<std::vector<float>, 2> bHistory;
@@ -170,6 +171,9 @@ public:
             LiveTimingFixtureAccess::enableFixtureWrites (*passenger);
         }
     }
+    // The host's input as a stored sample. A subtraction in one expression with this product
+    // would fuse on arm64 and report the product's rounding as a difference.
+    float scaledInput (std::int64_t frame, int channel) const { return candidateInput (frame, channel) * inputScale; }
     float history (int channel, std::int64_t at) const
     { return at >= 0 ? bHistory[static_cast<std::size_t> (channel)][static_cast<std::size_t> (at)] : 0.0f; }
     void callback (P& processor)
@@ -195,12 +199,13 @@ public:
             if (processorTimers && timerCounter++ % timerBlocks == 0)
                 for (auto& instance : instances) if (instance) LiveTimingFixtureAccess::serviceProcessorTimer (*instance);
             for (int ch = 0; ch < channels; ++ch)
-                for (int i = 0; i < block; ++i) audio.setSample (ch, i, candidateInput (cursor + i, ch) * inputScale);
+                for (int i = 0; i < block; ++i) audio.setSample (ch, i, scaledInput (cursor + i, ch));
             if (pre1Enabled && instances[0]) callback (pre1());
+            for (auto* passenger : sourcePassengers) { passenger->serviceLiveCompare(); callback (*passenger); }
             for (int ch = 0; ch < channels; ++ch)
                 for (int i = 0; i < block; ++i)
                 {
-                    require (candidateIdentical (audio.getSample (ch, i), candidateInput (cursor + i, ch) * inputScale), "PRE1 bit identity");
+                    require (candidateIdentical (audio.getSample (ch, i), scaledInput (cursor + i, ch)), "PRE1 bit identity");
                     audio.setSample (ch, i, candidateA (cursor + i - delayA, ch, inputScale));
                 }
             if (pre2Enabled && instances[1]) callback (pre2());
@@ -210,7 +215,7 @@ public:
             const bool exact = comparing && receipt && receipt->covers (receipt->owner.load(),
                 mapping->ring()->header.run.load(), receiptClock, receiptClock + block);
             sourceContinuity.check (require, audio,
-                [&] (int i, int ch) { return candidateInput (cursor + i - delayA, ch) * inputScale; },
+                [&] (int i, int ch) { return scaledInput (cursor + i - delayA, ch); },
                 "continuous PRE2 input never falls back after replacement begins");
             if (exact) ++replacementBlocks;
             if (wholeOutput) receiverOracle.check (require, audio, exact,
@@ -221,7 +226,7 @@ public:
                     const auto value = audio.getSample (ch, i);
                     if (auditTransition && ch == 0)
                     {
-                        const auto x = candidateInput (cursor + i - delayA, ch) * inputScale;
+                        const auto x = scaledInput (cursor + i - delayA, ch);
                         const auto a = candidateA (cursor + i - delayA, ch, inputScale);
                         if (std::abs (x - a) > 0.001f)
                         {
@@ -231,7 +236,7 @@ public:
                             lastWeight = weight;
                         }
                     }
-                    if (exact) require (std::abs (value - candidateInput (cursor + i - delayA, ch) * inputScale) < 1.0e-7f,
+                    if (exact) require (std::abs (value - scaledInput (cursor + i - delayA, ch)) < 1.0e-7f,
                                         "PRE2 sends aligned unity x after publishing a");
                     if (! comparing)
                     {
@@ -260,15 +265,15 @@ public:
             {
                 const auto at = cursor + i - delayA - delayB;
                 return sourceA ? candidateA (at, ch, inputScale) * status.gain
-                    : candidateB (candidateInput (at, ch) * inputScale,
-                                  candidateInput (at - 997, ch) * inputScale) * status.postActual;
+                    : candidateB (scaledInput (at, ch),
+                                  scaledInput (at - 997, ch)) * status.postActual;
             }, "continuous LISTEN / BLIND never inserts a fallback or the serial effect chain");
             if (wholeOutput && status.verdict == Verdict::accepted && (!sourceA || status.preAudible)) ++matchedBlocks;
             if ((wholeOutput || (comparing && oracle)) && status.verdict == Verdict::accepted)
                 for (int ch = 0; ch < channels; ++ch)
                     for (int i = 0; i < block; ++i)
                         require (std::abs (history (ch, cursor + i - delayB)
-                            - candidateInput (cursor + i - delayA - delayB, ch) * inputScale) < 1.0e-7f,
+                            - scaledInput (cursor + i - delayA - delayB, ch)) < 1.0e-7f,
                                  "accepted B input is independently aligned unity x, even when B retains an earlier tail");
             if (wholeOutput)
                 outputOracle.check (require, audio, status.verdict == Verdict::accepted, sourceA,
@@ -285,7 +290,7 @@ public:
                         // The current B input must be independent unity x (checked above),
                         // while its echo can still contain an earlier unverified input.
                         const auto expected = sourceA ? candidateA (at, ch, inputScale) * status.gain
-                            : candidateB (candidateInput (at, ch) * inputScale,
+                            : candidateB (scaledInput (at, ch),
                                 history (ch, cursor + i - delayB - 997)) * status.postActual;
                         if (std::abs (audio.getSample (ch, i) - expected) >= 3.0e-6f)
                             std::cerr << "candidate sample " << cursor + i << ", channel " << ch

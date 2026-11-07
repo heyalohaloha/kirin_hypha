@@ -101,7 +101,8 @@ template<class Require> void verifyCandidateStoppedSourceReturn (Require require
     host.render (900, false, false);
     require (!post.candidateMeasurementIsolated() && !post.candidateReturning(), "END completes with both stopped PREs still installed");
     host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
-    require (post.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE, "ordinary POST measurement resumes on its actual input");
+    require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }),
+             "ordinary POST measurement resumes on its actual input");
     host.pre1().getBypassParameter()->setValue (0.0f); host.pre2().getBypassParameter()->setValue (0.0f);
     host.pre1Enabled = host.pre2Enabled = true;
     host.render (100, false, false);
@@ -148,12 +149,13 @@ template<class Require> void verifyCandidateReceiverLifetime (Require require)
     require (!post.candidateMeasurementIsolated(), "the serialized re-prepare still completes the return");
 }
 
-// Another pair of the same project, fed after POST: a real second POST with its own PRE.
+// Another pair of the same project: a real second POST with its own PRE. Its POST runs after the
+// first POST; its PRE does too, unless it reads the same input as PRE1 to use the same PRE2.
 struct CandidateOtherPair
 {
     using P = KirinHyphaProcessorBase;
     std::unique_ptr<P> pre = std::make_unique<P> (P::Role::Pre), post = std::make_unique<P> (P::Role::Post);
-    template<class Host, class Require> CandidateOtherPair (Host& host, Require require, const juce::String& source = {})
+    template<class Host, class Require> CandidateOtherPair (Host& host, Require require, bool beforePre2 = false)
     {
         for (auto* processor : { pre.get(), post.get() })
         {
@@ -161,10 +163,11 @@ struct CandidateOtherPair
             const auto set = host.channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
             layout.inputBuses.set (0, set); layout.outputBuses.set (0, set);
             require (processor->setBusesLayout (layout), "the other pair negotiates the host layout");
-            processor->setPlayHead (&host.clocks[2]);
+            const bool beforeChain = beforePre2 && processor == pre.get();
+            processor->setPlayHead (&host.clocks[beforeChain ? 0 : 2]);
             prepareFixtureProcessor (*processor, host.sampleRate, host.block);
             LiveTimingFixtureAccess::enableFixtureWrites (*processor);
-            host.passengers.push_back (processor);
+            (beforeChain ? host.sourcePassengers : host.passengers).push_back (processor);
         }
         host.render (40, false, false);
         for (auto* processor : { pre.get(), post.get() })
@@ -174,7 +177,7 @@ struct CandidateOtherPair
         bool paired = false;
         while (!paired && std::chrono::steady_clock::now() < deadline)
         {
-            paired = post->setPairCandidate (source.isNotEmpty() ? source : pre->instanceId(), "Other");
+            paired = post->setPairCandidate (pre->instanceId(), "Other");
             if (!paired)
             {
                 host.render (1, false, false);
@@ -236,7 +239,7 @@ template<class Require> void verifyCandidateSharedPre2 (Require require)
     ProductTestClock wall;
     CandidateHost<Require> host (wall, require, 2, 512);
     host.pair(); auto& post = host.post();
-    CandidateOtherPair other (host, require, host.pre1().instanceId());
+    CandidateOtherPair other (host, require, true); // a PRE belongs to one POST, so this POST has its own
     require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "first POST starts");
     host.render (180, true, false);
     post.finishLiveCompare();
@@ -256,7 +259,7 @@ template<class Require> void verifyCandidateSharedPre2 (Require require)
              "the next POST starts once the return has released the project");
     host.render (120, true, false, false);
     require (other.post->candidateCompareActive(), "the second comparison holds its own request");
-    host.passengers.clear();
+    host.passengers.clear(); host.sourcePassengers.clear();
 }
 
 // Losing both PREs is never a reason to keep POST out of normal measurement.
@@ -278,7 +281,7 @@ template<class Require> void verifyCandidateBothPresRemoved (Require require)
                  "the loop continues and POST returns to normal measurement without either PRE");
         require (!post.outputDecision (output_owner::Activity::recordKeep).refused(), "the capture exclusion is gone");
         host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
-        require (post.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE, "POST measures its own input again");
+        require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }), "POST measures its own input again");
     }
     // A passed upstream marker remains sufficient when that PRE is later removed.
     CandidateHost<Require> host (wall, require, 2, 512);

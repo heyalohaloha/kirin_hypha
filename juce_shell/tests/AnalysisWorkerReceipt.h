@@ -16,4 +16,16 @@ inline void awaitAnalysisExchange (KirinHyphaProcessorBase& processor, bool endp
     if (!LiveTimingFixtureAccess::waitAnalysisExchange (processor, 5000, endpoint))
         throw std::runtime_error ("analysis exchange did not complete its tick");
 }
+// The measure thread retires a state once the callbacks have been quiet for 400 ms of real time,
+// and the waits above can take that long on a slow machine. Read the state after a callback.
+template<class RenderBlock>
+bool measurementActiveAfterCallback (KirinHyphaProcessorBase& processor, RenderBlock renderBlock)
+{
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        renderBlock();
+        if (processor.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE) return true;
+    }
+    return false;
+}
 }

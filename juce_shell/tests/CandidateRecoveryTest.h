@@ -155,7 +155,7 @@ template<class Require> void verifyCandidateGenericLoopReturn (Require require)
                  "fresh linear correspondence automatically completes the return");
         for (auto& processor : host.instances) if (processor)
         { awaitAnalysisInput (*processor); awaitAnalysisExchange (*processor, true); }
-        require (post.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE,
+        require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }),
                  "canonical POST measurement resumes after current linear proof");
         host.requireKeep (post, "real Keep admission resumes after current linear proof");
         for (int tick = 0; tick < 24 && !post.isRecording(); ++tick)
@@ -345,7 +345,8 @@ template<class Require> void verifyCandidateRecoveryAudit (Require require)
         else
         {
             host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
-            require (post.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE, "POST measurement resumes without either old PRE");
+            require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }),
+                     "POST measurement resumes without either old PRE");
         }
         for (auto& processor : host.instances) if (processor) processor->getVST3ClientExtensions()->setIHostApplication (nullptr);
     }

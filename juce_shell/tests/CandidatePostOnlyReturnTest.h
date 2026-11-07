@@ -63,7 +63,7 @@ template<class Require> void verifyCandidatePostOnlyReturn (Require require)
             && !post.outputDecision (output_owner::Activity::recordKeep).refused(),
             "current POST input releases capture exclusion after return");
         render (40); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
-        require (post.signalStateLive() == KIRIN_SIGNAL_STATE_ACTIVE, "normal POST measurement resumes");
+        require (measurementActiveAfterCallback (post, [&] { render (1); }), "normal POST measurement resumes");
         for (int n = 0; n < 2; ++n)
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
