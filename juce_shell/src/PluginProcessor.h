@@ -299,7 +299,7 @@ public:
     bool addNote (const juce::String& memo); // sample-exact POST NOTE during Record
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
-    struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };
+    struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; juce::String hostName; int chainPosition = -1; };
     struct PostPairClaim
     {
         juce::String instanceId;
@@ -314,7 +314,7 @@ public:
     bool pairPreviewMatches (const KirinPairPreview*) const;
     bool automaticPairNeedsService() const;
     bool tryAutomaticPair (const KirinPairPreview*, const KirinPairPreviewValue&);
-    juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
+    juce::Array<PreCandidate> enumeratePreCandidates() const; juce::Array<PreCandidate> enumeratePreCandidatesForMenu() const;
     juce::Array<PostPairClaim> enumeratePostPairClaims() const; // FFI kirin_hypha_enumerate_post_pair_claims
     int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)
 

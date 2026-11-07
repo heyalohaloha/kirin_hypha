@@ -15,14 +15,15 @@ enum class ActionCompletion { published, newFault, stale, ineligible };
 enum class AutoReadiness { ready, stale, timing, match, limited, blocked };
 
 // INV-LC16: how far AUTO stays from the match at a limit. Within the tolerance it is not worth a line.
-inline std::string autoLimitNotice (live_compare::FollowLimit limit, double shortDb)
+inline std::string autoLimitNotice (live_compare::FollowLimit limit, double shortDb, bool candidate = false)
 {
     if (limit == live_compare::FollowLimit::none || std::fabs (shortDb) <= live_compare::followToleranceDb) return {};
     char amount[16];
     std::snprintf (amount, sizeof amount, "%.1f", std::fabs (shortDb));
-    if (limit == live_compare::FollowLimit::ceiling) return std::string ("AUTO at TP ceiling: PRE ") + amount + " dB quieter";
-    const auto* where = limit == live_compare::FollowLimit::range ? "AUTO at 24 dB: PRE " : "AUTO 6 dB from MATCH: PRE ";
-    return where + std::string (amount) + (shortDb > 0.0 ? " dB quieter" : " dB louder");
+    const auto* role = candidate ? "A " : "PRE ";
+    if (limit == live_compare::FollowLimit::ceiling) return std::string ("AUTO at TP ceiling: ") + role + amount + " dB quieter";
+    const auto* where = limit == live_compare::FollowLimit::range ? "AUTO at 24 dB: " : "AUTO 6 dB from MATCH: ";
+    return std::string (where) + role + amount + (shortDb > 0.0 ? " dB quieter" : " dB louder");
 }
 
 // Message-thread action boundary, with no retained state. An opening refresh acknowledges old

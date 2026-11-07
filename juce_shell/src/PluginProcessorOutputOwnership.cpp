@@ -21,6 +21,7 @@ States KirinHyphaProcessorBase::externalOutputStates() const
         const auto local = localBlindProductSession.view().phase;
         if (local != Phase::idle && local != Phase::returned && local != Phase::failed) states |= bit (State::localBlind);
     }
+    if (candidateMeasurementIsolated()) states |= bit (State::candidateSession);
     if (isRecording() || keepPhase() != KIRIN_KEEP_PHASE_IDLE) states |= bit (State::recordKeep);
     return states;
 }
@@ -41,5 +42,6 @@ Decision KirinHyphaProcessorBase::outputDecision (Activity activity) const
 
 hypha::live_compare::StartResult KirinHyphaProcessorBase::liveCompareAdmission (bool reuseSession) const noexcept
 {
+    if (candidateReturning()) return hypha::live_compare::StartResult::returnPending;
     return hypha::live_compare::startResultFor (outputDecision (reuseSession ? Activity::liveBlind : Activity::liveCompare));
 }

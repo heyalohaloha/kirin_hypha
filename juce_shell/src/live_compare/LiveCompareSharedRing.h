@@ -15,12 +15,12 @@ std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept;
 // macOS maps the ring with POSIX shared memory, Windows with a pagefile-backed named section.
 constexpr bool sharedRingAvailable() noexcept { return true; }
 
-// "/kh-lc11-" and 16 hex digits: 25 bytes, within the 31-byte POSIX shared-memory name limit.
-// Windows derives its section names from it ("Local\kh-lc11-...-slot").
+// "/kh-lc16-" and 16 hex digits: 25 bytes, within the 31-byte POSIX shared-memory name limit.
+// Windows derives its section names from it ("Local\kh-lc16-...-slot").
 std::string sharedRingName (std::uint64_t pairKey);
 
 // Non-RT owner of one mapping. PRE creates the ring for its own identity when its writes are
-// enabled; POST opens that ring when the user starts a live session and raises its demand flag.
+// enabled; POST opens that ring when the user starts a live session and owns one demand reference.
 // The Audio Thread sees the Ring only through a publication slot and never maps, unmaps or names
 // anything. A ring its PRE closed is never opened again: POSIX removes the name, and on Windows,
 // where a name lives while any process holds the section, PRE moves to the next of a few slots.
@@ -35,6 +35,11 @@ public:
     bool create (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source = 0); // PRE
     bool open (std::uint64_t pairKey, std::uint32_t sampleRate, bool ownsDemand = true); // POST
     void close() noexcept;
+    void requestPcm() noexcept
+    {
+        if (mapped != nullptr && !owner && !ownsDemand)
+        { mapped->header.demand.fetch_add (1, std::memory_order_acq_rel); ownsDemand = true; }
+    }
 
     Ring* ring() const noexcept { return mapped; }
     std::uint64_t key() const noexcept { return pairKeyValue; }
@@ -44,7 +49,7 @@ private:
     std::unique_ptr<OwnerClaim> claim; // PRE only; release AFTER the PCM lifetime is closed
     Ring* mapped = nullptr;
     bool owner = false;
-    bool ownsDemand = true; // clock-only peers neither raise nor clear the audition's demand
+    bool ownsDemand = true; // clock-only peers own no PCM demand reference
     std::uint64_t pairKeyValue = 0;
     std::uint32_t sampleRateValue = 0;
 #if defined (_WIN32)

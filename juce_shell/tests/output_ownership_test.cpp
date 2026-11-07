@@ -21,7 +21,7 @@ void require (bool condition, const std::string& what)
     ++failures;
 }
 
-static_assert (activityCount == 7 && stateCount == 16,
+static_assert (activityCount == 7 && stateCount == 17,
                "a new activity or state needs its column below (and the rule in OutputOwnership.h)");
 
 // 1 文字が 1 つの活動（並び：LISTEN, LIVE BLIND, PRE/POST Blind, VERSION BLIND, A を下げる承認, B・C・V, Keep）。
@@ -44,6 +44,7 @@ constexpr Column columns[] {
     { State::referenceReturning, "UUUUaaa", "LISTEN and Blind wait for the RETURN rise; roles wait for A inside the controller" },
     { State::liveSession,        "aattCta", "INV-LC4: an audition or Blind takes the output; LISTEN keeps POST, so A is not lowered" },
     { State::audition,           "aPPtaaP", "VERSION BLIND takes over B and C; other Blinds and Keep wait for A in REF" },
+    { State::candidateSession,   "CaBBCCB", "A/B holds capture and other outputs, but can enter its own LIVE BLIND" },
     { State::auditionHeld,       "ttttaaa", "INV-S47: LISTEN and Blind forget the held resume" },
 };
 

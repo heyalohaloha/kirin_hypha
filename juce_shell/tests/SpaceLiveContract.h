@@ -50,7 +50,7 @@ inline void verifyConcurrentReads()
 {
     space_live::LiveTap tap; tap.prepare (48'000); tap.setEnabled (true);
     space_live::Snapshot frame;
-    constexpr std::size_t block = 512, window = 3840;
+    static constexpr std::size_t block = 512, window = 3840;
     std::size_t publications = 0, ready = 0, rejected = 0;
     const auto publish = [&] {
         std::array<float, block * 2> data {};
@@ -99,7 +99,7 @@ inline void verifyBurstExpiry()
         {
             space_live::LiveTap tap; tap.prepare (48'000); tap.setEnabled (true);
             space_live::Snapshot frame;
-            constexpr int block = 512;
+            static constexpr int block = 512;
             constexpr std::uint64_t last = 1'007'000'000;
             const auto publish = [&] (int index, std::uint64_t nanos) {
                 std::array<float, block * 2> data {};

@@ -43,6 +43,7 @@ void KirinHyphaEditor::configureLiveBlind()
 void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
 {
     if (localBlindOpen || liveBlindOpen) return;
+    liveCompareStartAfterReturnCandidate.clear();
     const auto result = processorRef.beginLiveBlind (waitedTicket);
     if (result != StartResult::started)
     {
@@ -102,6 +103,7 @@ void KirinHyphaEditor::refreshLiveBlind()
         layoutLocalBlindProduct();
         resized();
         refreshObservatory();
+        if (processorRef.takeCandidateBlindReturned()) showToast ("BLIND did not start; A/B continues");
         return;
     }
     liveBlindView.setState (blind, processorRef.isPlaying(), status.postActual,
@@ -112,25 +114,28 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
 {
     const auto live = processorRef.liveCompareStatus();
     if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported()) return;
-    menu.addSectionHeader ("PRE / POST");
-    const auto recovery = hypha::live_compare_ui::currentListenPresentation (
-        live, processorRef.liveCompareAdmission (false), processorRef.referenceOutputSlot());
+    menu.addSectionHeader (processorRef.candidateCompareActive() ? "A / B" : "PRE / POST");
+    if (! live.active) menu.addItem (45, "A/B");
+    const auto recovery = hypha::live_compare_ui::candidateNamedPresentation (live,
+        hypha::live_compare_ui::currentListenPresentation (live, processorRef.liveCompareAdmission (false), processorRef.referenceOutputSlot()),
+        processorRef.candidateCompareActive(), processorRef.candidateHostInactive(), processorRef.candidateBypassed());
     if (*recovery.instruction != 0) menu.addSectionHeader (recovery.instruction);
     if (! live.active) menu.addItem (40, "LISTEN", hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false)));
     else
     {
         menu.addItem (41, "MATCH", ! live.finishing);
-        menu.addItem (42, "PRE", ! live.finishing);
-        menu.addItem (43, "POST", ! live.finishing);
+        menu.addItem (42, processorRef.candidateCompareActive() ? "A" : "PRE", ! live.finishing);
+        menu.addItem (43, processorRef.candidateCompareActive() ? "B" : "POST", ! live.finishing);
     }
     if (observatoryView.localBlindEntryAvailable())
         menu.addItem (23, "BLIND", ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)));
-    menu.addItem (44, "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
+    menu.addItem (44, processorRef.candidateCompareActive() ? "Align A automatically" : "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)
 {
     // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
+    if (result == 45) { showCandidateCompareMenu(); return true; }
     if (result < 40 || result > 44) return false;
     if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
     if (result == 40 && observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();

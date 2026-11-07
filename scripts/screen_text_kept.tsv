@@ -118,3 +118,6 @@ C / KIRIN OS	Reference comparison source selector label
 A WINDOW / 3 S	Reference minimum observation window label
 MONO / STEREO	channel layout names retained in both languages
 ALIGN OFF	Fixed action label for explicitly disabling automatic alignment during a Blind timing wait; its explanation is localized
+PRE1 → A → PRE2 → B → POST	User-confirmed insertion order; role and candidate labels stay identical in both languages
+START A/B	Short comparison action label retained in Japanese
+A/B: PRE2	Role selection heading retained in Japanese

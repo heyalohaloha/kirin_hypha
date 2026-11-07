@@ -142,6 +142,8 @@ void sharedRing (juce::AudioProcessor::WrapperType format, int channels)
     for (int tick = 0; tick < 4; ++tick) LiveTimingFixtureAccess::serviceProcessorTimer (*pre);
     require (LiveTimingFixtureAccess::timingRingPublished (*pre)
         && owner->ring()->header.ownerClosed.load() == 0, "PRE owner survives idle service after publication");
+    require (pre->liveCompareNeedsService() && LiveTimingFixtureAccess::serviceTimerRunning (*pre),
+             "a real PRE publication keeps servicing new candidate requests while idle");
     selectPair (*pre, *post, clock, channels);
     require (post->startLiveCompare() == StartResult::started && post->liveCompareStatus().active,
              "LISTEN starts through real PRE publication and POST open");

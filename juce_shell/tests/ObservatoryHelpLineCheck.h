@@ -131,6 +131,10 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
              "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
              "Press to MATCH again or to let PRE follow POST (AUTO)",
              "Match PRE to POST loudness over the latest four seconds", "NOTE requires Kirin OS",
+             "Match A to B loudness over the latest four seconds",
+             "Press MATCH to match again or start AUTO (A follows B)",
+             "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO",
+             "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again",
              "Finish Keep / Record before PRE / POST Blind", "Match levels and compare while the song plays" })
         texts.add (text, false);
 }

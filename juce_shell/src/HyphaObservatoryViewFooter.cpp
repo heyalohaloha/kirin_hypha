@@ -72,6 +72,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     localBlindButton.setButtonText ("BLIND");
     localBlindButton.setTooltip (keepActive ? "Finish Keep / Record before PRE / POST Blind"
         : "Match levels and compare while the song plays");
+    candidateCompareButton.setVisible (full && liveCompareState.entryEnabled && ! captureFrame);
     liveCompareButton.setVisible (full && liveCompareState.entryEnabled && ! captureFrame);
     liveCompareButton.setButtonText (getWidth() < 900 ? "LISTEN" : "PRE/POST LISTEN");
     if (layoutLiveCompareFooter (actions))
@@ -83,6 +84,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
         visible = { &hybridVuButton, &stopButton, &noteButton };
         if (liveCompareButton.isVisible()) visible.add (&liveCompareButton);
         if (localBlindButton.isVisible()) visible.add (&localBlindButton);
+        if (candidateCompareButton.isVisible()) visible.add (&candidateCompareButton);
         visible.add (&operationsButton);
     }
     else

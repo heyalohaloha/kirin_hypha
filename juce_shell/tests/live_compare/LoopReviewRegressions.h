@@ -15,6 +15,15 @@ inline void reaper()
     std::int64_t address = 0;
     require (!reaperWindowAddress (peer.anchor, peer.block, post, rate, ringCapacityFrames, address),
              "a copied block cannot cross a native interval end");
+    // A proven K is a different question: a verified wrap joins the two maps, on any callback grid.
+    require (reaperProvenAddress (peer.anchor, peer.block, post, rate, ringCapacityFrames, address)
+             && address == peer.anchor.intervals.split - 256, "a proven K keeps its address across the wrap");
+    auto ownLap = post; ownLap.project = 128; ownLap.loop.ppq = ownLap.project / 48000.0;
+    require (reaperProvenAddress (peer.anchor, peer.block, ownLap, rate, ringCapacityFrames, address)
+             && address == peer.anchor.intervals.split + 128 - peer.anchor.intervals.splitProject,
+             "POST already past the wrap reads the same lap");
+    require (!initialLoopCandidate (peer.anchor, peer.block, post, 0, rate, ringCapacityFrames).valid,
+             "a new K is never bound on a block that crosses the maps");
     for (int missingSide : { 0, 1 })
     for (bool blind : { false, true })
     {
@@ -195,6 +204,50 @@ inline void absentTokenProof()
         require ((ring->header.timing.generation.load() != resumed) == (variant == 1),
                  "the same token continues the generation; a different token after the absence is a change");
     }
+}
+inline void firstToken()
+{
+    auto ring = std::make_unique<Ring>(); ring->initialise (pair, rate); ring->header.demand.store (1);
+    PreFeeder feeder;
+    std::array<float, frames> input {}; const float* in[] { input.data(), input.data() };
+    BlockClock block; block.playing = block.clockValid = block.projectValid = true; block.frames = frames;
+    block.clockBasis = static_cast<std::uint8_t> (ClockBasis::reaperProcessing);
+    block.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
+    const auto feed = [&] { feeder.feed (*ring, block, in, 2); block.clock += frames; block.project += frames; };
+    for (int i = 0; i < 8; ++i) feed();
+    const auto generation = ring->header.timing.generation.load();
+    const auto run = ring->header.run.load();
+    block.runtimeChainA = 12; block.runtimeChainB = 34; block.runtimeRevision = 1;
+    feed();
+    require (ring->header.timing.generation.load() == generation && ring->header.run.load() == run,
+             "the first token names the chain these blocks ran on, so nothing re-proves");
+    block.runtimeChainA = 13;
+    feed();
+    require (ring->header.timing.generation.load() != generation, "a later different chain is still a changed proof");
+
+    // POST keeps a proven K across one absent block and across its first token.
+    TimingHeader header; TimingPublisher publisher; TimingObserver observer;
+    BlockClock pre = block, post = block; pre.runtimeChainA = post.runtimeChainA = 0;
+    pre.runtimeChainB = post.runtimeChainB = pre.runtimeRevision = post.runtimeRevision = 0;
+    pre.clock = post.clock = pre.project = post.project = 0;
+    TimingEvidence evidence;
+    const auto step = [&]
+    {
+        publisher.observe (header, pre, rate);
+        TimingSnapshot snapshot; readTiming (header, snapshot);
+        evidence = observer.observe (snapshot, post, rate, ringCapacityFrames);
+        pre.clock += frames; pre.project += frames; post.clock += frames; post.project += frames;
+    };
+    for (int i = 0; i < 16; ++i) step();
+    require (evidence.valid, "K is proven before any token arrives");
+    post.runtimeChainA = 12; post.runtimeChainB = 34; post.runtimeRevision = 1;
+    step(); require (evidence.valid, "POST's first token leaves K proven");
+    post.runtimeChainA = post.runtimeChainB = post.runtimeRevision = 0;
+    step(); require (evidence.valid, "one absent POST block does not revoke K");
+    post.runtimeChainA = 12; post.runtimeChainB = 34; post.runtimeRevision = 1;
+    step(); require (evidence.valid, "the same token resumes the same proof");
+    ++post.runtimeRevision;
+    step(); require (!evidence.valid, "a different POST token is still a changed proof");
 }
 inline void otherHosts()
 {

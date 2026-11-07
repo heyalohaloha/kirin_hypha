@@ -121,6 +121,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                 if (! usable) observed.clockValid = false;
                 const auto fed = liveCompare.feeder.feed (*ring, observed, usable ? buffer.getArrayOfReadPointers() : nullptr, channels);
                 if (trace != nullptr) trace->feed = fed;
+                processCandidateReceiver (*ring, block, buffer, usable, nonRealtimeMode);
             }
         });
         return;
@@ -135,11 +136,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool contentHeld = liveCompare.contentHold.held();
     // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
     const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
-    const bool compensationChanged = compensationOff != liveCompare.compensationWasOff;
+    const auto compensationRevision = liveCompare.compensationRevision.load (std::memory_order_acquire);
+    const bool compensationChanged = compensationOff != liveCompare.compensationWasOff || compensationRevision != liveCompare.compensationSeen;
     if (compensationChanged)
     {
         block.afterGap = true;
-        liveCompare.compensationWasOff = compensationOff;
+        liveCompare.compensationWasOff = compensationOff; liveCompare.compensationSeen = compensationRevision;
     }
     const bool timingEligible = usable && ! outputTaken && ! compensationOff
         && ! liveCompare.authority.restoring();
@@ -216,6 +218,43 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         auto* ring = mapping.ring();
         if (ring == nullptr)
             return;
+        const auto candidateToken = liveCompare.candidate.token.load (std::memory_order_acquire);
+        const bool candidateReturning = liveCompare.candidate.returning.load (std::memory_order_acquire);
+        if (candidateToken != 0 && ! candidateReturning
+            && liveCompare.alignmentConditions.observe (candidateToken, *ring, block, compensationChanged))
+            liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
+        if (candidateToken != 0 && ! candidateReturning)
+            ring->header.candidate.refreshLease (candidateToken, usable && permitted && ! outputTaken ? block.wallNanos : 0);
+        if (candidateToken != 0)
+        {
+            auto& state = liveCompare.candidate;
+            const auto returnContext = state.returnContext.load (std::memory_order_acquire);
+            if (state.observedReturnContext != returnContext)
+            {
+                state.returnContinuity = {}; state.returnSettling = {};
+                state.observedReturnContext = returnContext;
+            }
+            const bool returnTimingFresh = state.returnContinuity.currentProof (*ring, block, timing,
+                static_cast<std::uint32_t> (preparedFormat.sampleRate));
+            const bool returnProjection = state.returnContinuity.observe (candidateToken, block, timing, returnTimingFresh);
+            if (candidateReturning)
+            {
+                bool returned = hypha::live_compare::candidateReturnReached (*ring, candidateToken, block, timing,
+                    static_cast<std::uint32_t> (preparedFormat.sampleRate), returnProjection, returnTimingFresh);
+                state.returnObserver.withRealtime ([&] (hypha::live_compare::CandidateReturnObserver& observer)
+                {
+                    auto observed = block;
+                    observed.clockValid = observed.clockValid && timingEligible;
+                    const bool drained = observer.reached (ring->header.candidate, candidateToken, observed,
+                        static_cast<std::uint32_t> (preparedFormat.sampleRate));
+                    returned = returned || drained;
+                });
+                state.quietFrames.store (state.returnSettling.advance (candidateToken, block,
+                    static_cast<std::uint32_t> (preparedFormat.sampleRate), returned, timingEligible,
+                    ring->header.candidate.withdrawn (candidateToken)), std::memory_order_release);
+                state.quietContext.store (returnContext, std::memory_order_release);
+            }
+        }
         // Renderer lifetime is protected by the publication slot, including END/fault reads.
         if (! permitted || blindRejected || ! coherent || contentHeld) liveCompare.renderer.silenceTransition();
         if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
@@ -223,7 +262,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         {
             // Offline render, bypass and another audition leave their input untouched.
             // The same explicit selection can renew when realtime output is available.
-            liveCompare.renderer.revokeTiming();
+            liveCompare.renderer.bypassTransition(); liveCompare.renderer.revokeTiming();
             liveCompare.reentry.lost (hypha::live_compare::TimelineBreak::unknown,
                 permitted && !finishing && liveCompare.sessionActive.load (std::memory_order_acquire));
             const auto loss = bypassed ? Reason::bypassed : nonRealtimeMode ? Reason::offline
@@ -284,7 +323,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    ceiling, blindCommand.active() && ! blindRejected,
                                                    cycleUnverified ? Reason::cycleUnverified : Reason::none,
                                                    trace != nullptr ? &trace->decision : nullptr,
-                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff, true });
+                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff, true },
+                                                   // END releases proof authority while the audio return still needs its fade.
+                                                   candidateReturning ? 0 : candidateToken, candidateToken != 0);
         if (trace != nullptr)
         {
             trace->render = report; trace->renderSeen = true;

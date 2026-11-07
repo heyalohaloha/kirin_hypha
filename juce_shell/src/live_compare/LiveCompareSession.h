@@ -4,6 +4,7 @@
 #include "LiveCompareRecovery.h"
 #include "LiveCompareGuardRecovery.h"
 #include "LiveCompareGainRamp.h"
+#include "CandidateTransition.h"
 
 #include <algorithm>
 #include <atomic>
@@ -23,7 +24,8 @@ public:
     {
         if (ring.header.timing.sequence.load (std::memory_order_relaxed) == 0) publisher.reset();
         const auto continuity = timing.observe (ring.header.timing, block, ring.header.sampleRate.load (std::memory_order_relaxed));
-        if (ring.header.demand.load (std::memory_order_acquire) == 0)
+        if (ring.header.demand.load (std::memory_order_acquire) == 0
+            && ring.header.candidate.readers.load (std::memory_order_acquire) == 0)
         {
             publisher.reset();
             return false;
@@ -112,6 +114,7 @@ public:
     // history that MATCH reads (a power of two of at least historySeconds).
     void prepare (int maximumFrames, double sampleRate)
     {
+        candidateTransition.reset();
         capacity = std::max (0, maximumFrames);
         left = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         right = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
@@ -130,7 +133,7 @@ public:
         projectKnown.store (false, std::memory_order_relaxed);
         matchOffsetValid.store (false, std::memory_order_relaxed);
         consumer.reset();
-        alignReadiness.newContext(); // each new session confirms its own content, retaining only the value
+        alignment.readiness.newContext(); // each new session confirms its own content, retaining only the value
         weight = 0.0f;
     }
 
@@ -187,9 +190,7 @@ public:
 
     std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
 
-    // The stretch of the history whose project time advanced with POST's clock: from runStart on,
-    // project = clock + offset. A loop wrap, a seek, a stop or the host's post-wrap clamp starts a
-    // new stretch. A Pin needs its whole window inside one.
+    // PIN needs one contiguous project-time stretch.
     struct ProjectView
     {
         std::int64_t runStart = 0, offset = 0;
@@ -211,7 +212,33 @@ public:
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
                          float ceilingLinear, bool blind = false,
                          RecoveryReason timingBlock = RecoveryReason::none,
-                         Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback()) noexcept
+                         Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
+                         std::uint64_t candidateToken = 0, bool candidateReceiver = false) noexcept
+    {
+        auto report = renderBlock (ring, pairKey, sampleRate, block, io, channels, preSelected,
+            preGain, post, postTarget, ceilingLinear, blind, timingBlock, diagnosticDecision, align, candidateToken);
+        if (candidateToken != 0 || candidateReceiver)
+        {
+            if (candidateTransition.apply (io, channels, block.frames, fadeFrames,
+                report.verdict == Verdict::accepted && ! report.guardTripped && ! report.alignWaiting,
+                report.timelineChanged, report.preAudible))
+            {
+                report.preAudible = report.preAudible || candidateTransition.pending();
+                report.stableSource = false;
+                report.audibleSource = RenderReport::AudibleSource::none;
+            }
+        }
+        else candidateTransition.reset();
+        return report;
+    }
+
+    RenderReport renderBlock (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
+                         const BlockClock& block, float* const* io, int channels,
+                         bool preSelected, float preGain, PostLevel& post, float postTarget,
+                         float ceilingLinear, bool blind = false,
+                         RecoveryReason timingBlock = RecoveryReason::none,
+                         Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
+                         std::uint64_t candidateToken = 0) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -233,25 +260,32 @@ public:
         }
         float* scratch[] = { left.get(), right.get() };
         align.context = alignOwner (align.context, ring);
-        // A new address may not jump under PRE: it waits for PRE to be silent, which LISTEN brings
-        // about with the usual fades and a Blind trial leaves to the listener's own switching.
-        if (align.context != alignContext) { alignApplied = {}; alignShown.store (0); weight = 0.0f; alignContext = align.context; alignReadiness.newContext(); }
-        const auto alignRevision = alignReadiness.generation();
-        bool alignCurrent = false;
-        const auto wantedAlign = align.enabled
-            ? alignRequest.read (align.context, alignApplied, alignRevision, &alignCurrent,
-                                 alignAppliedRevision == alignRevision) : AlignValue {};
-        if (wantedAlign != alignApplied && weight <= 0.0f
-            && (! blind || ! preSelected || ! align.enabled || alignApplied.verifySamples)) alignApplied = wantedAlign;
-        const bool alignFading = wantedAlign != alignApplied && ! blind;
-        if (align.verify && alignCurrent && alignAppliedRevision != alignRevision && weight <= 0.0f)
-            alignApplied = wantedAlign; // only a freshly confirmed clock mapping can move BLIND here
-        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignApplied);
-        if (align.verify) alignReadiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
-        if (decision.kValid) alignShown.store (alignApplied.frames, std::memory_order_release);
+        const auto aligned = alignment.update (align, blind, preSelected, weight);
+        const bool alignFading = aligned.fading;
+        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
+        if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
+        if (decision.verdict == Verdict::accepted) alignment.publishApplied();
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
+        std::int64_t inputStart = 0, inputEnd = 0;
+        const bool inputPosition = decision.kValid && checkedClockSubtract (block.clock, decision.k, inputStart)
+            && checkedClockAdd (inputStart, block.frames, inputEnd);
+        if (candidateToken != 0 && (decision.verdict != Verdict::accepted || !inputPosition
+            || ! ring.header.candidate.covers (candidateToken, decision.run,
+                inputStart, inputEnd)))
+            timingBlock = RecoveryReason::notWritten;
         if (timingBlock != RecoveryReason::none) invalidateHistory();
-        else recordHistory (block, io, channels, decision);
+        else if (candidateToken == 0 || ring.header.candidate.settled (candidateToken, decision.run,
+            inputStart, inputEnd, sampleRate)) recordHistory (block, io, channels, decision);
+        else invalidateHistory();
+        if (candidateToken != 0)
+        {
+            const auto duration = timingBlock == RecoveryReason::none ? ring.header.candidate.contiguousFrames (
+                candidateToken, decision.run, inputEnd) : 0;
+            const auto view = historyView();
+            const auto remaining = std::max<std::int64_t> (0, sampleRate * 4 - duration)
+                + std::max<std::int64_t> (0, sampleRate * 4 - (view.kValid ? view.end - view.start : 0));
+            candidateMatchSeconds.store (static_cast<int> ((remaining + sampleRate - 1) / sampleRate), std::memory_order_release);
+        }
         report.timelineChanged = decision.timelineChanged || decision.invalidatedByDisagreement;
         report.loss = decision.loss;
         report.verdict = decision.verdict;
@@ -274,24 +308,24 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        const bool sampleMismatch = align.enabled && alignApplied.verifySamples
-            && ! matchingScaledBlock (io, scratch, channels, block.frames);
-        if (align.verify && sampleMismatch) alignReadiness.recheck();
-        if (align.verify && align.enabled && (alignReadiness.pending() || !alignCurrent
-            || alignRevision != alignReadiness.generation() || sampleMismatch))
+        const bool sampleMismatch = align.enabled && alignment.value().verifySamples
+            && ! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0);
+        if (align.verify && sampleMismatch) alignment.readiness.recheck();
+        if (align.verify && align.enabled && (alignment.readiness.pending() || ! aligned.current
+            || aligned.revision != alignment.readiness.generation() || sampleMismatch))
         {
             weight = 0.0f; // the previous address is unverified: never fade through it
             report.preWaiting = preSelected;
             report.alignWaiting = true;
-            report.reason = sampleMismatch ? RecoveryReason::contentAmbiguous : alignReadiness.late() ? RecoveryReason::preLate
-                : alignReadiness.ambiguous() ? RecoveryReason::contentAmbiguous : RecoveryReason::calibrating;
+            report.reason = sampleMismatch ? RecoveryReason::contentAmbiguous : alignment.readiness.late() ? RecoveryReason::preLate
+                : alignment.readiness.ambiguous() ? RecoveryReason::contentAmbiguous : RecoveryReason::calibrating;
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
             post.apply (io, channels, block.frames, postTarget);
             report.stableSource = report.gainSettled = settled;
             report.audibleSource = settled ? RenderReport::AudibleSource::post : RenderReport::AudibleSource::none;
             return report;
         }
-        if (align.verify && alignCurrent) alignAppliedRevision = alignRevision;
+        if (align.verify && aligned.current) alignment.confirmApplied (aligned.revision);
         // Validate the raw wanted gain before peak(): std::max(current, NaN) can hide NaN.
         const bool validGain = std::isfinite (preGain) && preGain > 0.0f
             && std::isfinite (ceilingLinear) && ceilingLinear > 0.0f;
@@ -366,22 +400,27 @@ public:
 
     // Message thread (INV-LC28): the content value for later blocks; 0 reads PRE at K alone.
     void requestAlign (AlignValue value, AlignContext context = {}, std::uint64_t measured = 0) noexcept
-    { alignRequest.publish (value, context, measured); alignReadiness.confirm (measured); }
-    std::uint64_t alignRevision() const noexcept { return alignReadiness.generation(); }
-    std::int64_t alignClockK() const noexcept { return alignReadiness.clockK(); }
-    bool alignPending() const noexcept { return alignReadiness.pending(); }
-    void reportAlignLate (std::uint64_t measured) noexcept { alignReadiness.late (measured); }
-    void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignReadiness.ambiguous (measured); }
-    AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignRequest.read (context, {}, alignReadiness.generation()); }
-    void clearAlignDisplay() noexcept { alignShown.store (0, std::memory_order_release); }
-    std::int64_t alignFrames() const noexcept { return alignShown.load (std::memory_order_acquire); }
+    { alignment.request (value, context, measured); }
+    std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
+    std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
+    bool alignPending() const noexcept { return alignment.readiness.pending(); }
+    void reportAlignLate (std::uint64_t measured) noexcept { alignment.readiness.late (measured); }
+    void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignment.readiness.ambiguous (measured); }
+    AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignment.requestFor (context); }
+    std::int64_t alignFrames (AlignContext context) const noexcept { return alignment.displayed (context); }
 
     // Audio Thread: the host stopped processing the session (end, format change).
     void silenceTransition() noexcept { weight = 0.0f; }
+    void bypassTransition() noexcept { candidateTransition.reset(); weight = 0.0f; }
+    bool fadeToInput (float* const* io, int channels, int frames) noexcept // PRE2 outside render()
+    { candidateTransition.apply (io, channels, frames, fadeFrames, false, true, false); weight = 0.0f; return candidateTransition.pending(); }
+    int matchSecondsRemaining() const noexcept { return candidateMatchSeconds.load (std::memory_order_acquire); }
     bool hasPre() const noexcept { return weight > 0.0f; } // Audio Thread only
 
 private:
+    std::atomic<int> candidateMatchSeconds { 8 };
     GuardRecovery guardRecovery;
+    CandidateTransition candidateTransition;
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
     static constexpr double historySeconds = 8.0; // MATCH reads up to 4 s of it
 
@@ -408,56 +447,7 @@ private:
         return RecoveryReason::none;
     }
 
-    // Audio Thread: the POST input (A, before any output mixing) indexed by POST's continuous clock.
-    void recordHistory (const BlockClock& block, float* const* io, int channels, const Decision& decision) noexcept
-    {
-        if (history == nullptr || ! block.clockValid)
-        {
-            invalidateHistory();
-            return;
-        }
-        historySequence.fetch_add (1);
-        const auto end = historyEnd.load (std::memory_order_relaxed);
-        const bool proven = decision.verdict == Verdict::accepted;
-        const bool restarted = block.afterGap || ! block.playing || block.clock != end || end == 0
-            || ! proven || ! matchOffsetValid.load (std::memory_order_relaxed)
-            || decision.k != matchOffset.load (std::memory_order_relaxed)
-            || decision.run != historyPreRun.load();
-        if (restarted)
-        {
-            historyStart.store (block.clock, std::memory_order_release);
-            historyProof.fetch_add (1);
-        }
-        historyPreRun.store (decision.run);
-        matchOffset.store (decision.k, std::memory_order_release);
-        matchOffsetValid.store (proven, std::memory_order_release);
-        const auto offset = block.project - block.clock;
-        if (restarted || ! block.projectValid || ! projectKnown.load (std::memory_order_relaxed)
-            || offset != projectOffset.load (std::memory_order_relaxed))
-        {
-            projectOffset.store (offset, std::memory_order_relaxed);
-            projectKnown.store (block.projectValid && block.playing, std::memory_order_relaxed);
-            projectRunStart.store (block.clock, std::memory_order_release);
-        }
-        const auto mask = historyFrames - 1;
-        for (std::int32_t i = 0; i < block.frames; ++i)
-        {
-            const auto slot = static_cast<std::size_t> ((block.clock + i) & mask) * 2;
-            history[slot].store (io[0][i], std::memory_order_relaxed);
-            history[slot + 1].store (io[std::min (1, channels - 1)][i], std::memory_order_relaxed);
-        }
-        historyBlockFrames.store (block.frames, std::memory_order_relaxed);
-        historyEnd.store (block.clock + block.frames, std::memory_order_release);
-        historySequence.fetch_add (1);
-    }
-
-    void invalidateHistory() noexcept
-    {
-        historySequence.fetch_add (1);
-        matchOffsetValid.store (false, std::memory_order_release);
-        historyProof.fetch_add (1);
-        historySequence.fetch_add (1);
-    }
+#include "LiveCompareRendererHistory.h"
 
     Consumer consumer;
     GainRamp preLevel;
@@ -472,12 +462,7 @@ private:
     std::atomic<std::int64_t> projectRunStart { 0 }, projectOffset { 0 };
     std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
-    AlignRequest alignRequest;
-    AlignReadiness alignReadiness;
-    std::uint64_t alignAppliedRevision = 0; // Audio Thread: contention never grants a new address
-    AlignContext alignContext; // Audio Thread only
-    std::atomic<std::int64_t> alignShown { 0 };
-    AlignValue alignApplied; // Audio Thread only
+    RendererAlignment alignment;
     std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 };
 };
 }

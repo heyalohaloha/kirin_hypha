@@ -95,7 +95,7 @@ fn aax_analysis_callees_are_rt_safe_and_consume_original_input_after_timing() {
     );
     assert!(
         callback.find(PROCESS_COMPARISON_CALL).unwrap()
-            < callback.find("pushPairedAnalysis (").unwrap()
+            < callback.rfind("pushPairedAnalysis (").unwrap()
     );
     let late = function_body(
         MEASUREMENT_INGRESS_CPP,

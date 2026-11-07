@@ -34,10 +34,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/src/capture_window_ffi.rs"
     ));
-    const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginProcessor.cpp"
-    ));
+    const PLUGIN_PROCESSOR_CPP: &str = concat!(
+        include_str!("../../juce_shell/src/ProcessorAudioCallback.h"),
+        include_str!("../../juce_shell/src/PluginProcessor.cpp")
+    );
     const RECORD_TAKE_CLOCK_CAPTURE_RS: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_measure/src/record_take_clock_capture.rs"

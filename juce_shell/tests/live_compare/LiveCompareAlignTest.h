@@ -21,10 +21,10 @@ static void alignMovesOnlyTheReadAddress()
 {
     using namespace live_compare_align_test;
     auto chain = sounding();
-    require (chain->postRenderer().alignFrames() == 0 && chain->report.preAudible, "the fixture reads at K alone");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == 0 && chain->report.preAudible, "the fixture reads at K alone");
     chain->align (alignValue (-early));
     chain->run (4);
-    require (chain->postRenderer().alignFrames() == early, "the value is applied");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early, "the value is applied");
     require (chain->decision.kValid && chain->decision.k == provenK, "K stays the clocks' proof");
     require (chain->wrongAddress == 0 && chain->wrongPcm == 0, "PRE is read that much later, and every sample is right");
     require (chain->report.verdict == Verdict::accepted && chain->report.preAudible, "PRE sounds there");
@@ -45,7 +45,7 @@ static void alignFadesInsteadOfJumping()
             if (callback >= 0)
             {
                 const auto alignment = callback < 4 ? 0 : early;
-                require (chain->postRenderer().alignFrames() == alignment, "the address waits for the full fade out");
+                require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == alignment, "the address waits for the full fade out");
                 require (chain->report.verdict == Verdict::accepted, "the proof holds throughout the fades");
                 if (callback == 3) require (! chain->postRenderer().hasPre(), "old PRE is silent before the address moves");
                 const auto target = callback < 4 ? 0.0f : 1.0f;
@@ -64,7 +64,7 @@ static void alignFadesInsteadOfJumping()
             }
             ++callback;
         });
-    require (chain->postRenderer().alignFrames() == early && chain->report.preAudible, "PRE returns on the new address");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early && chain->report.preAudible, "PRE returns on the new address");
     require (chain->wrongPcm == 0, "every settled block is the new address or the old one, never a jump");
 }
 
@@ -76,14 +76,14 @@ static void alignWaitsForSilenceInATrial()
     chain->trial (true);
     chain->align (alignValue (-early));
     chain->run (12);
-    require (chain->postRenderer().alignFrames() == 0 && chain->report.preAudible, "PRE keeps its address while it sounds");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == 0 && chain->report.preAudible, "PRE keeps its address while it sounds");
     chain->relocate (48000);
     chain->run (30);
-    require (chain->postRenderer().alignFrames() == 0 && chain->report.preAudible,
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == 0 && chain->report.preAudible,
              "a timing interruption is not the listener switching sources");
     chain->select (false);
     chain->run (2);
-    require (chain->postRenderer().alignFrames() == early, "the listener's own switch carries the change");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early, "the listener's own switch carries the change");
     chain->select (true);
     chain->run (2);
     require (chain->report.preAudible && chain->wrongPcm == 0 && chain->wrongAddress == 0, "PRE returns aligned");
@@ -98,18 +98,18 @@ static void alignSurvivesClockRecalibration()
     chain->run (4);
     chain->relocate (48000);
     chain->run (30);
-    require (chain->decision.k == provenK && chain->postRenderer().alignFrames() == early, "a seek keeps the value");
+    require (chain->decision.k == provenK && chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early, "a seek keeps the value");
     chain->chunk ([] (int i, BlockClock& b) { if (i > 0) b.playing = false; });
     chain->chunk ([] (int, BlockClock& b) { b.playing = false; });
     chain->run (30);
-    require (chain->postRenderer().alignFrames() == early && chain->report.preAudible, "a stop keeps the value");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early && chain->report.preAudible, "a stop keeps the value");
     chain->enterLoop (480000);
     chain->run (30);
-    require (chain->postRenderer().alignFrames() == early && chain->report.preAudible, "a loop keeps the value");
+    require (chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early && chain->report.preAudible, "a loop keeps the value");
     chain->leaveLoop();
     chain->setK (provenK + 1024);
     chain->run (30);
-    require (chain->decision.k == provenK + 1024 && chain->postRenderer().alignFrames() == early
+    require (chain->decision.k == provenK + 1024 && chain->postRenderer().alignFrames (alignOwner ({}, chain->sharedRing())) == early
              && chain->report.preAudible, "a new clock proof uses the retained content delay");
     require (chain->wrongAddress == 0 && chain->wrongPcm == 0, "nothing wrong sounded on the way");
 }
@@ -239,10 +239,43 @@ static void repeatedWaveformChecksEverySample()
     require (!matchingScaledBlock (post, pre, 2, 16), "non-finite content never confirms a repeated waveform");
     a[0][0] = -0.5f * b[0][0];
     require (!matchingScaledBlock (post, pre, 2, 16), "a phase or channel change cannot inherit the previous block's confirmation");
+    for (int ch = 0; ch < 2; ++ch)
+        for (int i = 0; i < 16; ++i) a[ch][i] = -0.5f * b[ch][i];
+    require (!matchingScaledBlock (post, pre, 2, 16), "an inverted block never confirms a moved address");
+    require (matchingScaledBlock (post, pre, 2, 16, true), "polarity does not move the mapped address");
+    a[1][15] += 0.001f;
+    require (!matchingScaledBlock (post, pre, 2, 16, true), "either polarity still checks every sample");
     AlignRequest request; const AlignContext context { 2, 4, 6, 8 };
     request.publish ({ 48, true }, context, 9);
     require (request.read (context, {}, 9).verifySamples, "block verification is in the same atomic tuple as the address");
     require (!request.read ({ 3, 4, 6, 8 }, {}, 9).verifySamples, "a foreign owner cannot retain the verification mode");
+}
+
+// A waveform that stops matching withdraws A with no clock break, so nothing else starts the fade.
+static void candidateAlignWaitFadesFromTheLastOutput()
+{
+    using namespace live_compare_align_test;
+    Options options;
+    options.k = options.contentK = provenK; options.postCarriesPre = true;
+    options.postFrames = 64; options.candidate = true;
+    Chain chain (options);
+    chain.run (30);
+    chain.confirmAlign ({ 0, true });
+    chain.run (8);
+    require (chain.report.preAudible && chain.report.verdict == Verdict::accepted && ! chain.report.alignWaiting,
+             "the fixture hears A on its confirmed address");
+    const auto last = chain.outputSample (63);
+    chain.carryPre (false);
+    bool waited = false;
+    float first = 0.0f;
+    chain.chunk ([&] (int callback, BlockClock&)
+    {
+        if (callback != 1) return;
+        waited = chain.report.alignWaiting && chain.report.verdict == Verdict::accepted && ! chain.report.timelineChanged;
+        first = chain.outputSample (0);
+    });
+    require (waited, "the changed waveform waits with the clock proof intact");
+    require (first >= last && first <= last, "the wait continues from A's last sample instead of stepping to B");
 }
 
 static void liveCompareAlignContract()
@@ -271,4 +304,5 @@ static void liveCompareAlignContract()
     alignRefusesWhatItCannotDo();
     alignLoopProofStopsAtWhatPreWrote();
     aaxPendingCycleCannotSurviveASeek();
+    candidateAlignWaitFadesFromTheLastOutput();
 }

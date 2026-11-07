@@ -114,9 +114,24 @@ inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperCha
     return {};
 }
 
+inline const char* chainDelayNotice() noexcept { return "Check chain delay and DAW compensation; POST plays"; }
+inline const char* positionNotice (bool candidate) noexcept
+{ return candidate ? "Position unconfirmed; B plays" : "Position unconfirmed; POST plays"; }
+inline const char* candidateUnconfirmedNotice() noexcept { return "Position unconfirmed; A plays"; }
+
+inline const char* candidateRecoveryText (bool hostInactive, bool bypassed) noexcept
+{
+    return hostInactive ? "A/B: enable PRE2 in the DAW"
+        : bypassed ? "A/B: enable PRE2; bypass is on"
+                   : "A/B: timing unavailable; check PRE1 and PRE2";
+}
+
 inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& state, bool stopped) noexcept
 {
     const auto reason = state.reason == Reason::none ? state.observation : state.reason;
+    if (!stopped && state.prolongedWait && state.candidate
+        && (state.candidateHostInactive || state.candidateBypassed))
+        return { reason, RecoveryAction::checkPre, candidateRecoveryText (state.candidateHostInactive, state.candidateBypassed) };
     if (!stopped && state.signalWait)
         return { Reason::none, RecoveryAction::none, "MATCH waits for more signal" };
     if (!stopped && !state.prolongedWait) return {};
@@ -125,9 +140,9 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
     if (!stopped && (reason == Reason::ceiling || reason == Reason::nonFinite))
         return { reason, RecoveryAction::checkLevels, "Check chain levels; resumes automatically (POST)" };
     if (!stopped && state.observation == Reason::contentAmbiguous)
-        return { Reason::contentAmbiguous, RecoveryAction::none, "Position unconfirmed; POST plays" };
+        return { Reason::contentAmbiguous, RecoveryAction::none, positionNotice (state.candidate) };
     if (!stopped && state.observation == Reason::preLate)
-        return { Reason::preLate, RecoveryAction::none, "Check chain delay and DAW compensation; POST plays" };
+        return { Reason::preLate, RecoveryAction::none, state.candidate ? positionNotice (true) : chainDelayNotice() };
     if (state.contentHeld)
         return { Reason::contentChanged, RecoveryAction::stopPlay, "Timing changed: check chain delay (POST)" };
     // An uncertified AAX host looping a range observes an unidentifiable loop too; loop playback off
@@ -155,6 +170,7 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
         return { reason, RecoveryAction::none, "Timing unavailable; check PRE and play (POST)" };
     if (! stopped)
     {
+        if (state.candidate) return { reason, RecoveryAction::checkPre, candidateRecoveryText (false, false) };
         if (reason == Reason::notWritten) return { reason, RecoveryAction::checkPre, "Play the DAW and check PRE is enabled" };
         return { reason, RecoveryAction::automatic, "Keep playing; resumes when confirmed" };
     }
@@ -248,5 +264,24 @@ inline RecoveryPresentation currentNamedPresentation (const live_compare::Status
     if (state.postActual < 1.0f || state.postTarget < 1.0f)
         return { state.reason, RecoveryAction::returnLevel, "Stopped: RETURN, then LISTEN (POST)" };
     return {};
+}
+inline RecoveryPresentation candidateNamedPresentation (const live_compare::Status& state,
+    RecoveryPresentation current, bool candidate, bool hostInactive, bool bypassed) noexcept
+{
+    if (candidate && (current.reason == Reason::contentAmbiguous || current.reason == Reason::preLate)
+        && current.action == RecoveryAction::none)
+        current.instruction = positionNotice (true);
+    if (!candidate || !state.active || state.finishing || state.interrupted || !state.prolongedWait
+        || state.verdict == live_compare::Verdict::accepted) return current;
+    const auto reason = state.reason != Reason::none ? state.reason : state.observation;
+    if (hostInactive || bypassed)
+        return { reason, RecoveryAction::checkPre, candidateRecoveryText (hostInactive, bypassed) };
+    if (state.signalWait || state.loopBlock != live_compare::LoopPairingBlock::none
+        || *loopRecovery (state.observation, state.reaperRestriction).instruction) return current;
+    // Which PRE matters: an unwritten B input in A/B can be either one.
+    if (!*current.instruction || current.action == RecoveryAction::automatic || current.action == RecoveryAction::selectPre
+        || (current.action == RecoveryAction::checkPre && state.observation == Reason::notWritten))
+        return { reason, RecoveryAction::checkPre, candidateRecoveryText (false, false) };
+    return current;
 }
 }

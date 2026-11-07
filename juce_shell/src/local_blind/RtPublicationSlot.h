@@ -49,6 +49,12 @@ public:
         return current.load (std::memory_order_seq_cst) != nullptr;
     }
 
+    bool withdraw() noexcept
+    {
+        current.store (nullptr, std::memory_order_seq_cst);
+        return readers.load (std::memory_order_seq_cst) == 0;
+    }
+
     bool retire() noexcept
     {
         if (! owned)

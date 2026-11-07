@@ -101,7 +101,9 @@ OffsetEstimate scaledCopyOffset (const std::vector<float>& post, const std::vect
         }
         if (! std::isfinite (sourceEnergy) || sourceEnergy <= 0.0) continue;
         const auto gain = cross / sourceEnergy;
-        if (gain <= 0.0) continue; // a repeated half-period with inverted polarity is not equivalent output
+        // Polarity does not move the mapped address. Anywhere else an inverted copy is only a
+        // half-period of a repeating waveform, not equivalent output.
+        if (start == maxLag ? std::fabs (gain) <= 0.0 : gain <= 0.0) continue;
         double error = 0.0;
         for (int i = 0; i < 32; ++i)
         {

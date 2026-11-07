@@ -67,13 +67,20 @@ public:
         ++serial;
         if (b.frames > 0) samples += static_cast<std::uint64_t> (b.frames);
         callbacks.store ({ currentEpoch, run, serial, samples, b.wallNanos, wasPlaying ? 1u : 0u });
+        if (!usable || !b.playing) return;
         std::array<std::uint64_t, 10> v {};
-        if (!usable || !b.playing || !token.load (v) || v[0] != currentEpoch || v[1] != run
-            || serial <= v[2] || samples < v[3] || b.wallNanos < v[4] || v[5] == 0 || v[6] == 0)
-            return;
-        b.runtimeChainA = v[5]; b.runtimeChainB = v[6]; b.runtimeRevision = v[7];
-        b.maximumDelaySamples = static_cast<std::uint32_t> (v[8]);
-        b.runtimeExpired = samples - v[3] > rate * 2.0 || b.wallNanos - v[4] > lifetimeNanos;
+        const bool read = token.load (v);
+        const bool current = read && v[0] == currentEpoch && v[1] == run && v[5] != 0 && v[6] != 0;
+        // A publication landing inside this callback is newer than the block. That is a race,
+        // not a revocation: the block keeps the token its predecessor used, as it would have
+        // if the timer had fired a moment later. An empty or older-run token does revoke it.
+        const bool raced = !read || (current && (serial <= v[2] || samples < v[3] || b.wallNanos < v[4]));
+        if (current && !raced) held = v;
+        else if (!raced) held = {};
+        if (held[0] != currentEpoch || held[1] != run || held[5] == 0 || held[6] == 0) return;
+        b.runtimeChainA = held[5]; b.runtimeChainB = held[6]; b.runtimeRevision = held[7];
+        b.maximumDelaySamples = static_cast<std::uint32_t> (held[8]);
+        b.runtimeExpired = samples - held[3] > rate * 2.0 || b.wallNanos - held[4] > lifetimeNanos;
     }
     bool witness (ReaperCallbackWitness& out) const noexcept
     {
@@ -97,8 +104,10 @@ public:
         // revoking between normal callbacks or extending a token without any audio progress.
         if (bracketed && reading.same (previous) && prior.epoch == before.epoch
             && prior.run == before.run && after.serial == prior.serial) return;
-        if (!bracketed || !reading.same (previous) || prior.epoch != before.epoch || prior.run != before.run)
-            ++revision;
+        // The revision names the chain and delay, not one observation of them: a stop or seek
+        // re-reads the same proof, and only a different reading or a host epoch changes it.
+        if (prior.epoch != before.epoch || (bracketed && !reading.same (proven))) ++revision;
+        if (bracketed) proven = reading;
         token.store (stable ? std::array<std::uint64_t, 10> { after.epoch, after.run, after.serial,
             after.samples, now, reading.chainA, reading.chainB, revision, reading.delay, 1 } : std::array<std::uint64_t, 10> {});
         previous = bracketed ? reading : ReaperPdcObservation {}; prior = after;
@@ -110,8 +119,9 @@ private:
     // Below: RT-owned continuity, followed by message-thread-owned publication history.
     LoopTimeline timeline;
     std::uint64_t run = 0, serial = 0, samples = 0, seenEpoch = 0;
+    std::array<std::uint64_t, 10> held {};
     bool wasPlaying = false;
-    ReaperPdcObservation previous;
+    ReaperPdcObservation previous, proven;
     ReaperCallbackWitness prior;
     std::uint64_t revision = 1;
 };

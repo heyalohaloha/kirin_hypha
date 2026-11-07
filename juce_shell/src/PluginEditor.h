@@ -193,6 +193,9 @@ private:
     void openLiveBlind (std::optional<std::uint64_t> waitedTicket = std::nullopt);
     void refreshLiveBlind();
     void configureLiveCompare();
+    void showCandidateCompareMenu();
+    void confirmCandidateCompare (const juce::String& pre2, std::uint64_t ticket);
+    void startCandidateConfirmed (const juce::String&, std::uint64_t, bool waitForReturn = true);
     bool refreshLiveCompare(); // true only when this refresh published a new fault notification
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
@@ -204,6 +207,7 @@ private:
     void followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
     double liveCompareStartAfterReturnUntil = 0.0;  // INV-LC14：RETURN してから始める LISTEN の押し
+    juce::String liveCompareStartAfterReturnCandidate; // PRE2 for this unsaved, confirmed press
     juce::String liveCompareStartAfterReturnKey;     // 押したときの組み（PRE が替われば捨てる）
     bool liveCompareStartAfterReturnBlind = false;   // その押しが BLIND（false は LISTEN）
     std::uint64_t liveCompareStartAfterReturnTicket = 0;     // 押したときの復元・組みの世代（開始の入口まで渡す）

@@ -41,7 +41,7 @@ inline void check (int channels, std::int64_t origin)
     };
     int delay = 1024, exact = 0;
     float weight = 0.0f;
-    bool retainAlignment = false;
+    bool retainAlignment = false, ended = false;
     const auto block = [&] {
         juce::AudioBuffer<float> audio (channels, frames);
         juce::MidiBuffer midi;
@@ -57,8 +57,10 @@ inline void check (int channels, std::int64_t origin)
             }
         post->processBlock (audio, midi);
         const auto state = post->liveCompareStatus();
-        const auto alignment = post->liveCompareAlignFrames();
-        if (retainAlignment) require (alignment == delay, "recalibrating K never drops the retained correction");
+        const auto shown = post->liveCompareAlignFrames();
+        if (retainAlignment) require (shown == delay, "recalibrating K never drops the retained correction");
+        // END's fade still reads the sounding address; a closed session only stops showing it.
+        const auto alignment = ended ? delay : shown;
         const auto target = state.preAudible ? 1.0f : 0.0f;
         if (state.verdict != Verdict::accepted) weight = 0.0f;
         for (int ch = 0; ch < channels; ++ch)
@@ -156,7 +158,9 @@ inline void check (int channels, std::int64_t origin)
     until ([&] { return exact >= 8; }, "anonymous PRE is aligned before stopping");
     for (bool extraPre : { true, false }) resumeAfterUnequalStop (extraPre, true);
     post->finishLiveCompare();
+    retainAlignment = false; ended = true;
     for (int i = 0; i < 4; ++i) block();
+    require (post->liveCompareAlignFrames() == 0, "a closed session claims no correction");
     post->releaseResources(); pre->releaseResources();
 }
 }

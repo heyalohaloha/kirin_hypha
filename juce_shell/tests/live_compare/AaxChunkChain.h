@@ -68,6 +68,7 @@ struct Options
     bool preDemand = true;              // false: PRE publishes its clock and no PCM
     bool postCarriesPre = false;        // POST's input is PRE's audio contentK samples later
     std::int64_t contentK = 0;
+    bool candidate = false;             // A/B: alignment is verified and withdrawals fade
 };
 
 class Chain
@@ -124,6 +125,9 @@ public:
     void leaveLoop() { options.loopFrames = 0; setK (expectedK); }
 
     void align (AlignValue value) noexcept { renderer.requestAlign (value, alignOwner ({}, *ring)); }
+    void confirmAlign (AlignValue value) noexcept { renderer.requestAlign (value, alignOwner ({}, *ring), renderer.alignRevision()); }
+    void carryPre (bool carried) noexcept { options.postCarriesPre = carried; }
+    float outputSample (int frame) const noexcept { return output[0][static_cast<std::size_t> (frame)]; }
     void select (bool pre) noexcept { preSelected = pre; }
     void trial (bool on) noexcept { blindTrial = on; }
 
@@ -200,7 +204,8 @@ private:
         float* out[] { output[0].data(), output[1].data() };
         decision = {};
         report = renderer.render (*ring, key, rate, b, out, 2, preSelected, 1.0f, level, 1.0f, 1.0f,
-                                  blindTrial, RecoveryReason::none, &decision);
+                                  blindTrial, RecoveryReason::none, &decision,
+                                  { {}, true, true, options.candidate }, 0, options.candidate);
         renderedClock = b.clock;
         if (report.timelineChanged) renewal.lost (report.loss, true);
         if (options.record)
@@ -211,7 +216,7 @@ private:
             renewal.accepted();
             ++accepted;
             if (firstAcceptChunk < 0) firstAcceptChunk = chunks;
-            if (decision.preStart != b.clock - expectedK - renderer.alignFrames()) ++wrongAddress;
+            if (decision.preStart != b.clock - expectedK - renderer.alignFrames (alignOwner ({}, *ring))) ++wrongAddress;
             if (report.stableSource && report.preAudible)
             {
                 ++proven;

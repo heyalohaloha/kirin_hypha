@@ -14,6 +14,7 @@
 #include "LiveCompareAuthority.h"
 #include "LiveCompareTimingPreparation.h"
 #include "LiveCompareReentry.h"
+#include "CandidateProcessorState.h"
 #include "LiveCompareGainApproval.h"
 #include "LiveBlindPreparation.h"
 #include "LiveCompareContentHold.h"
@@ -43,6 +44,8 @@ struct LiveBlindStatus
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
     ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
     bool prolongedWait = false, signalWait = false;
+    bool candidate = false, candidateBypassed = false, candidateHostInactive = false;
+    int matchSecondsRemaining = 0;
     bool clockUnavailable = false;  // the host reports neither a continuous clock nor output latency: PRE cannot be heard
 };
 
@@ -81,6 +84,7 @@ struct ProcessorState
 {
     std::unique_ptr<chain_trace::Recorder> trace = chain_trace::Recorder::fromEnvironment();
     Authority authority;
+    CandidateProcessorState candidate;
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
@@ -151,13 +155,16 @@ struct ProcessorState
     OffsetMonitor::Step contentStep;
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
+    std::uint64_t candidateConfirmStart = 0;      // message thread: A/B's short wait for content
+    std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
     OffsetWindow contentWindow;
     ContentHold contentHold;      // INV-LC10: the content offset jumped
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved
     std::atomic<bool> autoAlign { true };         // INV-LC28; saved only when off
-    std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 };
+    std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 }, alignPeer { 0 };
+    AlignmentConditions alignmentConditions; // Audio Thread only
     AlignContext alignServiced;                  // message thread: the monitor's pair and format
     std::uint64_t alignPreferenceSeen = 0;
     AlignContext alignContext() const noexcept
@@ -171,6 +178,8 @@ struct ProcessorState
     std::uint64_t hostResetSeen = 0, stopSeen = 1; // Audio Thread only
     bool wasPlaying = false;                      // Audio Thread only
     std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
+    std::atomic<std::uint64_t> compensationRevision { 0 };
+    std::uint64_t compensationSeen = 0;
     bool compensationWasOff = false;              // Audio Thread only
     // Shared callback result for analysis, LISTEN and BLIND; never persisted.
     std::atomic<LoopPairingBlock> loopBlock { LoopPairingBlock::none };

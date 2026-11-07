@@ -36,7 +36,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         instruction = playing ? "Returning to normal level" : "Return waiting for audio";
     else if (current.stage == Stage::approval)
     {
-        instruction = "Lower POST to match levels?";
+        instruction = current.candidate ? "Lower B to match levels?" : "Lower POST to match levels?";
         explanation = "Lower " + juce::String (std::abs (current.lowerPostDb), 1)
             + " dB; END returns the same amount";
     }
@@ -50,11 +50,23 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         instruction = ! current.trial.fallbackForCeiling ? "POST was used briefly when timing was unavailable"
             : ! current.trial.fallbackForTiming ? "POST played where PRE went over the ceiling"
             : "POST played for timing and the PRE ceiling";
+    if (revealed && current.candidate && current.trial.usedPostFallback)
+        instruction = "Chain audio was used briefly";
+    if (current.candidate && current.stage == Stage::preparing && current.matchSecondsRemaining > 0)
+    {
+        instruction = "MATCH: " + juce::String (current.matchSecondsRemaining) + " s remaining";
+        if (current.signalWait) screen.guidanceShown = false;
+    }
     screen.instruction = screen.guidanceShown ? juce::String() : instruction;
+    if (current.candidate) explanation += "; END restores the A to B chain";
     screen.detail = explanation;
     if (live && !revealed && repeatingAudio) screen.detail = "Repeated audio: checked per block";
-    screen.sourceOne = revealed ? (current.trial.firstPre ? "1: PRE" : "1: POST") : "SOURCE 1";
-    screen.sourceTwo = revealed ? (current.trial.firstPre ? "2: POST" : "2: PRE") : "SOURCE 2";
+    const char* firstA = current.candidate ? "1: A" : "1: PRE";
+    const char* firstB = current.candidate ? "1: B" : "1: POST";
+    const char* secondA = current.candidate ? "2: A" : "2: PRE";
+    const char* secondB = current.candidate ? "2: B" : "2: POST";
+    screen.sourceOne = revealed ? (current.trial.firstPre ? firstA : firstB) : "SOURCE 1";
+    screen.sourceTwo = revealed ? (current.trial.firstPre ? secondB : secondA) : "SOURCE 2";
     screen.sourceOneEnabled = screen.sourceTwoEnabled = live;
     // Before the first source is ready the two buttons stand unlit, so the screen is not END alone.
     screen.sourcesShown = live || (! screen.guidanceShown && (current.stage == Stage::preparing || current.stage == Stage::settling));
@@ -67,10 +79,10 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             || guidance.reason == live_compare::RecoveryReason::preLate)
         && !(screen.revealShown && screen.revealEnabled);
     screen.approveShown = current.stage == Stage::approval && !current.compensationOff;
-    screen.approveTitle = "Lower POST and begin Blind";
+    screen.approveTitle = current.candidate ? "Lower B and begin Blind" : "Lower POST and begin Blind";
     screen.approveDescription = explanation;
     screen.endEnabled = ! finishing;
-    screen.endTitle = "End and restore normal level";
+    screen.endTitle = current.candidate ? "End A/B and restore the chain" : "End and restore normal level";
     return screen;
 }
 }

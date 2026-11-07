@@ -120,6 +120,7 @@ public:
         const auto proof = proofWord (block);
         // An absent token exempts only the token and its bound; every other proof item is compared.
         auto compared = block; retainReaperToken (compared, previousBlock);
+        adoptFirstReaperToken (previousBlock, compared);
         const bool proofChanged = havePrevious && ! sameClockProof (previousBlock, compared);
         observeReaperIntervals (intervals, previousBlock, block, rate,
             !havePrevious || movement.broken || cycle.changed || proofChanged);
@@ -238,7 +239,9 @@ public:
             && post.frames > 0 && ! post.afterGap;
         const bool sourceChanged = haveSource && (generation != pre.generation
             || previous.ownerA != pre.ownerA || previous.ownerB != pre.ownerB);
-        const bool postProofChanged = havePostProof && ! sameClockProof (previousPost, post);
+        auto comparedPost = post; retainReaperToken (comparedPost, previousPost);
+        adoptFirstReaperToken (previousPost, comparedPost);
+        const bool postProofChanged = havePostProof && ! sameClockProof (previousPost, comparedPost);
         if (coherent) { previous = pre; generation = pre.generation; haveSource = true; }
         std::int64_t start = 0, preEnd = 0, age = 0;
         const bool addressValid = ! valid
@@ -308,7 +311,7 @@ public:
                 streak = 0;
         }
         havePrevious = active;
-        previousPost = post;
+        previousPost = comparedPost;
         havePostProof = active;
         std::int64_t observedEnd = 0, availableEnd = 0;
         const bool inObservedRange = valid && addressValid && start >= pre.anchor.runStart

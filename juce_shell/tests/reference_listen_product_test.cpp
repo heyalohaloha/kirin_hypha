@@ -43,7 +43,7 @@ Heard heard (const NoticeRig& r)
     double input = 0.0, output = 0.0, cross = 0.0, sine = 0.0, cosine = 0.0;
     for (int n = 0; n < 512; ++n)
     {
-        const double value = 0.05f * std::sin (float (start + n) * 0.071f);
+        const double value = NoticeRig::sourceSample (start + n, 0);
         const double out = r.postAudio.getSample (0, n);
         input += value * value; output += out * out; cross += value * out;
         const double phase = 6.283185307179586 * 1500.0 * n / 48000.0;

@@ -122,9 +122,21 @@ Reference比較試聴（B・C・V）のMATCHが比較ceilingを超えるとき�
 上限で届かないときも押した役は止めず、参照を上限まで上げて鳴らし、足りない量を状態の行で言う。0.5 dB（聞いて分からない
 差）を超えるときは、Aを下げるボタンを足す。押したときのMATCH・追従・CのMATCHのやり直しで同じ。（2026-11-04技術契約）
 
+利用者が明示して開始する A/B 比較では、同じトラックの PRE1 → A → PRE2 → B → POST の配置を
+一度確認し、実機はA・Bのどちらにも置ける。PRE2 が差し替え前の入力 a を公開してから、PRE1 の ring で対応を確かめた元音 x を
+A の遅延分だけ遅らせて B へ渡せる。定常 gain は 1、追加 latency は 0。
+POST は通常 pair を変えずに既存 LIVE の比較相手だけを PRE2 にする。差し替えた範囲を確認できない
+POST 入力を B の聴取・MATCH に数えない。内容の確認待ちは短く区切り、Aが遅い時や確かめられない時も
+Aを時計の位置のまま鳴らして短い札で知らせ、Bへ戻さない（時計の証明は省かない）。
+通常の測定・履歴・Record・Keep・Reference Capture へ
+比較入力を混ぜず、Record／Keep 中は開始しない。END・失効で通過へ戻し、保存・復元で再開しない。
+POST 消失時も期限で PRE2 が通過へ戻る。PRE2 の受信と公開は別領域で、Audio Thread の確保・lock・待ちは禁止。
+配置を音や時計から推定しない。host のトラック名の違いは案内だけとし、通常 pair／state の形を維持する。
+（契約: `docs/planning/hypha_candidate_compare_contract.md`、INV-AB）
+
 Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。Reference比較試聴では、
 非RT側で検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。
-live比較では、PREは事前確保済みの転送領域への書込みと周回の公開だけを、POSTは同じ領域の読取り、
+live比較では、PREは事前確保済みの転送領域への書込みと周回の公開、明示 A/B 中の PRE2 は別領域の読取りと確認済み出力を、POSTは同じ領域の読取り、
 対応の判定、承認済みPOST減衰の適用を含むRT-safeな出力だけを許可する。
 いずれもAudio Threadでのアロケーション、ロック、ブロッキングI/Oは禁止する。
 

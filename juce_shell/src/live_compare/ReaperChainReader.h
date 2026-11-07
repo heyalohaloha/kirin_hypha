@@ -67,7 +67,7 @@ inline bool reaperIdentityNamesClass (const std::string& identity, const char* c
 
 inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* project, void* track,
                                             void* take, std::uint64_t process,
-                                            ReaperChainRestriction* restriction = nullptr)
+                                            ReaperChainRestriction* restriction = nullptr, bool returnOnly = false)
 {
     const auto reject = [&] (ReaperChainRestriction reason) {
         if (restriction) *restriction = reason; return ReaperPdcObservation {}; };
@@ -79,10 +79,11 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
     const auto changes = api.changes (project);
     const auto count = api.count (track);
     if (api.inputCount (track) != 0) return reject (ReaperChainRestriction::inputFx);
-    if (count < 2 || count > 256) return {};
+    if (count < (returnOnly ? 1 : 2) || count > 256) return {};
     const auto channels = api.trackInfo (track, "I_NCHAN");
     if (!(channels <= 2 && channels >= 2)) return reject (ReaperChainRestriction::channels); // mono inserts on a two-channel track are allowed
     ReaperFingerprint hash;
+    hash.number (returnOnly);
     hash.number (process); hash.number (reinterpret_cast<std::uintptr_t> (project));
     const auto* trackId = api.trackGuid (track);
     if (!trackId) return {};
@@ -105,7 +106,7 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
     auto integer = [&] (int fx, const char* key, std::uint32_t& out)
     { std::string value; if (!read (fx, key, value) || !reaperUnsigned (value, out)) return false;
       hash.text (key); hash.text (value); return true; };
-    int pre = -1, post = -1;
+    int pre = -1, post = -1, preCount = 0;
     std::uint32_t actual = 0;
     std::vector<std::array<unsigned char, 16>> ids;
     for (int i = 0; i < count; ++i)
@@ -121,17 +122,19 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
         // Only the actual VST3 class identifier names a role. Renamed FX labels never do.
         const bool isPre = type == "VST3" && reaperIdentityNamesClass (identity, "4B6972696E4879706861505245763031");
         const bool isPost = type == "VST3" && reaperIdentityNamesClass (identity, "4B6972696E4879706861504F53547631");
-        if (isPre) { if (pre >= 0) return {}; pre = i; }
+        if (isPre) { if (++preCount > 2 && !returnOnly) return {}; pre = i; }
         if (isPost) { if (post >= 0) return {}; post = i; }
-        if (type == "Container" || type == "ReWire" || type == "ReaInsert"
-            || original.find ("ReaInsert") != std::string::npos) return reject (ReaperChainRestriction::routing);
+        if (type == "Container" || type == "ReWire")
+            return reject (ReaperChainRestriction::routing);
         // container_count is absent for ordinary FX. A successful container/parent response
         // is not coerced to zero; this route has no container or nested-slot proof.
         if (read (i, "container_count", value) || read (i, "parent_container", value)) return reject (ReaperChainRestriction::routing);
         hash.text (type); hash.text (identity); hash.text (original);
         const bool on = api.enabled (track, i), off = api.offline (track, i);
         hash.number (on); hash.number (off);
-        if ((isPre || isPost) && (!on || off)) return {};
+        // A bypassed PRE supplies no timing/PCM, but its chain latency can still be observed
+        // while the ordinary source pair drains an ended candidate comparison.
+        if (isPost && (!on || off)) return {};
         std::uint32_t pdc = 0, mode = 0, parallel = 0, instanceOversample = 0, chainOversample = 0;
         std::uint32_t delay = 0, reporting = 0;
         if (!integer (i, "pdc", pdc) || !integer (i, "chain_pdc_actual", delay)
@@ -139,11 +142,13 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
             || !integer (i, "parallel", parallel) || !integer (i, "instance_oversample_shift", instanceOversample)
             || !integer (i, "chain_oversample_shift", chainOversample)) return {};
         if (mode != 1) return reject (ReaperChainRestriction::pdcMode);
-        if (parallel != 0 || instanceOversample != 0 || chainOversample != 0) return reject (ReaperChainRestriction::routing);
-        if (delay < reporting || delay > ReaperTimingLimits::delay || (i > 0 && delay != actual)) return {};
+        if (parallel != 0 || (!returnOnly && (instanceOversample != 0 || chainOversample != 0))) return reject (ReaperChainRestriction::routing);
+        if (delay < reporting || (!returnOnly && delay > ReaperTimingLimits::delay) || (i > 0 && delay != actual)) return {};
         actual = delay;
     }
-    if (pre < 0 || post <= pre || api.count (track) != count || api.changes (project) != changes
+    // Observing the current serial chain supports either hardware placement. PRE2 still
+    // requires its own current clock/ring correspondence before substituting any audio.
+    if (post < 0 || (!returnOnly && (pre < 0 || post <= pre)) || api.count (track) != count || api.changes (project) != changes
         || (api.playing (project) & 3) != 1) return {};
     if (restriction) *restriction = ReaperChainRestriction::none;
     return { hash.a, hash.b, actual, hash.a != 0 && hash.b != 0 };

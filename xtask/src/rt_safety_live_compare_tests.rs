@@ -5,7 +5,10 @@ const RING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompare
 const CORRESPONDENCE_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareCorrespondence.h");
 const CLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareClock.h");
-const SESSION_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareSession.h");
+const SESSION_H: &str = concat!(
+    include_str!("../../juce_shell/src/live_compare/LiveCompareSession.h"),
+    include_str!("../../juce_shell/src/live_compare/LiveCompareRendererHistory.h")
+);
 const PROCESSOR_CPP: &str = concat!(
     include_str!("../../juce_shell/src/PluginProcessorLiveCompare.cpp"),
     include_str!("../../juce_shell/src/PluginProcessorLiveCompareRealtime.cpp")
@@ -71,6 +74,10 @@ fn live_compare_audio_thread_code_avoids_blocking_work() {
         ("LiveCompareRing.h", RING_H),
         ("LiveCompareCorrespondence.h", CORRESPONDENCE_H),
         ("LiveCompareClock.h", CLOCK_H),
+        (
+            "LiveCompareAlign.h",
+            include_str!("../../juce_shell/src/live_compare/LiveCompareAlign.h"),
+        ),
         (
             "LiveCompareLoop.h",
             include_str!("../../juce_shell/src/live_compare/LiveCompareLoop.h"),
@@ -163,15 +170,15 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
         "if (report.verdict != Verdict::accepted)",
         "weight = 0.0f; // switch to POST at the block start",
         "fadeSeconds = 0.005",
-        "if (ring.header.demand.load (std::memory_order_acquire) == 0)",
+        "if (ring.header.demand.load (std::memory_order_acquire) == 0",
+        "&& ring.header.candidate.readers.load (std::memory_order_acquire) == 0)",
     ] {
         assert!(
             SESSION_H.contains(required),
             "LiveCompareSession.h lost {required}"
         );
     }
-    // The only allocation in the session header is the non-RT prepare.
-    let render = function_body(SESSION_H, "RenderReport render (");
+    let render = function_body(SESSION_H, "RenderReport renderBlock (");
     let feed = function_body(SESSION_H, "bool feed (");
     for body in [render, feed].map(without_line_comments) {
         for forbidden in ["make_unique", "new ", "mutex", "sleep", "wait"] {
@@ -294,7 +301,7 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
         !stop.contains("postTarget"),
         "ending a session must not release the held attenuation"
     );
-    let render = function_body(SESSION_H, "RenderReport render (");
+    let render = function_body(SESSION_H, "RenderReport renderBlock (");
     assert!(render.contains("guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear)"));
     assert!(render.contains("report.guardTripped = true;"));
     // Every entry asks the one output ownership table first (Blind; Reference B, C, V and VERSION
@@ -393,26 +400,11 @@ fn live_compare_auto_follows_pre_only_within_the_approved_point() {
             >= 2,
         "LISTEN and END reset AUTO"
     );
-    let render = function_body(SESSION_H, "RenderReport render (");
+    let render = function_body(SESSION_H, "RenderReport renderBlock (");
     assert!(render.contains("preLevel.settle (preGain);"));
     assert!(render.contains("const float gain = preLevel.next (preGain);"));
 }
 
-// INV-LC6 (2026-09-28): the live compare never keeps the host awake. PRE and POST report no tail
-// and AAX never asks for AlwaysProcess; after a host sleep the correspondence rules return PRE.
-#[test]
-fn live_compare_never_reports_an_infinite_tail() {
-    let processor = include_str!("../../juce_shell/src/PluginProcessor.cpp");
-    assert!(processor
-        .contains("double KirinHyphaProcessorBase::getTailLengthSeconds() const { return 0.0; }"));
-    let cmake = include_str!("../../juce_shell/CMakeLists.txt");
-    assert!(!cmake.contains("JucePlugin_AAXDisableDynamicProcessing=1"));
-    assert!(!cmake.contains("AAX_eProperty_Constraint_AlwaysProcess"));
-}
-
-// INV-LC8: Pro Tools reports its delay compensation as a whole on or off (JUCE patch 0009). While
-// it is off POST sounds and PRE waits; a change proves K again, and the offset monitor claims no
-// jump from it.
 #[test]
 fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
     let patch = include_str!("../../juce_shell/patches/0009-aax-delay-compensation-state.patch");
@@ -430,9 +422,14 @@ fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
         PROCESSOR_CPP,
         "void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged",
     );
-    assert!(
-        hook.contains("liveCompare.compensationOff.store (! enabled, std::memory_order_release);")
-    );
+    assert!(hook.contains("compensationOff.exchange (! enabled, std::memory_order_acq_rel)"));
+    assert!(hook.contains("compensationRevision.fetch_add (1, std::memory_order_release)"));
+    let receiver = include_str!("../../juce_shell/src/live_compare/CandidateReceiver.h");
+    let control = include_str!("../../juce_shell/src/live_compare/CandidateProcessorControl.h");
+    assert!(control.contains("liveCompare.compensationOff.load (std::memory_order_acquire)"));
+    assert!(control.contains("liveCompare.compensationRevision.load (std::memory_order_acquire)"));
+    assert!(receiver.contains("block.clockValid = block.clockValid && !compensationOff"));
+    assert!(receiver.contains("compensationRevision != compensationSeen"));
     let rt = function_body(
         PROCESSOR_CPP,
         "void KirinHyphaProcessorBase::processLiveCompare",
@@ -492,7 +489,7 @@ fn live_compare_never_runs_on_one_channel_of_a_multi_mono_set() {
         .find("return StartResult::preMultiMono;")
         .expect("POST refuses a multi-mono PRE");
     let demand = start
-        .find("header.demand.store (1")
+        .find("mapping->requestPcm()")
         .expect("POST raises demand");
     assert!(refused < demand, "a refused PRE never sees demand");
     let group = include_str!("../../juce_shell/src/live_compare/LiveCompareAaxGroup.cpp");

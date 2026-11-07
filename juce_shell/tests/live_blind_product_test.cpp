@@ -7,6 +7,7 @@
 #include "LiveTimingFixtureAccess.h"
 #include "LiveBlindLoopFixture.h"
 #include "TestProcessorStorage.h"
+#include "CandidateProductTest.h"
 #include <atomic>
 #include <array>
 #include <chrono>
@@ -463,16 +464,31 @@ int main (int argc, char** argv)
 {
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
     auto signal = readFixture (argv[1]);
-    ReferenceValidationStorageSandbox sandbox;
+    auto sandbox = std::make_unique<ReferenceValidationStorageSandbox>();
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
-    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
+    hypha::pre_display::Controller::placeUnderForTest (sandbox->directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
+    if (argc == 3 && std::string (argv[2]) == "--candidate-stopped-return-only") { hypha::tests::verifyCandidateStoppedSourceReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-return-only")
+    { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only")
+    { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-only")
+    { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
     using Reason = hypha::live_compare::RecoveryReason;
     const auto mode = argc == 3 ? std::string (argv[2]) : std::string();
+    if (mode.empty())
+    {
+        hypha::tests::verifyCandidateProduct (require, sandbox->directory());
+        // The next scenario must discover its own PRE, not scan every completed fixture.
+        sandbox.reset();
+        sandbox = std::make_unique<ReferenceValidationStorageSandbox>();
+        hypha::pre_display::Controller::placeUnderForTest (sandbox->directory());
+    }
     const auto fault = mode == "--fault" ? Reason::compensationOff
         : mode == "--fault-gap" ? Reason::callbackGap : mode == "--fault-content" ? Reason::contentChanged
         : mode == "--fault-stop" ? Reason::stopped : Reason::none;

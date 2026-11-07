@@ -58,7 +58,7 @@ inline bool loopAddressIsCurrent (const LoopAnchor& anchor, const BlockClock& pr
     if (reaperRuntimeAge (pre, post) > 0)
     {
         std::int64_t address = 0, expected = 0;
-        return reaperWindowAddress (anchor, pre, post, rate, capacity, address)
+        return reaperProvenAddress (anchor, pre, post, rate, capacity, address)
             && checkedClockSubtract (post.clock, k, expected) && address == expected;
     }
     if ((k < 0 && post.clock > std::numeric_limits<std::int64_t>::max() + k)

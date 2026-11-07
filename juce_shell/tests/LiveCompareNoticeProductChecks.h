@@ -151,17 +151,21 @@ struct NoticeRig
     }
     void close() { if (editor) post->editorBeingDeleted (editor.get()); editor.reset(); }
     observatory::View& view() { return *component<observatory::View> (*editor); }
+    // A distinct broadband position lets the default-ON content check complete.
+    static float sourceSample (std::int64_t position, int channel)
+    {
+        auto bits = static_cast<std::uint64_t> (position * 2 + channel) + 0x9E3779B97F4A7C15ull;
+        bits = (bits ^ (bits >> 30)) * 0xBF58476D1CE4E5B9ull;
+        bits = (bits ^ (bits >> 27)) * 0x94D049BB133111EBull;
+        bits ^= bits >> 31;
+        return (static_cast<float> (bits >> 40) / 16777216.0f - 0.5f) * 0.1f;
+    }
     void block()
     {
         for (int c = 0; c < 2; ++c)
         for (int n = 0; n < 512; ++n)
         {
-            // A distinct broadband position lets the default-ON content check complete.
-            auto bits = static_cast<std::uint64_t> ((clock.position + n) * 2 + c) + 0x9E3779B97F4A7C15ull;
-            bits = (bits ^ (bits >> 30)) * 0xBF58476D1CE4E5B9ull;
-            bits = (bits ^ (bits >> 27)) * 0x94D049BB133111EBull;
-            bits ^= bits >> 31;
-            const auto value = (static_cast<float> (bits >> 40) / 16777216.0f - 0.5f) * 0.1f;
+            const auto value = sourceSample (clock.position + n, c);
             preAudio.setSample (c, n, value); postAudio.setSample (c, n, chainGain * value);
         }
         pre->processBlock (preAudio, midi);
@@ -199,11 +203,15 @@ struct NoticeRig
         auto preview = post->createPairPreview();
         require (pair_preview::request (preview), "actual PRE discovery request");
         // The PRE publishes on its own thread; a loaded runner can take seconds (10 s, as elsewhere).
+        // A scan can complete before it has published, so ask again as the other product fixtures do.
+        auto requested = std::chrono::steady_clock::now();
         for (int n = 0; n < 500; ++n)
         {
             advance (0.02); KirinPairPreviewValue value {};
             if (kirin_hypha_pair_preview_poll (preview.get(), &value) && value.complete && value.has_single)
             { require (post->setPairCandidate (pre->instanceId(), "Fixture PRE"), "actual PRE selected"); return; }
+            if (std::chrono::steady_clock::now() - requested > std::chrono::milliseconds (1050)
+                && pair_preview::request (preview)) requested = std::chrono::steady_clock::now();
         }
         require (false, "PRE discovery deadline");
     }

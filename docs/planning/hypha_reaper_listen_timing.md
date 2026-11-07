@@ -65,6 +65,12 @@ inside the preceding callback. Admission of the current crossing block uses its 
 the next callback separately verifies the wrap and preserves the maps. This covers the first
 delayed POST tail before POST itself wraps. Once measured, L must exceed U. An unverified block
 or short prefix waits; BLIND retains its assignment while POST covers that wait.
+
+POST's callbacks need not share PRE's grid, and PDC usually leaves them apart. Once K is proven,
+a verified wrap joins the two maps: a POST block may run from the first map into the second, or
+start in the remainder of the crossing callback, which is the second map before its split.
+Project still names exactly one address and it must equal K's, so the wrap costs no block on any
+callback grid. A new K binds only to a whole callback inside one map.
 The existing eight-block calibration still applies to REAPER. The API value is an upper bound,
 never K. Without it, the previous linear-proof continuation retains its fixed 73728-sample
 verified-address envelope. REAPER's measurement-only compensated project coordinate remains K=0.

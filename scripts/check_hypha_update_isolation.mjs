@@ -57,7 +57,8 @@ test('module statics cannot retain workers and editor closes cannot release the 
   assert.doesNotMatch(checker, /static\s+[^;]*shared_ptr<Checker>/);
   const editor = read('juce_shell/src/PluginEditorUpdate.cpp');
   assert.match(editor, /processorRef\.updateServicesForEditor\(\)\.get/);
-  const processor = withoutComments(read('juce_shell/src/PluginProcessor.cpp'));
+  const processor = withoutComments(read('juce_shell/src/PluginProcessor.cpp')
+    + read('juce_shell/src/ProcessorAudioCallback.h'));
   assert.doesNotMatch(processor, /updateService|updateChecker|fetchOfficialManifest|hypha::update/);
 });
 

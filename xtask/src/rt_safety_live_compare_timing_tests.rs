@@ -12,18 +12,23 @@ const CHAIN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompar
 
 #[test]
 fn content_alignment_moves_only_the_audition_address() {
-    let render = function_body(SESSION_H, "RenderReport render (");
-    assert!(render.contains("wantedAlign != alignApplied && weight <= 0.0f"));
-    assert!(render
-        .contains("(! blind || ! preSelected || ! align.enabled || alignApplied.verifySamples)"));
-    assert!(render.contains("! matchingScaledBlock (io, scratch, channels, block.frames)"));
+    let render = function_body(SESSION_H, "RenderReport renderBlock (");
+    let alignment = function_body(ALIGN_H, "AlignUpdate update (AlignPlayback playback");
+    assert!(alignment.contains("wanted != applied && weight <= 0.0f"));
+    assert!(alignment
+        .contains("(! blind || ! preSelected || ! playback.enabled || applied.verifySamples)"));
+    assert!(render.contains(
+        "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
+    ));
     assert!(render.contains("align.outputAllowed && ! alignFading"));
-    assert!(render
-        .contains("alignRequest.read (align.context, alignApplied, alignRevision, &alignCurrent,"));
-    assert!(render.contains("alignAppliedRevision == alignRevision"));
-    assert!(function_body(SESSION_H, "void prepare (").contains("alignReadiness.newContext()"));
-    assert!(render
-        .contains("consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignApplied)"));
+    assert!(
+        alignment.contains("requested.read (context, applied, result.revision, &result.current,")
+    );
+    assert!(alignment.contains("appliedRevision == result.revision"));
+    assert!(function_body(SESSION_H, "void prepare (").contains("alignment.readiness.newContext()"));
+    assert!(render.contains(
+        "consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value())"
+    ));
     let history = function_body(SESSION_H, "void recordHistory (");
     assert!(!history.contains("align"));
     assert!(history.contains("decision.k"));
@@ -79,16 +84,22 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
             < display.find("preparedFormat.sampleRate").unwrap()
     );
     assert!(display.contains("! formatLock.isLocked() || formatChangeHeld.load"));
-    assert!(
-        format.find("renderer.clearAlignDisplay()").unwrap()
-            < format.find("preparedFormat =").unwrap()
-    );
+    let frames = function_body(content, "KirinHyphaProcessorBase::liveCompareAlignFrames()");
+    assert!(frames.contains("renderer.alignFrames (liveCompare.alignContext())"));
+    assert!(ALIGN_H.contains("shown.read (forContext)"));
+    assert!(rendered_alignment_requires_acceptance());
     assert!(ALIGN_H.contains("ownerA == other.ownerA && ownerB == other.ownerB"));
     assert!(read.contains("ownerA.load(), ownerB.load()"));
-    assert!(function_body(SESSION_H, "RenderReport render (")
+    assert!(function_body(SESSION_H, "RenderReport renderBlock (")
         .contains("align.context = alignOwner (align.context, ring)"));
     let state = include_str!("../../juce_shell/src/PluginProcessorState.cpp");
     assert!(!state.contains("requestAlign"));
+}
+
+fn rendered_alignment_requires_acceptance() -> bool {
+    let render = function_body(SESSION_H, "RenderReport renderBlock (");
+    render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied()")
+        && ALIGN_H.contains("if (playback.context != context)")
 }
 
 #[test]

@@ -175,6 +175,14 @@ void verifyLiveCompareOffset()
     std::printf ("offset: pure tone -> determined %d, lag %lld (peak %.3f, dominance %.2f)\n", tone.determined ? 1 : 0,
                  static_cast<long long> (tone.lagFrames), tone.peak, tone.dominance);
     require (tone.determined && tone.verifySamples, "a repeating tone requires a check of every output block");
+    const auto toneAt = [] (std::int64_t n) { return static_cast<float> (0.3 * std::sin (2.0 * 3.14159265358979323846 * static_cast<double> (n % 48 + 48) / 48.0)); };
+    for (std::int64_t n = 0; n < frames; ++n)
+        post[static_cast<std::size_t> (n)] = -0.5f * toneAt (n);
+    for (std::int64_t i = 0; i < frames + 2 * lag; ++i)
+        pre[static_cast<std::size_t> (i)] = toneAt (i - lag);
+    const auto inverted = estimateOffset (post, pre, lag);
+    require (inverted.determined && inverted.verifySamples && inverted.lagFrames == 0,
+             "polarity does not move a repeating tone half a period away from the mapping");
     const auto echo = [] (std::int64_t n) { return noise (n) + noise (n - 500); };
     for (std::int64_t n = 0; n < frames; ++n)
         post[static_cast<std::size_t> (n)] = echo (n);

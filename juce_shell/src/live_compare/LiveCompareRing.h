@@ -1,5 +1,6 @@
 #pragma once
 #include "LiveCompareTimingWitness.h"
+#include "CandidateTransfer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -14,9 +15,9 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-// PRE and POST ship together. 11: PRE names positions the host did not report (INV-LC27), which a
-// reader of an older version would count as observations, so it must not find this ring at all.
-constexpr std::uint32_t ringVersion = 11;
+// PRE and POST ship together. 16 keeps each candidate request's return receipt under its token.
+// Older mappings must not be interpreted with this layout.
+constexpr std::uint32_t ringVersion = 16;
 constexpr std::uint32_t ringChannels = 2;
 constexpr std::uint32_t ringCapacityFrames = 1u << 20; // power of two: about 5.46 s at 192 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
@@ -73,6 +74,7 @@ struct RingHeader
     std::atomic<std::int64_t> runProject { 0 }, loopClock { 0 }, loopProject { 0 };
     std::atomic<std::uint32_t> anchorFlags { 0 }; // bit 0: linear origin; bit 1: loop anchor
     std::atomic<double> loopPpq { 0 }, loopStart { 0 }, loopEnd { 0 }, loopBpm { 0 };
+    CandidateTransfer candidate; // optional A/B authority; ordinary LIVE leaves it idle
     TimingHeader timing; // clock-only preparation; never authorises output or claims PCM exists
     BlockDescriptor descriptors[ringDescriptors];
 };
@@ -95,6 +97,13 @@ struct Ring
         h.source.store (source, std::memory_order_relaxed);
         h.pairKey.store (pairKey, std::memory_order_relaxed);
         h.demand.store (0, std::memory_order_relaxed);
+        h.candidate.owner.store (0); h.candidate.source.store (0); h.candidate.deadline.store (0);
+        h.candidate.readers.store (0); h.candidate.hostInactive.store (false);
+        h.candidate.untouched.store (0); h.candidate.clearReturns();
+        h.candidate.published.store (0); h.candidate.bypassed.store (false);
+        h.candidate.released.store (0); h.candidate.sourceOwnerA.store (0); h.candidate.sourceOwnerB.store (0);
+        h.candidate.leaseSequence.store (0); h.candidate.leaseOwner.store (0); h.candidate.track.store (0);
+        h.candidate.publish (0, 0, 0, 0, false);
         h.ownerClosed.store (0, std::memory_order_relaxed);
         h.seq.store (0, std::memory_order_relaxed);
         h.run.store (0, std::memory_order_relaxed);

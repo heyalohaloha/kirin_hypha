@@ -22,6 +22,13 @@ juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enum
     return out;
 }
 
+juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enumeratePreCandidatesForMenu() const
+{
+    auto result = enumeratePreCandidates(); // release the FFI lock before host state callbacks
+    hypha::live_compare::describeCandidateNames (result, nativeHostContext.reaper.candidateNames());
+    return result;
+}
+
 juce::Array<KirinHyphaProcessorBase::PostPairClaim> KirinHyphaProcessorBase::enumeratePostPairClaims() const
 {
     juce::Array<PostPairClaim> out;

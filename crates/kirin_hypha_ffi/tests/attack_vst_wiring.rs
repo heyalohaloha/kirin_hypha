@@ -51,12 +51,10 @@ fn function_body(source: &str, signature: &str) -> String {
 
 #[test]
 fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    let callback = slice_between(
-        &processor,
-        "void KirinHyphaProcessorBase::processBlock",
-        "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
-    );
+    assert!(read_repo("juce_shell/src/PluginProcessor.cpp")
+        .contains("#include \"ProcessorAudioCallback.h\""));
+    let processor = read_repo("juce_shell/src/ProcessorAudioCallback.h");
+    let callback = function_body(&processor, "void KirinHyphaProcessorBase::processBlock");
     assert!(callback.contains("feedMeasurementInput (buffer,"));
     let measurement = read_repo("juce_shell/src/PluginProcessorMeasurementIngress.cpp");
     let input = slice_between(

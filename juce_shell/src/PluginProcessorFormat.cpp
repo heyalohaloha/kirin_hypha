@@ -3,6 +3,7 @@
 #include "PluginEditor.h"
 #include "HyphaChainClockPolicy.h"
 #include "HyphaLiveCompareClockPolicy.h"
+#include "live_compare/CandidateEngineHold.h"
 
 // Format binding: which audio format the Rust engine is built for, and what happens when the host
 // negotiates a different one. Split out of PluginProcessor.cpp in B-961, when an incompatible
@@ -54,10 +55,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     if (! preparedFormat.matches (sampleRate, roles))
     {
         liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
+        liveCompare.candidate.returnContext.fetch_add (1, std::memory_order_acq_rel); // old-rate settling never carries over
        #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
         if (hypha::live_compare::afterAlignFormatChangeForTest) hypha::live_compare::afterAlignFormatChangeForTest();
        #endif
-        liveCompare.renderer.clearAlignDisplay(); // never display old frames with the new rate
     }
     normalizeSpectrumSelectionForInputChannels (numCh);
     // B-141: Studio One offline bounce re-prepares after All Keep entered Record. The block size
@@ -88,12 +89,17 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     watchSilenceGate.reset();
     writesEnabled.store (false, std::memory_order_release);
     analysisApplication.engineDestroyed();
+    KirinHyphaLocalBlindHold* candidateExclusion = nullptr; // an ended A/B still draining its return
     if (hyphaHandle != nullptr)
     {
+        if (liveCompare.candidate.scope != 0)
+            candidateExclusion = kirin_hypha_detach_local_blind (hyphaHandle, liveCompare.candidate.scope);
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
     hyphaHandle = kirin::createEngineForRoles (sampleRate, roles);
+    if (candidateExclusion != nullptr && ! kirin_hypha_attach_local_blind (hyphaHandle, candidateExclusion))
+        liveCompare.candidate.scope = 0;
     // Every AAX host feeds SHARP through the engine-clock route: a certified build proves K within
     // its documented bound, any other build only through LISTEN's linear proof (AaxAnalysisClock.h).
     // LIVE and the absolute PSB keep the project timeline, so they never wait for either proof.

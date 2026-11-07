@@ -15,7 +15,12 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     // The host has quiesced callbacks for destruction. Retire the C++ PRE mapping before the
     // Rust engine releases its identity claim, so a new owner can create the same ring at once.
     stopLiveCompareForFormatChange();
-    jassert (! liveCompare.ring.hasStorage());
+    // A format change keeps POST's drain receipt and exclusion; final destruction has no future callback.
+    if (liveCompare.candidate.scope != 0) releaseLocalBlindProductScope (liveCompare.candidate.scope);
+    liveCompare.ring.retire();
+    const bool collected = liveCompare.ring.collect();
+    jassert (collected && ! liveCompare.ring.hasStorage());
+    juce::ignoreUnused (collected);
     preparedProductMode.store (static_cast<uint8_t> (kirin::PreparedProductMode::none), std::memory_order_release);
     if (hyphaHandle != nullptr)
     {

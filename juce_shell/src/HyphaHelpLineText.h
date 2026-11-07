@@ -52,9 +52,13 @@ inline constexpr std::array<Shortened, 10> row {{
 }};
 
 // The footer's own controls: only the status at the left of the footer is theirs.
-inline constexpr std::array<Shortened, 12> footer {{
+inline constexpr std::array<Shortened, 16> footer {{
     { "Stereo shape over 80 ms: vertical is shared sound, horizontal is difference. BAL and CORR use 3 s.",
       "80 ms: vertical shared, horizontal difference" },
+    { "Match A to B loudness over the latest four seconds", "Match A to B over the latest 4 s" },
+    { "Press MATCH to match again or start AUTO (A follows B)", "Press MATCH to rematch or start AUTO" },
+    { "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO", "AUTO: A follows B. Press for MATCH or stop AUTO" },
+    { "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again", "MATCH at TP ceiling. Press to measure again" },
     { "Finish Keep / Record before PRE / POST Blind", "Finish Keep / Record before Blind" },
     { "Switch between PRE and POST while playing. Comparison continues when this window closes",
       "Switch PRE and POST while the song plays" },

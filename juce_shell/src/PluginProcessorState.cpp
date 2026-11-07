@@ -57,6 +57,9 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     stateInformationSeen.store (true, std::memory_order_release);
     // Revoke the old output before waiting for any non-RT pair operation.
     const auto restore = liveCompare.authority.restoringState();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare::afterLiveBlindRestoreFenceForTest) hypha::live_compare::afterLiveBlindRestoreFenceForTest();
+   #endif
     const juce::ScopedLock pairLock (automaticPair.lock);
     requestServiceTimer();
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May

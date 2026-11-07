@@ -38,7 +38,7 @@ void View::resized()
                           &contextButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
-                          &localBlindButton, &liveCompareButton, &livePreButton, &livePostButton,
+                          &localBlindButton, &liveCompareButton, &candidateCompareButton, &livePreButton, &livePostButton,
                           &liveMatchButton, &liveEndButton, &liveReturnButton })
         button->setPresentationContext (context);
     auto layout = shellLayout (role, preset, guidePresence());
@@ -67,7 +67,7 @@ void View::resized()
                               &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
                               &contextButton, &scaleButton, &sizeButton, &operationsButton,
                               &stopButton, &guideButton, &statusButton, &resetButton,
-                              &noteButton, &captureButton, &localBlindButton, &liveCompareButton,
+                              &noteButton, &captureButton, &localBlindButton, &liveCompareButton, &candidateCompareButton,
                               &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton,
                               &liveReturnButton })
             button->setVisible (false);

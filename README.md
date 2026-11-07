@@ -1415,6 +1415,27 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   POST audio actually belongs to that pass and the timing proof uniquely identifies it.
 - As in Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
 
+## A/B: hardware and plug-in comparison
+
+Place **PRE1 → A → PRE2 → B → POST** on one mono or stereo track. A hardware insert can sit in **A or B**.
+As with LIVE, neither PRE may be an AAX multi-mono instance; insert it as stereo instead.
+On POST, press **A/B**, choose PRE2, then confirm the diagram. During comparison, PRE2 sends the
+original input to B while continuing to share A's output with POST. POST's usual LISTEN, MATCH,
+AUTO and BLIND controls compare **A** and **B** at the matched level. **END** returns to A→B.
+The normal PRE1 pair is retained; reopening a saved session does not restart A/B.
+
+The diagram is a placement confirmation, not automatic routing detection. Different track names
+are shown as a hint. In another arrangement, the sound can change during comparison. When timing
+or the replacement range cannot be confirmed, the actual chain output is used temporarily;
+BLIND keeps its assignment and resumes automatically. That interval is not counted as B heard.
+An A that arrives later than B, or whose position the audio cannot confirm, plays as it is and the
+footer says so; comparison continues.
+Normal measurement and capture are suspended during A/B. Finish Record / Keep before starting.
+
+Hardware and effects with feedback or long tails retain their own history when their input
+changes. A/B does not reset them. Allow the effect to settle before judging it or exporting;
+an immediate offline render can include that retained history.
+
 ## Local PRE/POST Blind Compare
 
 **BLIND** is a one-pass live blind comparison, without Capture or rewinding. Press BLIND, keep
