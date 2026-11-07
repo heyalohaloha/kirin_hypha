@@ -1,12 +1,9 @@
 #pragma once
-
 #include <functional>
 #include <optional>
 #include <vector>
 #include "kirin_hypha_level_snapshot.h"
-
 #include <juce_gui_basics/juce_gui_basics.h>
-
 #include "HyphaCaptureContract.h"
 #include "HyphaLevelMetricContract.h"
 #include "HyphaMeterContext.h"
@@ -24,11 +21,11 @@
 #include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
+#include "HyphaSpaceLiveDisplay.h"
 #include "HyphaHistoryInspection.h"
 #include "HyphaChainActionPainter.h"
 #include "HyphaTimeSnapshotPresentation.h"
 #include "kirin_hypha_navigation_snapshot_ffi.h"
-
 namespace hypha::observatory
 {
 // The live PRE / POST compare as the footer shows it (INV-LC4). PRE can be selected while POST
@@ -59,7 +56,6 @@ struct LiveCompareFooter
             && compensationOff == other.compensationOff && recoveryHelp == other.recoveryHelp;
     }
 };
-
 class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -184,6 +180,9 @@ public:
     bool setTimeSnapshot (const KirinTimeSnapshotV2&, std::vector<KirinTimeHistoryEntryV2>,
                           std::vector<KirinTimeHistoryEntryV2>, double, double, bool);
     void advanceTimePresentation (double nowMs);
+    juce::Rectangle<int> spaceTraceBounds() const;
+    void setSpaceLiveTap (space_live::LiveTap* tap) { spaceLive.setSource (tap); }
+    void refreshSpaceVisibility() { spaceLive.refreshVisibility(); }
     void retireTimePresentation (bool localSourceChanged);
     const time_snapshot::Presentation& acceptedTimePresentation() const noexcept { return timePresentation; }
     double meterSampleRateForSnapshot() const noexcept { return frameAvailable ? observatoryFrame.meter.sample_rate : 0.0; }
@@ -395,6 +394,7 @@ private:
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
     mono_sum_history::History monoSumHistory;
+    space_live::Display spaceLive { *this, [this] { repaint (spaceTraceBounds()); } };
     bool frameAvailable = false;
     KirinRecordDisplay recordDisplay {};
     bool recordDisplayAvailable = false;

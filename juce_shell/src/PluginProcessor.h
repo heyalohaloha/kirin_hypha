@@ -24,6 +24,7 @@
 #include "HyphaMeterContext.h"
 #include "HyphaVuCalibrationPreference.h"
 #include "HyphaVuLiveTap.h"
+#include "HyphaSpaceLiveTap.h"
 #include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -382,7 +383,6 @@ private:
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
                                  bool timelineActive,
                                  bool bypassed, bool nonRealtimeMode);
-
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
     mutable hypha::local_blind::HostClockProbe hostClockProbe;

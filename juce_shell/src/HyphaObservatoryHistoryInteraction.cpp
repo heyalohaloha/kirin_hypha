@@ -202,6 +202,8 @@ juce::Rectangle<int> View::metricHelpArea (juce::Rectangle<int> area, level_metr
 
 juce::String View::metricHelpAt (juce::Point<int> point) const
 {
+    if (selectedDomain == Domain::space && ! hybridVuVisible() && ! captureFrame && bodyArea.contains (point))
+        return "Stereo shape over 80 ms: vertical is shared sound, horizontal is difference. BAL and CORR use 3 s.";
     const bool difference = target() == ObservationTarget::delta;
     const juce::String side (difference ? "POST minus PRE. " : role == Role::pre ? "PRE. " : "POST. ");
     // TIME HISTORY: its legend values and the PSR row say what they are and how they are used.

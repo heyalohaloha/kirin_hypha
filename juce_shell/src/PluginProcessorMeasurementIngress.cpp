@@ -20,6 +20,27 @@ bool KirinHyphaProcessorBase::feedMeasurementInput (const juce::AudioBuffer<floa
                         windowPositionSamples, clock.callbackNanos != 0 ? clock.callbackNanos
                                                                         : hypha::live_compare::callbackWallNanos());
         const auto auxiliary = hypha::offsetAuxiliaryClock (clock.auxiliary, (std::uint64_t) windowStartFrame);
+        if (spaceLiveTap.enabled() && ! isNonRealtime())
+        {
+            // Display-only continuity; capture below keeps the unmodified host report.
+            hypha::live_compare::BlockClock displayClock;
+            displayClock.clock = auxiliary.samples; displayClock.clockValid = auxiliary.valid;
+            displayClock.clockBasis = (std::uint8_t) hypha::live_compare::clockBasisFor (auxiliary.source);
+            displayClock.clockAuthority = liveCompare.clockAuthority;
+            displayClock.maximumDelaySamples = liveCompare.maximumDelaySamples;
+            displayClock.project = windowPositionSamples; displayClock.projectValid = clock.hasPosition;
+            displayClock.frames = (std::int32_t) windowNumFrames; displayClock.playing = clock.playing;
+            displayClock.loop = clock.loop;
+            displayClock.presentationSource = clock.presentationSource;
+            displayClock.outputPresentationValid = clock.outputPresentationValid;
+            displayClock.outputPresentationSamples = clock.outputPresentationSamples;
+            spaceLiveTap.push (interleaveScratch.data(), (int) windowNumFrames, numCh, clock.playing, clock.hasPosition,
+                               windowPositionSamples, clock.callbackNanos != 0 ? clock.callbackNanos
+                                                                               : hypha::live_compare::callbackWallNanos(),
+                               clock.clockSource, liveCompare.hostResetGeneration.load (std::memory_order_acquire),
+                               wrapperType == juce::AudioProcessor::wrapperType_AAX ? &displayClock : nullptr);
+        }
+        else spaceLiveTap.interrupt();
         // A Keep's later pass is a LOOP wrap only when the host's own loop range names the return.
         kirin_hypha_note_capture_loop_wrap (hyphaHandle, liveCompare.keepLoopWrap.observe (clock.loop, clock.playing,
             clock.hasPosition, clock.positionSamples, buffer.getNumSamples(), preparedFormat.sampleRate,
@@ -43,6 +64,7 @@ bool KirinHyphaProcessorBase::feedMeasurementInput (const juce::AudioBuffer<floa
 void KirinHyphaProcessorBase::feedNoMeasurement (uint32_t channels) noexcept
 {
     vuLiveTap.interrupt();
+    spaceLiveTap.interrupt();
     kirin_hypha_push_samples (hyphaHandle, nullptr, 0, channels);
 }
 

@@ -52,7 +52,9 @@ inline constexpr std::array<Shortened, 10> row {{
 }};
 
 // The footer's own controls: only the status at the left of the footer is theirs.
-inline constexpr std::array<Shortened, 11> footer {{
+inline constexpr std::array<Shortened, 12> footer {{
+    { "Stereo shape over 80 ms: vertical is shared sound, horizontal is difference. BAL and CORR use 3 s.",
+      "80 ms: vertical shared, horizontal difference" },
     { "Finish Keep / Record before PRE / POST Blind", "Finish Keep / Record before Blind" },
     { "Switch between PRE and POST while playing. Comparison continues when this window closes",
       "Switch PRE and POST while the song plays" },

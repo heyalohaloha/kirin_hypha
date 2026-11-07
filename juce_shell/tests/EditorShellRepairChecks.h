@@ -31,12 +31,15 @@ void verifyEditorShellRepairs()
         std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
         require (editor != nullptr, "PRE/POST editor after host-thread restore");
         editor->addToDesktop (juce::ComponentPeer::windowIsTemporary);
+        editor->setVisible (true);
         juce::PopupMenu updates;
         (editor.get()->*testMember (AddUpdates {})) (updates);
         if (hypha::update::productionPublicKey().isEmpty())
             require (updates.getNumItems() == 0, "keyless PRE/POST builds hide every update-check menu item");
         auto* view = component<hypha::observatory::View> (*editor);
         require (view != nullptr, "real measurement root exists");
+        view->onDomainChange (hypha::observatory::Domain::space);
+        require (processor.spaceLive().enabled(), "visible SPACE captures before Blind isolation");
         struct AccessibleChild { juce::Component* component; bool accessible, handler; };
         std::vector<AccessibleChild> before;
         std::function<void (juce::Component&)> collect = [&] (juce::Component& root) {
@@ -52,10 +55,16 @@ void verifyEditorShellRepairs()
             require (blind != nullptr, "all three Blind surfaces share the isolation path");
             blind->setVisible (true);
             (editor.get()->*testMember (SetIsolation {})) (true);
+            require (! processor.spaceLive().enabled()
+                && ! hypha::tests::space_live_contract::display (*view).running(),
+                "all three real Blind surfaces stop underlying SPACE capture and timer");
             for (const auto& item : before)
                 require (! item.component->isAccessible(), "Blind conceals every underlying descendant");
             blind->setVisible (false);
             (editor.get()->*testMember (SetIsolation {})) (false);
+            require (processor.spaceLive().enabled()
+                && hypha::tests::space_live_contract::display (*view).running(),
+                "closing each Blind resumes the retained SPACE page");
             for (const auto& item : before)
             {
                 require (item.component->isAccessible() == item.accessible,

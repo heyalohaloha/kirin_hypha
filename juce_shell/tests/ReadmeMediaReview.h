@@ -3,6 +3,7 @@
 #include "CompactReviewShowcase.h"
 #include "FreqHistoryReview.h"
 #include "ReferenceGuideStates.h"
+#include "SpaceLiveContract.h"
 #include "../src/HyphaLiveBlindComponent.h"
 
 #include <array>
@@ -392,8 +393,15 @@ inline bool write()
             absolute.setSnapshot (freq_history_review::frame (index, freq_history_review::mixDbfs));
         save ("freq", compose (shell, absolute, analysis_navigation::Page::spectrum));
     }
+    shell.setVisible (true); // offscreen fixture explicitly presents the live page
+    space_live::LiveTap spaceTap; spaceTap.prepare (48'000);
+    shell.setSpaceLiveTap (&spaceTap);
     shell.setDomain (observatory::Domain::space);
+    const auto stereo = space_live_contract::signal (3840);
+    spaceTap.push (stereo.data(), 3840, 2, true, false, 0, 0);
+    if (! space_live_contract::display (shell).refresh (0)) return false;
     save ("space", renderShell (shell));
+    shell.setSpaceLiveTap (nullptr);
     shell.setDomain (observatory::Domain::reference);
     {
         reference_ui::Component reference;

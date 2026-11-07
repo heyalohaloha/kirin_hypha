@@ -60,6 +60,7 @@ void KirinHyphaEditor::applyPresentationContext()
 
 void KirinHyphaEditor::configureMeterContext()
 {
+    observatoryView.setSpaceLiveTap (&processorRef.spaceLive());
     observatoryView.setMeterContext (processorRef.meterContextPreference());
     observatoryView.setScaleMode (processorRef.scaleModePreference());
     observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)

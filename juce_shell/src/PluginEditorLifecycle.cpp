@@ -33,6 +33,9 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    // Native embedded-window restoration need not send a JUCE visibility event. This timer
+    // survives a hidden SPACE frame timer and resumes it on the first showing editor tick.
+    observatoryView.refreshSpaceVisibility();
     // Some DAWs retain a hidden editor. UI acquisition belongs only to a showing editor;
     // always-on Meter Session, Record and their workers continue independently.
     // A visible detached editor is also used by native hosts/tests before its peer is attached.

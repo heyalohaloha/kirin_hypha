@@ -39,6 +39,7 @@ inline void configure (Processor& processor, int channels, Host& host, bool doub
     check (processor.setBusesLayout (layout), "precision fixture layout"); processor.setPlayHead (&host);
     processor.setProcessingPrecision (doublePrecision ? juce::AudioProcessor::doublePrecision : juce::AudioProcessor::singlePrecision);
     prepareFixtureProcessor (processor, 48000, 128);
+    processor.spaceLive().setEnabled (true); // exercise the optional copy under the real RT heap probe
 }
 inline void verifyCase (Processor::Role role, int channels)
 {

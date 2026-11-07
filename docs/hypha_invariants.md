@@ -454,3 +454,18 @@ raw wall gapは、両側のcounter、project移動・実測wrap、PRE sequence/g
 画面ナビゲーション: Meter Context（2MIX／TRACK/STEM）の右にREFを共通control styleで置き、開いている間は選択状態を示す。PREでは同じ入口を無効表示する。タブとdomain menuはLEVEL／TIME／FREQ／SPACEの順で、PREのFREQ権限は変えない。accessibilityはContext→REF→計測タブの順。REFのページ・license gate・保存state・ショートカットは変えない。並列表示するPOSTとΔは同じ幅。`ui_refinement::verify`、`spectrum_lr_surface::verify`、`verifyVuTapProduct`で共通shellと本物の入口を検証する。
 
 Hybrid VUのlive針: 全波整流振幅にunity DCの2次系を適用（ζ=0.8127169864286775、ω=13.51191256253271 rad/s）。上昇・戻りとも最初の99%は300 ms、半分は約112.109 ms、overswingは1.25%。係数はprepareで計算し、Audio Threadは確保・lock・待ちなし、微小な状態を0にして非正規化数を避ける。callbackが無くなってもUIが同じ位置・速度から0入力応答を継続する。公開状態の単調時刻と処理済み音声の先行時間を使い、非表示中の経過を再表示に反映し、正常なcallbackのまとめ処理では戻りを始めない。非有限入力を含むblockは全時間を左右とも0入力で進め、有限入力で自動復帰する。seek後の有限な音声は最初のblockから自動で追い、古い公開値を針へ代入しない。Rustのvu_dbfs、Capture、Record、足元の数値、校正と通常A経路は保持する。既存のvuNormalizedは目盛り用の区分線形座標であり、物理的な振幅比例角度とは別で、変更しない。`VuNeedleMotionTest.cpp`、`verifyVuTapProduct`で応答と入口を検証する。
+SPACE表示専用経路: 最新80 msの原A入力をblockごとに固定領域へコピーし、画面側だけ60 Hzで読む。
+連続座標をsubpixelの細い点で描き、MID／SIDEの文字とFIELD札を出さない。日英の図の説明は残す。
+表示中だけ取得し、非表示／別ページ／VU／closeで取得とtimerを停止する。seek／stop／bypass／offline／
+format再準備／callback gapでは以前の点を持ち越さず、callback停止も期限で消す。
+読取り競合が続いても採用済みsnapshotは独立して期限切れになる。表示時刻の取得後に公開されたPCMは競合として扱い、
+有効な直前の点を保持する。停止したproject位置が同じなら監視入力を続け、停止中の前後seekでは新しいPCMだけを表示する。
+macOSではnative祖先ビューと所属窓の非表示／最小化、Windowsではnative親窓の非表示／最小化でも取得とtimerを止める。
+native窓の復元通知が無い場合もeditor timerで表示状態を再評価し、自動で取得を再開する。
+AUのtransport情報が無い場合のrender時計の不連続とResetも窓の境界にする。monoの理由は全サイズで示す。
+AAXの分割callbackでは既存のchunk判定と連続engine時計が確かめた表示用の位置だけを使う。
+seek／Reset／時計欠落で旧証明を捨て、再確認できたcallbackから密度を自動で戻す。Recordの報告位置は変更しない。
+Audio Threadで確保・lock・待機をせず、通常A経路のfloat／doubleのbit identityと0 sample latencyを守る。
+公開FIELD（25×25、3秒、100 ms境界）、BAL／CORRの3秒統計、Record／Keep／Captureの測定密度、
+保存形式、Kirin OSへの値を変更しない。`SpaceLiveContract.h`と`SpaceLiveProductCheck.h`が
+実processBlock→表示入口、role／format／precision／mono、復帰と表示寿命を確認する。

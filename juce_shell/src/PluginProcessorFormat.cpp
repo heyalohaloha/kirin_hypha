@@ -39,6 +39,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
     scratchCapacitySamples = interleaveScratch.size();
     vuLiveTap.prepare (sampleRate, maxFrames);
+    spaceLiveTap.prepare (sampleRate);
     preparePrecisionScratch (maxFrames, numCh);
     const auto roles = kirin::channelRoles (getChannelLayoutOfBus (true, 0));
     const auto liveClock = hypha::live_compare_clock_policy::current (wrapperType, sampleRate);

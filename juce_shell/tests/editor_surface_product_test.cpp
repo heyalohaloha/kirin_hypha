@@ -12,6 +12,7 @@
 #include "EditorProductChecks.h"
 #include "EditorEntryReachability.h"
 #include "EditorHiddenAutoCheck.h"
+#include "SpaceLiveProductCheck.h"
 #include "EditorResizeGripCheck.h"
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
@@ -479,7 +480,8 @@ int main (int argc, char** argv)
         std::cout << "Editor shell repairs: PASS (PRE/POST, 3 Blind screens, host-thread restore)\n";
         return EXIT_SUCCESS;
     }
-    verifyVuTapProduct(); verifyRecordBodyOwnership();
+    verifyVuTapProduct(); hypha::tests::editor_product::verifySpaceLiveProduct();
+    verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();

@@ -86,9 +86,10 @@ Every hit measured on PRE and POST: transient, strength, crest and sharpness, re
 up to eight recent hits. Pick an octave band to compare each hit's delay, attack, release and level.
 </td>
 <td width="50%" valign="top">
-<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
+<img src="docs/media/readme/space.jpg" alt="SPACE: stereo trace, L/R balance, correlation and the mono sum">
 <br><b>What survives the mono sum</b> · SPACE<br>
-Mid/side density, balance, correlation, and how much of each band survives the mono sum.
+A fine stereo trace, balance, correlation, and how much of each band survives the mono sum.
+This SPACE example uses synthetic stereo samples rendered by the current editor.
 </td>
 </tr>
 <tr>
@@ -525,8 +526,26 @@ Each metric keeps an independent fixed scale, and the current values update at a
 
 ### SPACE — stereo distribution, and what the mono sum keeps
 
-SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
-Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
+SPACE draws a fine stereo trace from the latest **80 ms** of this instance's original input,
+with a **60 Hz** display refresh. Vertical motion is sound shared by the channels; horizontal
+motion is their difference. The plot keeps continuous sample coordinates and subpixel points,
+without MID/SIDE labels or a FIELD badge. Point at it for a one-line explanation, in either language.
+
+The display tap runs only while SPACE is visible, on PRE and POST alike. It publishes each audio
+block without waiting for the 100 ms meter publication, clears on seek, stop, bypass, offline
+render or a callback gap, and resumes with fresh input. AU render-clock jumps and Reset also start
+a fresh trace when transport information is unavailable. Restoring a minimised native window resumes
+SPACE automatically. Mono input leaves the stereo plot empty and keeps its mono reason visible.
+The dark frame and background stay fixed.
+AAX split callbacks retain the full trace after the engine clock and an exact project-position
+step verify their chunk. Seeks, Reset and missing clocks discard that proof and recover automatically;
+Record keeps the host's original positions.
+
+**BAL and CORR still use the same three-second statistics.** The public FIELD remains the same
+25×25, three-second density; Record, Keep, Capture's measured density, saved state and the values
+sent to Kirin OS are unchanged. The fast trace is display-only, uses a preallocated lock-free
+copy, and never changes the audio or the measured facts. SPACE stays absolute: Hypha does not
+invent PRE/POST subtraction for correlation or the stereo field.
 
 At the largest editor it also shows **MONO**, beside the full-height scatter and under BAL and
 CORR: how much of each third-octave band survives being summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is

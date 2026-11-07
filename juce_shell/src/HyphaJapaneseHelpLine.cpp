@@ -31,6 +31,7 @@ const Entry entries[] = {
     { "Octave band %1: %2. Each hit is measured in this band on PRE and POST once its ring-out is over.",
       u8"%1のオクターブ帯域（%2）。PREとPOSTの各打音を、余韻が終わってからこの帯域で測ります。" },
     // The footer's own controls: the status at the left of the footer.
+    { "80 ms: vertical shared, horizontal difference", u8"80 ms：縦は共通、横は左右の違い" },
     { "Finish Keep / Record before Blind", u8"Blindの前にKeep／Recordを終えてください" },
     { "Switch PRE and POST while the song plays", u8"曲を再生したままPREとPOSTを切り替えます" },
     { "Return POST to its normal level", u8"POSTを通常の音量に戻します" },
