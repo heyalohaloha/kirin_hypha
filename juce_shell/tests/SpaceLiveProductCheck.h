@@ -196,7 +196,12 @@ inline void verifySpaceWindowsParent (Processor& processor, KirinHyphaEditor& ed
     } host;
     require (host.root && host.child, "native parent hierarchy exists");
     ShowWindow (host.root, SW_SHOWNOACTIVATE);
-    editor.addToDesktop (0, host.child);
+    // A plug-in wrapper owns the peer through an opaque component. Windows refuses a semi-transparent
+    // child window to an executable without a Windows 8 manifest, so the editor cannot be that peer.
+    juce::Component wrapper; wrapper.setOpaque (true); wrapper.setBounds (editor.getLocalBounds());
+    wrapper.addAndMakeVisible (editor); wrapper.setVisible (true); wrapper.addToDesktop (0, host.child);
+    auto* const peer = wrapper.getPeer();
+    require (peer != nullptr && IsWindow (static_cast<HWND> (peer->getNativeHandle())), "native child peer exists");
     auto& screen = space_live_contract::display (view);
     SpaceClock clock; processor.setPlayHead (&clock);
     juce::AudioBuffer<float> audio (2, 64); juce::MidiBuffer midi;
@@ -229,7 +234,7 @@ inline void verifySpaceWindowsParent (Processor& processor, KirinHyphaEditor& ed
                  "Windows native restoration starts with only fresh callback PCM");
         processor.spaceLive().interrupt(); screen.refresh (0);
     }
-    processor.setPlayHead (nullptr); editor.removeFromDesktop();
+    processor.setPlayHead (nullptr); wrapper.removeFromDesktop(); wrapper.removeChildComponent (&editor);
 }
 #endif
 
