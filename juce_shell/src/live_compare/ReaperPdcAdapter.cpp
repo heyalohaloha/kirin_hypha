@@ -86,7 +86,7 @@ void ReaperPdcAdapter::service (bool interested, bool returnOnly)
             ^ static_cast<std::uint64_t> (reinterpret_cast<std::uintptr_t> (api.named));
         const auto first = readReaperChain (api, project, track, take, process, nullptr, returnOnly);
         const auto second = readReaperChain (api, project, track, take, process, &reason, returnOnly);
-        if (first.same (second) && project == host->getReaperParent (3)
+        if (first.sameLayout (second) && project == host->getReaperParent (3)
             && track == host->getReaperParent (1) && take == host->getReaperParent (2))
         { reading = second; playing = true; }
         host->release();

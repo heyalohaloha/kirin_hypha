@@ -1,5 +1,6 @@
 #pragma once
 #include "ReaperTiming.h"
+#include <algorithm>
 
 namespace hypha::live_compare
 {
@@ -48,9 +49,12 @@ inline std::int64_t reaperRuntimeAge (const BlockClock& pre, const BlockClock& p
 // A POST callback need not share PRE's grid. With acrossWrap, a verified wrap joins the maps:
 // a block may run from map one into map two, or start in the wrap's remainder, which is map two
 // before its split. Project still names exactly one address, and the caller still needs K's.
+// wholeAge asks for that coverage. Only a new K needs it, to exclude an older occurrence of the
+// same position. A K proven on this chain is the delay itself: a restart cannot change it, so
+// it returns on the first callback the new map names at its address.
 inline bool reaperMappedAddress (const LoopAnchor& anchor, const BlockClock& pre,
                                  const BlockClock& post, double rate, std::int64_t capacity,
-                                 bool acrossWrap, std::int64_t& start) noexcept
+                                 bool acrossWrap, bool wholeAge, std::int64_t& start) noexcept
 {
     const auto upper = reaperRuntimeAge (pre, post);
     if (pre.runtimeExpired || post.runtimeExpired || upper <= 0 || upper >= capacity || pre.frames <= 0 || post.frames <= 0
@@ -62,7 +66,7 @@ inline bool reaperMappedAddress (const LoopAnchor& anchor, const BlockClock& pre
     const auto& w = anchor.intervals;
     std::int64_t end = 0, oldest = 0;
     if (!checkedClockAdd (pre.clock, pre.frames, end) || w.end != end
-        || !checkedClockSubtract (end, upper, oldest) || oldest < w.start
+        || !checkedClockSubtract (end, upper, oldest) || (wholeAge && oldest < w.start)
         || w.start > w.split || w.split > w.end) return false;
     const bool joined = acrossWrap && w.start < w.split; // only a verified wrap leaves two maps
     int candidates = 0;
@@ -75,7 +79,7 @@ inline bool reaperMappedAddress (const LoopAnchor& anchor, const BlockClock& pre
         start = address; ++candidates;
     };
     inspect (w.start, w.start, w.project, w.split, joined ? w.end : w.split);
-    inspect (joined ? oldest : w.split, w.split, w.splitProject, w.end, w.end);
+    inspect (joined ? std::max (oldest, w.start) : w.split, w.split, w.splitProject, w.end, w.end);
     return candidates == 1;
 }
 
@@ -83,11 +87,21 @@ inline bool reaperMappedAddress (const LoopAnchor& anchor, const BlockClock& pre
 inline bool reaperWindowAddress (const LoopAnchor& anchor, const BlockClock& pre,
                                  const BlockClock& post, double rate, std::int64_t capacity,
                                  std::int64_t& start) noexcept
-{ return reaperMappedAddress (anchor, pre, post, rate, capacity, false, start); }
+{ return reaperMappedAddress (anchor, pre, post, rate, capacity, false, true, start); }
 
 // A proven K keeps sounding through the wrap on any callback grid.
 inline bool reaperProvenAddress (const LoopAnchor& anchor, const BlockClock& pre,
                                  const BlockClock& post, double rate, std::int64_t capacity,
                                  std::int64_t& start) noexcept
-{ return reaperMappedAddress (anchor, pre, post, rate, capacity, true, start); }
+{ return reaperMappedAddress (anchor, pre, post, rate, capacity, true, false, start); }
+
+// The same K, returning after a restart of this chain: whole callback inside one map, at K's address.
+inline bool reaperHeldAddress (const LoopAnchor& anchor, const BlockClock& pre,
+                               const BlockClock& post, double rate, std::int64_t capacity,
+                               std::int64_t k) noexcept
+{
+    std::int64_t address = 0, expected = 0;
+    return reaperMappedAddress (anchor, pre, post, rate, capacity, false, false, address)
+        && checkedClockSubtract (post.clock, k, expected) && address == expected;
+}
 }

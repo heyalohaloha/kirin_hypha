@@ -308,8 +308,8 @@ public:
         else
         {
             const auto entry = initialLoopCandidate (current.anchor, current.block, block,
-                evidence.loopSamples, ring.header.sampleRate.load (std::memory_order_relaxed),
-                ringCapacityFrames);
+                evidence.loopSamples, ring.header.sampleRate.load (std::memory_order_relaxed), ringCapacityFrames,
+                evidence.kind == LoopEntryKind::reaperBound ? &evidence.k : nullptr);
             if (! entry.valid || entry.kind != evidence.kind || entry.k != evidence.k) return false;
         }
         k = evidence.k;

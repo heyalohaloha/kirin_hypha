@@ -24,6 +24,26 @@ inline void reaper()
              "POST already past the wrap reads the same lap");
     require (!initialLoopCandidate (peer.anchor, peer.block, post, 0, rate, ringCapacityFrames).valid,
              "a new K is never bound on a block that crosses the maps");
+    // A restart empties the coverage a new K needs. The K this chain proved returns at its own
+    // address on the first callback the new map names, and at no other address.
+    {
+        Host seek; seek.length = 384000; seek.runtimeBound = true;
+        for (int i = 0; i < 50; ++i) seek.consume();
+        TimingSnapshot held; require (readTiming (seek.ring->header.timing, held), "held snapshot");
+        auto restarted = held.anchor;
+        restarted.intervals = { held.block.clock, held.block.project, held.block.clock, held.block.project,
+                                held.anchor.intervals.end };
+        auto named = seek.post; named.project = held.block.project; named.loop.ppq = named.project / 48000.0;
+        const auto heldK = named.clock - held.block.clock, otherK = heldK + 1;
+        require (reaperHeldAddress (restarted, held.block, named, rate, ringCapacityFrames, heldK), "the held K returns on the new map");
+        require (!reaperHeldAddress (restarted, held.block, named, rate, ringCapacityFrames, otherK), "only at its own address");
+        const auto entry = initialLoopCandidate (restarted, held.block, named, 0, rate, ringCapacityFrames, &heldK);
+        require (entry.valid && entry.k == heldK && entry.kind == LoopEntryKind::reaperBound, "held entry");
+        require (!initialLoopCandidate (restarted, held.block, named, 0, rate, ringCapacityFrames).valid,
+                 "a new K still needs the whole age");
+        require (!initialLoopCandidate (restarted, held.block, named, 0, rate, ringCapacityFrames, &otherK).valid,
+                 "another K gains nothing from the held proof");
+    }
     for (int missingSide : { 0, 1 })
     for (bool blind : { false, true })
     {

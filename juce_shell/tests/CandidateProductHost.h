@@ -33,7 +33,7 @@ template<class Require> void writeCandidateFixtureIdentity (Require require, con
 
 struct CandidateClock final : juce::AudioPlayHead
 {
-    std::int64_t clock = 0, delay = 0, offset = 0, loopLength = 0, continuousOffset = 0;
+    std::int64_t clock = 0, delay = 0, offset = 0, loopStart = 0, loopLength = 0, continuousOffset = 0;
     bool playing = true, available = true;
     int source = 1, reportFrames = 0;
     double sampleRate = 48000.0;
@@ -45,10 +45,11 @@ struct CandidateClock final : juce::AudioPlayHead
         auto project = reported - delay + offset;
         if (loopLength > 0)
         {
-            project = (project % loopLength + loopLength) % loopLength;
+            project = loopStart + ((project - loopStart) % loopLength + loopLength) % loopLength;
             info.setIsLooping (true); info.setBpm (120.0);
             info.setPpqPosition (static_cast<double> (project) / (sampleRate * 0.5));
-            info.setLoopPoints (LoopPoints { 0.0, static_cast<double> (loopLength) / (sampleRate * 0.5) });
+            info.setLoopPoints (LoopPoints { static_cast<double> (loopStart) / (sampleRate * 0.5),
+                                             static_cast<double> (loopStart + loopLength) / (sampleRate * 0.5) });
         }
         if (available) { info.setTimeInSamples (project); info.setTimeInSeconds (static_cast<double> (project) / sampleRate); }
         info.setKirinAuxiliaryClockSource (source);

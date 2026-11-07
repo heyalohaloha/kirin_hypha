@@ -237,11 +237,12 @@ public:
         const auto reaperLoss = coherent ? reaperContinuity.observe (pre, post) : TimelineBreak::none;
         const bool active = reaperLoss == TimelineBreak::none && pre.active && post.playing && post.clockValid && post.projectValid
             && post.frames > 0 && ! post.afterGap;
-        const bool sourceChanged = haveSource && (generation != pre.generation
-            || previous.ownerA != pre.ownerA || previous.ownerB != pre.ownerB);
+        const bool ownerChanged = haveSource && (previous.ownerA != pre.ownerA || previous.ownerB != pre.ownerB);
+        const bool sourceChanged = ownerChanged || (haveSource && generation != pre.generation);
         auto comparedPost = post; retainReaperToken (comparedPost, previousPost);
         adoptFirstReaperToken (previousPost, comparedPost);
         const bool postProofChanged = havePostProof && ! sameClockProof (previousPost, comparedPost);
+        if (ownerChanged || postProofChanged) heldValid = false;
         if (coherent) { previous = pre; generation = pre.generation; haveSource = true; }
         std::int64_t start = 0, preEnd = 0, age = 0;
         const bool addressValid = ! valid
@@ -295,7 +296,10 @@ public:
         if (coherent && active && ! sourceChanged && ! postProofChanged && ! movement.broken
             && !logicRender (post) && havePrevious && post.loop.active && ! valid)
         {
-            const auto entry = initialLoopCandidate (pre.anchor, pre.block, post, postCycle, rate, capacity);
+            // The revision names the chain and its delay across a seek. The same proof keeps its K.
+            const bool held = heldValid && pre.block.runtimeRevision == heldPre && post.runtimeRevision == heldPost;
+            const auto entry = initialLoopCandidate (pre.anchor, pre.block, post, postCycle, rate, capacity,
+                                                     held ? &heldK : nullptr);
             failure = entry.failure;
             if (entry.valid && ! post.positionInterpolated)
             {
@@ -304,12 +308,14 @@ public:
                 last = entry.k;
                 candidateKind = entry.kind;
                 countedReports = pre.reports;
-                if (streak >= profile.streak)
+                if (streak >= profile.streak || (held && entry.k == heldK))
                 { k = entry.k; valid = true; kind = entry.kind; }
             }
             else if (! entry.valid && entry.failure != LoopEntryFailure::observingCycle)
                 streak = 0;
         }
+        if (valid && kind == LoopEntryKind::reaperBound && reaperRuntimeAge (pre.block, post) > 0)
+        { heldValid = true; heldK = k; heldPre = pre.block.runtimeRevision; heldPost = post.runtimeRevision; }
         havePrevious = active;
         previousPost = comparedPost;
         havePostProof = active;
@@ -355,11 +361,12 @@ private:
     CalibrationProfile profile;
     TimingSnapshot previous;
     std::uint64_t generation = 0;
-    std::int64_t k = 0, last = 0, lastAge = 0;
+    std::int64_t k = 0, last = 0, lastAge = 0, heldK = 0;
+    std::uint64_t heldPre = 0, heldPost = 0;
     int streak = 0;
     std::uint16_t countedReports = 0;
     LoopEntryKind kind = LoopEntryKind::none, candidateKind = LoopEntryKind::none;
     BlockClock previousPost;
-    bool valid = false, haveSource = false, havePrevious = false, havePostProof = false;
+    bool valid = false, haveSource = false, havePrevious = false, havePostProof = false, heldValid = false;
 };
 }

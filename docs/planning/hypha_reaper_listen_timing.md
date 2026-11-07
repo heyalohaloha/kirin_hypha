@@ -71,6 +71,18 @@ a verified wrap joins the two maps: a POST block may run from the first map into
 start in the remainder of the crossing callback, which is the second map before its split.
 Project still names exactly one address and it must equal K's, so the wrap costs no block on any
 callback grid. A new K binds only to a whole callback inside one map.
+
+`chain_pdc_actual` and an insert's `pdc` are live values, not chain identity. Just after a seek every
+FX reads 0 while REAPER rebuilds its delay buffer, and the fill then climbs back; a callback split at
+a loop wrap lowers it for as long as the short entry stays inside. The fingerprint therefore has a
+layout part without those values. A lower reading of the same layout keeps the settled proof and
+bound for `refillNanos`; one that stays becomes a changed proof, and a rise is one at once. Every
+address is still checked against the project map while the proof is held.
+
+The observer keeps the K it proved on one chain revision. After a seek that K returns at its own
+address on the first whole callback inside the new map, without the age coverage a new K needs: the
+delay did not change, so only the clocks have to agree again. PRE cannot be heard sooner than the
+delay itself, because POST's first callbacks after a seek still carry audio from before it.
 The existing eight-block calibration still applies to REAPER. The API value is an upper bound,
 never K. Without it, the previous linear-proof continuation retains its fixed 73728-sample
 verified-address envelope. REAPER's measurement-only compensated project coordinate remains K=0.

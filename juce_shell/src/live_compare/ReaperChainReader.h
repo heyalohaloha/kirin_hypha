@@ -1,6 +1,7 @@
 #pragma once
 #include "ReaperPdcMailbox.h"
 #include "ReaperChainStatus.h"
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstring>
@@ -40,6 +41,7 @@ inline bool reaperUnsigned (const std::string& text, std::uint32_t& value)
 // A deterministic opaque fingerprint covers process/parent identity, every GUID in order,
 // PDC/mode/enabled/offline and scheduling settings. No pointer, path or display name is sent
 // to RT/shared memory. Independent PRE/POST readers must observe the identical full tuple.
+// The layout is that fingerprint without the PDC values, which REAPER moves during playback.
 struct ReaperFingerprint
 {
     std::uint64_t a = 14695981039346656037ull, b = 7809847782465536322ull;
@@ -82,7 +84,7 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
     if (count < (returnOnly ? 1 : 2) || count > 256) return {};
     const auto channels = api.trackInfo (track, "I_NCHAN");
     if (!(channels <= 2 && channels >= 2)) return reject (ReaperChainRestriction::channels); // mono inserts on a two-channel track are allowed
-    ReaperFingerprint hash;
+    ReaperFingerprint hash, values;
     hash.number (returnOnly);
     hash.number (process); hash.number (reinterpret_cast<std::uintptr_t> (project));
     const auto* trackId = api.trackGuid (track);
@@ -106,8 +108,12 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
     auto integer = [&] (int fx, const char* key, std::uint32_t& out)
     { std::string value; if (!read (fx, key, value) || !reaperUnsigned (value, out)) return false;
       hash.text (key); hash.text (value); return true; };
+    auto live = [&] (int fx, const char* key, std::uint32_t& out, bool named = true)
+    { std::string value; if (!read (fx, key, value) || !reaperUnsigned (value, out)) return false;
+      hash.text (key); if (named) values.text (value); return true; };
     int pre = -1, post = -1, preCount = 0;
     std::uint32_t actual = 0;
+    std::uint64_t reported = 0;
     std::vector<std::array<unsigned char, 16>> ids;
     for (int i = 0; i < count; ++i)
     {
@@ -137,20 +143,24 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
         if (isPost && (!on || off)) return {};
         std::uint32_t pdc = 0, mode = 0, parallel = 0, instanceOversample = 0, chainOversample = 0;
         std::uint32_t delay = 0, reporting = 0;
-        if (!integer (i, "pdc", pdc) || !integer (i, "chain_pdc_actual", delay)
-            || !integer (i, "chain_pdc_reporting", reporting) || !integer (i, "chain_pdc_mode", mode)
+        if (!live (i, "pdc", pdc) || !live (i, "chain_pdc_actual", delay, false)
+            || !live (i, "chain_pdc_reporting", reporting) || !integer (i, "chain_pdc_mode", mode)
             || !integer (i, "parallel", parallel) || !integer (i, "instance_oversample_shift", instanceOversample)
             || !integer (i, "chain_oversample_shift", chainOversample)) return {};
         if (mode != 1) return reject (ReaperChainRestriction::pdcMode);
         if (parallel != 0 || (!returnOnly && (instanceOversample != 0 || chainOversample != 0))) return reject (ReaperChainRestriction::routing);
-        if (delay < reporting || (!returnOnly && delay > ReaperTimingLimits::delay) || (i > 0 && delay != actual)) return {};
-        actual = delay;
+        // chain_pdc_actual is the live fill of the delay buffer. It can lie below the report and
+        // move between two FX read a moment apart, so it only ever raises the bound.
+        actual = std::max ({ actual, delay, reporting });
+        if (!returnOnly && actual > ReaperTimingLimits::delay) return {};
+        reported += pdc;
     }
     // Observing the current serial chain supports either hardware placement. PRE2 still
     // requires its own current clock/ring correspondence before substituting any audio.
     if (post < 0 || (!returnOnly && (pre < 0 || post <= pre)) || api.count (track) != count || api.changes (project) != changes
         || (api.playing (project) & 3) != 1) return {};
     if (restriction) *restriction = ReaperChainRestriction::none;
-    return { hash.a, hash.b, actual, hash.a != 0 && hash.b != 0 };
+    auto full = hash; full.number (values.a); full.number (values.b);
+    return { full.a, full.b, actual, full.a != 0 && full.b != 0, hash.a, hash.b, reported };
 }
 }

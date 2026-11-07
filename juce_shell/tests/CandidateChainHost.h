@@ -11,6 +11,7 @@ public:
     inline static CandidateChainHost* current = nullptr;
     bool removed = false, bypassed = false, sourceRemoved = false, hardwareA = false, unavailable = false, postOnly = false;
     int delay = 510;
+    int fill = -1, reported = -1; // REAPER's live chain value and an insert's own report, when they differ from delay
     std::array<std::array<unsigned char, 16>, 6> ids {};
     CandidateChainHost()
     { for (unsigned i = 0; i < ids.size(); ++i) ids[i][0] = static_cast<unsigned char> (i + 1); current = this; }
@@ -54,7 +55,8 @@ public:
             else if (field == "original_name") value = !pre && !post && (current->hardwareA ? slot == 1 : slot != 1) ? "ReaInsert" : "Effect";
             else if (field == "fx_ident") value = pre ? "pre.vst3{4B6972696E4879706861505245763031"
                 : post ? "post.vst3{4B6972696E4879706861504F53547631" : "effect.vst3";
-            else if (field == "chain_pdc_actual" || field == "chain_pdc_reporting" || field == "pdc") value = juce::String (current->delay);
+            else if (field == "chain_pdc_actual") value = juce::String (current->fill >= 0 ? current->fill : current->delay);
+            else if (field == "chain_pdc_reporting" || field == "pdc") value = juce::String (current->reported >= 0 ? current->reported : current->delay);
             else if (field == "chain_pdc_mode") value = "1";
             else if (field == "parallel" || field == "instance_oversample_shift" || field == "chain_oversample_shift") value = "0";
             else return false;

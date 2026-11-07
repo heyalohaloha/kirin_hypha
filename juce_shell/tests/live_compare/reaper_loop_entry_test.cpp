@@ -89,5 +89,26 @@ int main (int argc, char** argv)
         require (!initialLoopCandidate (peer.anchor, peer.block, post, 0, rate, ringCapacityFrames).valid,
                  "candidate subtraction overflow rejected");
     }
+    // REAPER splits every FX's callback where PRE's position wraps. POST, still in its delayed
+    // tail, reads through that split and then crosses the loop end on its own grid.
+    for (const int delay : { 4096, 6344 })
+    {
+        Host host; host.length = 384256; host.runtimeBound = true; host.runtimeDelay = 6656;
+        for (int i = 0; i < delay / frames; ++i) host.publish();
+        if (delay % frames != 0) { host.preFrames = delay % frames; host.publish(); }
+        int rest = 0, wraps = 0;
+        for (int i = 0; i < 2400; ++i)
+        {
+            const auto toWrap = host.length - positiveModulo (host.prePosition, host.length);
+            const auto split = rest == 0 && toWrap < frames ? static_cast<int> (toWrap) : 0;
+            host.preFrames = host.postFrames = rest != 0 ? rest : split != 0 ? split : frames;
+            rest = split != 0 ? frames - split : 0;
+            wraps += split != 0 ? 1 : 0;
+            host.consume();
+            if (i > 100) require (host.report.verdict == Verdict::accepted && host.report.preAudible,
+                                  "a split PRE wrap and POST's later crossing lose no callback");
+        }
+        require (wraps >= 1, "the split fixture wrapped");
+    }
     std::puts ("REAPER first-loop / split-wrap / burst output PASS");
 }

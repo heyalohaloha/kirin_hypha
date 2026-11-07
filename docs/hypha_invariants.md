@@ -427,7 +427,7 @@ VST3 classと全FX GUID／順序、PDC tuple、通常の直列main chainの条�
 `ReaperTimingLimits`を定数の正本とし、実測最大から上限を自動生成しない。PREの同世代native線形区間が
 可能な年齢の全域を覆い、候補が1つで、全blockが保持範囲内の場合だけ採用する。最初のPRE折返しは前後2区間を
 保ち、POSTの遅れた末尾も対応づける。Lが測れたらL＞上限、常にring容量＞上限を要求する。
-API失敗とchain・PDC・prepare・run変更は旧証拠を失効する。期限切れだけは同じ証拠の鮮度を失い、再取得後に戻せる。500 msまたは処理sample2秒の期限は
+API失敗とchain・PDC・prepare・run変更は旧証拠を失効する。`chain_pdc_actual`とFXの`pdc`はseek直後の0やloop折返しの短いcallbackで下がる実行中の値なので、同じ並びで値が下がっただけなら`refillNanos`の間は確定した証拠と上限を保ち、下がったままなら変更として失効する。上がった場合は直ちに失効する。同じrevisionで証明したKはseek後も保持し、新しい対応表が自身のaddressを示した最初のcallbackで戻す。期限切れだけは同じ証拠の鮮度を失い、再取得後に戻せる。500 msまたは処理sample2秒の期限は
 APIと実音の通知順序を証明しない。動的PDC、別scheduleと実出力は実host受入を要する。
 API証拠のない既存線形K経路の73728 samplesの検査は保持し、他DAWへ上限や認定を波及させない。
 `kirin_reaper_loop_entry`／`kirin_reaper_pdc_adapter`／`kirin_chain_trace_burst`で境界と失効を確認する。

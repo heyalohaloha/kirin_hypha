@@ -14,6 +14,7 @@ struct Fake
     bool candidate = false, prefixEffect = false, postOnly = false, noPre = false, invalidInteger = false; int hardwareSlot = -1;
     int input = 0, parallel = 0, mode = 1, oversample = 0, chainOversample = 0, revision = 1, channels = 2;
     std::uint32_t delay = 4096;
+    int fill = -1, report = -1;
     std::array<std::array<unsigned char, 16>, 8> guid {};
     Fake() { for (unsigned i = 0; i < guid.size(); ++i) guid[i][0] = static_cast<unsigned char> (i + 1); }
 } fake;
@@ -33,8 +34,10 @@ bool named (void*, int slot, const char* key, char* out, int size)
         : roleSlot == (fake.postOnly ? 0 : fake.candidate ? 4 : 2) ? (fake.closedIdentity ? "other-name.vst3<2{4B6972696E4879706861504F53547631}>"
                                            : "/plug-ins/other-name.vst3<650474387{4B6972696E4879706861504F53547631")
                     : "delay.vst3";
-    else if (name == "chain_pdc_actual") value = fake.malformed ? "4294967296" : fake.invalidInteger ? "-1" : std::to_string (fake.delay);
-    else if (name == "chain_pdc_reporting" || name == "pdc") value = std::to_string (fake.delay);
+    else if (name == "chain_pdc_actual") value = fake.malformed ? "4294967296" : fake.invalidInteger ? "-1"
+        : std::to_string (fake.fill >= 0 ? static_cast<std::uint32_t> (fake.fill) : fake.delay);
+    else if (name == "chain_pdc_reporting" || name == "pdc")
+        value = std::to_string (fake.report >= 0 ? static_cast<std::uint32_t> (fake.report) : fake.delay);
     else if (name == "chain_pdc_mode") value = std::to_string (fake.mode);
     else if (name == "parallel") value = std::to_string (fake.parallel);
     else if (name == "instance_oversample_shift") value = std::to_string (fake.oversample);
@@ -120,6 +123,13 @@ void reader()
     fake.off = true; require (!read().valid, "bypassed endpoint rejected"); fake = {};
     std::swap (fake.guid[0], fake.guid[1]); require (!read().same (original), "GUID order changes proof"); fake = {};
     fake.delay = 0; require (read().valid && !read().same (original), "valid zero and changed delay"); fake = {};
+    fake.fill = 3840;
+    require (read().same (original) && read().delay == 4096, "a live fill below the report is the same proof"); fake = {};
+    fake.fill = 0; fake.report = 0;
+    require (read().refilling (original) && read().delay == 0 && read().reported == 0, "a rebuilding chain reads zero"); fake = {};
+    fake.fill = 8192; require (!read().refilling (original) && read().delay == 8192, "a rise is a new bound"); fake = {};
+    std::swap (fake.guid[0], fake.guid[1]);
+    fake.fill = 0; require (!read().refilling (original), "a lower reading of another chain is no refill"); fake = {};
     require (!readReaperChain (api(), &projectToken, &trackToken, &trackToken, 987).valid, "take refused");
     fake.candidate = true; fake.hardwareSlot = 3;
     require (read().valid, "ordinary pair observes the same serial chain after candidate END");
@@ -181,6 +191,33 @@ void mailbox()
              "a publication inside a callback never empties that block");
     box.invalidate(); callback(); require (b.runtimeChainA == 0, "prepare/host epoch fences old token");
     poll(); callback(); poll(); callback(); require (b.runtimeChainA != 0, "fresh epoch can reacquire evidence only");
+    const auto settledRevision = b.runtimeRevision;
+    const auto observe = [&] (const ReaperPdcObservation& value) {
+        ReaperCallbackWitness witness; require (box.witness (witness), "live value callback witness");
+        box.publish (value, witness, witness, true, time.nanos());
+    };
+    // A seek rebuilds the delay buffer and a loop wrap dips its fill: the proof never moves.
+    auto rebuilding = reading; rebuilding.chainA ^= 4; rebuilding.delay = 0; rebuilding.reported = 0;
+    for (int step = 0; step < 8; ++step)
+    {
+        auto next = rebuilding; next.delay = static_cast<std::uint32_t> (step) * 256u; next.chainB ^= static_cast<std::uint64_t> (step);
+        observe (next); callback(); time.advance (std::chrono::milliseconds (50));
+        require (b.runtimeChainA == reading.chainA && b.maximumDelaySamples == reading.delay
+                 && b.runtimeRevision == settledRevision && !b.runtimeExpired,
+                 "a refilling chain keeps its proof and its settled bound");
+    }
+    observe (reading); callback();
+    require (b.runtimeChainA == reading.chainA && b.runtimeRevision == settledRevision, "the settled reading needs no new proof");
+    // A latency that really fell stays low: after the refill allowance it is a changed proof.
+    const auto settle = static_cast<int> (ReaperPdcMailbox::refillNanos / 50'000'000u);
+    for (int step = 0; step < settle && b.runtimeChainA != 0; ++step)
+    { observe (rebuilding); callback(); time.advance (std::chrono::milliseconds (50)); }
+    require (b.runtimeChainA == 0, "a lower value that stays revokes the old proof");
+    observe (rebuilding); callback();
+    require (b.runtimeChainA == rebuilding.chainA && b.maximumDelaySamples == 0 && b.runtimeRevision != settledRevision,
+             "a lower value that stays is a different proof");
+    observe (reading); callback(); observe (reading); callback();
+    require (b.runtimeChainA == reading.chainA && b.maximumDelaySamples == reading.delay, "the rise back is a new proof at once");
     auto changed = reading; changed.delay += 4096; changed.chainA ^= 8;
     const auto changedPoll = [&] {
         ReaperCallbackWitness witness; require (box.witness (witness), "changed callback witness");

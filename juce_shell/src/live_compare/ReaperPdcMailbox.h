@@ -38,11 +38,22 @@ struct ReaperCallbackWitness
 };
 struct ReaperPdcObservation
 {
-    std::uint64_t chainA = 0, chainB = 0;
+    std::uint64_t chainA = 0, chainB = 0; // the chain and its PDC values
     std::uint32_t delay = 0;
     bool valid = false;
+    std::uint64_t layoutA = 0, layoutB = 0, reported = 0; // the same chain without them; the sum of its FX reports
     bool same (const ReaperPdcObservation& b) const noexcept
     { return valid && b.valid && chainA == b.chainA && chainB == b.chainB && delay == b.delay; }
+    bool sameLayout (const ReaperPdcObservation& b) const noexcept
+    { return valid && b.valid && layoutA == b.layoutA && layoutB == b.layoutB; }
+    // REAPER's chain values are live: every FX reads 0 just after a seek while the delay buffer is
+    // rebuilt, and one short callback at a loop wrap lowers the fill for as long as it stays inside.
+    // Both only ever fall below the settled values of the same chain.
+    bool refilling (const ReaperPdcObservation& settled) const noexcept
+    {
+        return sameLayout (settled) && delay <= settled.delay && reported <= settled.reported
+            && (delay < settled.delay || reported < settled.reported);
+    }
 };
 
 class ReaperPdcMailbox
@@ -52,6 +63,10 @@ public:
     // permission after 500 ms or two seconds of processed samples (including preroll bursts).
     // Neither expiry converts wall time into a PCM position or proves host API freshness.
     static constexpr std::uint64_t lifetimeNanos = 500'000'000;
+    // A lower reading of the same chain stays the old proof for this long: the bound stays the
+    // settled, larger one and every address is still checked. Longer than a rebuild, so a latency
+    // the user really lowered still arrives as a new proof, at most this much later.
+    static constexpr std::uint64_t refillNanos = 1'500'000'000;
     void invalidate() noexcept { epoch.fetch_add (1, std::memory_order_acq_rel); }
     void observe (BlockClock& b, double rate, bool usable) noexcept
     {
@@ -90,14 +105,21 @@ public:
     }
     // Message thread, after host reads bracketed by callback witnesses. A true API flag
     // before playback is discarded, even if its number already equals the future latency.
-    void publish (const ReaperPdcObservation& reading, const ReaperCallbackWitness& before,
+    void publish (const ReaperPdcObservation& observed, const ReaperCallbackWitness& before,
                   const ReaperCallbackWitness& after, bool hostPlaying, std::uint64_t now) noexcept
     {
-        const bool bracketed = reading.valid && hostPlaying && before.playing && after.playing
+        const bool bracketed = observed.valid && hostPlaying && before.playing && after.playing
             && before.epoch == after.epoch && before.run == after.run
             && before.epoch == epoch.load (std::memory_order_acquire)
             && after.serial >= before.serial && now >= after.nanos
             && now - after.nanos <= lifetimeNanos;
+        auto reading = observed;
+        if (bracketed && provenEpoch == before.epoch && observed.refilling (proven))
+        {
+            if (! observed.same (lowered)) { lowered = observed; loweredSince = now; }
+            if (now - loweredSince < refillNanos) reading = proven;
+        }
+        else lowered = {};
         const bool stable = bracketed && reading.same (previous) && prior.epoch == before.epoch
             && prior.run == before.run && after.serial > prior.serial;
         // A large callback can span two timer ticks. Keep its existing expiry, rather than
@@ -107,7 +129,7 @@ public:
         // The revision names the chain and delay, not one observation of them: a stop or seek
         // re-reads the same proof, and only a different reading or a host epoch changes it.
         if (prior.epoch != before.epoch || (bracketed && !reading.same (proven))) ++revision;
-        if (bracketed) proven = reading;
+        if (bracketed) { proven = reading; provenEpoch = before.epoch; }
         token.store (stable ? std::array<std::uint64_t, 10> { after.epoch, after.run, after.serial,
             after.samples, now, reading.chainA, reading.chainB, revision, reading.delay, 1 } : std::array<std::uint64_t, 10> {});
         previous = bracketed ? reading : ReaperPdcObservation {}; prior = after;
@@ -121,8 +143,9 @@ private:
     std::uint64_t run = 0, serial = 0, samples = 0, seenEpoch = 0;
     std::array<std::uint64_t, 10> held {};
     bool wasPlaying = false;
-    ReaperPdcObservation previous, proven;
+    ReaperPdcObservation previous, proven, lowered;
     ReaperCallbackWitness prior;
+    std::uint64_t provenEpoch = 0, loweredSince = 0;
     std::uint64_t revision = 1;
 };
 }
