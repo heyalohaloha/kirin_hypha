@@ -78,7 +78,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         assert!(ci.contains(target) && ci.contains(test_name));
         assert!(source_gate.contains(target) && source_gate.contains(test_name));
     }
-    assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
+    assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product|kirin_shortcut_(pre|post)_actions)$'"));
     let live_compare = include_str!("../../juce_shell/cmake/LiveCompare.cmake");
     assert!(root_cmake.contains("include(cmake/LiveCompare.cmake)"));
     for (definition, target, test) in [

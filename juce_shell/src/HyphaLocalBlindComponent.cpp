@@ -75,8 +75,8 @@ Component::Component()
     styleButton (returnButton, "local-blind-return", "Return explicitly to the live signal");
     styleButton (closeButton, "local-blind-close", "Close Blind Compare");
 
-    sourceOne.onClick = [this] { if (onSelectStimulus) onSelectStimulus (1); };
-    sourceTwo.onClick = [this] { if (onSelectStimulus) onSelectStimulus (2); };
+    sourceOne.onClick = [this] { requestSource (1); };
+    sourceTwo.onClick = [this] { requestSource (2); };
     answerOne.onClick = [this] { if (onAnswer) onAnswer (Answer::one); };
     answerTwo.onClick = [this] { if (onAnswer) onAnswer (Answer::two); };
     noPreference.onClick = [this] { if (onAnswer) onAnswer (Answer::noPreference); };
@@ -88,7 +88,7 @@ Component::Component()
     };
     namedButton.onClick = [this]
     { if (onStartNamed) onStartNamed (current.trial.lowerPostApprovalRequired); };
-    revealButton.onClick = [this] { if (onReveal) onReveal(); };
+    revealButton.onClick = [this] { requestReveal(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     contextChoice.onChange = [this]
     {
@@ -98,10 +98,33 @@ Component::Component()
         else contextChoice.setSelectedId (preflightContext == meter_context::MeterContext::trackStem ? 2 : 1,
                                           juce::dontSendNotification);
     };
-    stopButton.onClick = [this] { if (onStop) onStop(); };
+    stopButton.onClick = [this] { requestEnd(); };
     returnButton.onClick = [this] { if (onReturn) onReturn(); };
     closeButton.onClick = [this] { if (onClose) onClose(); };
     refreshPresentation();
+}
+
+bool Component::requestSource (int source)
+{
+    auto* button = source == 1 ? &sourceOne : source == 2 ? &sourceTwo : nullptr;
+    if (button == nullptr || ! button->isVisible() || ! button->isEnabled() || ! onSelectStimulus)
+        return false;
+    onSelectStimulus (source);
+    return true;
+}
+
+bool Component::requestReveal()
+{
+    if (! revealButton.isVisible() || ! revealButton.isEnabled() || ! onReveal) return false;
+    onReveal();
+    return true;
+}
+
+bool Component::requestEnd()
+{
+    if (! stopButton.isVisible() || ! stopButton.isEnabled() || ! onStop) return false;
+    onStop();
+    return true;
 }
 
 void Component::styleButton (juce::Button& button, const juce::String& id,

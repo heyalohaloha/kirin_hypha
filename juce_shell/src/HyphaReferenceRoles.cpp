@@ -35,7 +35,7 @@ void Component::configureRoles()
 {
     refButton.setComponentID ("reference-ref");
     refButton.setTitle ("Audition B Reference");
-    refButton.onClick = [this] { if (! explainReference() && onSelectRef) onSelectRef(); };
+    refButton.onClick = [this] { requestRole (3); };
     addAndMakeVisible (refButton);
     songSetBox.setLookAndFeel (&selectorLookAndFeel);
     songBox.setLookAndFeel (&selectorLookAndFeel);

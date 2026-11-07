@@ -99,11 +99,21 @@ template<class Require> void verifyCandidateRecovery (KirinHyphaProcessorBase& p
 }
 
 template<class Require> void enterCandidateThroughEditor (KirinHyphaProcessorBase& post, Require require,
-    std::function<void(juce::AudioProcessorEditor&)> completeReturn = {}, juce::MemoryBlock* beforeStart = nullptr)
+    std::function<void(juce::AudioProcessorEditor&)> completeReturn = {}, juce::MemoryBlock* beforeStart = nullptr,
+    bool throughKey = false)
 {
     auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
     require (editor != nullptr, "A/B opens the real product editor");
     editor->setSize (900, 600); editor->setVisible (true);
+    // A key reaches only a showing window, as a host gives it.
+    juce::DocumentWindow keysWindow ("Keys", juce::Colours::black, juce::DocumentWindow::minimiseButton);
+    if (throughKey)
+    {
+        keysWindow.setContentNonOwned (editor.get(), true);
+        keysWindow.setVisible (true);
+        editor->grabKeyboardFocus();
+        require (editor->getPeer() != nullptr && editor->isShowing(), "A/B's key needs its native window");
+    }
     candidateTick (*editor); // publish the processor's current state before inspecting its controls
     if (beforeStart) post.getStateInformation (*beforeStart);
     const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_CANDIDATE_PREVIEW", {});
@@ -171,7 +181,13 @@ template<class Require> void enterCandidateThroughEditor (KirinHyphaProcessorBas
     };
     // This background native host deliberately never takes OS focus. Keep each real menu's
     // opening and keyboard choice in one GUI batch, before its focus-loss timer dismisses it.
-    if (button->isVisible())
+    if (throughKey)
+        require (juce::MessageManager::callAsync ([peer = editor->getPeer()]
+        {
+            peer->handleKeyPress (juce::KeyPress ('W'));
+            peer->handleKeyUpOrDown (false);
+        }), "queue the actual W press");
+    else if (button->isVisible())
         require (juce::MessageManager::callAsync ([button] { button->onClick(); }), "queue the actual A/B press");
     else pressComparisonMenuEntry (*editor, "A/B", require);
     require (afterQueuedMessages (choose), "choose PRE2 in the product menu");
@@ -192,6 +208,7 @@ template<class Require> void enterCandidateThroughEditor (KirinHyphaProcessorBas
             std::cerr << "candidate final feedback: " << view->feedback() << '\n';
     }
     require (post.candidateCompareActive(), "confirmed product button starts A/B");
+    if (throughKey) keysWindow.clearContentComponent();
     post.editorBeingDeleted (editor.get()); editor.reset();
     require (post.candidateCompareActive(), "closing the editor keeps this explicit comparison");
 }

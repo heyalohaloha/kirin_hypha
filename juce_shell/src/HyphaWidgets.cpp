@@ -144,7 +144,7 @@ namespace hypha
     {
         setWantsKeyboardFocus (true);
         setTitle ("PRE name");
-        setDescription ("Press Return or Space to edit the PRE name");
+        setDescription ("Press Return to edit the PRE name");
 
         editor = std::make_unique<juce::TextEditor>();
         editor->setWantsKeyboardFocus (true);

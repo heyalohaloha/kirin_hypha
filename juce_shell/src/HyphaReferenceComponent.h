@@ -84,6 +84,7 @@ struct SelectionOption
     juce::String checkLabel {}, itemLabel {}; // a CHECK target's two parts, when the runtime gives them
     juce::String workId {}, versionId {};     // a Version's song and its version in Kirin OS
     bool elsewhere = false;                   // a Version of another song (HyphaReferenceVersionRows.h)
+    int sourceIndex = 0;                      // its place as Kirin OS sent it, before the rows are arranged
 };
 
 // B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
@@ -311,6 +312,17 @@ public:
     { dragActive = false; repaint(); if (isInterestedInFileDrag (files) && onTargetRequest) onTargetRequest ({ reference_audition::TargetRequest::Action::importFiles, files, {} }); }
     void fileDragEnter (const juce::StringArray&, int, int) override { dragActive = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { dragActive = false; repaint(); }
+    // What a button and its key ask for (HyphaReferenceNavigation.cpp). Each answers with why it did
+    // nothing (English), or with nothing. slot: 0 A, 1 V, 2 C, 3 B. direction: -1 or +1.
+    juce::String requestRole (int slot);
+    juce::String requestCheckMatch();
+    juce::String requestVersionBlind();
+    juce::String stepSong (int direction);
+    juce::String stepVersion (int direction);
+    juce::String stepTab (int direction);
+    juce::String stepCue (int direction);
+    juce::String stepSet (int direction);
+
     void setState (State);
     // 状態の行は、足元の段があるとき（150% 以上）はどの画面でも足元の左に出す（エディターが決めて置く。
     // 2026-10-04）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
@@ -440,6 +452,7 @@ private:
     juce::Rectangle<int> cueRowBounds() const noexcept;
     int checkFooterHeight() const noexcept;
     void configureCheckPage();
+    void chooseTab (const juce::String& checkId);
     void syncCheckPage (bool blindSession);
     int checkTabsHeight() const;  // C は Check のタブが 1 段に入らなければ 2 段ぶん（2026-10-05）
     void layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors);

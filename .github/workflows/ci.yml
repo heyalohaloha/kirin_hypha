@@ -358,7 +358,7 @@ jobs:
           KirinUpdateRuntimeIntegrationTests KirinUiRenderContractTests KirinHostIdentityTests KirinSnapshotAbiContractTests
           KirinAttackUiContractTests KirinHyphaReferencePreviewRenderer KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests
           KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests
-          KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests KirinLiveCompareCorrespondenceTests
+          KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests KirinShortcutPRETests KirinShortcutPOSTTests KirinLiveCompareCorrespondenceTests
           KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests
           KirinLiveCompareLoopFeasibilityTests KirinLiveCompare_reentry_Tests KirinLiveCompare_gain_snapshot_Tests Kirin_live_blind_session_Tests
           Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests Kirin_reaper_clock_Tests Kirin_reaper_correspondence_Tests
@@ -436,7 +436,7 @@ jobs:
       - name: Validate local PRE/POST Blind and complete product flow
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
-          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
+          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product|kirin_shortcut_(pre|post)_actions)$'
 
       - name: Validate automatic PRE/POST pairing
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}

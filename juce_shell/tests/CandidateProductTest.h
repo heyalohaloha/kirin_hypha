@@ -1,6 +1,7 @@
 #pragma once
 #include "CandidateProductHost.h"
 #include "CandidateAuditTest.h"
+#include "CandidateKeysTest.h"
 
 namespace hypha::tests
 {
@@ -11,6 +12,7 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
     verifyCandidateSurfaces (require);
     verifyCandidateAudit (require);
     ProductTestClock wall;
+    verifyCandidateKeys (wall, require);
     for (const auto [channels, block] : { std::pair<int, int> { 1, 256 }, { 2, 512 }, { 2, 1024 } })
     {
         std::cout << "Candidate product: " << channels << " channels, " << block << " frames\n" << std::flush;

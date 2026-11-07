@@ -79,22 +79,8 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
     observatoryView.onTimeRangeMenu = [this] { showTimeRangeMenu(); };
     observatoryView.onStop = [this] { dropWaitingRequests(); processorRef.stopPair(); };
-    observatoryView.onReset = [this]
-    {
-        if (! processorRef.resetMeterSession())
-        {
-            showToast ("Meter Session could not be reset");
-            return;
-        }
-        observatoryWatchDisplay = {};
-        haveObservatoryWatchDisplay = false;
-        observatoryView.setWatchDisplay ({}, false);
-    };
-    observatoryView.onClearPeakClipHolds = [this]
-    {
-        if (! processorRef.clearMeterPeakClipHolds())
-            showToast ("TP / Clip CLEAR failed");
-    };
+    observatoryView.onReset = [this] { requestMeterSessionReset(); };
+    observatoryView.onClearPeakClipHolds = [this] { requestPeakClipClear(); };
     observatoryView.onVuLiveReading = [this] { return processorRef.vuLive().reading(); };
     observatoryView.onHybridVuChange = [this] (bool visible)
     {
@@ -203,6 +189,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::visibilityChanged()
 {
+    if (! isVisible()) heldShortcutKeys.clear();
     if (isVisible())
     {
         // The display the editor opened on decides the magnified steps; a size that is not a step
@@ -218,6 +205,11 @@ void KirinHyphaEditor::visibilityChanged()
     // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
     if (! isVisible())
     {
+        if (meterResetDialog != nullptr)
+        {
+            meterResetDialog->exitModalState (0);
+            meterResetDialog.reset();
+        }
         commitEditorSizeStateIfSettled (true);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();

@@ -46,7 +46,8 @@ const BLIND: &str = include_str!("../../juce_shell/src/PluginProcessorLiveBlind.
 #[test]
 fn direct_live_action_results_follow_ambient_state_acknowledgement() {
     let editor = include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp");
-    let start = function_body(editor, "observatoryView.onLiveCompareStart =");
+    let actions = include_str!("../../juce_shell/src/PluginEditorCompareActions.cpp");
+    let start = function_body(actions, "void KirinHyphaEditor::requestListenStart");
     assert_eq!(start.matches("refreshLiveCompare()").count(), 1);
     assert!(start.contains("performAction") && start.contains("ActionFaultScope::duringAction"));
     assert!(start.contains("currentNamedAction") && start.contains("generation, false"));

@@ -42,6 +42,11 @@ void KirinHyphaEditor::timerCallback()
     // Once attached, ancestor visibility and minimisation are part of the showing contract.
     if (!isVisible() || (getPeer() != nullptr && !isShowing()))
     {
+        if (meterResetDialog != nullptr)
+        {
+            meterResetDialog->exitModalState (0);
+            meterResetDialog.reset();
+        }
         pairPreview.reset();
         pairPreviewShown = {};
         pairPreviewObservedGeneration = 0;
@@ -93,6 +98,7 @@ void KirinHyphaEditor::timerCallback()
    #endif
     refreshPairPreview (false);
     updateHelpLine();
+    refreshKeysList();
     refreshUpdateChecking();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost && liveCompareAuto.hiddenStopNoticePending)

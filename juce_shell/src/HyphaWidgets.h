@@ -108,7 +108,7 @@ namespace hypha
         void focusGained (FocusChangeType) override { if (onPreviewDemand) onPreviewDemand(); }
         bool keyPressed (const juce::KeyPress& key) override
         {
-            if (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey)
+            if (key == juce::KeyPress::returnKey)
             { activate(); return true; }
             return false;
         }

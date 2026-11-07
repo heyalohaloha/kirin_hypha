@@ -68,6 +68,10 @@ View::View (Role roleIn) : role (roleIn)
                           &frequencyButton, &spaceButton, &domainCycleButton, &targetButton, &deltaButton })
         button->setExplicitFocusOrder (focusOrder++);
     referenceButton.setComponentID ("observatory-reference");
+    levelButton.setComponentID ("observatory-level"); timeButton.setComponentID ("observatory-time");
+    frequencyButton.setComponentID ("observatory-frequency"); spaceButton.setComponentID ("observatory-space");
+    targetButton.setComponentID ("observatory-target"); deltaButton.setComponentID ("observatory-delta");
+    resetButton.setComponentID ("observatory-reset"); domainCycleButton.setComponentID ("observatory-domain-cycle");
     setReferenceOwned (false);
     domainCycleButton.onClick = [this]
     { if (onDomainMenu) onDomainMenu(); else cycleDomain(); };
@@ -129,11 +133,7 @@ View::View (Role roleIn) : role (roleIn)
     hybridVuButton.setTitle ("Hybrid VU");
     hybridVuButton.setDescription ("Show or hide the Hybrid VU without changing measurement");
     hybridVuButton.setTooltip (hybridVuButton.getDescription());
-    hybridVuButton.onClick = [this]
-    {
-        toggleHybridVu();
-        if (onHybridVuChange) onHybridVuChange (hybridVuVisible());
-    };
+    hybridVuButton.onClick = [this] { requestHybridVuToggle(); };
     clearPeakClipButton.setComponentID ("observatory-clear-peak-clip");
     clearPeakClipButton.setTitle ("Clear True Peak and Clip holds");
     clearPeakClipButton.setDescription (

@@ -106,7 +106,7 @@ void View::setSurroundMeasurementOnly (bool enabled)
     repaint();
 }
 
-void View::toggleHybridVu()
+void View::requestHybridVuToggle()
 {
     if (hybridVuVisible())
     {
@@ -119,6 +119,7 @@ void View::toggleHybridVu()
     updateControls();
     resized();
     repaint();
+    if (onHybridVuChange) onHybridVuChange (hybridVuVisible());
 }
 
 int View::timeControlsHeight() const noexcept

@@ -1,5 +1,6 @@
 #pragma once
 #include "EditorProductChecks.h"
+#include "EditorEntrySizes.h"
 #include "EditorReachabilityCheck.h"
 
 #include <array>
@@ -34,9 +35,7 @@ struct InformationMenuOf
 };
 template struct PrivateAccess<InformationMenuOf, &KirinHyphaEditor::informationMenu>;
 
-// The five presets, the sizes just inside the limits and 750 x 500 between the last two presets.
-inline constexpr std::array<std::pair<int, int>, 8> entrySizes {{
-    { 300, 200 }, { 303, 202 }, { 375, 250 }, { 450, 300 }, { 600, 400 }, { 750, 500 }, { 897, 598 }, { 900, 600 } }};
+using editor_sizes::entrySizes;
 inline constexpr std::array<float, 4> displayScales { 1.0f, 1.25f, 1.5f, 2.0f };
 inline constexpr std::array<observatory::Domain, 5> entryPages { observatory::Domain::level, observatory::Domain::time,
     observatory::Domain::frequency, observatory::Domain::space, observatory::Domain::reference };

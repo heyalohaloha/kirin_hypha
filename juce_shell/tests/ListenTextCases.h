@@ -54,6 +54,8 @@ inline std::vector<Notice> notices()
     add ("MATCH waits for more signal");
     add ("Repeated audio: checked per block");
     add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());
+    add ("LISTEN is not active");
+    add ("MATCH first");
     // B, C or V in REF holding the output past 3 s (currentListenPresentation).
     for (int slot = 1; slot <= 3; ++slot)
     {

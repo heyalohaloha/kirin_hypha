@@ -405,7 +405,7 @@ inline void verify()
     }
     require (name.keyPressed (juce::KeyPress (juce::KeyPress::returnKey)) && name.isEditing(), "Return begins PRE name editing");
     EditableName space; attach (space, 28);
-    require (space.keyPressed (juce::KeyPress (juce::KeyPress::spaceKey)) && space.isEditing(), "Space begins PRE name editing");
+    require (! space.keyPressed (juce::KeyPress (juce::KeyPress::spaceKey)) && ! space.isEditing(), "Space is returned without starting PRE name editing");
     EditableName locked; attach (locked, 56); locked.setEditingEnabled (false);
     locked.keyPressed (juce::KeyPress (juce::KeyPress::returnKey));
     require (! locked.isEditing(), "locked names cannot edit through the keyboard");
@@ -414,8 +414,9 @@ inline void verify()
         && pressed.isEditing(), "AX press starts PRE name editing");
     EditableName post; attach (post, 112);
     int selected = 0; post.onSelect = [&] { ++selected; };
-    post.keyPressed (juce::KeyPress (juce::KeyPress::spaceKey));
-    require (selected == 1 && ! post.isEditing(), "POST pair selection keeps its existing action");
+    require (! post.keyPressed (juce::KeyPress (juce::KeyPress::spaceKey)) && selected == 0, "Space is returned without opening POST selection");
+    require (post.keyPressed (juce::KeyPress (juce::KeyPress::returnKey))
+             && selected == 1 && ! post.isEditing(), "Return opens POST selection");
     verifyPaint();
     verifyPreferences();
     std::cout << "Shell repair UI: PASS (2 languages, 8 widths, transport boundaries, keyboard/AX, concurrent processes)\n";

@@ -60,6 +60,7 @@ set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
 include(cmake/KirinHyphaAax.cmake)
 include(cmake/ObservatoryMaterial.cmake)
 include(cmake/HyphaLanguage.cmake)
+include(cmake/HyphaShortcuts.cmake)
 include(cmake/HyphaSnapshotSources.cmake)
 kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
 
@@ -331,6 +332,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorOutputOwnership.cpp src/PluginProcessorKeep.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
+        ${KIRIN_HYPHA_SHORTCUT_EDITOR_SOURCES}
         src/PluginEditorLifecycle.cpp
         src/PluginEditorHelpLine.cpp
         src/PluginEditorLanguage.cpp
@@ -399,6 +401,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
             src/PluginEditorLiveBlind.cpp
+            ${KIRIN_HYPHA_SHORTCUT_POST_SOURCES}
             src/HyphaBlindScreen.cpp
             src/HyphaLiveBlindComponent.cpp
             src/HyphaVersionBlindScreen.cpp
@@ -443,6 +446,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceRuntimeStatus.cpp
             src/HyphaReferenceCheckTabs.cpp
             src/HyphaReferenceCheckPage.cpp
+            src/HyphaReferenceNavigation.cpp
             src/HyphaReferenceAComparison.cpp
             src/HyphaReferenceCueSummary.cpp
             src/HyphaReferenceVersionPage.cpp
@@ -609,6 +613,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceRuntimeStatus.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceNavigation.cpp
         src/HyphaReferenceAComparison.cpp
         src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceVersionPage.cpp
@@ -771,6 +776,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceRuntimeStatus.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceNavigation.cpp
         src/HyphaReferenceAComparison.cpp
         src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceVersionPage.cpp
@@ -1090,6 +1096,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceRuntimeStatus.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceNavigation.cpp
         src/HyphaReferenceAComparison.cpp
         src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceVersionPage.cpp
@@ -1143,6 +1150,7 @@ include(cmake/UpdateIntegrationTests.cmake)
 include(cmake/ShellRepairTests.cmake)
 include(cmake/ContentTimingTests.cmake)
 include(cmake/ProductTestClock.cmake)
+include(cmake/ShortcutTests.cmake)
 include(cmake/NativeTestLibraries.cmake)
 
 include(cmake/NativeStorageGuard.cmake)

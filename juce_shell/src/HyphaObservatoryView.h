@@ -33,6 +33,7 @@ class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit View (Role roleIn);
+    void requestHybridVuToggle();
     std::function<void()> onBodyLayoutChanged;
 
     std::function<void (Domain)> onDomainChange;
@@ -317,7 +318,6 @@ private:
     void cycleDomain();
     void cycleTimeRange();
     void cycleSize();
-    void toggleHybridVu();
     void initializeVuCalibrationControl();
     void updateVuVisibility(); void refreshVuTargets();
     void paintHybridVu (juce::Graphics&);

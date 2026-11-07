@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaShortcutBindings.h"
 
 #include <array>
 #include <cstdlib>
@@ -111,6 +112,8 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         button->setVisible (false);
 
     const auto& state = liveCompareState;
+    for (auto* button : { &livePreButton, &livePostButton, &liveEndButton })
+        button->getProperties().set (hypha::shortcuts::table::candidateKeysProperty, state.candidate);
     liveEndButton.setDescription (state.candidate ? "End A/B and restore the chain" : "End listening and restore normal POST level");
     liveEndButton.setTooltip (liveEndButton.getDescription());
     const juce::String preLabel = state.candidate ? "A" : "PRE";

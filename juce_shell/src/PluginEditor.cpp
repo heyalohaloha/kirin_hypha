@@ -75,38 +75,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     observatoryView.onBodyLayoutChanged = [this] { layoutBodyAndFeedback(); };
     observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
     observatoryView.setManualHybridVuVisible (processorRef.manualHybridVuSelection());
-    observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain) {
-        if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
-        setObservatoryDomain (domain);
-    };
-    observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
-    {
-        if (! observatoryView.capabilities().targetSelectable) return;
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (target == hypha::observatory::ObservationTarget::delta
-            && hypha::ui_contract::deltaBlockedByMidSide (
-                observatoryDomain == hypha::observatory::Domain::frequency,
-                spectrumView.isPsbObservation(), spectrumView.isMidSideObservation())) return;
-       #endif
-        nextTimeSnapshotMs = 0.0;
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        attackView.retireV2();
-        nextDrumSummaryMs = 0.0;
-       #endif
-        observatoryView.setTarget (target);
-        processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
-        if (target == hypha::observatory::ObservationTarget::delta)
-        {
-            comparisonActionAwaitingResult = true;
-            comparisonActionAfterGeneration = comparisonObservedGeneration > 0
-                ? comparisonObservedGeneration - 1 : 0;
-        }
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        spectrumView.setAbsoluteObservation (
-            target == hypha::observatory::ObservationTarget::absolute);
-        if (analysisPage == AnalysisPage::spectrum) configureSpectrumAnalysis();
-       #endif
-    };
+    configureNavigationActions();
     observatoryView.onTimeRangeChange = [this] (hypha::observatory::TimeRange range)
     {
         processorRef.setObservatoryTimeRangePreference (hypha::observatory::stateValue (range));
@@ -147,7 +116,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     if (isPost)
     {
         nameField.setTitle ("PRE pair selection");
-        nameField.setDescription ("Press Return or Space to choose a PRE");
+        nameField.setDescription ("Press Return to choose a PRE");
         nameField.setPrefix (hypha::pair_labels::prefix);
         nameField.setFallback (hypha::pair_labels::unpaired);
         nameField.setLockedTooltip (hypha::pair_labels::locked);
@@ -182,11 +151,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                                ? AnalysisPage::attack : AnalysisPage::meters);
         };
         scaleRoot.addAndMakeVisible (spectrumToggle);
-        timePageNavigation.onPageChange = [this] (AnalysisPage page)
-        {
-            if (observatoryDomain == hypha::observatory::Domain::time)
-                setAnalysisPage (page);
-        };
+        timePageNavigation.onPageChange = [this] (AnalysisPage page) { requestTimePage (page); };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
             "Cycle POST Analysis between 100, 125, 150, and 200 percent");

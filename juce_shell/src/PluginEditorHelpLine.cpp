@@ -16,6 +16,7 @@ bool KirinHyphaEditor::helpLineActive() const
     if (densityForWidth (displayViewport (getWidth(), getHeight()).width) != Density::inspection
         || observatoryView.hybridVuVisible() || observatoryView.footerBounds().isEmpty())
         return false;
+    if (keysPanel.isVisible()) return false;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (localBlindOpen || liveBlindOpen) return false;
     if (observatoryView.domain() == Domain::reference)
@@ -36,6 +37,9 @@ KirinHyphaEditor::HelpLine KirinHyphaEditor::helpLineAt (juce::Point<int> point)
     // In the footer row only the footer's own controls speak, and only in the status at its left.
     const bool wholeRow = ! getLocalArea (&scaleRoot, observatoryView.footerBounds()).contains (point)
         && ! observatoryView.footerControlsInUse();
+    // The key of what is pointed at goes beside its help (HyphaHelpLineBar.h).
+    const auto* pointed = getComponentAt (point);
+    const auto mark = pointed != nullptr ? hypha::shortcuts::controlMark (*pointed) : juce::String();
     for (auto* under = getComponentAt (point); under != nullptr && under != this; under = under->getParentComponent())
     {
         // The status tells its whole story there when it has one; otherwise its tooltip only repeats
@@ -55,9 +59,9 @@ KirinHyphaEditor::HelpLine KirinHyphaEditor::helpLineAt (juce::Point<int> point)
             text = observatoryView.metricHelpAt (observatoryView.getLocalPoint (this, point));
         else if (auto* client = dynamic_cast<juce::TooltipClient*> (under))
             text = client->getTooltip();
-        if (text.isNotEmpty()) return { hypha::help_line::forLine (text, wholeRow), wholeRow };
+        if (text.isNotEmpty()) return { hypha::help_line::forLine (text, wholeRow), wholeRow, mark };
     }
-    return {};
+    return mark.isNotEmpty() ? HelpLine { {}, wholeRow, mark } : HelpLine {};
 }
 
 void KirinHyphaEditor::updateHelpLine()
@@ -69,7 +73,7 @@ void KirinHyphaEditor::updateHelpLine()
     const auto line = active && isMouseOverOrDragging (true) ? helpLineAt (getMouseXYRelative()) : HelpLine {};
     const auto footer = observatoryView.footerBounds();
     auto area = footer;
-    if (line.text.isNotEmpty() && ! line.wholeRow)
+    if ((line.text.isNotEmpty() || line.mark.isNotEmpty()) && ! line.wholeRow)
     {
         // The status at the left: up to the first control in the footer row, so none is hidden.
         std::vector<juce::Component*> owners { &observatoryView };
@@ -84,7 +88,7 @@ void KirinHyphaEditor::updateHelpLine()
                     && dynamic_cast<juce::Button*> (child) != nullptr && footer.contains (bounds.getCentre()))
                     area.setRight (juce::jmin (area.getRight(), bounds.getX() - 4));
     }
-    helpLineBar.show (line.text, area, footer, logicalPresentationContext());
+    helpLineBar.show (line.text, area, footer, logicalPresentationContext(), line.mark);
 }
 
 juce::StringArray KirinHyphaEditor::statusStory() const

@@ -44,16 +44,55 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
         button->setWantsKeyboardFocus (true);
         addAndMakeVisible (*button);
     }
-    one.onClick = [this] { if (onSelect) onSelect (1); };
-    two.onClick = [this] { if (onSelect) onSelect (2); };
-    reveal.onClick = [this] { if (onReveal) onReveal(); };
-    end.onClick = [this] { if (onEnd) onEnd(); };
+    one.onClick = [this] { requestSource (1); };
+    two.onClick = [this] { requestSource (2); };
+    reveal.onClick = [this] { requestReveal(); };
+    end.onClick = [this] { requestEnd(); };
     approve.onClick = [this] { if (onApprove) onApprove(); };
     alignOff.onClick = [this] { if (onAlignOff) onAlignOff(); };
     apply();
 }
 
 ScreenComponent::~ScreenComponent() { setLookAndFeel (nullptr); }
+
+void ScreenComponent::setActionNotice (const juce::String& notice)
+{
+    actionNotice = notice;
+    startTimer (3000);
+    apply();
+    resized();
+}
+
+void ScreenComponent::timerCallback()
+{
+    stopTimer();
+    actionNotice.clear();
+    apply();
+    resized();
+}
+
+bool ScreenComponent::requestSource (int source)
+{
+    if (! shown.sourcesShown || ! onSelect
+        || (source == 1 ? ! shown.sourceOneEnabled : source == 2 ? ! shown.sourceTwoEnabled : true))
+        return false;
+    onSelect (source);
+    return true;
+}
+
+bool ScreenComponent::requestReveal()
+{
+    if (! shown.revealShown || ! shown.revealEnabled || ! onReveal) return false;
+    onReveal();
+    return true;
+}
+
+bool ScreenComponent::requestEnd()
+{
+    if (! shown.endEnabled || ! onEnd) return false;
+    onEnd();
+    return true;
+}
 
 void ScreenComponent::setScreen (const Screen& next)
 {
@@ -68,8 +107,9 @@ void ScreenComponent::setScreen (const Screen& next)
 void ScreenComponent::apply()
 {
     title.setText (shown.title, juce::dontSendNotification);
-    status.setText (shown.instruction, juce::dontSendNotification);
-    status.setVisible (shown.instruction.isNotEmpty());
+    const auto& instruction = actionNotice.isNotEmpty() ? actionNotice : shown.instruction;
+    status.setText (instruction, juce::dontSendNotification);
+    status.setVisible (instruction.isNotEmpty());
     detail.setText (shown.detail, juce::dontSendNotification);
     cause.setText (shown.cause, juce::dontSendNotification);
     recovery.setText (shown.recovery, juce::dontSendNotification);

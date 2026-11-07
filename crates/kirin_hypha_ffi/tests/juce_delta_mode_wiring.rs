@@ -41,11 +41,14 @@ fn comparison_state_drives_the_shipping_observatory_without_a_hidden_delta_path(
     let editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
         + &read_repo("juce_shell/src/PluginEditorObservatory.cpp");
-    let target_action = editor
-        .split("observatoryView.onTargetChange =")
+    let navigation = read_repo("juce_shell/src/PluginEditorNavigation.cpp");
+    assert!(editor.contains("configureNavigationActions();"));
+    assert!(navigation.contains("observatoryView.onTargetChange = [this] (auto target) { requestObservationTarget (target); }"));
+    let target_action = navigation
+        .split("void KirinHyphaEditor::requestObservationTarget (")
         .nth(1)
         .expect("shipping target action")
-        .split("observatoryView.onTimeRangeChange =")
+        .split("void KirinHyphaEditor::requestTimePage (")
         .next()
         .unwrap();
     assert!(target_action.contains("observatoryView.setTarget (target)"));

@@ -31,7 +31,7 @@ struct Screen
     bool operator!= (const Screen& other) const noexcept { return ! (*this == other); }
 };
 
-class ScreenComponent : public juce::Component
+class ScreenComponent : public juce::Component, private juce::Timer
 {
 public:
     // 部品の ID は「<prefix>-screen」「<prefix>-source-1」…（LIVE BLIND は live-blind、VERSION BLIND は version-blind）。
@@ -39,13 +39,21 @@ public:
     ~ScreenComponent() override;
     std::function<void(int)> onSelect;
     std::function<void()> onReveal, onEnd, onApprove, onAlignOff;
+    bool requestSource (int);
+    bool requestReveal();
+    bool requestEnd();
+    // Why a key did nothing, in place of the instruction for a moment. Never a name or a side.
+    void setActionNotice (const juce::String&);
+    const juce::String& actionNoticeShown() const noexcept { return actionNotice; }
     void setScreen (const Screen&);
     const Screen& screen() const noexcept { return shown; }
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
+    void timerCallback() override;
     void apply();
+    juce::String actionNotice;
     TextLookAndFeel look;
     presentation::Context context = presentation::defaultContext();
     Screen shown;

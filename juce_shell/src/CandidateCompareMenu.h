@@ -72,7 +72,7 @@ void KirinHyphaEditor::startCandidateConfirmed (const juce::String& pre2, std::u
     else if (result != hypha::live_compare::StartResult::started)
         showToast (result == hypha::live_compare::StartResult::comparisonBusy
             ? "A/B: Record / Keep or another comparison is running"
-            : result == hypha::live_compare::StartResult::notReady ? "A/B could not start" : startFailure (result));
+            : result == hypha::live_compare::StartResult::notReady ? "A/B could not start" : hypha::live_compare_ui::startFailure (result));
     else if (processorRef.candidateTrackMismatch()) showToast ("A/B: track names differ");
 }
 #endif

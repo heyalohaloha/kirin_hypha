@@ -98,11 +98,11 @@ Component::Component()
         const auto id = selectedOptionId (cueBox, current.cues);
         if (id.isNotEmpty() && onSelectCue) onSelectCue (id);
     };
-    aButton.onClick = [this] { if (onSelectA) onSelectA(); };
-    bButton.onClick = [this] { if (! openLarge (1) && ! explainUnavailable (true) && onSelectB) onSelectB(); };
-    blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
+    aButton.onClick = [this] { requestRole (0); };
+    bButton.onClick = [this] { requestRole (1); };
+    blindButton.onClick = [this] { requestVersionBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
-    cButton.onClick = [this] { if (! openLarge (2) && ! explainUnavailable (false) && onSelectC) onSelectC(); };
+    cButton.onClick = [this] { requestRole (2); };
     versionBox.onChange = [this]
     { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
     for (size_t i = 0; i < selectionReadouts.size(); ++i)
