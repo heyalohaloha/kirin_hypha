@@ -106,15 +106,23 @@ void SpectrumComponent::setDisplaySelection (uint8_t selection)
     repaint();
 }
 
-void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next)
+void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next, uint64_t continuity)
 {
     const bool valid = validMidSideSnapshot (next);
     const bool continuing = midSideObservation && midSideSnapshotValid && valid
-                         && sameMidSideLayout (midSideSnapshot, next);
+                         && sameMidSideLayout (midSideSnapshot, next)
+                         && next.presentation_end_samples >= midSideSnapshot.presentation_end_samples
+                         && (continuity != 0 ? continuity == midSideContinuity
+                             : midSideContinuity == 0
+                               && next.presentation_end_samples - midSideSnapshot.presentation_end_samples
+                                  <= static_cast<int64_t> (next.sample_rate / 20u))
+                         && ! resumeCurve;
     if (! continuing)
         clearInteractionState();
+    resumeCurve = false;
     midSideSnapshotValid = valid;
     midSideSnapshot = next;
+    midSideContinuity = continuity;
     midSideObservation = true;
     absoluteObservation = true;
     channelMode = KIRIN_SPECTRUM_SELECTION_MID_SIDE;
@@ -124,9 +132,8 @@ void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next
     absoluteHistory.clear();
     if (valid)
     {
-        const auto& calmWeights = calmWeightsFor (next.min_hz, next.max_hz);
-        pendingPre = spectrum_presentation::calmLowFrequencies (next.mid_dbfs, calmWeights);
-        pendingPost = spectrum_presentation::calmLowFrequencies (next.side_dbfs, calmWeights);
+        std::copy (std::begin (next.mid_dbfs), std::end (next.mid_dbfs), pendingPre.begin());
+        std::copy (std::begin (next.side_dbfs), std::end (next.side_dbfs), pendingPost.begin());
         if (continuing)
         {
             pendingSnapshot = nextLayout;
@@ -139,8 +146,8 @@ void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next
             lastCurvePresentationMs = lastNumericPresentationMs = juce::Time::getMillisecondCounterHiRes();
         lastCurveUpdateMs = juce::Time::getMillisecondCounterHiRes();
         snapshot = nextLayout;
-        displayedPre = pendingPre;
-        displayedPost = pendingPost;
+        displayedPre = spectrum_display::spatial (pendingPre, next.min_hz, next.max_hz, displaySettings[display_settings::smooth]);
+        displayedPost = spectrum_display::spatial (pendingPost, next.min_hz, next.max_hz, displaySettings[display_settings::smooth]);
         readoutPre = pendingPre;
         readoutPost = pendingPost;
     }
@@ -154,8 +161,7 @@ void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next
     }
     displayedDelta.fill (0.0f);
     readoutDelta.fill (0.0f);
-    pendingPre = displayedPre;
-    pendingPost = displayedPost;
+    if (! valid) { pendingPre = displayedPre; pendingPost = displayedPost; }
     pendingDelta.fill (0.0f);
     curveDirty = false;
     numericDirty = false;

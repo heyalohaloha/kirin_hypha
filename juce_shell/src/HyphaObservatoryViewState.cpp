@@ -168,9 +168,9 @@ juce::Rectangle<int> View::analysisBodyBounds() const noexcept
     auto area = bodyArea;
     if (selectedDomain == Domain::time)
         area.removeFromTop (timeControlsHeight());
-    // Folded, Reference keeps its bottom row (the reason line, OPEN REFERENCE) clear of the status
-    // strip: the page ends where the strip begins. The other pages let the strip pass over them.
-    if (statusStripOverBody && selectedDomain == Domain::reference)
+    // Reference keeps its bottom actions clear; FREQ keeps its bottom axis labels clear.
+    // Both pages end where the folded status strip begins.
+    if (statusStripOverBody && (selectedDomain == Domain::reference || selectedDomain == Domain::frequency))
         area.setBottom (statusStrip.getY());
     return area;
 }

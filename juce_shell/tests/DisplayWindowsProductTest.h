@@ -1,8 +1,10 @@
 #pragma once
+#include "DisplaySettingsProductTest.h"
 
 // Included after the shipping processor/editor fixture helpers.
 inline void verifyDisplayWindowsProduct()
 {
+    verifyDisplaySettingsProduct();
     namespace average = hypha::spectrum_average;
     namespace ref = hypha::reference_audition;
     for (const auto role : { Processor::Role::Pre, Processor::Role::Post })

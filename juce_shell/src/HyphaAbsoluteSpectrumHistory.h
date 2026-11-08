@@ -44,6 +44,7 @@ public:
                 clear();
         }
 
+        ++contentRevision;
         const bool replacing = count == historyCapacity;
         const size_t destination = count < historyCapacity
             ? (start + count) % historyCapacity : start;
@@ -73,11 +74,13 @@ public:
 
     void clear() noexcept
     {
+        ++contentRevision;
         start = 0u;
         count = 0u;
         peak.fill (-std::numeric_limits<float>::infinity());
     }
 
+    uint64_t revision() const noexcept { return contentRevision; }
     bool empty() const noexcept { return count == 0u; }
     size_t size() const noexcept { return count; }
 
@@ -93,6 +96,7 @@ public:
     }
 
 private:
+    uint64_t contentRevision = 0;
     void recomputePeakBand (size_t band) noexcept
     {
         peak[band] = -std::numeric_limits<float>::infinity();

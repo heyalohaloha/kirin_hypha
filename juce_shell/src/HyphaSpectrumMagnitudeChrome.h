@@ -10,14 +10,16 @@
 
 namespace hypha::spectrum_magnitude_chrome
 {
+inline int labelWidth (float scale, float range) noexcept
+{ return juce::roundToInt ((range >= 120.0f && scale < 1.375f ? 35.0f : 21.0f) * scale); }
 inline void paintAxis (juce::Graphics& g,
                        juce::Rectangle<float> plot,
                        float scale,
                        bool left,
                        bool grid,
-                       presentation::Context presentation)
+                       presentation::Context presentation, float range = 96.0f)
 {
-    constexpr std::array<const char*, 3> labels { "0", "-48", "-96" };
+    const std::array<juce::String, 3> labels { "0", juce::String (-range / 2, 0), juce::String (-range, 0) };
     constexpr std::array<float, 3> positions { 0.0f, 0.5f, 1.0f };
     const auto scaled = [scale] (int value) {
         return juce::roundToInt ((float) value * scale);
@@ -31,7 +33,7 @@ inline void paintAxis (juce::Graphics& g,
         text_style::drawText (g, labels[index], x,
                     juce::roundToInt (plot.getY() + positions[index] * plot.getHeight())
                         - scaled (5),
-                    scaled (21), scaled (10),
+                    labelWidth (scale, range), scaled (10),
                     left ? juce::Justification::centredRight
                          : juce::Justification::centredLeft);
     }

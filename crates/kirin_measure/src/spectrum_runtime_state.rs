@@ -36,9 +36,18 @@ impl<T> StampedSnapshot<T> {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct SpectrumHistory {
     frames: VecDeque<SpectrumFrame>,
+    continuity: u64,
+    continuity_start: i64,
+}
+
+// Equality remains measurement equality: local presentation identity is not in the wire format.
+impl PartialEq for SpectrumHistory {
+    fn eq(&self, other: &Self) -> bool {
+        self.frames == other.frames
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -83,6 +92,8 @@ impl SpectrumHistory {
     pub(crate) fn with_capacity() -> Self {
         Self {
             frames: VecDeque::with_capacity(SPECTRUM_HISTORY_CAPACITY),
+            continuity: 0,
+            continuity_start: 0,
         }
     }
 
@@ -95,10 +106,36 @@ impl SpectrumHistory {
         }) {
             self.frames.clear();
         }
+        if self.frames.back().is_none_or(|newest| {
+            frame
+                .presentation_end_samples
+                .checked_sub(newest.presentation_end_samples)
+                .is_none_or(|elapsed| !(0..=i64::from(frame.sample_rate / 20)).contains(&elapsed))
+        }) {
+            self.continuity = crate::spectrum_mid_side::next_mid_side_continuity();
+            self.continuity_start = frame.presentation_end_samples;
+        }
         if self.frames.len() == SPECTRUM_HISTORY_CAPACITY {
             self.frames.pop_front();
         }
         self.frames.push_back(frame);
+    }
+
+    /// Presentation identity retained beyond the short recovery ring. Never a measurement value.
+    pub fn continuity(&self) -> u64 {
+        self.continuity
+    }
+
+    /// The local segment may be newer than an exact join waiting on PRE. A consumer must use
+    /// the identity only for an endpoint inside this span, never lend it to an older segment.
+    pub fn continuity_span(&self) -> Option<(i64, i64, u64)> {
+        self.newest().map(|frame| {
+            (
+                self.continuity_start,
+                frame.presentation_end_samples,
+                self.continuity,
+            )
+        })
     }
 
     pub fn newest(&self) -> Option<&SpectrumFrame> {

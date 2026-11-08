@@ -166,6 +166,7 @@ private:
     std::unique_ptr<KirinAttackBandSummaryV2> drumSummary;
     std::vector<KirinSnapshotEventKey> drumNavigationKeys;
     void configureSpectrumCallbacks();
+    std::uint64_t spectrumAuthorityTicket = 0;
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();

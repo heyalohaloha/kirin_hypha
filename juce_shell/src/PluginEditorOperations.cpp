@@ -71,6 +71,7 @@ juce::PopupMenu KirinHyphaEditor::operationsMenu()
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");
+    hypha::display_settings::addMenu (menu, processorRef.displaySettings.get(), isPost);
     if (stereoWorkflows)
     {
         menu.addItem (11, "Show Hybrid VU while recording", true,
@@ -95,6 +96,13 @@ void KirinHyphaEditor::handleOperationsMenu (int result)
     if (handleLiveCompareMenu (result)) return;
    #endif
     if (handleLanguageMenu (result)) return;
+    auto display = processorRef.displaySettings.get();
+    if (hypha::display_settings::choose (display, result))
+    { processorRef.setDisplaySettingsPreference (display); refreshWatchSnapshot();
+     #if ! KIRIN_HYPHA_PRE_DISPLAY
+      spectrumView.setDisplaySettings (display);
+     #endif
+      return; }
     if (result == 20)
     {
         if (observatoryView.onReset) observatoryView.onReset();

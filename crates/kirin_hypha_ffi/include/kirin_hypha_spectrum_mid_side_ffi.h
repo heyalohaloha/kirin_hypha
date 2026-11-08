@@ -22,6 +22,11 @@ typedef struct {
 
 bool kirin_hypha_set_mid_side_spectrum_visible(KirinHypha* handle, bool visible);
 bool kirin_hypha_poll_mid_side_spectrum(KirinHypha* handle, KirinMidSideSpectrumView* out);
+/* UI-only additive snapshot. Both outputs come from the same publication; a nonzero
+   continuity identifies uninterrupted analysis, even when the UI skips publications.
+   False preserves both outputs. The legacy view ABI remains unchanged. */
+bool kirin_hypha_poll_mid_side_spectrum_continuous(
+    KirinHypha* handle, KirinMidSideSpectrumView* out, uint64_t* continuity);
 /* FULL (0) or LOW (1) for POST Spectrum. The same analysis with a longer window, never a second one. */
 bool kirin_hypha_set_spectrum_scope(KirinHypha* handle, uint8_t scope);
 

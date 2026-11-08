@@ -239,7 +239,7 @@ int main()
     static_assert (attackUi::eventX (0, 0, 0, 281) == -1);
     static_assert (! attackUi::validTimeline (
         std::numeric_limits<std::int64_t>::min(), 48'000));
-    static_assert (hypha::ui_contract::spectrumCurvePresentationHz == 12);
+    static_assert (hypha::ui_contract::spectrumPresentationHz == 30);
     static_assert (hypha::ui_contract::perceptualCurvePresentationHz == 5);
     static_assert (hypha::ui_contract::analysisNumericPresentationHz == 2);
     static_assert (KIRIN_SPECTRUM_HIDDEN == 0u);

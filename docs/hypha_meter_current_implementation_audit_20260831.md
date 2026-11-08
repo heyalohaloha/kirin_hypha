@@ -164,7 +164,7 @@ FREQは48 kHzで4096 sample apertureと8192 FFTを使う。
 
 host sample rateに合わせてaperture時間を正規化し、host sampleをresampleしない。
 
-256 band、30 Hz analysis source、12 Hz curve presentation、2 Hz numeric presentationを使う。
+当初は256 band、30 Hz analysis source、12 Hz curve presentation、2 Hz numeric presentationを使った。現在の表示はINV-S27のVBlank駆動とする。
 
 低域の観測cycle不足はapproximate frequencyとして表示し、存在しないFFT pointを作らない。
 

@@ -79,6 +79,8 @@ namespace
                              typography::Composition::visualization));
         juce::ignoreUnused (reservedReadoutWidth, expandedReadout);
         const bool viewOnly = spectrum_geometry::viewOnly (scale);
+        const auto slope = juce::String (state.settings.tiltDb(), 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".");
+        const bool tilted = state.absoluteObservation && state.settings.tiltDb() > 0;
         for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size() && ! viewOnly; ++index)
         {
             const auto mode = static_cast<uint8_t> (index);
@@ -137,13 +139,14 @@ namespace
             const auto chosen = juce::String (state.channelMode == KIRIN_SPECTRUM_CHANNEL_MID ? "MID"
                                             : state.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE ? "SIDE" : "")
                               + (state.lowScope ? "  LOW" : "")
+                              + (tilted ? "  " + slope + "/oct" : "")
                               + (state.shapeObservation && ! state.absoluteObservation ? "  SHAPE" : "")
                               + (state.haveMark && ! state.absoluteObservation ? "  MARK" : "");
             const auto averageLabel = state.average == spectrum_average::Choice::live ? juce::String()
                 : juce::String ("AVG ") + spectrum_average::label (state.average);
             g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                                  typography::Composition::visualization));
-            g.setColour (COL_FLORA.withAlpha (0.86f));
+            g.setColour (COL_TEXT_SECONDARY);
             text_style::drawText (g, (chosen + "  " + averageLabel).trim(), outerPlot.withTop (legendTop).withHeight (
                             scaled ((float) ui_contract::spectrumLegendHeight)).reduced (scaled (4.0f), 0.0f)
                             .toNearestInt(), juce::Justification::centredRight);
@@ -191,6 +194,13 @@ namespace
                         legendTop, scaled (42.0f),
                         scaled ((float) ui_contract::spectrumLegendHeight) }.toNearestInt(),
                         juce::Justification::centredLeft);
+            if (! viewOnly && tilted)
+            {
+                g.setColour (COL_TEXT_SECONDARY);
+                text_style::drawText (g, "TILT " + slope,
+                    outerPlot.withTrimmedLeft (scaled (92.0f)).withY (legendTop)
+                        .withHeight (scaled (ui_contract::spectrumLegendHeight)).toNearestInt(), juce::Justification::centredLeft);
+            }
             return;
         }
         if (state.absoluteObservation && viewOnly)
@@ -201,17 +211,19 @@ namespace
                                                 juce::roundToInt (legendTop),
                                                 juce::roundToInt (outerPlot.getWidth()),
                                                 scaledInt (ui_contract::spectrumLegendHeight) };
-            const juce::String lead (state.channelMode == KIRIN_SPECTRUM_CHANNEL_LR
-                ? (scale > 1.4f ? "POST dBFS / " : "POST dBFS")
-                : scale > 1.4f ? "POST dBFS / 6s field / " : "POST dBFS / 6s");
-            g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
+            juce::String lead = "POST dBFS";
+            if (state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR)
+                lead += scale > 1.4f ? " / 6s field" : " / 6s";
+            if (tilted) lead += "  TILT " + slope;
+            if (scale > 1.4f && state.settings[display_settings::peak] == 0) lead += " / ";
+            g.setColour (COL_TEXT_SECONDARY);
             text_style::drawText (g, lead, legend, juce::Justification::centredLeft);
-            if (scale > 1.4f)
+            if (scale > 1.4f && state.settings[display_settings::peak] == 0)
             {
                 // The hold curve's own colour names it, as MID and SIDE are named in theirs.
                 const auto style = typography::resolve (state.presentation, typography::TextRole::legend,
                                                         typography::Composition::visualization);
-                g.setColour (COL_FLORA_BR.withAlpha (ui_contract::spectrumHoldAlpha));
+                g.setColour (COL_TEXT_SECONDARY);
                 const auto leadWidth = text_style::requiredWidth (g.getCurrentFont(), lead, style)
                                      - juce::roundToInt (2.0f * style.horizontalPadding);
                 text_style::drawText (g, "peak hold", legend.withTrimmedLeft (leadWidth),
@@ -234,7 +246,7 @@ namespace
                     scaledInt (ui_contract::spectrumPreLegendLabelWidth),
                     scaledInt (ui_contract::spectrumLegendHeight),
                     juce::Justification::centredLeft);
-        g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostLegendAlpha));
+        g.setColour (COL_TEXT_SECONDARY.withAlpha (ui_contract::spectrumPostLegendAlpha));
         text_style::drawText (g, "POST", juce::roundToInt (outerPlot.getX()) + legendOffset
                               + scaledInt (ui_contract::spectrumPostLegendLabelX),
                     juce::roundToInt (legendTop),
@@ -253,19 +265,14 @@ namespace
         g.drawRoundedRectangle (mark, scaled (3.0f), scaled (0.75f));
         g.setFont (monoFont (state.presentation, typography::TextRole::action,
                              typography::Composition::visualization));
-        g.setColour (state.snapshotValid
-                         ? (state.haveMark ? COL_FLORA_BR : COL_FLORA).withAlpha (
-                               state.haveMark
-                                   ? ui_contract::spectrumMarkButtonActiveAlpha
-                                   : ui_contract::spectrumMarkButtonInactiveAlpha)
-                                         : COL_MUTED.withAlpha (0.34f));
+        g.setColour (state.snapshotValid ? COL_TEXT_SECONDARY : COL_MUTED.withAlpha (0.34f));
         auto labelBounds = mark;
         if (state.haveMark)
             labelBounds.removeFromRight (scaled ((float) ui_contract::spectrumMarkClearWidth));
         text_style::drawText (g, "MARK", labelBounds.toNearestInt(), juce::Justification::centred);
         if (state.haveMark)
         {
-            g.setColour (COL_FLORA_BR.withAlpha (0.82f));
+            g.setColour (COL_TEXT_SECONDARY);
             text_style::drawText (g, juce::CharPointer_UTF8 ("×"),
                         spectrum_geometry::markClearBoundsFor (mark, scale).toNearestInt(),
                         juce::Justification::centred);
@@ -280,28 +287,25 @@ namespace
     void paintPeakTags (juce::Graphics& g,
                         juce::Rectangle<float> plot,
                         float scale,
-                        const spectrum_painter::SpectrumBins& read,
+                        const spectrum_peaks::Peaks& peaks,
                         const spectrum_painter::SpectrumBins& drawn,
                         float minimumHz,
                         float maximumHz,
-                        presentation::Context presentation)
+                        presentation::Context presentation, float range)
     {
-        std::array<float, KIRIN_SPECTRUM_BAND_COUNT> hz {};
-        for (size_t index = 0; index < hz.size(); ++index)
-            hz[index] = spectrum_geometry::frequencyForNormalisedX (
-                ((float) index + 0.5f) / (float) hz.size(), minimumHz, maximumHz);
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
         spectrum_peaks::paintTags (
-            g, plot, scale, spectrum_peaks::find (hz.data(), read.data(), hz.size()),
+            g, plot, scale, peaks,
             [&] (float frequency)
             { return spectrum_geometry::xForFrequency (frequency, minimumHz, maximumHz, plot); },
             [&] (const spectrum_peaks::Peak& peak)
             {
                 // The numbers change slowly enough to read. The tag follows the curve meanwhile.
-                const auto band = std::lower_bound (hz.begin(), hz.end(), peak.hz) - hz.begin();
-                return spectrum_painter::yForMagnitude (
-                    drawn[(size_t) juce::jmin (band, (std::ptrdiff_t) hz.size() - 1)], plot);
+                const auto position = spectrum_geometry::bandPositionForNormalisedX (
+                    spectrum_geometry::normalisedXForFrequency (peak.hz, minimumHz, maximumHz));
+                const auto band = static_cast<size_t> (std::ceil (position));
+                return spectrum_painter::yForMagnitude (drawn[std::min (band, drawn.size() - 1)], plot, range);
             },
             [] (const spectrum_peaks::Peak& peak)
             {
@@ -319,7 +323,7 @@ void paint (juce::Graphics& g,
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
     const bool focusLocked = ! state.absoluteObservation && state.focusFrequencyHz > 0.0f;
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, focusLocked);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, focusLocked, state.settings.rangeDb(), state.absoluteObservation);
     // LOW keeps its own axis while it waits for a frame.
     const bool lowWithoutFrame = state.lowScope && ! state.snapshotValid;
     const float minimumHz = lowWithoutFrame ? spectrum_scope::lowMinimumHz
@@ -341,9 +345,17 @@ void paint (juce::Graphics& g,
                 state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
+    auto pre = state.pre, post = state.post, hold = state.absolutePeakHold;
+    const auto range = state.settings.rangeDb(), brightness = state.settings.brightness();
+    if (state.absoluteObservation && state.settings.tiltDb() != 0)
+        for (size_t band = 0; band < post.size(); ++band)
+        {
+            const auto tilt = spectrum_display::tiltAt (band, minimumHz, maximumHz, state.settings.tiltDb());
+            pre[band] += tilt; post[band] += tilt; hold[band] += tilt;
+        }
     surface_material::paintObservationWell (g, plot);
     spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz,
-                              state.absoluteObservation, state.presentation);
+                              state.absoluteObservation, state.presentation, range);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
     const float reservedReadoutWidth = probeNormalisedX >= 0.0f
         ? (float) (scale > 1.1f ? ui_contract::spectrumExpandedReadoutWidth
@@ -360,13 +372,13 @@ void paint (juce::Graphics& g,
         // separately validated local observation, on the same magnitude axis as before.
         if (! state.absoluteObservation && state.postSnapshotValid
             && state.pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
-            spectrum_painter::paintPostCurve (g, plot, scale, state.post);
+            spectrum_painter::paintPostCurve (g, plot, scale, post, range, brightness);
         // Stopped: the six seconds already measured stay, dimmed, under the status.
         if (state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR
             && state.absoluteObservation && ! state.midSideObservation && ! state.signalActive
             && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
             stopped_history::paintDimmed (g, [&] {
-                spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory); });
+                spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory, state.backdrop, state.settings, minimumHz, maximumHz); });
         const auto status = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
                             : ! state.signalActive ? juce::String ("INACTIVE")
@@ -396,20 +408,19 @@ void paint (juce::Graphics& g,
         guide_frequency::paint (g, plot, scale, state.guideOverlay,
                                 minimumHz, maximumHz);
     if (state.midSideObservation)
-        spectrum_painter::paintMidSide (g, plot, scale, state.pre, state.post);
+        spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness);
     else if (state.absoluteObservation && state.absoluteHistory != nullptr)
-        spectrum_painter::paintAbsolute (g, plot, scale, state.post,
-                                         state.absolutePeakHold,
+        spectrum_painter::paintAbsolute (g, plot, scale, post,
+                                         hold,
                                          *state.absoluteHistory, state.presentation,
-                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR);
+                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz);
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.deltaValid,
                                        state.haveMark ? &state.mark : nullptr,
-                                       state.haveMark ? &state.markValid : nullptr);
-    if (state.lowScope && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
-        paintPeakTags (g, plot, scale, state.readoutPost, state.post, minimumHz, maximumHz,
-                       state.presentation);
+                                       state.haveMark ? &state.markValid : nullptr, range, brightness);
+    if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
+        paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range);
     if (! state.midSideObservation)
         spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
                                                 state.presentation, state.shapeObservation);

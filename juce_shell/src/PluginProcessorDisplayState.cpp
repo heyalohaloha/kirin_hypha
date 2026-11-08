@@ -117,3 +117,9 @@ void KirinHyphaProcessorBase::setSpectrumAveragePreference (hypha::spectrum_aver
     if (spectrumAverage.set (value))
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
+
+void KirinHyphaProcessorBase::setDisplaySettingsPreference (hypha::display_settings::Values value)
+{
+    if (displaySettings.set (value))
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}

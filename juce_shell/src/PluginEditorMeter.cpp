@@ -5,6 +5,7 @@
 
 void KirinHyphaEditor::refreshWatchSnapshot()
 {
+    observatoryView.setLevelNumericInterval (processorRef.displaySettings.get().numericMs());
     KirinWatchDisplay watch {};
     if (! processorRef.pollWatchDisplay (watch))
         return;

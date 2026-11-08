@@ -60,7 +60,7 @@ namespace hypha::spectrum_axes
                     float minimumHz,
                     float maximumHz,
                     bool absoluteObservation,
-                    presentation::Context presentation)
+                    presentation::Context presentation, float range = 96.0f)
     {
         const auto scaled = [scale] (float value) { return value * scale; };
         const auto scaledInt = [scale] (int value) {
@@ -70,7 +70,7 @@ namespace hypha::spectrum_axes
                              typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         if (absoluteObservation)
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, true, true, presentation);
+            spectrum_magnitude_chrome::paintAxis (g, plot, scale, true, true, presentation, range);
         else
         {
             const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
@@ -88,7 +88,7 @@ namespace hypha::spectrum_axes
             }
             // PRE and POST's absolute axis stands right of the plot, which takes that room at 100%.
             if (! spectrum_geometry::viewOnly (scale))
-                spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
+                spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation, range);
         }
         if (maximumHz <= spectrum_scope::lowMaximumHz)
         {

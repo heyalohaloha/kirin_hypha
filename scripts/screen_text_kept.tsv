@@ -13,7 +13,7 @@ M / momentary LUFS	LEVEL history legend
 TP / > -1 dBTP events	LEVEL history legend
 PSB / delta pp	PSB legend
 0-24 Bark | LR	PSB axis caption
-POST dBFS / 6s field / 	FREQ legend
+ / 6s field	FREQ legend fragment
 = PEAK 	TIME HISTORY PSR lane (followed by its value)
 RUNS IN VIEW	RUN heading
 MAXIMUM TRUE PEAK	REF metric heading
@@ -121,3 +121,12 @@ ALIGN OFF	Fixed action label for explicitly disabling automatic alignment during
 PRE1 → A → PRE2 → B → POST	User-confirmed insertion order; role and candidate labels stay identical in both languages
 START A/B	Short comparison action label retained in Japanese
 A/B: PRE2	Role selection heading retained in Japanese
+LEVEL / NUM RATE	LEVEL display cadence menu label
+0 dB/oct	FREQ display unit choice
+3 dB/oct	FREQ display unit choice
+4.5 dB/oct	FREQ display unit choice
+6 dB/oct	FREQ display unit choice
+1/24 oct	FREQ display unit choice
+1/12 oct	FREQ display unit choice
+1/6 oct	FREQ display unit choice
+/oct	FREQ compact tilt unit

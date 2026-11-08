@@ -118,14 +118,34 @@ pub unsafe extern "C" fn kirin_hypha_poll_mid_side_spectrum(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinMidSideSpectrumView,
 ) -> bool {
+    let mut continuity = 0;
+    unsafe { kirin_hypha_poll_mid_side_spectrum_continuous(handle, out, &mut continuity) }
+}
+
+/// Poll one coherent observation and its worker aperture continuity identity.
+///
+/// # Safety
+/// All pointers must be live and writable as applicable. UI thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_mid_side_spectrum_continuous(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinMidSideSpectrumView,
+    continuity: *mut u64,
+) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
+        if handle.is_null() || out.is_null() || continuity.is_null() {
             return false;
         }
         let Some(snapshot) = (unsafe { &*handle }).poll_mid_side_spectrum() else {
             return false;
         };
+        let identity = snapshot
+            .frame
+            .as_ref()
+            .filter(|frame| frame.has_valid_layout())
+            .map_or(0, |frame| frame.continuity);
         unsafe { *out = to_c_view(snapshot) };
+        unsafe { *continuity = identity };
         true
     }))
     .unwrap_or(false)
@@ -185,6 +205,15 @@ mod tests {
     fn null_poll_rejects_without_mutating_the_output() {
         let mut output = empty_view();
         output.status = 123;
+        let mut continuity = 456;
+        assert!(!unsafe {
+            kirin_hypha_poll_mid_side_spectrum_continuous(
+                std::ptr::null_mut(),
+                &mut output,
+                &mut continuity,
+            )
+        });
+        assert_eq!(continuity, 456);
         assert!(!unsafe { kirin_hypha_poll_mid_side_spectrum(std::ptr::null_mut(), &mut output) });
         assert_eq!(output.status, 123);
         assert!(!unsafe {

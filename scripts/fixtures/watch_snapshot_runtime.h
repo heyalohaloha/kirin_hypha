@@ -25,6 +25,8 @@ struct View {
     KirinWatchDisplay watchDisplay {}; bool watchDisplayAvailable = false;
     Domain selectedDomain = Domain::level; Target selectedTarget = Target::absolute;
     int bodyArea = 0, paints = 0;
+    double numericInterval = -1;
+    void setLevelNumericInterval(double ms) { numericInterval = ms; }
     void repaint(int) { ++paints; }
     void setWatchDisplay(const KirinWatchDisplay&, bool);
     void setSurroundMeasurementOnly(bool) {} void setMeasurementFormatHeld(bool) {}
@@ -47,6 +49,8 @@ struct View {
     void setHistory(std::vector<KirinMeterHistoryEntry>) {} void setConnection(int, int, int) {} void clearGuide() {}
 };
 struct Processor {
+    struct DisplayOptions { double ms = 200; double numericMs() const { return ms; } };
+    struct DisplayPreference { DisplayOptions options; DisplayOptions get() const { return options; } } displaySettings;
     KirinWatchDisplay next {}; bool available = false, levelReady = false;
     Target preferredTarget = Target::absolute;
     bool pollWatchDisplay(KirinWatchDisplay& value) { value = next; return available; }

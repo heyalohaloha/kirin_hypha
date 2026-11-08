@@ -35,9 +35,9 @@ bool View::sessionSummaryPending() const noexcept
     return frameAvailable && pendingSummary (observatoryFrame.meter,
         haveSessionCoverage ? &sessionCoverage : nullptr);
 }
-juce::String View::sessionMaximumBoundText() const
+juce::String View::sessionMaximumBoundText (const KirinMeterSession* displayed) const
 {
-    const auto value = cumulativeMeterForDisplay().max_true_peak;
+    const auto value = (displayed != nullptr ? *displayed : cumulativeMeterForDisplay()).max_true_peak;
     if (! sessionSummaryPending() || ! std::isfinite (value)) return {};
     auto lower = std::floor (value * 10.0) / 10.0;
     if (std::fpclassify (lower) == FP_ZERO) lower = 0.0;

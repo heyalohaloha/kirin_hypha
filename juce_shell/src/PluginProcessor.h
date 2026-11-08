@@ -1,6 +1,7 @@
 #pragma once
 #include "PreparedFormat.h"
 #include "HyphaSpectrumAverage.h"
+#include "HyphaDisplaySettings.h"
 #include "HyphaPairPreview.h"
 #include "AutomaticPairState.h"
 #include "HyphaCaptureStateNotification.h"
@@ -76,7 +77,6 @@ public:
     bool hasEditor() const override;
     hypha::update::ServiceOwner& updateServicesForEditor() noexcept { return updateServiceOwner; }
     juce::AudioProcessorParameter* getBypassParameter() const override;
-
     // Editor (message thread) reads the latest RT result. Null handle / lock contention -> false.
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
@@ -117,7 +117,6 @@ public:
 #endif
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     #include "ReferenceTargetProcessorApi.h"
-
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }
     int  licenseCode() const { return cachedLicenseCode.load (std::memory_order_acquire); } // 0=Os 1=Sense 2=Unknown
@@ -186,7 +185,6 @@ public:
     juce::String pathAnomalyMessage() const;            // B-128 (G-115-371 D3): kirin_hypha_drain_path_event (restore identity anomaly surface)
     bool licenseIsOs() const;                           // shared cached/live entitlement
     void stopPair();                                    // kirin_hypha_stop
-
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
     bool hasLiveInput() const noexcept { return liveInputPresent.load (std::memory_order_relaxed); }
@@ -199,6 +197,8 @@ public:
     { return analysisDemandOwner.requested(); }
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool setSpectrumDisplaySelection (uint8_t selection, bool absoluteTarget);
+    hypha::display_settings::Preference displaySettings;
+    void setDisplaySettingsPreference (hypha::display_settings::Values);
     hypha::spectrum_average::Preference spectrumAverage;
     void setSpectrumAveragePreference (hypha::spectrum_average::Choice);
     bool spectrumLowScope() const noexcept;
@@ -208,8 +208,8 @@ public:
     uint8_t spectrumSingleChannelMode() const noexcept
     { return preferredSpectrumChannelMode.load (std::memory_order_acquire); }
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
-    bool pollSpectrumBatch (KirinSpectrumBatch& out) const;
-    bool pollMidSideSpectrum (KirinMidSideSpectrumView& out) const;
+    bool pollSpectrumBatch (KirinSpectrumBatch& out, uint64_t* postContinuity = nullptr, uint64_t* deltaContinuity = nullptr) const;
+    bool pollMidSideSpectrum (KirinMidSideSpectrumView& out, uint64_t* continuity = nullptr) const;
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;

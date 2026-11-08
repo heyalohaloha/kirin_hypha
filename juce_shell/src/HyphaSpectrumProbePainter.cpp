@@ -44,8 +44,8 @@ void paintProbe (juce::Graphics& g,
         && (upper == lower || blend < 0.0001f
             || state.readoutDeltaValid[upper] != 0u);
     const float pointY = state.absoluteObservation
-        ? juce::jmap (juce::jlimit (-96.0f, 0.0f, postDbfs),
-                      0.0f, -96.0f, plot.getY(), plot.getBottom())
+        ? spectrum_painter::yForMagnitude (juce::jmap (blend, state.post[lower], state.post[upper])
+            + spectrum_display::tiltAt (lower, minimumHz, maximumHz, state.settings.tiltDb()), plot, state.settings.rangeDb())
         : spectrum_geometry::yForDeltaDb (deltaDb, plot);
 
     g.setColour (COL_NORMAL.withAlpha (focusLocked ? 0.48f : 0.30f));
@@ -124,7 +124,7 @@ void paintProbe (juce::Graphics& g,
                            : ui_contract::spectrumHoverFrequencyWidth,
                   juce::Justification::centredLeft);
         drawText ((expanded ? "POST " : "") + juce::String (postDbfs, 1),
-                  COL_SPECTRUM_POST.withAlpha (0.98f),
+                  COL_NORMAL.withAlpha (0.98f),
                   expanded ? ui_contract::spectrumExpandedPostX
                            : ui_contract::spectrumHoverDeltaX,
                   expanded ? ui_contract::spectrumExpandedPostWidth
@@ -154,7 +154,7 @@ void paintProbe (juce::Graphics& g,
                   ui_contract::spectrumExpandedPreWidth,
                   juce::Justification::centredRight);
         drawText ("POST " + juce::String (postDbfs, 1),
-                  COL_SPECTRUM_POST.withAlpha (0.98f),
+                  COL_NORMAL.withAlpha (0.98f),
                   ui_contract::spectrumExpandedPostX,
                   ui_contract::spectrumExpandedPostWidth,
                   juce::Justification::centredRight);

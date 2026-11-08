@@ -39,6 +39,7 @@ void paintClipCount (juce::Graphics& g,
 void paintFullChannelStrips (juce::Graphics& g,
                              juce::Rectangle<int> area,
                              const KirinMeterSession& meter,
+                             const KirinMeterSession& numeric,
                              bool currentAvailable,
                              bool cumulativeAvailable,
                              presentation::Context presentation)
@@ -65,7 +66,7 @@ void paintFullChannelStrips (juce::Graphics& g,
         text_style::drawText (g, channel == 0 ? "L" : "R", row.withWidth (16), juce::Justification::centredLeft);
         g.setColour (available ? COL_NORMAL : COL_MUTED);
         drawTabularText (g, valueFont,
-                         available ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
+                         available ? juce::String (numeric.channel_true_peak_dbtp[channel], 1)
                                    : juce::String ("---"),
                          channelPeakValueArea (row).toFloat(), juce::Justification::centredRight);
     }
@@ -165,16 +166,17 @@ void paintFullChannelStrips (juce::Graphics& g,
                           typography::Composition::instrument));
     text_style::drawText (g, "CLIP", clips.removeFromTop (14), juce::Justification::centred);
     paintClipCount (g, clips.withX (leftColumn.getX()).withWidth (columnWidth),
-                    "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0,
+                    "L", numeric.clip_events[0], cumulativeAvailable && meter.channels > 0,
                     presentation);
     paintClipCount (g, clips.withX (rightColumn.getX()).withWidth (columnWidth),
-                    "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1,
+                    "R", numeric.clip_events[1], cumulativeAvailable && meter.channels > 1,
                     presentation);
 }
 
 void paintSurroundChannelRows (juce::Graphics& g,
                                juce::Rectangle<int> area,
                                const KirinMeterSession& meter,
+                             const KirinMeterSession& numeric,
                                bool currentAvailable,
                                bool cumulativeAvailable,
                                presentation::Context presentation)
@@ -249,7 +251,7 @@ void paintSurroundChannelRows (juce::Graphics& g,
         drawTabularText (
             g, monoFont (presentation, typography::TextRole::readout,
                          typography::Composition::instrument),
-            truePeakAvailable ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
+            truePeakAvailable ? juce::String (numeric.channel_true_peak_dbtp[channel], 1)
                               : juce::String ("---"),
             value.toFloat(), juce::Justification::centredRight);
         const bool clipAvailable = cumulativeAvailable && channel < channels;
@@ -259,7 +261,7 @@ void paintSurroundChannelRows (juce::Graphics& g,
         drawTabularText (
             g, monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::instrument),
-            clipAvailable ? clipCountText (meter.clip_events[channel]) : hypha::emDash(),
+            clipAvailable ? clipCountText (numeric.clip_events[channel]) : hypha::emDash(),
             clip.toFloat(), juce::Justification::centredRight);
     }
 }
@@ -305,6 +307,8 @@ void View::cycleSize()
 void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const auto& meter = observatoryFrame.meter;
+    const auto& numeric = captureFrame ? meter
+        : levelReadout.frame().meter;
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
     surface_material::paintPanel (
@@ -313,13 +317,13 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     area.reduce (5, 5);
     if (meter.channels > 2)
     {
-        paintSurroundChannelRows (g, area, meter, currentAvailable, cumulativeAvailable,
+        paintSurroundChannelRows (g, area, meter, numeric, currentAvailable, cumulativeAvailable,
                                   presentationContext());
         return;
     }
     if (isFullDensity (currentPreset().density))
     {
-        paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable,
+        paintFullChannelStrips (g, area, meter, numeric, currentAvailable, cumulativeAvailable,
                                 presentationContext());
         return;
     }
@@ -383,9 +387,9 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     text_style::drawText (g, "CLIP", clips.removeFromTop (14), juce::Justification::centred);
     const auto left = clips.removeFromLeft (columnWidth);
     clips.removeFromLeft (columnGap);
-    paintClipCount (g, left, "L", meter.clip_events[0],
+    paintClipCount (g, left, "L", numeric.clip_events[0],
                     cumulativeAvailable && meter.channels > 0, presentationContext());
-    paintClipCount (g, clips, "R", meter.clip_events[1],
+    paintClipCount (g, clips, "R", numeric.clip_events[1],
                     cumulativeAvailable && meter.channels > 1, presentationContext());
 }
 

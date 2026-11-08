@@ -28,6 +28,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
     spectrumAverage.write (xml);
+    displaySettings.write (xml);
     xml.setAttribute ("display_state_version", 5);
     xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
     xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
@@ -68,6 +69,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
     juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
+    hypha::display_settings::Values restoredDisplaySettings;
     auto restoredSpectrumAverage = hypha::spectrum_average::Choice::live;
     bool restoredShortTermLoudness = false;
     uint8_t restoredObservatoryDomain = 0;
@@ -91,6 +93,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
            #if ! KIRIN_HYPHA_PRE_DISPLAY
             restoredReference = hypha::reference_audition::ReferenceComparisonSettings::read (*xml);
            #endif
+            restoredDisplaySettings = hypha::display_settings::Preference::read (*xml);
             restoredSpectrumAverage = hypha::spectrum_average::Preference::read (*xml);
             automaticPair.disconnected.store (xml->getBoolAttribute ("pair_explicitly_disconnected", false));
             restoredInstanceId     = xml->getStringAttribute ("instance_id");
@@ -156,6 +159,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     if (restored)
     {
         spectrumAverage.set (restoredSpectrumAverage);
+        displaySettings.set (restoredDisplaySettings);
         liveCompare.autoAlign.store (restoredAutoAlign, std::memory_order_release);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (role == Role::Post)

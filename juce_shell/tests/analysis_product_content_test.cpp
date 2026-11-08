@@ -1,5 +1,6 @@
 #include "ContentAnalysisProductFixture.h"
 #include "LogicCycleProductTest.h"
+#include "MidSideContinuityProductTest.h"
 
 namespace
 {
@@ -174,6 +175,8 @@ try
     fixture.injectedDelay = injectedDelay;
     try
     {
+        if (layout == "stereo" && scenario == "zero" && host == "content" && phase == "linear")
+        { verifyMidSideContinuityProduct (fixture); verifySpectrumContinuityProduct (fixture); }
         if (host == "logic")
             verifyLogicCycleProduct (fixture, phase == "logic_blind" ? LogicCyclePart::blind
                 : phase == "logic_sharp_listen" ? LogicCyclePart::sharpListen : LogicCyclePart::freqListen);

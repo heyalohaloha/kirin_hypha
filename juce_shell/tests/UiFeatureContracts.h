@@ -1,4 +1,5 @@
 #pragma once
+#include "FreqFrameDeliveryTest.h"
 #include "ReferenceLibraryFormatUiTest.h"
 #include "ReferenceMonoVisualTest.h"
 
@@ -47,11 +48,16 @@
 #include "MaterialCacheContract.h"
 #include "StoppedHistoryContract.h"
 #include "ShellRepairUiContract.h"
+#include "SpectrumLowScopeContract.h"
 
 namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--low-playback-only")
+    { verifyLowPlaybackLoad(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--freq-vblank-only")
+    { verifyFreqVBlankInteractive(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-vblank-only")
     { verifyVuVBlankInteractive(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-animation-only")

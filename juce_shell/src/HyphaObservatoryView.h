@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaLevelReadout.h"
 #include <functional>
 #include <optional>
 #include <vector>
@@ -150,6 +151,7 @@ public:
     }
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
+    void setLevelNumericInterval (double ms) { levelReadout.setInterval (ms); }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     bool setTimeSnapshot (const KirinTimeSnapshotV2&, std::vector<KirinTimeHistoryEntryV2>,
                           std::vector<KirinTimeHistoryEntryV2>, double, double, bool);
@@ -164,7 +166,7 @@ public:
     const KirinMeterSession& cumulativeMeterForDisplay() const noexcept;
     bool sessionSummaryPending() const noexcept;
     juce::String sessionSummaryScope() const;
-    juce::String sessionMaximumBoundText() const;
+    juce::String sessionMaximumBoundText (const KirinMeterSession* displayed = nullptr) const;
     capture::PresentationStamp capturePresentationStamp() const noexcept;
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
@@ -367,6 +369,7 @@ private:
     ObservationTarget selectedTarget = ObservationTarget::absolute;
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
+    level_readout::Display levelReadout;
     mono_sum_history::History monoSumHistory;
     space_live::Display spaceLive { *this, [this] { repaint (spaceTraceBounds()); } };
     bool frameAvailable = false;

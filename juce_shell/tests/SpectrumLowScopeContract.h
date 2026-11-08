@@ -90,9 +90,98 @@ inline void verifyPeakTagRows()
         slim.contains (spectrum_peaks::freeRow (slim, tag, 5.0f, 2.0f, taken.data(), 1)));
 }
 
+// Compare both routes on the same changing history. Source acquisition remains 30 Hz even
+// when the presentation rate doubles; cache misses and acquisition work are inside the timing.
+inline void verifyLowPlaybackLoad()
+{
+    material_cache::Lifetime material;
+    for (const int width : { 600, 900 })
+        for (const int refreshHz : { 60, 120 })
+        {
+            std::array<std::array<double, 3>, 2> paintTimes {}, workTimes {};
+            for (int round = 0; round < 3; ++round)
+              for (int pass = 0; pass < 2; ++pass)
+            {
+                const bool cached = (round + pass) % 2 != 0;
+                SpectrumComponent view; view.setAbsoluteObservation (true); view.setLowScope (true);
+                view.setSignalActive (true); view.setHistoryCacheEnabledForTest (cached);
+                const auto body = ui_contract::spectrumPlotBounds (width, width * 2 / 3);
+                view.setSize (body.width, body.height);
+                for (int tick = 0; tick < 180; ++tick)
+                {
+                    auto frame = lowFrame (48000 + tick * 1600, false);
+                    frame.channel_mode = KIRIN_SPECTRUM_CHANNEL_MID; view.setSnapshot (frame);
+                }
+                juce::Image image (juce::Image::ARGB, body.width, body.height, true);
+                juce::Graphics graphics (image); view.paintEntireComponent (graphics, true);
+                const auto builds = view.backdropBuildsForTest();
+                const auto clock = view.curveUpdateTimeForTest();
+                double paintMs = 0, maximumMs = 0;
+                int acquisitions = 0, labelChanges = 0;
+                auto labelTime = view.peakLabelUpdateTimeForTest();
+                const auto started = juce::Time::getMillisecondCounterHiRes();
+                for (int draw = 0; draw < refreshHz * 2; ++draw)
+                {
+                    if (draw % (refreshHz / 30) == 0)
+                    {
+                        auto frame = lowFrame (336000 + acquisitions++ * 1600, false);
+                        frame.channel_mode = KIRIN_SPECTRUM_CHANNEL_MID;
+                        for (auto& value : frame.post_dbfs) value += 3 * std::sin (acquisitions * 0.1f);
+                        KirinSpectrumBatch batch {}; batch.count = 1; batch.frames[0] = batch.latest = frame;
+                        view.setBatch (batch);
+                    }
+                    view.presentationTickAt (clock + (draw + 1) * 1000.0 / refreshHz);
+                    const auto reading = view.peakLabelUpdateTimeForTest();
+                    if (std::abs (reading - labelTime) > 0) { ++labelChanges; labelTime = reading; }
+                    image.clear (image.getBounds(), BG);
+                    const auto before = juce::Time::getMillisecondCounterHiRes();
+                    view.paintEntireComponent (graphics, true);
+                    const auto elapsed = juce::Time::getMillisecondCounterHiRes() - before;
+                    paintMs += elapsed; maximumMs = std::max (maximumMs, elapsed);
+                }
+                const auto totalMs = juce::Time::getMillisecondCounterHiRes() - started;
+                const auto generated = view.backdropBuildsForTest() - builds;
+                paintTimes[cached][round] = paintMs / (refreshHz * 2); workTimes[cached][round] = totalMs / 2;
+                std::cout << "LOW playback " << width << " " << refreshHz << " Hz " << (cached ? "cached" : "regenerated")
+                          << " round=" << round << ": acquisitions=" << acquisitions << " backgrounds=" << generated << " labels=" << labelChanges
+                          << " paint=" << paintTimes[cached][round] << " ms/frame max=" << maximumMs
+                          << " work=" << workTimes[cached][round] << " ms/s\n";
+                KIRIN_SPECTRUM_LOW_REQUIRE (acquisitions == 60 && labelChanges == 2);
+                KIRIN_SPECTRUM_LOW_REQUIRE (generated == static_cast<unsigned> (cached ? 60 : refreshHz * 2));
+                if (cached)
+                {
+                    KIRIN_SPECTRUM_LOW_REQUIRE (paintTimes[1][round] < std::min (12.0, 1000.0 / refreshHz) && workTimes[1][round] < 800.0);
+                    // Bypassing the cache changes the work, never the picture at one observation.
+                    const auto retained = image.createCopy();
+                    view.setHistoryCacheEnabledForTest (false);
+                    image.clear (image.getBounds(), BG); view.paintEntireComponent (graphics, true);
+                    uint64_t colourError = 0;
+                    for (int y = 0; y < body.height; ++y)
+                        for (int x = 0; x < body.width; ++x)
+                        {
+                            const auto a = retained.getPixelAt (x, y), b = image.getPixelAt (x, y);
+                            colourError += static_cast<uint64_t> (std::abs (a.getRed() - b.getRed())
+                                + std::abs (a.getGreen() - b.getGreen()) + std::abs (a.getBlue() - b.getBlue()));
+                        }
+                    // The extra premultiplied raster may round edge pixels differently.
+                    KIRIN_SPECTRUM_LOW_REQUIRE (colourError < static_cast<uint64_t> (body.width * body.height * 3));
+                }
+            }
+            for (auto* times : { &paintTimes, &workTimes })
+            {
+                for (auto& samples : *times) std::sort (samples.begin(), samples.end());
+                KIRIN_SPECTRUM_LOW_REQUIRE ((*times)[1][1] < (*times)[0][1] * 1.1);
+            }
+            std::cout << "LOW playback median " << width << " " << refreshHz << " Hz: paint "
+                      << paintTimes[0][1] << " -> " << paintTimes[1][1] << " ms/frame; work "
+                      << workTimes[0][1] << " -> " << workTimes[1][1] << " ms/s\n";
+        }
+}
+
 inline void verifySpectrumLowScopeContract()
 {
     verifyPeakTagRows();
+    verifyLowPlaybackLoad();
     for (const auto& preset : observatory::sizePresets)
     {
         const auto body = ui_contract::spectrumPlotBounds (preset.width, preset.height);
@@ -113,6 +202,7 @@ inline void verifySpectrumLowScopeContract()
 
     material_cache::Lifetime editorMaterial;
     const auto* previews = std::getenv ("KIRIN_SPECTRUM_LOW_PREVIEW_DIR");
+    if (previews != nullptr) KIRIN_SPECTRUM_LOW_REQUIRE (juce::File (previews).createDirectory().wasOk());
     for (const auto& preset : observatory::sizePresets)
         for (const bool paired : { false, true })
         {
@@ -152,6 +242,38 @@ inline void verifySpectrumLowScopeContract()
             juce::Image image (juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
             juce::Graphics graphics (image);
             component.paintEntireComponent (graphics, true);
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            for (int draw = 0; draw < 100; ++draw)
+            {
+                image.clear (image.getBounds(), BG);
+                juce::Graphics measured (image);
+                component.paintEntireComponent (measured, true);
+            }
+            std::cout << "LOW paint " << preset.width << (paired ? " delta: " : " absolute: ")
+                      << (juce::Time::getMillisecondCounterHiRes() - start) / 100.0 << " ms/frame\n";
+            if (! paired && preset.width >= 600)
+            {
+                for (int tick = 0; tick < 180; ++tick)
+                {
+                    auto historyFrame = lowFrame (80'000 + tick * 1600, false);
+                    historyFrame.channel_mode = KIRIN_SPECTRUM_CHANNEL_MID;
+                    component.setSnapshot (historyFrame);
+                }
+                const auto buildsBefore = component.backdropBuildsForTest();
+                const auto historyStart = juce::Time::getMillisecondCounterHiRes();
+                for (int draw = 0; draw < 100; ++draw)
+                {
+                    image.clear (image.getBounds(), BG);
+                    juce::Graphics measured (image);
+                    component.paintEntireComponent (measured, true);
+                }
+                KIRIN_SPECTRUM_LOW_REQUIRE (component.backdropBuildsForTest() == buildsBefore + 1);
+                std::cout << "LOW history paint " << preset.width << ": "
+                          << (juce::Time::getMillisecondCounterHiRes() - historyStart) / 100.0 << " ms/frame\n";
+                component.setSnapshot (frame);
+                image.clear (image.getBounds(), BG);
+                component.paintEntireComponent (graphics, true);
+            }
             if (previews == nullptr)
                 continue;
             const auto file = juce::File (previews).getChildFile (

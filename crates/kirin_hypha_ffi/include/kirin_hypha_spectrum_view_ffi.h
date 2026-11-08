@@ -34,3 +34,8 @@ typedef struct {
   uint32_t reserved;
   KirinSpectrumView frames[KIRIN_SPECTRUM_BATCH_CAPACITY];
 } KirinSpectrumBatch;
+
+/* UI-only: the batch and both identities are one coherent publication. Nonzero identities
+   survive GUI polling stalls, but change at real gaps. False preserves every output. */
+bool kirin_hypha_poll_spectrum_batch_continuous(KirinHypha* handle, KirinSpectrumBatch* out,
+                                               uint64_t* post_continuity, uint64_t* delta_continuity);

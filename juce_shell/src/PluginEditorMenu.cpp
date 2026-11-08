@@ -2,7 +2,6 @@
 #include "PluginEditor.h"
 #include "HyphaGuideInformationFacts.h"
 #include "HyphaSurfacePresentation.h"
-
 namespace
 {
     namespace ui = hypha::ui_contract;

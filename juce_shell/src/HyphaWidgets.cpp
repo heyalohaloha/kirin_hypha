@@ -300,7 +300,7 @@ namespace hypha
         }
         paintedPreview = previewFits ? previewGeneration : 0;
         g.setFont (monoFont (presentationContext, typography::TextRole::selector));
-        g.setColour (empty && onSelect ? COL_COPPER : COL_FLORA);
+        g.setColour (empty && onSelect ? COL_NORMAL : COL_FLORA);
         const auto textBounds = empty && onSelect
             ? getLocalBounds().reduced (pairBadgeInset (presentationContext), 0) : getLocalBounds();
         text_style::draw (g, shown, textBounds, presentationContext,

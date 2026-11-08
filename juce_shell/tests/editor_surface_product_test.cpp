@@ -17,6 +17,7 @@
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
 #include "TestProcessorStorage.h"
+#include "SpectrumLowScopeContract.h"
 #include "ReferenceSelectionReopenTest.h"
 #include <thread>
 #include <array>
@@ -45,7 +46,6 @@ template <typename T> T* component (juce::Component& parent)
         if (auto* result = component<T> (*child)) return result;
     return nullptr;
 }
-
 juce::Component* find (juce::Component& parent, const juce::String& id)
 {
     if (parent.getComponentID() == id) return &parent;
@@ -461,7 +461,6 @@ void verifyTimeTabGeometry()
                      "HISTORY alone shows the range / scale controls beside the tabs");
         }
 }
-
 int main (int argc, char** argv)
 {
     ReferenceValidationStorageSandbox sandbox;
@@ -480,6 +479,7 @@ int main (int argc, char** argv)
         std::cout << "Editor shell repairs: PASS (PRE/POST, 3 Blind screens, host-thread restore)\n";
         return EXIT_SUCCESS;
     }
+    if (std::getenv ("KIRIN_HYPHA_DISPLAY_SETTINGS_ONLY") != nullptr) { verifyDisplaySettingsProduct(); return EXIT_SUCCESS; }
     verifyVuTapProduct(); hypha::tests::editor_product::verifySpaceLiveProduct(); verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
