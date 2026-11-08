@@ -71,6 +71,7 @@ trace reservation failed	diagnostic trace setup exception caught by Recorder::fr
 trace open failed	diagnostic trace setup exception caught by Recorder::fromEnvironment; never drawn
 Logic Pro	host executable name compared by the chain clock policy; never drawn
 Studio One	DAW product name and clock policy identity; keep the official name.
+Cubase 16	host executable name compared by the cycle clock policy; never drawn
 Pro Tools	DAW product name and clock policy identity; keep the official name.
 Mastering · stereo, low end, and context	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
 Mastering · tone, level, and dynamics	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID

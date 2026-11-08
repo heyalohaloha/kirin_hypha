@@ -51,6 +51,7 @@ inline bool loopAddressIsCurrent (const LoopAnchor& anchor, const BlockClock& pr
                                   double rate, std::int64_t capacity) noexcept
 {
     if (capacity <= 0 || pre.frames <= 0 || post.frames <= 0) return false;
+    if ((cubaseCycleClock (pre) || cubaseCycleClock (post)) && (k != 0 || !cubaseCyclePair (pre, post))) return false;
     if (logicRender (post))
         return k == 0 && logicRenderPair (pre, post) && post.clock >= anchor.runStart
             && static_cast<std::int64_t> (pre.outputPresentationSamples - post.outputPresentationSamples)
@@ -100,7 +101,8 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
     const bool common = pre.clockAuthority != 0 && pre.clockAuthority == post.clockAuthority
         && pre.clockBasis == post.clockBasis;
     if (common && pre.clockBasis == static_cast<std::uint8_t> (ClockBasis::vst3Continuous)
-        && pre.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::certifiedContent))
+        && (pre.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::certifiedContent)
+            || cubaseCycleClock (pre)))
     {
         const bool current = loopAddressIsCurrent (anchor, pre, post, 0, rate, capacity);
         return { 0, LoopEntryKind::contentClock,

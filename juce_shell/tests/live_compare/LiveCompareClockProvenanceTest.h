@@ -1,5 +1,6 @@
 #pragma once
 #include "../../src/live_compare/LiveCompareClock.h"
+#include "../../src/live_compare/LiveCompareLoopEntry.h"
 
 static void rawClockOriginsNeverSilentlyShareAProof()
 {
@@ -35,4 +36,34 @@ static void rawClockOriginsNeverSilentlyShareAProof()
              "empty callbacks are not timing evidence");
     require (clock.next ({ 384, AuxiliaryClockSource::vst3Continuous, true }, 128).valid,
              "an empty callback does not replace the current origin");
+
+    BlockClock post;
+    post.clock = 50000; post.project = 2000; post.frames = 128;
+    post.clockValid = post.projectValid = post.playing = post.outputPresentationValid = true;
+    post.clockBasis = static_cast<std::uint8_t> (ClockBasis::vst3Continuous);
+    post.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::cubaseCycleContent);
+    post.presentationSource = 1; post.outputPresentationSamples = 256;
+    post.loop = { true, true, 2000.0 / 24000.0, 0.0, 1.0, 120.0 };
+    auto pre = post; pre.clock += 4096; pre.project += 4096;
+    pre.loop.ppq = 6096.0 / 24000.0; pre.outputPresentationSamples += 4096;
+    LoopAnchor anchor;
+    anchor.loopKnown = true; anchor.loopSamples = 24000;
+    anchor.loop = { true, true, 0.0, 0.0, 1.0, 120.0 };
+    require (loopAddressIsCurrent (anchor, pre, post, 0, 48000, 1048576),
+             "Cubase K=0 needs both the content anchor and current presentation distance");
+    auto delayed = pre; delayed.clock += 24000; delayed.outputPresentationSamples += 24000;
+    require (loopAddressIsCurrent (anchor, delayed, post, 0, 48000, 1048576),
+             "a genuine whole-lap PDC remains distinguishable by its continuous clock and presentation report");
+    for (const auto obsolete : { -24000, 4096, 24000 })
+        require (!loopAddressIsCurrent (anchor, pre, post, obsolete, 48000, 1048576),
+                 "an obsolete linear K or another lap cannot override Cubase's content origin");
+    for (const auto offset : { -24000, -96, 96, 24000 })
+    {
+        auto shifted = post; shifted.clock += offset;
+        require (!loopAddressIsCurrent (anchor, pre, shifted, 0, 48000, 1048576),
+                 "a PDC or whole-lap clock contradiction cannot be excused by repeated positions");
+    }
+    auto verified = post;
+    require (!corroborateLoop (anchor, post, post.clock, 48000, verified),
+             "the PCM anchor alone cannot bypass the current Cubase pair witness");
 }

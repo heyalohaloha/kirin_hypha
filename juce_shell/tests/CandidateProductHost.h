@@ -35,6 +35,8 @@ struct CandidateClock final : juce::AudioPlayHead
 {
     std::int64_t clock = 0, delay = 0, offset = 0, loopStart = 0, loopLength = 0, continuousOffset = 0;
     bool playing = true, available = true;
+    bool compensatedContent = false, auxiliaryAvailable = true, presentationAvailable = true;
+    std::int64_t outputPresentation = 0;
     int source = 1, reportFrames = 0;
     double sampleRate = 48000.0;
     juce::Optional<PositionInfo> getPosition() const override
@@ -53,15 +55,18 @@ struct CandidateClock final : juce::AudioPlayHead
         }
         if (available) { info.setTimeInSamples (project); info.setTimeInSeconds (static_cast<double> (project) / sampleRate); }
         info.setKirinAuxiliaryClockSource (source);
-        info.setKirinAuxiliaryClockSamples (clock + continuousOffset);
+        if (auxiliaryAvailable) info.setKirinAuxiliaryClockSamples (
+            (compensatedContent ? reported - delay + offset : clock) + continuousOffset);
         info.setKirinPresentationLatencySource (1);
-        info.setKirinOutputPresentationLatencySamples (0);
+        if (presentationAvailable) info.setKirinOutputPresentationLatencySamples (outputPresentation);
         return info;
     }
 };
 inline bool candidateBroadband = false; // noise has one position; the sines below repeat
+inline std::int64_t candidateInputPeriod = 0; // optional identical material on every cycle
 inline float candidateInput (std::int64_t frame, int channel)
 {
+    if (frame >= 0 && candidateInputPeriod > 0) frame %= candidateInputPeriod;
     const auto at = static_cast<double> (frame);
     if (candidateBroadband && frame >= 0)
     {
@@ -211,7 +216,8 @@ public:
             if (pre2Enabled && instances[1]) callback (pre2());
             const auto* mapping = instances[1] ? LiveTimingFixtureAccess::publishedRing (pre2()) : nullptr;
             const auto* receipt = mapping && mapping->ring() ? &mapping->ring()->header.candidate : nullptr;
-            const auto receiptClock = cursor + clocks[1].continuousOffset;
+            const auto receiptClock = cursor + clocks[1].continuousOffset
+                + (clocks[1].compensatedContent ? clocks[1].offset - clocks[1].delay : 0);
             const bool exact = comparing && receipt && receipt->covers (receipt->owner.load(),
                 mapping->ring()->header.run.load(), receiptClock, receiptClock + block);
             sourceContinuity.check (require, audio,

@@ -55,6 +55,19 @@ try
         std::cerr << "Host policy mismatch: " << name << " [" << version << "] wrapper="
                   << static_cast<int> (wrapper) << '\n';
     };
+   #if JUCE_MAC
+    expect (Wrapper::wrapperType_VST3, "Cubase 16", "16.0.5.174", Authority::cubaseCycleContent);
+   #else
+    expect (Wrapper::wrapperType_VST3, "Cubase 16", "16.0.5.174", Authority::none);
+   #endif
+    for (const auto* version : { "", "16", "16.0.5", "16.0.5.173", "16.0.5.175", "16.0.5.174dev", "17.0.0.0" })
+        expect (Wrapper::wrapperType_VST3, "Cubase 16", version, Authority::none);
+    for (const auto* name : { "Cubase", "Cubase 15", "Cubase 16 Helper", "cubase 16", "Other Host" })
+        expect (Wrapper::wrapperType_VST3, name, "16.0.5.174", Authority::none);
+    for (const auto wrapper : { Wrapper::wrapperType_AudioUnit, Wrapper::wrapperType_AAX,
+                                Wrapper::wrapperType_VST, Wrapper::wrapperType_Standalone })
+        expect (wrapper, "Cubase 16", "16.0.5.174", Authority::none);
+    require (!hypha::live_compare::certifiedVst3Analysis (Authority::cubaseCycleContent));
     for (const auto* version : { "6.0.0", "6.0.0.0", "6.0.0 Build 0", "6.6.3.104431",
                                  "7.2.3 Build 108761", "7.2.3.108761" })
     {
