@@ -2,6 +2,32 @@
 
 namespace hypha::observatory
 {
+void View::configureHeaderSelectors()
+{
+    trackButton.setComponentID ("observatory-meter-context-track");
+    twoMixButton.setComponentID ("observatory-meter-context-2mix");
+    trackButton.setTitle ("Measure an individual track");
+    twoMixButton.setTitle ("Measure a mix or master bus");
+    for (auto* button : { &trackButton, &twoMixButton })
+    {
+        button->setDescription (button->getTitle());
+        button->setTooltip (button->getDescription());
+    }
+    trackButton.onClick = [this] { chooseMeterContext (meter_context::MeterContext::trackStem); };
+    twoMixButton.onClick = [this] { chooseMeterContext (meter_context::MeterContext::twoMix); };
+    referenceButton.onClick = [this]
+    {
+        if (selectedDomain != Domain::reference && onDomainChange) onDomainChange (Domain::reference);
+    };
+}
+
+void View::chooseMeterContext (meter_context::MeterContext context)
+{
+    if (selectedMeterContext == context && selectedDomain != Domain::reference) return;
+    if (onContextChange) onContextChange (context); else setMeterContext (context);
+    if (selectedDomain == Domain::reference && onDomainChange) onDomainChange (lastMeasurementDomain);
+}
+
 void View::initializeVuCalibrationControl()
 {
     addChildComponent (vuCalibrationControl);

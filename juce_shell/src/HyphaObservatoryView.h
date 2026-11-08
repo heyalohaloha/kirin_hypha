@@ -43,7 +43,6 @@ public:
     std::function<void (SizePreset)> onSizeChange;
     std::function<void (bool)> onLoudnessChange;
     std::function<void (meter_context::MeterContext)> onContextChange;
-    std::function<void()> onContextMenu;
     std::function<void (meter_context::ScaleMode)> onScaleChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
@@ -68,7 +67,6 @@ public:
     std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
     juce::Component& domainMenuAnchor() noexcept { return domainCycleButton; }
-    juce::Component& contextMenuAnchor() noexcept { return contextButton; }
     juce::Component& sizeMenuAnchor() noexcept { return sizeButton; }
     juce::Component& operationsMenuAnchor() noexcept { return operationsButton; }
     juce::Component& guideDetailsAnchor() noexcept { return guideButton; }
@@ -365,6 +363,9 @@ private:
     bool recordDisplayShowing() const noexcept;
 
     Role role;
+    void configureHeaderSelectors();
+    void chooseMeterContext (meter_context::MeterContext);
+    Domain lastMeasurementDomain = Domain::level;
     Domain selectedDomain = Domain::level;
     ObservationTarget selectedTarget = ObservationTarget::absolute;
     TimeRange timeRange = TimeRange::seconds30;
@@ -442,7 +443,7 @@ private:
     Button timeButton { "TIME", true };
     Button frequencyButton { "FREQ", true };
     Button spaceButton { "SPACE", true };
-    Button referenceButton { "REF", false };
+    Button referenceButton { "REFERENCE", false };
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
@@ -450,7 +451,7 @@ private:
     Button timeRangeMenuButton { {}, false, Button::Mark::menuArrow };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
-    Button contextButton { {}, false };
+    Button trackButton { "TRACK", false }, twoMixButton { "2MIX", false };
     Button scaleButton { {}, false };
     Button sizeButton { {}, false };
     Button operationsButton { "MENU", false };

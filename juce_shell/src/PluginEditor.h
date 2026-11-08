@@ -280,7 +280,6 @@ private:
     void showOperationsMenu();
     juce::PopupMenu operationsMenu();
     void showTimeRangeMenu();
-    void showMeterContextMenu (juce::Component& anchor);
     void applyMeterContextChoice (hypha::meter_context::MeterContext);
     void showDomainMenu();
     void showSizeMenu();

@@ -106,7 +106,7 @@ constexpr const char* refusalFor (const Binding& binding, const Context& context
     switch (binding.scope)
     {
         case Scope::listen:   return "LISTEN is not active";
-        case Scope::reference: return "Available in REF";
+        case Scope::reference: return "Available in REFERENCE";
         case Scope::time:     return "Available in TIME";
         default:              return "";
     }

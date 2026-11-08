@@ -86,30 +86,6 @@ void KirinHyphaEditor::showCandidateMenu()
     });
 }
 
-void KirinHyphaEditor::showMeterContextMenu (juce::Component& anchor)
-{
-    const auto current = processorRef.meterContextPreference();
-    juce::PopupMenu menu;
-    menu.setLookAndFeel (&pairMenuLookAndFeel());
-    menu.addSectionHeader ("Meter context");
-    menu.addItem (700, "2MIX / Mix or master bus",
-                  true, current == hypha::meter_context::MeterContext::twoMix);
-    menu.addItem (701, "TRACK / STEM / Individual track or stem",
-                  true, current == hypha::meter_context::MeterContext::trackStem);
-    const auto options = juce::PopupMenu::Options()
-        .withTargetComponent (&anchor).withDeletionCheck (*this)
-        .withMinimumWidth (juce::jlimit (300, 500, getWidth()))
-        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
-    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    menu.showMenuAsync (options, [safe] (int result)
-    {
-        if (safe == nullptr || (result != 700 && result != 701)) return;
-        safe->applyMeterContextChoice (result == 701
-            ? hypha::meter_context::MeterContext::trackStem
-            : hypha::meter_context::MeterContext::twoMix);
-    });
-}
-
 void KirinHyphaEditor::applyMeterContextChoice (hypha::meter_context::MeterContext context)
 {
     if (processorRef.meterContextPreference() == context) return;

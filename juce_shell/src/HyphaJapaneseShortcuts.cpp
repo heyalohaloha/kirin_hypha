@@ -12,7 +12,7 @@ const Entry entries[] = {
     { "Reset Meter Session?", u8"Meter Sessionをリセットしますか" },
     { "Available in POST", u8"POSTで使用できます" },
     { "Close KEYS", u8"KEYSを閉じます" },
-    { "Available in REF", u8"REFで使えます" },
+    { "Available in REFERENCE", u8"REFERENCEで使えます" },
     { "Available in TIME", u8"TIMEで使えます" },
     { "Available in C", u8"Cで使えます" },
     { "Available in V", u8"Vで使えます" },

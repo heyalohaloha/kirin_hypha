@@ -68,14 +68,6 @@ inline void verifyLocalBlindUiContract()
         require (! postEntry->isVisible(), "Reference uses its existing MENU entry");
         post.setDomain (observatory::Domain::level);
     }
-    auto* contextEntry = dynamic_cast<juce::Button*> (
-        post.findChildWithID ("observatory-meter-context"));
-    require (contextEntry != nullptr, "Meter Context control remains in the shared header");
-    bool contextMenuRequested = false;
-    post.onContextMenu = [&] { contextMenuRequested = true; };
-    contextEntry->onClick();
-    require (contextMenuRequested && post.meterContext() == meter_context::defaultContext,
-             "Meter Context opens an explanatory menu instead of changing immediately");
 
     {
         // One of the five steps is lit in every phase of the test (INV-S43); returning to the
@@ -147,7 +139,7 @@ inline void verifyLocalBlindUiContract()
              "preflight requires an explicit capture and keeps a way back");
     choice->setSelectedId (2, juce::sendNotificationSync);
     require (component.meterContext() == meter_context::MeterContext::trackStem
-                 && choice->getText() == "TRACK / STEM" && choice->getTooltip().contains ("individual track or stem"),
+                 && choice->getText() == "TRACK" && choice->getTooltip().contains ("individual track"),
              "the mode choice changes this comparison and explains its purpose on demand");
     component.setActionNotice ("START PLAYBACK BEFORE CAPTURE");
     require (labelText ("local-blind-result") == "START PLAYBACK BEFORE CAPTURE",
@@ -192,7 +184,7 @@ inline void verifyLocalBlindUiContract()
     failed.preparationFailure = local_blind::PreparationFailure::gainUnavailable;
     component.setMeterContext (meter_context::MeterContext::twoMix);
     component.setState (failed);
-    require (labelText ("local-blind-detail").contains ("TRACK / STEM")
+    require (labelText ("local-blind-detail").contains ("TRACK")
                  && choice->isVisible() && ! button ("local-blind-capture")->isEnabled(),
              "unmatched audio gives actionable guidance while admission is still retiring");
     failed.canRecapture = true;
@@ -205,7 +197,7 @@ inline void verifyLocalBlindUiContract()
              "TRACK retry asks for audible events rather than continuous mix material");
     failed.preparationFailure = local_blind::PreparationFailure::preparationFailed;
     component.setState (failed);
-    require (! labelText ("local-blind-detail").contains ("TRACK / STEM")
+    require (! labelText ("local-blind-detail").contains ("TRACK")
                  && ! labelText ("local-blind-detail").contains ("audible events"),
              "non-audio preparation failures never blame the selected gain mode");
 
@@ -250,7 +242,7 @@ inline void verifyLocalBlindUiContract()
     require (! choice->isVisible() && ! choice->isAccessible()
                  && component.meterContext() == meter_context::MeterContext::trackStem,
              "a late selection callback cannot change an active comparison or expose a hidden mode control");
-    require (labelText ("local-blind-title").contains ("TRACK / STEM"),
+    require (labelText ("local-blind-title").contains ("TRACK"),
              "captured context stays visible from the frozen Gain Match policy");
     require (! labelText ("local-blind-title").containsIgnoreCase ("PRE")
                  && ! labelText ("local-blind-title").containsIgnoreCase ("POST")

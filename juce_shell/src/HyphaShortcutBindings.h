@@ -32,7 +32,7 @@ enum class Scope
     blind,             // a Blind runs: its anonymous controls and nothing else
     candidateCompare,  // A/B runs
     listen,            // LISTEN runs, on whichever page is showing
-    reference,         // the REF page
+    reference,         // the REFERENCE page
     time,              // the TIME page
     everywhere,        // any page, outside Blind
     always,            // any page, Blind included
@@ -64,7 +64,7 @@ inline constexpr Binding bindings[] {
     { C::showTime,              S::everywhere,       '2', true,  "TIME" },
     { C::showFrequency,         S::everywhere,       '3', true,  "FREQ", true },
     { C::showSpace,             S::everywhere,       '4', true,  "SPACE" },
-    { C::showReference,         S::everywhere,       '5', true,  "REF", true },
+    { C::showReference,         S::everywhere,       '5', true,  "REFERENCE", true },
     { C::showAbsolute,          S::everywhere,       'Z', false, "ABSOLUTE" },
     { C::showDelta,             S::everywhere,       'Z', true,  "DELTA", true },
     { C::startListen,           S::everywhere,       'Q', false, "LISTEN", true },

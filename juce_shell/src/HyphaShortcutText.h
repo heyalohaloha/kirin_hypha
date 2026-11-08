@@ -82,7 +82,7 @@ inline const char* scopeWord (Scope scope) noexcept
     {
         case Scope::blind:            return "BLIND";
         case Scope::listen:           return "LISTEN";
-        case Scope::reference:        return "REF";
+        case Scope::reference:        return "REFERENCE";
         case Scope::time:             return "TIME";
         case Scope::candidateCompare:
         case Scope::candidateEntry:   return "A/B";

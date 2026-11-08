@@ -18,7 +18,7 @@ inline juce::String failureText (const local_blind::ProductSessionView& state,
         if (state.preparationFailure == local_blind::PreparationFailure::gainUnavailable)
             return selected == meter_context::MeterContext::trackStem
                 ? "Capture a section where both PRE and POST contain audible events."
-                : "Capture a busier section. For short sounds, choose TRACK / STEM.";
+                : "Capture a busier section. For short sounds, choose TRACK.";
         return "The comparison could not be prepared. Capture again.";
     }
     if (state.failure == Failure::publication)

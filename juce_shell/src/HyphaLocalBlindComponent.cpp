@@ -62,13 +62,13 @@ Component::Component()
     repairButton.onClick = [this] { if (onRepair) onRepair(); };
     contextChoice.setComponentID ("local-blind-context");
     contextChoice.setTitle ("Gain Match mode for this comparison");
-    contextChoice.setTooltip ("2MIX: for a mix or master bus. TRACK / STEM: for an individual track or stem. Applies to this comparison.");
+    contextChoice.setTooltip ("TRACK: for an individual track. 2MIX: for a mix or master bus. Applies to this comparison.");
     contextChoice.setDescription (contextChoice.getTooltip());
     contextChoice.setColour (juce::ComboBox::textColourId, COL_NORMAL);
     contextChoice.setColour (juce::ComboBox::arrowColourId, COL_FLORA);
     contextChoice.setLookAndFeel (&contextLookAndFeel);
+    contextChoice.addItem ("TRACK", 2);
     contextChoice.addItem ("2MIX", 1);
-    contextChoice.addItem ("TRACK / STEM", 2);
     contextChoice.setSelectedId (1, juce::dontSendNotification);
     addChildComponent (contextChoice);
     styleButton (stopButton, "local-blind-stop", "Stop the comparison safely");
@@ -313,7 +313,7 @@ void Component::layoutPreflight()
     auto area = getLocalBounds().reduced (margin);
     auto header = area.removeFromTop (compact ? 22 : 34);
     const auto font = contextLookAndFeel.getComboBoxFont (contextChoice);
-    const int choiceWidth = juce::roundToInt (std::ceil (font.getStringWidthFloat ("TRACK / STEM"))) + 38;
+    const int choiceWidth = juce::roundToInt (std::ceil (font.getStringWidthFloat ("TRACK"))) + 38;
     if (compact)
     {
         titleLabel.setJustificationType (juce::Justification::centred);

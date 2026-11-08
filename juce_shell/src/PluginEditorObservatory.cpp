@@ -65,8 +65,6 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.setScaleMode (processorRef.scaleModePreference());
     observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)
     { applyMeterContextChoice (context); };
-    observatoryView.onContextMenu = [this]
-    { showMeterContextMenu (observatoryView.contextMenuAnchor()); };
     observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
     {
         observatoryView.setScaleMode (scale);

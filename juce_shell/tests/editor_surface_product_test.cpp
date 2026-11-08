@@ -490,7 +490,7 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
     verifySavedReferenceChoices(); verifyDisplayWindowsProduct();
-    verifyEditorShellRepairs(); verifyTimeTabGeometry();
+    verifyEditorShellRepairs(); verifyTimeTabGeometry(); hypha::tests::editor_product::verifyHeaderSelectorsProduct();
     const auto previews = juce::File (argc > 1 ? juce::String (argv[1]) : juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_UI_REFINEMENT_DIR", {}));
     verifyPairHeaderAtEverySize (previews);
     hypha::tests::editor_product::verifyObservatoryHelpLine (previews);

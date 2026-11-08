@@ -101,6 +101,85 @@ private:
     juce::File original;
 };
 
+// Drive the shared shipping header, including Reference's existing page-exit request.
+inline void verifyHeaderSelectorsProduct()
+{
+    using observatory::Domain;
+    using meter_context::MeterContext;
+    using meter_context::ScaleMode;
+    for (const auto role : { Processor::Role::Pre, Processor::Role::Post })
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+        Processor processor (role);
+        processor.setObservatoryDomainPreference (observatory::stateValue (Domain::reference));
+        hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
+        auto* view = component<observatory::View> (*editor);
+        require (view != nullptr, "shipping header exists");
+        editor->setVisible (true);
+        const auto button = [&] (const char* id) {
+            auto* result = dynamic_cast<juce::Button*> (view->findChildWithID (id));
+            require (result != nullptr, id); return result;
+        };
+        auto* track = button ("observatory-meter-context-track");
+        auto* twoMix = button ("observatory-meter-context-2mix");
+        auto* reference = button ("observatory-reference");
+        const auto selected = [&] (juce::Button* active) {
+            require (track->getToggleState() + twoMix->getToggleState() + reference->getToggleState() == 1
+                && active->getToggleState(), "the header group lights only the selected button");
+        };
+        track->onClick();
+        require (view->domain() == Domain::level, "restored Reference returns to LEVEL when no measurement page was visited");
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const i18n::ScopedLanguage shown (language);
+            for (const auto& preset : observatory::sizePresets)
+            {
+                editor->setSize (preset.width, preset.height);
+                for (auto* entry : { track, twoMix, reference })
+                    if (entry->isEnabled())
+                    {
+                        const auto point = editor->getLocalPoint (entry, entry->getLocalBounds().getCentre());
+                        require (editor->getComponentAt (point) == entry, "the shipping header receives its own pointer hits");
+                    }
+                for (const auto domain : { Domain::level, Domain::time, Domain::frequency, Domain::space })
+                {
+                    if (role == Processor::Role::Pre && domain == Domain::frequency) continue;
+                    view->onDomainChange (domain);
+                    track->onClick(); selected (track);
+                    require (processor.meterContextPreference() == MeterContext::trackStem
+                        && processor.scaleModePreference() == ScaleMode::wide, "TRACK uses the existing context and initial scale");
+                    reference->onClick();
+                    if (role == Processor::Role::Post)
+                    {
+                        selected (reference);
+                        require (view->domain() == Domain::reference, "REFERENCE opens the Reference page");
+                        reference->onClick(); selected (reference);
+                    }
+                    else require (! reference->isEnabled() && view->domain() == domain, "PRE cannot open Reference");
+                    twoMix->onClick(); selected (twoMix);
+                    require (view->domain() == domain && processor.observatoryDomainPreference() == observatory::stateValue (domain)
+                        && processor.meterContextPreference() == MeterContext::twoMix
+                        && processor.scaleModePreference() == ScaleMode::focus, "2MIX returns from Reference to the last measurement page through the editor");
+                    processor.setScaleModePreference (ScaleMode::wide); view->setScaleMode (ScaleMode::wide);
+                    twoMix->onClick();
+                    require (processor.scaleModePreference() == ScaleMode::wide, "pressing the lit context leaves the custom scale intact");
+                    reference->onClick(); twoMix->onClick(); selected (twoMix);
+                    require (view->domain() == domain && processor.scaleModePreference() == ScaleMode::wide,
+                        "leaving Reference for the unchanged context preserves its custom scale");
+                    reference->onClick(); track->onClick(); selected (track);
+                    require (view->domain() == domain, "TRACK also leaves Reference for the remembered page");
+                    processor.setScaleModePreference (ScaleMode::focus); view->setScaleMode (ScaleMode::focus);
+                    track->onClick();
+                    require (processor.scaleModePreference() == ScaleMode::focus, "pressing lit TRACK also does nothing");
+                    twoMix->onClick(); // Next pass starts with a real context change.
+                }
+            }
+        }
+        processor.editorBeingDeleted (editor.get()); editor.reset(); processor.releaseResources();
+    }
+}
+
 // A look review of the shipping editor, written only when KIRIN_HYPHA_COMPACT_REVIEW_DIR is set.
 inline void writeReview (juce::Component& editor, const juce::String& name)
 {

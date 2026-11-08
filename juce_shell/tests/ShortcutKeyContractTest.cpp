@@ -137,6 +137,10 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
     require (rig.press ('2') && chosen == 1 && blind.actionNoticeShown() == "SOURCE COULD NOT BE SELECTED", "a source that cannot be chosen says so");
     require (rig.pressShift ('E') && reveals == 0 && blind.actionNoticeShown() == "Hear both sources first", "REVEAL waits, and says so");
     require (rig.pressShift ('2') && view.domain() == domain, "BLIND holds the page");
+    auto* reference = dynamic_cast<juce::Button*> (view.findChildWithID ("observatory-reference"));
+    require (reference != nullptr, "REFERENCE header action exists during Blind");
+    reference->onClick();
+    require (view.domain() == domain, "the header REFERENCE request is refused during BLIND");
     require (blind.actionNoticeShown() == "End Blind Compare first", "the refusal is on the screen");
     require (rig.press ('V') && rig.pressShift ('F') && rig.pressShift ('V') && rig.press ('G') && rig.press ('Q'), "BLIND's refusals are used keys");
     auto& dialog = rig.editor.get()->*shortcutMember (ShortcutResetDialog {});
@@ -145,7 +149,7 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
     rig.press ('F');
     require (rig.keys().isVisible(), "KEYS works in BLIND");
     for (const auto& row : rig.keys().rows())
-        for (const auto* word : { "LEVEL", "REF", "MATCH", "LISTEN", "PRE", "POST", "A", "B", "C", "V" })
+        for (const auto* word : { "LEVEL", "REFERENCE", "MATCH", "LISTEN", "PRE", "POST", "A", "B", "C", "V" })
             require (row.label != word, "BLIND's list names only BLIND's controls");
     rig.press ('F');
     screen.sourceTwoEnabled = screen.revealEnabled = true;

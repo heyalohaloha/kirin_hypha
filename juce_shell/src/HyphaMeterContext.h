@@ -50,11 +50,6 @@ constexpr ScaleMode initialScaleFor (MeterContext value) noexcept
     return value == MeterContext::trackStem ? ScaleMode::wide : ScaleMode::focus;
 }
 
-constexpr MeterContext nextContext (MeterContext value) noexcept
-{
-    return value == MeterContext::trackStem ? MeterContext::twoMix : MeterContext::trackStem;
-}
-
 constexpr ScaleMode nextScale (ScaleMode value) noexcept
 {
     return value == ScaleMode::wide ? ScaleMode::focus : ScaleMode::wide;

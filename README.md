@@ -301,7 +301,7 @@ reach Hypha.
 
 | Keys | Does |
 |---|---|
-| Shift+1 to Shift+5 | LEVEL, TIME, FREQ, SPACE, REF |
+| Shift+1 to Shift+5 | LEVEL, TIME, FREQ, SPACE, REFERENCE |
 | Q, W, E | LISTEN, A/B (asks for PRE2 and the placement first), BLIND (Version Blind in REF) |
 | 1, 2 | PRE and POST in LISTEN, A and B in A/B, SOURCE 1 and 2 in BLIND |
 | 1, 2, 3, 4 | A, B, C and V in REF |
@@ -1545,10 +1545,10 @@ The signed 1.1.51 release has passed the one-pass/END flow and safe session reop
 VST3 stereo on Intel macOS. That result does not establish the same acceptance in every format
 or host configuration.
 
-The normal header's Meter Context control opens a descriptive choice rather than switching on one
-click. Blind inherits it when opened and keeps any override within that comparison.
+The header groups **TRACK**, **2MIX** and **REFERENCE** in that order. TRACK and 2MIX select
+the measurement context directly. Blind inherits it when opened and keeps any override within that comparison.
 **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
-**TRACK/STEM** identifies an individual track or stem and uses short or sparse event energy.
+**TRACK** identifies an individual track and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
 Reference Version Blind is a separate whole-song
@@ -1568,8 +1568,12 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
-The header places **REF** immediately after **2MIX / TRACK/STEM**. It opens the same Reference
-page, lights when that page is open, and retains the existing Kirin OS license and connection help.
+The header's **REFERENCE** button opens the Reference page and retains the existing Kirin OS
+license and connection help. Its label shortens to **REF** only when the available width requires it.
+Only one of TRACK, 2MIX and REFERENCE lights: REFERENCE while its page is open, otherwise the
+selected measurement context. From Reference, TRACK or 2MIX selects that context and returns to
+the last LEVEL, TIME, FREQ or SPACE page (LEVEL if none was visited), using the normal return to A.
+Pressing the lit button does nothing.
 PRE shows the same header action disabled. The measurement row and its view menu contain
 **LEVEL / TIME / FREQ / SPACE**; PRE keeps unavailable FREQ disabled. POST and Δ have equal-width
 buttons wherever both are shown. Reference shortcuts and saved page selection are unchanged.
