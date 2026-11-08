@@ -332,6 +332,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             trace->preGain = gain; trace->postGain = postTarget;
         }
         if (report.reason == Reason::loopUnproven
+            || (hypha::live_compare::cubaseCycleClock (block) && report.reason == Reason::loopWaiting
+                && timing.failure == hypha::live_compare::LoopEntryFailure::clockUnavailable)
             || (candidateToken != 0 && report.reason == Reason::notWritten
                 && timing.failure != hypha::live_compare::LoopEntryFailure::none))
             report.reason = hypha::live_compare::recoveryReason (timing.failure);

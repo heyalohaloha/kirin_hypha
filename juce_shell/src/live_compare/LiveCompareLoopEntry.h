@@ -105,8 +105,10 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
             || cubaseCycleClock (pre)))
     {
         const bool current = loopAddressIsCurrent (anchor, pre, post, 0, rate, capacity);
+        const auto failure = cubaseCycleClock (pre) && !cubaseCyclePair (pre, post)
+            ? LoopEntryFailure::clockUnavailable : LoopEntryFailure::observingCycle;
         return { 0, LoopEntryKind::contentClock,
-                 current ? LoopEntryFailure::none : LoopEntryFailure::observingCycle, current };
+                 current ? LoopEntryFailure::none : failure, current };
     }
 
     if (common && reaperProcessing (post))

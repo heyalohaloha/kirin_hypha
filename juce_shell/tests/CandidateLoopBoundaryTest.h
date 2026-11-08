@@ -1,6 +1,7 @@
 #pragma once
 #include "CandidateProductHost.h"
 #include "CandidateChainHost.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 
 namespace hypha::tests
 {
@@ -43,22 +44,29 @@ template<class Require> void verifyCubaseCycleProduct (Require require)
                     == StartResult::started, "Cubase cycle starts through the real LISTEN or A/B entry");
         post.selectLiveComparePre (true);
         host.wholeOutput = candidate;
+        CandidateOutputOracle listenOutput;
+        const auto checkOutput = [&] {
+            if (candidate) return; // wholeOutput already checks A/B, including every transition.
+            const auto status = post.liveCompareStatus();
+            // LISTEN loses proof at the block start; only A/B has a scalar return fade.
+            if (status.verdict != Verdict::accepted)
+            { listenOutput.sourceWeight = 0.0f; listenOutput.transitionFrame = 240; }
+            listenOutput.check (require, host.audio, status.verdict == Verdict::accepted, true,
+                [&] (int i, int ch) { return candidateInput (host.cursor - frames + i - delay, ch); },
+                [&] (int i, int ch) {
+                    const auto at = host.cursor - frames + i - host.delayB;
+                    return candidateB (host.history (ch, at), host.history (ch, at - 997));
+                });
+        };
         const auto ready = [&] (int blocks)
         {
             for (int n = 0; n < blocks; ++n)
             {
                 host.render (1, candidate, true, false);
+                checkOutput(); // POST preparation, the full fade and the first PRE sample.
                 const auto status = post.liveCompareStatus();
-                if (n < 32) continue;
-                require (status.verdict == Verdict::accepted && status.preAudible && status.preSelected,
+                require (status.preSelected && (n < 32 || (status.verdict == Verdict::accepted && status.preAudible)),
                          "Cubase initial cycle, wraps and fresh reentry automatically play the selected source");
-                for (int ch = 0; ch < host.channels; ++ch) for (int i = 0; i < frames; ++i)
-                {
-                    const auto at = host.cursor - frames + i - delay;
-                    const auto expected = candidate ? candidateA (at, ch) : candidateInput (at, ch);
-                    require (std::abs (host.audio.getSample (ch, i) - expected) < 4.0e-6f,
-                             "every settled PRE/A sample is the independent physical-delay occurrence");
-                }
             }
         };
         const auto rejected = [&] (int blocks, int provenTail = 0)
@@ -66,6 +74,7 @@ template<class Require> void verifyCubaseCycleProduct (Require require)
             for (int n = 0; n < blocks; ++n)
             {
                 host.render (1, candidate, true, false);
+                checkOutput();
                 const auto status = post.liveCompareStatus();
                 // PRE1 loss reaches POST only after B's physical delay. Its preceding,
                 // independently receipted PRE2 ranges still describe valid B input.
@@ -86,6 +95,19 @@ template<class Require> void verifyCubaseCycleProduct (Require require)
                 }
             }
         };
+        const auto clockNotice = [&] {
+            rejected (320); // More than three seconds of real processor callback time.
+            const auto status = post.liveCompareStatus();
+            if (!status.prolongedWait || status.observation != RecoveryReason::loopClockUnavailable)
+                std::cerr << "Cubase clock notice: delay=" << delay << " candidate=" << candidate
+                          << " prolonged=" << status.prolongedWait << " observation=" << static_cast<int> (status.observation)
+                          << " verdict=" << static_cast<int> (status.verdict) << '\n';
+            require (status.prolongedWait && status.observation == RecoveryReason::loopClockUnavailable,
+                     "certified Cubase missing or contradictory presentation is unavailable, not another first pass");
+            require (juce::String (live_compare_ui::namedRecovery (status))
+                         == "Loop timing unavailable; turn loop off to compare (POST)",
+                     "the prolonged Cubase wait uses the existing unavailable-clock remedy");
+        };
         ready (static_cast<int> (2 * length / frames) + 64);
         // The loop-only content proof is K=0, not a modulo delay. Either side shifted by a
         // whole lap must remain rejected even when every sample of adjacent laps is identical.
@@ -98,15 +120,15 @@ template<class Require> void verifyCubaseCycleProduct (Require require)
             ready (64);
         }
         host.clocks[2].outputPresentation += 96;
-        rejected (16); // presentation PDC disagrees with otherwise coherent clock positions
+        clockNotice(); // presentation PDC disagrees with otherwise coherent clock positions
         host.clocks[2].outputPresentation -= 96;
         ready (64);
         host.reportedDelayB += 96;
-        rejected (16); // native/continuous PDC changes without the presentation witness
+        clockNotice(); // native/continuous PDC changes without the presentation witness
         host.reportedDelayB -= 96;
         ready (64);
         host.clocks[2].presentationAvailable = false;
-        rejected (16); host.clocks[2].presentationAvailable = true; ready (64);
+        clockNotice(); host.clocks[2].presentationAvailable = true; ready (64);
         host.clocks[2].auxiliaryAvailable = false;
         rejected (16); host.clocks[2].auxiliaryAvailable = true; ready (64);
         // A seek ends the old run. Fresh demanded PCM must cover the new address before PRE
