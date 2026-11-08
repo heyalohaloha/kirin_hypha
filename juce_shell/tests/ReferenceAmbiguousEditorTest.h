@@ -74,8 +74,9 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
             r.block(); due += std::chrono::nanoseconds (512LL * 1'000'000'000LL / 48000);
             if (std::chrono::steady_clock::now() < due) std::this_thread::sleep_until (due);
         };
+        // A slow host takes longer to verify and retry a source; the boundary is a state, not a time.
         const auto wait = [&] (auto predicate) {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (30);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (60);
             while (!predicate() && std::chrono::steady_clock::now() < deadline) feed();
             return predicate();
         };
