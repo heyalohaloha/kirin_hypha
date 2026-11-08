@@ -84,7 +84,13 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
             if (failure >= 2 && !editorOpenFailed.load()) return false;
             return failure == 1 ? state.checkReady : state.checkSelection
                 && state.checkSelection->rejectionCode == (failure == 0 ? "reference_source_read_failed" : "reference_source_revalidating");
-        }), "the shipping processor reaches the actual initial source open boundary");
+        }) || [&] {
+            // Say where it stopped: the hook, the C selection and its code.
+            const auto state = r.post->referenceAuditionSnapshot();
+            std::cerr << "initial source wait ended: hook=" << editorOpenFailed.load() << " checkReady=" << state.checkReady
+                      << " selection=" << (state.checkSelection ? 1 : 0) << " code="
+                      << (state.checkSelection ? state.checkSelection->rejectionCode : juce::String ("-")) << std::endl;
+            return false; }(), "the shipping processor reaches the actual initial source open boundary");
         (r.editor.get()->*privateMember (NoticeEditorTick {}))();
         const auto* panel = component<reference_ui::Component> (*r.editor);
         require (panel && panel->state().transportPlaying == !stopped && panel->state().checkArmable == (failure == 1),
