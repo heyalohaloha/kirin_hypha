@@ -225,8 +225,8 @@ const Entry entries[] = {
       u8"LEVEL：直近の各打音のPOSTの帯域のPeakレベルを点で示し、棒が中央値です。" },
     { "The recent hits that rise in this band, summed up: each lane's median and how many hits agree. Click a dot to see that hit; END or LIVE returns here.",
       u8"この帯域で音が立ち上がった直近の打音のまとめです。各段の中央値と、同じ向きの打音の数を示します。点をクリックするとその打音を表示し、ENDまたはLIVEでここに戻ります。" },
-    { "Drum transient facts for TRACK/STEM; not a 2MIX onset detector.",
-      u8"TRACK／STEMのドラムの打音ごとの計測値です。2MIXの音の始まりの検出ではありません。" },
+    { "Drum transient facts for TRACK; not a 2MIX onset detector.",
+      u8"TRACKのドラムの打音ごとの計測値です。2MIXの音の始まりの検出ではありません。" },
 };
 }
 

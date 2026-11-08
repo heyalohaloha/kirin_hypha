@@ -6,6 +6,7 @@
 
 #include "HyphaLanguage.h"
 #include "HyphaReferenceHelp.h"
+#include "HyphaShortcutText.h"
 
 namespace hypha
 {
@@ -53,11 +54,16 @@ public:
     }
 
     // REF の 300% の B・C・V の中は、吹き出しでなく下の状態の行が説明を出す（HyphaReferenceHelp.h）。
+    // キーのある操作は、そのキーの札を先頭の行に出す（長い説明で窓の高さが足りなくても札は切れない）。
     juce::String getTipFor (juce::Component& component) override
     {
-        return HoverHelpPreference::shared().isEnabled() && ! reference_ui::help::shownInLine (component)
-                 ? i18n::tr (juce::TooltipWindow::getTipFor (component))
-                 : juce::String();
+        if (! HoverHelpPreference::shared().isEnabled() || reference_ui::help::shownInLine (component))
+            return {};
+        const auto tip = i18n::tr (juce::TooltipWindow::getTipFor (component));
+        if (component.isCurrentlyBlockedByAnotherModalComponent()
+            || juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+            return tip;
+        return shortcuts::withMark (tip, shortcuts::controlMark (component));
     }
 
 private:

@@ -35,11 +35,12 @@ inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS
 
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
 inline constexpr const char* versionTabs = "WHOLE shows the whole song; the other tabs compare A and V over the same section.";
+inline constexpr const char* versionMixContext = "V works best with Hypha on the 2Mix.";
 inline constexpr const char* whole = "The whole song: A above V, peak outside and RMS inside. Select a region to compare.";
 inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.";
 
 // 説明の全部（足したらここにも足す。試験は全部を両言語で確かめる：足元の行に収まる・日本語に英語が残らない）。
 inline constexpr const char* all[] { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
-                                     integrated, truePeak, cueBar, match, checkTabs, versionTabs, whole, songs };
+                                     integrated, truePeak, cueBar, match, checkTabs, versionTabs, versionMixContext, whole, songs };
 }

@@ -9,6 +9,7 @@
 #include "HyphaPresentationContext.h"
 #include "HyphaPairingLoopText.h"
 #include "HyphaSpectrumAverage.h"
+#include "HyphaSpectrumDisplay.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::spectrum_chrome
@@ -53,6 +54,9 @@ namespace hypha::spectrum_chrome
         bool postSnapshotValid = false;
         bool lowScope = false;
         spectrum_average::Choice average = spectrum_average::Choice::live;
+        display_settings::Values settings;
+        const spectrum_peaks::Peaks* peaks = nullptr;
+        spectrum_display::Backdrop* backdrop = nullptr;
     };
 
     void paint (juce::Graphics& graphics,

@@ -11,6 +11,7 @@
 #include "EditorEntryReachability.h"
 #include "ReferenceAmbiguousEditorTest.h"
 #include "../src/HyphaReferenceAuditionRecoveryText.h"
+#include "../src/HyphaReferenceSongList.h"
 #include <map>
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
@@ -20,7 +21,7 @@ namespace hypha::tests::editor_product
 {
 namespace
 {
-enum class Heard { silence, pre, post, b, mixed };
+enum class Heard { silence, pre, post, b, b2, mixed };
 
 const char* nameOf (Heard heard)
 {
@@ -30,6 +31,7 @@ const char* nameOf (Heard heard)
         case Heard::pre: return "PRE";
         case Heard::post: return "POST";
         case Heard::b: return "B";
+        case Heard::b2: return "B2";
         case Heard::mixed: return "mixed";
     }
     return "?";
@@ -40,7 +42,7 @@ const char* nameOf (Heard heard)
 Heard heard (const NoticeRig& r)
 {
     const auto start = r.clock.position - 512;
-    double input = 0.0, output = 0.0, cross = 0.0, sine = 0.0, cosine = 0.0;
+    double input = 0.0, output = 0.0, cross = 0.0, sine = 0.0, cosine = 0.0, sine2 = 0.0, cosine2 = 0.0;
     for (int n = 0; n < 512; ++n)
     {
         const double value = NoticeRig::sourceSample (start + n, 0);
@@ -48,9 +50,12 @@ Heard heard (const NoticeRig& r)
         input += value * value; output += out * out; cross += value * out;
         const double phase = 6.283185307179586 * 1500.0 * n / 48000.0;
         sine += out * std::sin (phase); cosine += out * std::cos (phase);
+        const double phase2 = 6.283185307179586 * 2250.0 * n / 48000.0;
+        sine2 += out * std::sin (phase2); cosine2 += out * std::cos (phase2);
     }
     if (output < 512 * 1.0e-8) return Heard::silence;
     if ((sine * sine + cosine * cosine) * 2.0 / (512.0 * output) > 0.9) return Heard::b;
+    if ((sine2 * sine2 + cosine2 * cosine2) * 2.0 / (512.0 * output) > 0.9) return Heard::b2;
     const auto correlation = cross / std::sqrt (input * output);
     return correlation > 0.98 ? Heard::pre : correlation < -0.98 ? Heard::post : Heard::mixed;
 }
@@ -136,7 +141,7 @@ struct ListenWithReference
         require (story.contains (preChosen ? "B plays now. Press A in REF to hear PRE."
                                            : "B plays now. Press A in REF to hear POST."),
                  "the status window tells what plays now and how to hear the choice");
-        matrix ("LISTEN beside REF", { observatory::Domain::level, observatory::Domain::reference });
+        matrix ("LISTEN beside REF", { observatory::Domain::reference });
     }
     // While this state runs: every control at every size, display scale and language on these pages, and no
     // PIN 4 S in the editor or any MENU level (LISTEN's own section included).
@@ -190,11 +195,58 @@ void verifyListenWhileReferencePlays (const juce::File& sandbox)
     for (int n = 0; n < 60 && last != Heard::b; ++n) test.play (0.1, &last);
     require (last == Heard::b, "B is heard");
 
+    r.view().onDomainChange (observatory::Domain::reference);
+    const auto selectedSong = r.post->referenceAuditionSnapshot().selectedSongId;
+    require (r.post->selectReferenceVisualSlot (3), "the B page is selected");
+    (r.editor.get()->*privateMember (NoticeEditorTick {}))();
+    auto* list = dynamic_cast<reference_ui::SongList*> (find (*r.editor, "reference-song-list"));
+    auto* panel = component<reference_ui::Component> (*r.editor);
+    require (list && panel && list->isVisible() && list->rows().size() == 2, "both songs are reachable in the real editor");
+    const auto nextSong = list->rows()[1].id;
+    const auto firstY = 6.0f + 18.0f + (std::isfinite (panel->state().aWindowLoudness) ? 34.0f : 0.0f) + 4.0f;
+    const auto pressSong = [&] (float y)
+    {
+        list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, y },
+            juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, y }, juce::Time(), 1, false));
+    };
+    pressSong (firstY + 34.0f);
+    require (r.post->referenceAuditionSnapshot().selectedSongId == nextSong && list->rows()[1].selected,
+             "the second press updates the processor and selected row immediately");
+    pressSong (firstY);
+    require (r.post->referenceAuditionSnapshot().selectedSongId == selectedSong && list->rows()[0].selected,
+             "without a timer tick the last press returns to the first song");
+    test.play (0.2, &last);
+    for (int n = 0; n < 60 && r.post->referenceOutputSlot() != 3; ++n) test.play (0.1, &last);
+    require (r.post->referenceOutputSlot() == 3, "the last selected song resumes");
+    pressSong (firstY + 34.0f);
+    for (int n = 0; n < 60 && last != Heard::b2; ++n) test.play (0.1, &last);
+    require (last == Heard::b2, "the editor switches to the distinct second song");
+    pressSong (firstY);
+    for (int n = 0; n < 60 && last != Heard::b; ++n) test.play (0.1, &last);
+    require (last == Heard::b, "the editor switches back to the first song");
+    for (const auto domain : { observatory::Domain::level, observatory::Domain::time,
+                               observatory::Domain::frequency, observatory::Domain::space })
+    {
+        r.view().onDomainChange (domain);
+        test.play (0.2, &last);
+        require (last == Heard::post && r.post->referenceOutputSlot() == 0,
+                 "leaving REF fades the reference and returns the output");
+        require (r.post->referenceAuditionSnapshot().selectedSongId == selectedSong,
+                 "leaving REF keeps the song selection");
+        r.view().onDomainChange (observatory::Domain::reference);
+        require (test.play (0.2, &last).count (Heard::b) == 0 && last == Heard::post,
+                 "returning to REF does not resume reference audio");
+        require (r.post->selectReferenceRef(), "B can be explicitly selected again");
+        for (int n = 0; n < 60 && last != Heard::b; ++n) test.play (0.1, &last);
+        require (last == Heard::b, "the retained B selection plays again");
+    }
+
     // LISTEN may start while B plays; choosing PRE does not take the output from B.
     require (r.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts while B plays");
     r.post->selectLiveComparePre (true);
     test.hold (true);
     test.returnTo (Heard::pre);
+    test.matrix ("LISTEN", { observatory::Domain::level, observatory::Domain::reference });
 
     // The same with POST chosen, B pressed while LISTEN runs.
     r.post->selectLiveComparePre (false);
@@ -243,6 +295,19 @@ int main (int argc, char** argv)
     song.frequencyHz = 1500.0; song.integratedLufs = -26.7; song.truePeakDbtp = -26.0;
     song.fileName = "b-tone.wav"; song.displayName = "B tone";
     writeOneSongLibrary (reference, song);
+    auto sets = juce::JSON::parse (reference.getChildFile ("library/sets.json"));
+    auto* songs = sets["song_sets"][0]["songs"].getArray();
+    require (songs != nullptr && songs->size() == 1, "the fixture has one initial song");
+    auto otherSong = song;
+    otherSong.fileName = "second-tone.wav"; otherSong.frequencyHz = 2250.0;
+    otherSong.amplitude = 0.03f; otherSong.integratedLufs = -20.0;
+    writeOneSongLibrary (reference, otherSong);
+    const auto otherSets = juce::JSON::parse (reference.getChildFile ("library/sets.json"));
+    auto second = juce::JSON::parse (juce::JSON::toString (otherSets["song_sets"][0]["songs"][0]));
+    second.getDynamicObject()->setProperty ("candidate_id", "59595959-5959-4959-8959-595959595958");
+    second.getDynamicObject()->setProperty ("display_name", "Second fixture");
+    songs->add (second);
+    require (writeJson (reference.getChildFile ("library/sets.json"), sets), "the fixture exposes two selections");
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

@@ -60,6 +60,7 @@ struct Clock final : juce::AudioPlayHead
 
 struct Fixture
 {
+    float inputGain = 1, postGain = 1;
     Fixture (int channelsIn, const juce::String& scenario, bool au, bool reaperIn,
              hypha::tests::AnalysisTestClock::time_point end, bool logic = false)
         : durations (reaperIn), frames (hypha::tests::analysisProductFrames (reaperIn)),
@@ -148,12 +149,13 @@ struct Fixture
             for (int i = 0; i < frames; ++i)
             {
                 const auto t = (preClock.content + i) / rate;
-                audio.setSample (ch, i, static_cast<float> (0.12 * std::sin (t * (628 + ch * 77))
-                    + (0.08 + 0.07 * std::sin (t * 14.45)) * std::sin (t * 27000)));
+                audio.setSample (ch, i, static_cast<float> (inputGain * (0.12 * std::sin (t * (628 + ch * 77))
+                    + (0.08 + 0.07 * std::sin (t * 14.45)) * std::sin (t * 27000))));
             }
         process (*pre, audio);
         if (delay != 0) require (line.process (audio.getArrayOfWritePointers(), channels, frames), "physical delay");
         injectedDelay.beforePost (callbacks, [&] (auto delayTime) { wallClock.advance (delayTime); });
+        audio.applyGain (postGain);
         process (*post, audio);
         preClock.content += frames; postClock.content += frames;
         LiveTimingFixtureAccess::serviceProcessorTimer (*post);

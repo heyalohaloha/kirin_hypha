@@ -18,13 +18,14 @@ void ReferenceComparisonController::clearPendingAudition()
 
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
 {
-    return preparingCheck() || activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted()
+    return preparingCheck() || preparingReference() || activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted()
         || offlineRenderSeen.load (std::memory_order_acquire) || blindSessionOpen.load (std::memory_order_acquire);
 }
 
 int ReferenceComparisonController::pendingSlot() const
 {
     if (preparingCheck()) return 2;
+    if (preparingReference()) return 3;
     const juce::ScopedLock lock (selectionLock);
     return activePendingIntent.load (std::memory_order_acquire) != 0 ? pendingAudition.view.slot : 0;
 }
@@ -136,6 +137,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     const juce::ScopedLock transaction (targetChoiceLock);
     if (pendingSlot() == 2 && targets.snapshot().collection.selected.isNotEmpty()) { selectA(); return; }
     if (callbackLive && preparingCheck() && check.awaitingPreparedLevel()) check.supplyPreparedLevel (loudness, peak);
+    if (callbackLive && preparingReference() && reference.awaitingPreparedLevel()) reference.supplyPreparedLevel (loudness, peak);
     reconcileVersionBlindSession();
     reconcileOutputMark();
     settleSwitchBack();

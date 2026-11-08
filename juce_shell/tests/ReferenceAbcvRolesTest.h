@@ -144,6 +144,10 @@ inline void verifyReferenceAbcvRoles()
                 require (log.texts().contains (language == i18n::Language::japanese
                              ? juce::String::fromUTF8 (u8"Reference のセット") : juce::String ("REFERENCE SET")),
                          "the Reference set heading fits whole in both languages at " + juce::String (size.width));
+            if (presentation::forEditor (size.width, size.height).density == observatory::Density::inspection)
+                require (log.texts().contains (language == i18n::Language::japanese
+                             ? juce::String::fromUTF8 (u8"OS準備済") : juce::String ("OS READY")),
+                         "the song list identifies OS readiness without implying decoded audio is ready: " + shown);
         }
         // KIRIN_REFERENCE_UI_ABCV_OUTPUT=<dir>：寸法ごとの B の画面を PNG に書き出す（見た目の確認用）。
         if (const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_UI_ABCV_OUTPUT", {});
@@ -191,6 +195,40 @@ inline void verifyReferenceAbcvRoles()
                 list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, 30.0f },
                     juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, 30.0f }, juce::Time(), 1, false));
                 require (listed.isEmpty(), "A's row is not a song to choose");
+                panel.setState (state);
+            }
+            // 押した行はすぐ選択中になり、PLAYING は実際に鳴っている曲に残る。鳴ってから動く。
+            {
+                auto switching = state;
+                switching.songFacts[1].prepared = true;
+                switching.songFacts[1].preparation = {};
+                switching.songFacts[1].loaded = true;
+                switching.songId = "e2/e2/song-2";
+                switching.audibleSongId = "e1/e1/song-1";
+                switching.bSelected = true;
+                switching.audibleComparisonSlot = 3;
+                panel.setState (switching);
+                require (list->rows()[0].playing && ! list->rows()[0].selected && list->rows()[1].selected
+                             && list->rows()[1].switching && ! list->rows()[1].playing,
+                         "the pressed row is selected while the sounding song keeps PLAYING");
+                const auto rowTexts = [&]
+                {
+                    juce::Image image (juce::Image::ARGB, list->getWidth(), list->getHeight(), true);
+                    juce::Graphics graphics (image);
+                    text_style::ShownTextLog log;
+                    list->paintEntireComponent (graphics, true);
+                    return log.texts();
+                };
+                const auto word = [&] (const char* english, const char* japanese)
+                { return language == i18n::Language::japanese ? juce::String::fromUTF8 (japanese) : juce::String (english); };
+                require (rowTexts().contains (word ("SWITCHING", u8"切替中")) && rowTexts().contains (word ("PLAYING", u8"再生中")),
+                         "the switching row fits whole in both languages");
+                switching.audibleSongId = "e2/e2/song-2";
+                switching.songFacts[0].loaded = true;
+                panel.setState (switching);
+                require (list->rows()[1].playing && ! list->rows()[1].switching && ! list->rows()[0].playing && ! list->rows()[0].switching,
+                         "PLAYING moves when the new song is heard");
+                require (rowTexts().contains (word ("READY", u8"準備完了")), "a song Hypha checked reads READY");
                 panel.setState (state);
             }
             // 見出し（上の 18 px）と、行の無い下の余白を押しても選ばない。

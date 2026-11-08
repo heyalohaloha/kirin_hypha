@@ -3,6 +3,7 @@
 #include "TestPathBudget.h"
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
+void runReferenceBSwitchTests (const juce::File&);
 void testReferenceLibraryContract (const juce::File&);
 void testReferenceAbcv (const juce::File&);
 bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);

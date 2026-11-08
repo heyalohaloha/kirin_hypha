@@ -17,6 +17,8 @@
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
 #include "TestProcessorStorage.h"
+#include "SpectrumLowScopeContract.h"
+#include "HeaderReferenceExitTest.h"
 #include "ReferenceSelectionReopenTest.h"
 #include <thread>
 #include <array>
@@ -34,10 +36,6 @@ static_assert (std::is_same_v<decltype (&Processor::selectReferenceB), bool (Pro
 static_assert (std::is_same_v<decltype (&Processor::selectReferenceC), bool (Processor::*)()>);
 using Domain = hypha::observatory::Domain;
 using AnalysisPage = hypha::analysis_navigation::Page;
-void require (bool condition, const char* message)
-{
-    if (! condition) { std::cerr << "Editor surface: " << message << '\n'; std::exit (1); }
-}
 template <typename T> T* component (juce::Component& parent)
 {
     if (auto* result = dynamic_cast<T*> (&parent)) return result;
@@ -45,7 +43,6 @@ template <typename T> T* component (juce::Component& parent)
         if (auto* result = component<T> (*child)) return result;
     return nullptr;
 }
-
 juce::Component* find (juce::Component& parent, const juce::String& id)
 {
     if (parent.getComponentID() == id) return &parent;
@@ -461,7 +458,6 @@ void verifyTimeTabGeometry()
                      "HISTORY alone shows the range / scale controls beside the tabs");
         }
 }
-
 int main (int argc, char** argv)
 {
     ReferenceValidationStorageSandbox sandbox;
@@ -474,12 +470,14 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI init;
     // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
     hypha::i18n::holdLanguage (true);
+    if (argc > 1 && juce::String (argv[1]) == "--header-reference-only") { hypha::tests::editor_product::verifyHeaderReferenceExitProduct (sandbox.directory()); return EXIT_SUCCESS; }
     if (argc > 1 && juce::String (argv[1]) == "--shell-repairs-only")
     {
         verifyEditorShellRepairs();
         std::cout << "Editor shell repairs: PASS (PRE/POST, 3 Blind screens, host-thread restore)\n";
         return EXIT_SUCCESS;
     }
+    if (std::getenv ("KIRIN_HYPHA_DISPLAY_SETTINGS_ONLY") != nullptr) { verifyDisplaySettingsProduct(); return EXIT_SUCCESS; }
     verifyVuTapProduct(); hypha::tests::editor_product::verifySpaceLiveProduct(); verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
@@ -490,7 +488,7 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
     verifySavedReferenceChoices(); verifyDisplayWindowsProduct();
-    verifyEditorShellRepairs(); verifyTimeTabGeometry();
+    verifyEditorShellRepairs(); verifyTimeTabGeometry(); hypha::tests::editor_product::verifyHeaderSelectorsProduct(); hypha::tests::editor_product::verifyHeaderReferenceExitProduct (sandbox.directory());
     const auto previews = juce::File (argc > 1 ? juce::String (argv[1]) : juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_UI_REFINEMENT_DIR", {}));
     verifyPairHeaderAtEverySize (previews);
     hypha::tests::editor_product::verifyObservatoryHelpLine (previews);

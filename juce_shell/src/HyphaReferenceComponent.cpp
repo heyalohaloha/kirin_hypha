@@ -55,7 +55,7 @@ Component::Component()
     configureSelector (presetBox, "reference-preset", "Check Preset",
                        "Temporarily call a Check Preset received from Kirin OS.");
     configureSelector (versionBox, "reference-version", "V Version",
-                       "Choose the registered Version for V. A stays the current DAW input.");
+                       help_text::versionMixContext);
     versionBox.setTextWhenNothingSelected ("Choose Version");
     versionBox.setElsewhereTitle (versionsElsewhereTitle);
     configureSelector (checkBox, "reference-check", "Check",
@@ -74,7 +74,7 @@ Component::Component()
     cButton.setTitle ("Audition C Check");
     blindButton.setTitle ("Start Version Blind");
     aButton.setTooltip ("Return to the live DAW mix (A).");
-    bButton.setTooltip ("Audition the Version from Kirin OS (V).");
+    bButton.setTooltip (help_text::versionMixContext);
     blindButton.setTooltip (
         "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
     actionButton.setTooltip ("Continue with the safe next action.");
@@ -98,11 +98,11 @@ Component::Component()
         const auto id = selectedOptionId (cueBox, current.cues);
         if (id.isNotEmpty() && onSelectCue) onSelectCue (id);
     };
-    aButton.onClick = [this] { if (onSelectA) onSelectA(); };
-    bButton.onClick = [this] { if (! openLarge (1) && ! explainUnavailable (true) && onSelectB) onSelectB(); };
-    blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
+    aButton.onClick = [this] { requestRole (0); };
+    bButton.onClick = [this] { requestRole (1); };
+    blindButton.onClick = [this] { requestVersionBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
-    cButton.onClick = [this] { if (! openLarge (2) && ! explainUnavailable (false) && onSelectC) onSelectC(); };
+    cButton.onClick = [this] { requestRole (2); };
     versionBox.onChange = [this]
     { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
     for (size_t i = 0; i < selectionReadouts.size(); ++i)

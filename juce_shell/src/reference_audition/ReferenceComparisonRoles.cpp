@@ -31,6 +31,7 @@ bool ReferenceComparisonController::selectC (double loudness, double peak) noexc
 // B（REF）。B セットの曲を、A の直近 10 秒に追従する gain で鳴らす。
 bool ReferenceComparisonController::selectRef (double loudness, double peak) noexcept
 {
+    if (preparingReference()) return ! trialActive();
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
     if (trialActive() || ! snapshot().referenceReady) return false;
     version.selectA(); check.selectA();
@@ -107,12 +108,13 @@ void ReferenceComparisonController::suspendAudition() noexcept
 
 namespace hypha::reference_audition
 {
-// B の曲を選ぶ。B が鳴っていた（または戻る保留・押した後の待ちがある）なら、新しい曲が公開され次第、
-// 新しい MATCH で B のまま鳴らす（「押せば即切替」）。それまでのあいだは A（フェードで戻す）。違う曲を前の
-// gain で鳴らすことはしない。ほかの役（C・V）は止めない。
-bool ReferenceComparisonController::selectSong (const juce::String& id)
+// B の曲を選ぶ。B が鳴っていれば旧曲を鳴らしたまま準備し、新しい PCM と新しい MATCH の gain を一組で渡す。
+// 止まっている・戻る保留・押した後の待ちなら、新しい曲が公開され次第、新しい MATCH で B のまま鳴らす。
+bool ReferenceComparisonController::selectSong (const juce::String& id, double loudness, double peak)
 {
-    if (trialActive() || ! reference.selectLibrarySong (id)) return false;
+    if (trialActive()) return false;
+    reference.supplyPreparedLevel (loudness, peak);
+    if (! reference.selectLibrarySong (id)) return false;
     { const juce::ScopedLock lock (selectionLock); songId = id; }
     continueAfterSwitch (3);
     if (stateChanged) stateChanged();
@@ -127,6 +129,27 @@ bool ReferenceComparisonController::selectSongSet (const juce::String& id)
     { const juce::ScopedLock lock (selectionLock); songSetId = id; }
     if (stateChanged) stateChanged();
     return true;
+}
+
+// B の一覧を見ているあいだ、選んでいる B SET の曲を、今の曲の次から順に押す前に確かめておく。見ていないあいだは渡さない。
+void ReferenceComparisonController::requestSongPreload (const Snapshot& r)
+{
+    std::vector<juce::String> order;
+    {
+        const juce::ScopedLock lock (selectionLock);
+        if (presented.load() && viewedSlot.load (std::memory_order_acquire) == 3)
+        {
+            const auto set = std::find_if (r.songSets.begin(), r.songSets.end(), [&] (const auto& item) { return item.id == songSetId; });
+            const auto* songs = set != r.songSets.end() ? &set->songs : r.songSets.empty() ? nullptr : &r.songSets.front().songs;
+            const auto count = songs != nullptr ? songs->size() : size_t { 0 };
+            size_t chosen = 0;
+            for (size_t index = 0; index < count; ++index) if ((*songs)[index].id == songId) chosen = index;
+            for (size_t step = 0; step < count; ++step) order.push_back ((*songs)[(chosen + step) % count].id);
+        }
+        if (order == songPreloadOrder) return;
+        songPreloadOrder = order;
+    }
+    reference.preloadSongs (std::move (order));
 }
 
 // B の曲をまだ選んでいない（初めて）ときは、選んでいる B SET の最初の曲（準備済みを先に）を選んでおく。

@@ -153,3 +153,30 @@ measures production MATCH windows across the first wrap and later cycles. The tw
 `kirin_logic_analysis_{mono,stereo}_{included,zero}_cycle_{freq_listen,sharp_listen,blind}_product` cases exercise real processors,
 workers, cycle delta, LISTEN, MATCH and BLIND loss; they require native shared memory.
 Fixtures are not host acceptance.
+
+## Cubase VST3 cycle entry
+
+The macOS native executable `Cubase 16`, version `16.0.5.174`, has a separate cycle-only
+content-clock authority. Other versions, wrappers and platforms retain their previous policy;
+this authority does not enable the certified VST3 analysis ingress. The existing content-clock
+entry supplies K=0 only when both current VST3 continuous clocks and the loop anchor agree.
+Additionally, the PRE/POST continuous-clock distance must equal their valid VST3 output
+presentation-latency difference, including zero. Missing, mixed or contradictory proof keeps
+POST/B, with the existing selection and gain retained for automatic recovery.
+
+The distance check is not modulo the loop length. A whole-lap clock shift cannot pass merely
+because project/PPQ and repeated audio match. A PDC disagreement also fails before any PRE
+copy; seek/run/owner fences and demanded PCM range checks remain in force. This relies on the
+existing correctly reported latency and host compensation premise, and does not infer PDC
+from audio correlation. No Audio Thread allocation, lock, wait or host call is added.
+
+`verifyCubaseCycleProduct` in `kirin_live_blind_product` runs the real JUCE/Rust processors,
+LISTEN and A/B entries with independent physical-delay output oracles, zero/nonzero latency,
+initial cycles, wraps, seeks, identical successive laps, clock/PDC contradictions and missing
+proof. `KirinLiveBlindProductTests S-1.wav --cubase-cycle-only` selects that fixture alone.
+These synthetic checks are not real Cubase output acceptance.
+
+The host fields use the existing wrapper acquisition of [VST3 ProcessContext](https://steinbergmedia.github.io/vst3_doc/vstinterfaces/structSteinberg_1_1Vst_1_1ProcessContext.html)
+and [IAudioPresentationLatency](https://steinbergmedia.github.io/vst3_doc/vstinterfaces/classSteinberg_1_1Vst_1_1IAudioPresentationLatency.html).
+The latter describes downstream latency propagation; the pair distance is checked at runtime,
+not inferred from a VST3 format label.

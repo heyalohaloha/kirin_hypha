@@ -84,6 +84,7 @@ struct SelectionOption
     juce::String checkLabel {}, itemLabel {}; // a CHECK target's two parts, when the runtime gives them
     juce::String workId {}, versionId {};     // a Version's song and its version in Kirin OS
     bool elsewhere = false;                   // a Version of another song (HyphaReferenceVersionRows.h)
+    int sourceIndex = 0;                      // its place as Kirin OS sent it, before the rows are arranged
 };
 
 // B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
@@ -92,6 +93,7 @@ struct SongFact
     double lufsI = std::numeric_limits<double>::quiet_NaN();
     double loudnessOffsetLu = 0.0;  // 鳴らす音が lufsI より大きく測れる量（mono の曲を stereo の track で +3.01 LU）
     bool prepared = false;
+    bool loaded = false;  // Hypha が確かめ終えている（押せばすぐ替わる）
     reference_audition::RuntimeSongPreparation preparation; // Kirin OS がこの曲を準備している状態
     std::vector<double> centersHz;
     std::vector<float> medianDb;
@@ -192,6 +194,7 @@ struct State
     std::vector<SongFact> songFacts; // songs と同じ順
     std::map<juce::String, std::vector<juce::String>> checkViewBindings; // V のタブの Check ごとの表示
     juce::String songSetId, songId, songSetsIssue; // songSetsIssue：Kirin OS のセットを読めなかった理由（空なら無し）
+    juce::String audibleSongId;  // 実際に出力へ出ている曲（選んだ曲とは別）
     // 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
@@ -309,6 +312,17 @@ public:
     { dragActive = false; repaint(); if (isInterestedInFileDrag (files) && onTargetRequest) onTargetRequest ({ reference_audition::TargetRequest::Action::importFiles, files, {} }); }
     void fileDragEnter (const juce::StringArray&, int, int) override { dragActive = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { dragActive = false; repaint(); }
+    // What a button and its key ask for (HyphaReferenceNavigation.cpp). Each answers with why it did
+    // nothing (English), or with nothing. slot: 0 A, 1 V, 2 C, 3 B. direction: -1 or +1.
+    juce::String requestRole (int slot);
+    juce::String requestCheckMatch();
+    juce::String requestVersionBlind();
+    juce::String stepSong (int direction);
+    juce::String stepVersion (int direction);
+    juce::String stepTab (int direction);
+    juce::String stepCue (int direction);
+    juce::String stepSet (int direction);
+
     void setState (State);
     // 状態の行は、足元の段があるとき（150% 以上）はどの画面でも足元の左に出す（エディターが決めて置く。
     // 2026-10-04）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
@@ -438,6 +452,7 @@ private:
     juce::Rectangle<int> cueRowBounds() const noexcept;
     int checkFooterHeight() const noexcept;
     void configureCheckPage();
+    void chooseTab (const juce::String& checkId);
     void syncCheckPage (bool blindSession);
     int checkTabsHeight() const;  // C は Check のタブが 1 段に入らなければ 2 段ぶん（2026-10-05）
     void layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors);

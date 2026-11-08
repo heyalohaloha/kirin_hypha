@@ -13,6 +13,7 @@ void KirinHyphaProcessorBase::requestServiceTimer()
 void KirinHyphaProcessorBase::handleAsyncUpdate()
 {
     startTimer (50);
+    serviceReferencePendingAudition();  // 準備の完了の知らせは次の周期を待たない
 }
 
 void KirinHyphaProcessorBase::timerCallback()

@@ -35,7 +35,7 @@ void View::resized()
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                           &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                          &trackButton, &twoMixButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
                           &localBlindButton, &liveCompareButton, &candidateCompareButton, &livePreButton, &livePostButton,
@@ -65,7 +65,7 @@ void View::resized()
         for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                               &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                               &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
-                              &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                              &trackButton, &twoMixButton, &scaleButton, &sizeButton, &operationsButton,
                               &stopButton, &guideButton, &statusButton, &resetButton,
                               &noteButton, &captureButton, &localBlindButton, &liveCompareButton, &candidateCompareButton,
                               &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton,
@@ -111,15 +111,15 @@ void View::resized()
     // Folded footer: every status line (feedback, a running capture, WAITING and the like) goes to
     // the strip over the body's bottom edge; the cycle keeps its whole row.
     const bool folded = footerFolds (preset.density) && ! captureFrame;
-    contextButton.setVisible (! captureFrame);
+    trackButton.setVisible (! captureFrame);
+    twoMixButton.setVisible (! captureFrame);
     auto headerSlot = layout.contextSelector;
-    auto headerSelectors = surface_presentation::headerSelectors (headerSlot, preset.density);
     const auto actionFont = labelFont (context, typography::TextRole::action);
-    const auto referenceWidth = std::max (headerSelectors[1].width,
-        juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, "REF"))) + 8);
-    const auto contextWidth = juce::roundToInt (std::ceil (
-        text_style::shownWidth (actionFont, contextButton.getButtonText()))) + 8;
-    const int headerGap = preset.density == Density::compact ? 2 : 4;
+    const auto labelWidth = [&] (const char* text)
+    { return juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, text))) + 8; };
+    const auto trackWidth = labelWidth ("TRACK"), twoMixWidth = labelWidth ("2MIX");
+    const auto referenceWidth = labelWidth ("REFERENCE");
+    const int headerGap = preset.density == Density::compact ? 1 : 4;
     if (! captureFrame)
     {
         const auto titleFont = labelFont (context, typography::TextRole::shellTitle);
@@ -128,20 +128,21 @@ void View::resized()
             titleFont, role == Role::post ? "POST" : "PRE", titleStyle)
             + (preset.density == Density::compact ? 3 : 5)
             + juce::roundToInt (std::ceil (text_style::shownWidth (titleFont, "HYPHA")));
-        const auto needed = std::max (0, contextWidth + referenceWidth + headerGap - headerSlot.width);
+        const auto needed = std::max (0, trackWidth + twoMixWidth + referenceWidth + 2 * headerGap - headerSlot.width);
         // Borrow only unused title pixels. Its glyph positions, font and connection slot stay fixed.
         const auto reclaimed = std::min (needed, std::max (0, layout.roleTitle.width - titleMinimum));
         informationButton.setBounds (toJuce (layout.roleTitle).withTrimmedRight (reclaimed));
         headerSlot.x -= reclaimed;
         headerSlot.width += reclaimed;
     }
-    headerSelectors = surface_presentation::headerSelectors (headerSlot, preset.density);
-    headerSelectors[0].width = std::min (136, headerSlot.width - referenceWidth - headerGap);
-    headerSelectors[1] = { headerSlot.x + headerSelectors[0].width + headerGap,
-                         headerSlot.y, referenceWidth, headerSlot.height };
-    contextButton.setBounds (toJuce (headerSelectors[0]).reduced (1, 2));
+    const auto headerSelectors = surface_presentation::headerSelectors (
+        headerSlot, preset.density, trackWidth, twoMixWidth, referenceWidth);
+    trackButton.setBounds (toJuce (headerSelectors[0]).reduced (1, 2));
+    twoMixButton.setBounds (toJuce (headerSelectors[1]).reduced (1, 2));
     referenceButton.setVisible (! captureFrame && ! measurementOnlySurround);
-    referenceButton.setBounds (toJuce (headerSelectors[1]).reduced (1, 2));
+    referenceButton.setBounds (toJuce (headerSelectors[2]).reduced (1, 2));
+    referenceButton.setButtonText (text_style::shownWidth (actionFont, "REFERENCE")
+        <= referenceButton.getWidth() - 6 ? "REFERENCE" : "REF");
     domainCycleButton.setVisible (singleDomainControl);
     levelButton.setVisible (! singleDomainControl);
     timeButton.setVisible (! singleDomainControl);

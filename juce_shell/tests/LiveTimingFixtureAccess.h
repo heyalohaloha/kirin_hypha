@@ -197,12 +197,14 @@ public:
     {
         const auto certificate = hypha::live_compare_clock_policy::classify (
             juce::AudioProcessor::wrapperType_VST3, name, version, 48000);
-        if (! hypha::live_compare::certifiedVst3Analysis (certificate.authority)
+        if ((! hypha::live_compare::certifiedVst3Analysis (certificate.authority)
+             && certificate.authority != hypha::live_compare::ClockAuthority::cubaseCycleContent)
             || certificate.maximumDelaySamples != 0) return false;
         processor.liveCompare.clockAuthority = static_cast<std::uint8_t> (certificate.authority);
         processor.liveCompare.maximumDelaySamples = certificate.maximumDelaySamples;
-        kirin_hypha_set_content_analysis_ingress (processor.hyphaHandle,
-            processor.role == KirinHyphaProcessorBase::Role::Post);
+        if (hypha::live_compare::certifiedVst3Analysis (certificate.authority))
+            kirin_hypha_set_content_analysis_ingress (processor.hyphaHandle,
+                processor.role == KirinHyphaProcessorBase::Role::Post);
         return true;
     }
 

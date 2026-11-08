@@ -296,21 +296,26 @@ bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
     return hyphaHandle != nullptr && kirin_hypha_poll_spectrum (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollSpectrumBatch (KirinSpectrumBatch& out) const
+bool KirinHyphaProcessorBase::pollSpectrumBatch (KirinSpectrumBatch& out, uint64_t* postContinuity, uint64_t* deltaContinuity) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
-    return hyphaHandle != nullptr && kirin_hypha_poll_spectrum_batch (hyphaHandle, &out);
+    uint64_t ignoredPost = 0, ignoredDelta = 0;
+    return hyphaHandle != nullptr && kirin_hypha_poll_spectrum_batch_continuous (hyphaHandle, &out,
+        postContinuity != nullptr ? postContinuity : &ignoredPost,
+        deltaContinuity != nullptr ? deltaContinuity : &ignoredDelta);
 }
 
-bool KirinHyphaProcessorBase::pollMidSideSpectrum (KirinMidSideSpectrumView& out) const
+bool KirinHyphaProcessorBase::pollMidSideSpectrum (KirinMidSideSpectrumView& out, uint64_t* continuity) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
+    uint64_t ignored = 0;
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_mid_side_spectrum (hyphaHandle, &out);
+        && kirin_hypha_poll_mid_side_spectrum_continuous (hyphaHandle, &out,
+                                                       continuity != nullptr ? continuity : &ignored);
 }
 
 bool KirinHyphaProcessorBase::pollPerceptual (KirinPerceptualView& out) const

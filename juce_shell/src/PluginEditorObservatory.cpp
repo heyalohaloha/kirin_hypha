@@ -65,8 +65,6 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.setScaleMode (processorRef.scaleModePreference());
     observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)
     { applyMeterContextChoice (context); };
-    observatoryView.onContextMenu = [this]
-    { showMeterContextMenu (observatoryView.contextMenuAnchor()); };
     observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
     {
         observatoryView.setScaleMode (scale);
@@ -79,22 +77,8 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
     observatoryView.onTimeRangeMenu = [this] { showTimeRangeMenu(); };
     observatoryView.onStop = [this] { dropWaitingRequests(); processorRef.stopPair(); };
-    observatoryView.onReset = [this]
-    {
-        if (! processorRef.resetMeterSession())
-        {
-            showToast ("Meter Session could not be reset");
-            return;
-        }
-        observatoryWatchDisplay = {};
-        haveObservatoryWatchDisplay = false;
-        observatoryView.setWatchDisplay ({}, false);
-    };
-    observatoryView.onClearPeakClipHolds = [this]
-    {
-        if (! processorRef.clearMeterPeakClipHolds())
-            showToast ("TP / Clip CLEAR failed");
-    };
+    observatoryView.onReset = [this] { requestMeterSessionReset(); };
+    observatoryView.onClearPeakClipHolds = [this] { requestPeakClipClear(); };
     observatoryView.onVuLiveReading = [this] { return processorRef.vuLive().reading(); };
     observatoryView.onHybridVuChange = [this] (bool visible)
     {
@@ -176,7 +160,13 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (observatoryDomain == hypha::observatory::Domain::reference
         && domain != hypha::observatory::Domain::reference)
-        processorRef.endReferenceBlind();
+    {
+        if (processorRef.referenceAuditionSnapshot().blindPhase == hypha::reference_audition::BlindPhase::inactive)
+            processorRef.selectReferenceA();
+        else
+            processorRef.endReferenceBlind();
+        referenceRematchUntil = 0.0;
+    }
    #endif
     observatoryDomain = domain;
     processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));
@@ -197,6 +187,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::visibilityChanged()
 {
+    if (! isVisible()) heldShortcutKeys.clear();
     if (isVisible())
     {
         // The display the editor opened on decides the magnified steps; a size that is not a step
@@ -212,6 +203,11 @@ void KirinHyphaEditor::visibilityChanged()
     // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
     if (! isVisible())
     {
+        if (meterResetDialog != nullptr)
+        {
+            meterResetDialog->exitModalState (0);
+            meterResetDialog.reset();
+        }
         commitEditorSizeStateIfSettled (true);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();

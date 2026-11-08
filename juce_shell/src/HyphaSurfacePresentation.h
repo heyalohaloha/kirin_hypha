@@ -10,21 +10,18 @@
 
 namespace hypha::surface_presentation
 {
-// REF is a header action after Meter Context, separate from the four measurement tabs.
+// TRACK, 2MIX and REFERENCE share the header, separate from the four measurement tabs.
 constexpr std::array measurementDomains { observatory::Domain::level, observatory::Domain::time,
                                         observatory::Domain::frequency, observatory::Domain::space };
 constexpr std::array measurementLabels { "LEVEL", "TIME", "FREQ", "SPACE" };
-constexpr std::array<observatory::Rect, 2> headerSelectors (observatory::Rect slot,
-                                                          observatory::Density density) noexcept
+constexpr std::array<observatory::Rect, 3> headerSelectors (observatory::Rect slot,
+    observatory::Density density, int trackWidth, int twoMixWidth, int referenceWidth) noexcept
 {
-    const int gap = density == observatory::Density::compact ? 2 : 4;
-    const int referenceWidth = density == observatory::Density::compact ? 32
-                             : density == observatory::Density::focused ? 38
-                             : density == observatory::Density::standard ? 42
-                             : density == observatory::Density::observatory ? 52 : 62;
-    const int contextWidth = std::min (136, slot.width - referenceWidth - gap);
-    return { observatory::Rect { slot.x, slot.y, contextWidth, slot.height },
-             observatory::Rect { slot.x + contextWidth + gap, slot.y, referenceWidth, slot.height } };
+    const int gap = density == observatory::Density::compact ? 1 : 4;
+    return { observatory::Rect { slot.x, slot.y, trackWidth, slot.height },
+             observatory::Rect { slot.x + trackWidth + gap, slot.y, twoMixWidth, slot.height },
+             observatory::Rect { slot.x + trackWidth + twoMixWidth + 2 * gap,
+                 slot.y, std::min (referenceWidth, slot.width - trackWidth - twoMixWidth - 2 * gap), slot.height } };
 }
 
 enum class Id

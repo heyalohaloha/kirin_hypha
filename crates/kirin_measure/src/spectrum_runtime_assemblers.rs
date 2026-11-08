@@ -20,6 +20,7 @@ pub(super) struct SpectrumAssembler {
     filled: usize,
     next_position: Option<i64>,
     generation: u64,
+    continuity: u64,
 }
 
 impl SpectrumAssembler {
@@ -39,6 +40,7 @@ impl SpectrumAssembler {
             filled: 0,
             next_position: None,
             generation: 0,
+            continuity: crate::spectrum_mid_side::next_mid_side_continuity(),
         }
     }
 
@@ -107,7 +109,9 @@ impl SpectrumAssembler {
                 self.generation,
             )
             .ok()?;
-        MidSideSpectrumFrame::from_frames(mid, side)
+        let mut frame = MidSideSpectrumFrame::from_frames(mid, side)?;
+        frame.continuity = self.continuity;
+        Some(frame)
     }
 
     fn push_sample(&mut self, left: f32, right: Option<f32>) -> Option<i64> {
@@ -132,6 +136,7 @@ impl SpectrumAssembler {
     }
 
     pub(super) fn reset(&mut self) {
+        self.continuity = crate::spectrum_mid_side::next_mid_side_continuity();
         self.write_index = 0;
         self.filled = 0;
         self.next_position = None;
@@ -404,6 +409,39 @@ impl PerceptualAssembler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mid_side_continuity_survives_skipped_polls_but_not_aperture_resets() {
+        fn aperture(assembler: &mut SpectrumAssembler, start: i64) -> MidSideSpectrumFrame {
+            assert!(assembler.begin_block(start, 11));
+            (0..4_800)
+                .filter_map(|_| assembler.push_mid_side_frame(0.25, Some(0.125)))
+                .last()
+                .unwrap()
+        }
+        let mut assembler = SpectrumAssembler::new(SpectrumAnalyzer::new(48_000).unwrap(), 2);
+        let first = aperture(&mut assembler, 0);
+        let _skipped = aperture(&mut assembler, 4_800);
+        let latest = aperture(&mut assembler, 9_600);
+        assert_ne!(first.continuity, 0);
+        assert_eq!(first.continuity, latest.continuity);
+        assert_eq!(
+            latest.presentation_end_samples() - first.presentation_end_samples(),
+            9_600
+        );
+        let gap = aperture(&mut assembler, 19_200);
+        assert_ne!(gap.continuity, latest.continuity);
+        let seek = aperture(&mut assembler, 0);
+        assert_ne!(seek.continuity, gap.continuity);
+        assert!(assembler.push_mid_side_frame(f32::NAN, Some(0.0)).is_none());
+        let resumed = aperture(&mut assembler, 4_800);
+        assert_ne!(resumed.continuity, seek.continuity);
+        assembler.reset();
+        assert_ne!(
+            aperture(&mut assembler, 9_600).continuity,
+            resumed.continuity
+        );
+    }
 
     #[test]
     fn analyzer_error_clears_state_and_requires_a_new_epoch() {

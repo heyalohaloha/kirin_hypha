@@ -47,7 +47,8 @@ inline void verifyReferenceHelpFits (const std::set<juce::String>& extra)
             // Graphs, tabs and lists are in the page body; the editor gives their help the full
             // footer row. Keep the narrower control-help check for the other collected tooltips.
             const bool inBody = std::any_of (std::begin (reference_ui::help_text::all), std::end (reference_ui::help_text::all),
-                                             [&] (const auto* help) { return text == help; });
+                                             [&] (const auto* help) { return text == help; })
+                && text != reference_ui::help_text::versionMixContext;
             const auto available = inBody ? wholeRow.getWidth() : line.getWidth();
             if (const auto width = text_style::shownWidth (font, text); width > static_cast<float> (available))
                 tooWide << "\n  " << (language == i18n::Language::japanese ? "JA " : "EN ") << juce::String (width, 0) << " > "

@@ -17,6 +17,7 @@ pub struct SpectrumDifferenceTimeline {
     frames: [Option<SpectrumTimelineFrame>; SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY],
     start: usize,
     count: usize,
+    continuity: u64,
 }
 
 /// Presentation-only subset. The unclipped `raw_db` remains in the current measurement fact and is
@@ -86,6 +87,7 @@ impl Default for SpectrumDifferenceTimeline {
             frames: std::array::from_fn(|_| None),
             start: 0,
             count: 0,
+            continuity: 0,
         }
     }
 }
@@ -111,6 +113,15 @@ impl SpectrumDifferenceTimeline {
             }
         }
 
+        if self.newest().is_none_or(|newest| {
+            frame
+                .presentation_end_samples
+                .checked_sub(newest.presentation_end_samples)
+                .is_none_or(|elapsed| elapsed > i64::from(frame.sample_rate / 20))
+        }) {
+            self.continuity = crate::spectrum_mid_side::next_mid_side_continuity();
+        }
+
         let destination = if self.count < SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY {
             (self.start + self.count) % SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY
         } else {
@@ -129,6 +140,11 @@ impl SpectrumDifferenceTimeline {
         self.frames.fill(None);
         self.start = 0;
         self.count = 0;
+    }
+
+    /// Identity of uninterrupted exact joins, independent of GUI acquisition cadence.
+    pub fn continuity(&self) -> u64 {
+        self.continuity
     }
 
     pub fn newest(&self) -> Option<&SpectrumTimelineFrame> {
@@ -252,5 +268,26 @@ mod tests {
     #[test]
     fn storage_is_fixed_and_has_no_growth_path() {
         assert!(std::mem::size_of::<SpectrumDifferenceTimeline>() < 32 * 1024);
+    }
+    #[test]
+    fn join_identity_survives_ring_eviction_and_remembers_a_missed_gap() {
+        let mut timeline = SpectrumDifferenceTimeline::default();
+        timeline.push(&difference(1600));
+        let first = timeline.continuity();
+        assert_ne!(first, 0);
+        for tick in 2..=24 {
+            timeline.push(&difference(tick * 1600));
+        }
+        assert_eq!(timeline.continuity(), first);
+        timeline.push(&difference(26 * 1600));
+        let gap = timeline.continuity();
+        assert_ne!(gap, first);
+        for tick in 27..=50 {
+            timeline.push(&difference(tick * 1600));
+        }
+        assert_eq!(timeline.continuity(), gap);
+        timeline.clear();
+        timeline.push(&difference(51 * 1600));
+        assert_ne!(timeline.continuity(), gap);
     }
 }

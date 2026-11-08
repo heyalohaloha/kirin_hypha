@@ -1,5 +1,4 @@
-// Live PRE/POST compare: the Audio Thread transport and correspondence rules stay free of
-// allocation, locks, blocking I/O and thread waits (AGENTS R-12, INV-LC1 to INV-LC3).
+// Live compare: the Audio Thread allocates, locks and blocks nowhere (AGENTS R-12, INV-LC1 to 3).
 
 const RING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareRing.h");
 const CORRESPONDENCE_H: &str =
@@ -17,8 +16,10 @@ const AUDITION_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorAud
 const EDITOR_LIFECYCLE_CPP: &str = include_str!("../../juce_shell/src/PluginEditorLifecycle.cpp");
 const EDITOR_LOCAL_BLIND_CPP: &str =
     include_str!("../../juce_shell/src/PluginEditorLocalBlind.cpp");
-const EDITOR_LIVE_COMPARE_CPP: &str =
-    include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp");
+const EDITOR_LIVE_COMPARE_CPP: &str = concat!(
+    include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp"),
+    include_str!("../../juce_shell/src/PluginEditorCompareActions.cpp")
+);
 const EDITOR_REFERENCE_CPP: &str = concat!(
     include_str!("../../juce_shell/src/PluginEditorReference.cpp"),
     include_str!("../../juce_shell/src/PluginEditorReferenceRoles.cpp")
@@ -154,8 +155,7 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
             "LiveCompareCorrespondence.h lost {required}"
         );
     }
-    // The extracted AU projection is audited together with clock preparation. The PCM path
-    // must keep using that same rule, never a second/laxer one.
+    // The AU projection is audited with clock preparation; the PCM path keeps that same rule.
     assert!(function_body(CORRESPONDENCE_H, "static bool loopJoin (").contains("corroborateLoop ("));
     assert!(CLOCK_H.contains("ClockBasis::pluginFrames"));
 }

@@ -4,6 +4,8 @@
 #include "EditorHiddenAutoCheck.h"
 #include "LiveTimingFixtureAccess.h"
 #include "ProductTestClock.h"
+#include "ShortcutTestAccess.h"
+#include "ReferenceSelectionReopenTest.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include <chrono>
 #include <cstring>
@@ -286,9 +288,32 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     require (r.post->liveCompareStatus().active && r.post->liveCompareStatus().preSelected
         && r.post->liveCompareStatus().preAudible, "hide preserves LISTEN and verified output");
     r.editor->setVisible (true); r.advance (0.1);
-    require (r.post->beginLiveBlind() == live_compare::StartResult::started, "hide test begins real BLIND");
+    r.view().onDomainChange (observatory::Domain::level);
+    juce::DocumentWindow window ("Test", juce::Colours::black, juce::DocumentWindow::closeButton);
+    window.setContentNonOwned (r.editor.get(), true); window.setVisible (true);
+    KirinMeterSession beforeReset {};
+    require (r.post->pollMeterSession (beforeReset) && beforeReset.observed_frames > 0,
+             "real meter is populated before RESET confirmation");
+    r.view().onReset();
+    auto& resetDialog = r.editor.get()->*shortcutMember (ShortcutResetDialog {});
+    require (resetDialog != nullptr, "RESET confirmation opens before BLIND");
+    (r.editor.get()->*shortcutMember (ShortcutBlindStart {}))();
+    require (r.post->liveBlindStatus().stage != live_compare::BlindStage::idle,
+             "shared BLIND start begins the real processor trial");
+    resetDialog->exitModalState (1);
+    require (afterQueuedMessages ([] {}), "RESET callback delivered during real BLIND");
+    KirinMeterSession afterReset {};
+    require (resetDialog == nullptr && r.post->pollMeterSession (afterReset)
+             && afterReset.generation == beforeReset.generation
+             && afterReset.measurement_epoch == beforeReset.measurement_epoch
+             && afterReset.active_frames >= beforeReset.active_frames,
+             "RESET preserves the meter after BLIND opens");
     r.advance (4.0);
     require (r.post->liveBlindStatus().stage == live_compare::BlindStage::active, "real MATCH establishes BLIND");
+    (r.editor.get()->*shortcutMember (ShortcutBlindReveal {}))();
+    require (! r.post->liveBlindStatus().trial.revealed, "shared REVEAL rejects unplayed sources");
+    (r.editor.get()->*shortcutMember (ShortcutBlindSource {})) (2);
+    require (r.post->liveBlindStatus().trial.selected == 2, "shared SOURCE selects the requested anonymous source");
     const auto trial = r.post->liveBlindStatus().trial;
     r.editor->setVisible (false); r.advance (0.1);
     const auto hidden = r.post->liveBlindStatus();
@@ -319,7 +344,10 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.bypassed = r.expectOrdinaryAudio = false; r.advance (0.3);
     require (r.post->liveCompareStatus().preAudible && r.post->liveBlindStatus().trial.epoch == trial.epoch,
              "fresh timing after bypass automatically returns to the same anonymous PRE");
-    r.post->finishLiveCompare(); r.advance (0.6); r.expectOrdinaryAudio = true;
+    (r.editor.get()->*shortcutMember (ShortcutBlindEnd {}))();
+    r.advance (0.6); r.expectOrdinaryAudio = true;
+    require (r.post->liveBlindStatus().stage == live_compare::BlindStage::idle, "shared END ends the real trial");
+    window.clearContentComponent();
     r.post->clearPairCandidate(); r.advance (0.15); r.silentOrdinary();
     r.selectPair(); r.advance (0.15); r.silentOrdinary();
     juce::MemoryBlock saved; r.post->getStateInformation (saved);

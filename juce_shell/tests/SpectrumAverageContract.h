@@ -139,11 +139,11 @@ inline void verifySpectrumAverageContract()
                 const auto now = component.curveUpdateTimeForTest();
                 component.queueSnapshot (step);
                 component.presentationTickAt (now + 500.0);
-                const auto time = spectrum_average::milliseconds (option);
+                const auto time = low && option == Average::live ? 250.0 : spectrum_average::milliseconds (option);
                 const auto expected = time <= 0 ? 12.0 : 12.0 * -std::expm1 (-500.0 / time);
                 require (std::abs (component.displayedPostForTest (220) - start - expected) < 0.01, "absolute response follows the selected time");
                 const auto deltaExpected = time <= 0 ? 12.0 * -std::expm1 (-500.0 / 150.0) : expected;
-                require (std::abs (component.displayedDeltaForTest (220) - deltaStart - (low && time <= 0 ? 12.0 : deltaExpected)) < 0.01,
+                require (std::abs (component.displayedDeltaForTest (220) - deltaStart - deltaExpected) < 0.01,
                          "signed delta keeps the same symmetric average");
                 require (std::abs (component.readoutDeltaForTest (220) - step.display_db[220]) < 0.001, "numeric delta bypasses averaging");
                 require (component.hasMark() && std::abs (component.markValueForTest (220) - heldMark) < 0.000001f, "averaging never changes MARK");
@@ -157,8 +157,7 @@ inline void verifySpectrumAverageContract()
                     component.queueSnapshot (step);
                     component.presentationTickAt (now + offset);
                     const auto response = time <= 0 ? 12.0 : 12.0 * -std::expm1 (-offset / time);
-                    const auto deltaResponse = low && time <= 0 ? 12.0
-                        : 12.0 * -std::expm1 (-offset / (time <= 0 ? 150.0 : time));
+                    const auto deltaResponse = 12.0 * -std::expm1 (-offset / (time <= 0 ? 150.0 : time));
                     require (std::abs (component.displayedPostForTest (220) - start - response) < 0.001,
                              "repeated irregular ticks count each elapsed millisecond once");
                     require (std::abs (component.displayedDeltaForTest (220) - deltaStart - deltaResponse) < 0.001,
@@ -250,8 +249,8 @@ inline void verifySpectrumAverageContract()
             require (std::abs (component.displayedDeltaForTest (221) - 4) < 0.00001, "other bands keep their own history");
             frame.shape_db[220] = -12;
             deliver (200);
-            const auto time = spectrum_average::milliseconds (option);
-            const auto expected = low && time <= 0 ? -12.0 : 12.0 - 24.0 * -std::expm1 (-100.0 / (time <= 0 ? 150.0 : time));
+            const auto time = low && option == Average::live ? 250.0 : spectrum_average::milliseconds (option);
+            const auto expected = 12.0 - 24.0 * -std::expm1 (-100.0 / (time <= 0 ? 150.0 : time));
             require (std::abs (component.displayedDeltaForTest (220) - expected) < 0.001, "continuous valid SHAPE values retain the selected average");
             frame.shape_valid[220] = 0; deliver (300);
             require (! component.displayedDeltaValidForTest (220), "a missing SHAPE band stays unavailable");

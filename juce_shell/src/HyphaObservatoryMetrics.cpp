@@ -213,9 +213,16 @@ void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
 void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                        bool includeChannelStrips)
 {
-    const auto& meter = observatoryFrame.meter;
-    const auto& summaryMeter = cumulativeMeterForDisplay();
-    const auto& delta = observatoryFrame.delta;
+    const auto& numbers = captureFrame ? observatoryFrame
+        : levelReadout.read (observatoryFrame, juce::Time::getMillisecondCounterHiRes());
+    const auto& meter = numbers.meter;
+    const auto& summarySource = cumulativeMeterForDisplay();
+    const auto& summaryMeter = captureFrame ? summarySource
+        : levelReadout.summary (summarySource,
+            &summarySource == &sessionCoverage.session ? sessionCoverage.summary_status : -1);
+    const auto maximumBound = sessionMaximumBoundText (&summaryMeter);
+    const auto& numericWatch = captureFrame ? watchDisplay : levelReadout.watch (watchDisplay, watchDisplayAvailable);
+    const auto& delta = numbers.delta;
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
     const auto density = currentPreset().density;
@@ -311,7 +318,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     {
         area = main;
         const auto& watch = compactShowsMaximum
-            ? watchDisplay.maximum : watchDisplay.current;
+            ? numericWatch.maximum : numericWatch.current;
         const auto compactFactsAvailable = watchDisplayAvailable
             && (compactShowsMaximum ? cumulativeFactsAvailable() : currentFactsAvailable());
         const bool trackStem = selectedMeterContext
@@ -349,7 +356,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
                         compactUnits[(size_t) index], family, context, false, 1,
-                        index == 2 ? sessionMaximumBoundText() : juce::String());
+                        index == 2 ? maximumBound : juce::String());
         if (! channelStrips.isEmpty())
             paintChannelStrips (g, channelStrips);
         return;
@@ -358,7 +365,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const auto metricLayout = level_metrics::layoutFor (trackStem);
     const std::array<double, 3> mainValues {
         meter.lufs_m, meter.lufs_s,
-        trackStem ? watchDisplay.current.crest : summaryMeter.lufs_i
+        trackStem ? numericWatch.current.crest : summaryMeter.lufs_i
     };
     const std::array<bool, 3> mainAvailable {
         currentAvailable, currentAvailable,
@@ -380,11 +387,11 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     }
 
     const std::array<double, 5> supportValues {
-        trackStem ? watchDisplay.current.psr : meter.true_peak,
+        trackStem ? numericWatch.current.psr : meter.true_peak,
         trackStem ? meter.true_peak : summaryMeter.max_true_peak,
         trackStem ? summaryMeter.max_true_peak : summaryMeter.lra,
         trackStem ? summaryMeter.lufs_i : optionValue (summaryMeter.plr, ! sessionSummaryPending()),
-        trackStem ? summaryMeter.lra : watchDisplay.current.crest
+        trackStem ? summaryMeter.lra : numericWatch.current.crest
     };
     const std::array<bool, 5> supportAvailable {
         trackStem ? currentAvailable && watchDisplayAvailable : currentAvailable,
@@ -419,7 +426,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     supportUnits[(size_t) index], family, context,
                     false, 1,
                     metricLayout.support[(size_t) index] == level_metrics::Metric::maximumTruePeak
-                        && sessionMaximumBoundText().isNotEmpty() ? sessionMaximumBoundText() : warmingText,
+                        && maximumBound.isNotEmpty() ? maximumBound : warmingText,
                     isFullDensity (density) ? 0.54f : -1.0f, {},
                     true, typography::TextRole::secondaryValue);
     }

@@ -60,11 +60,14 @@ int main() {
   KirinHyphaEditor editor;
   editor.refreshWatchSnapshot(); editor.refreshObservatory();
   assert(!editor.observatoryView.watchDisplayAvailable);
+  assert(editor.observatoryView.numericInterval == 200);
   for (double level : {-12.0, -31.0}) {
+    editor.processorRef.displaySettings.options.ms = -level * 10;
     editor.processorRef.available = true;
     editor.processorRef.next.current.lufs_m = level;
     editor.processorRef.next.maximum.true_peak = level + 7;
     editor.refreshWatchSnapshot();
+    assert(editor.observatoryView.numericInterval == -level * 10);
     auto previous = editor.observatoryView.watchDisplay;
     editor.processorRef.preferredTarget = Target::absolute;
     editor.processorRef.levelReady = false;

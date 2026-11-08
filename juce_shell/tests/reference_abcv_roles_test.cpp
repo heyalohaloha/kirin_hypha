@@ -292,13 +292,14 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     // B のまま別の曲：新しい曲が準備でき次第、新しい MATCH（−14 − −16 = +2 dB）で B のまま鳴る。
     require (controller.selectSong (state.songSets[0].songs[1].id), "choose another song while B sounds");
     host (true);
-    require (block.getSample (0, 0) > 0.1f && block.getSample (0, 479) == 0.0f,
-             "switching the song fades B to A instead of cutting it");
+    require (closeTo (block.getSample (0, 0), 0.1 * gain (4.0))
+                 && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)),
+             "the previous song keeps playing while its replacement prepares");
     hypha::tests::reference_control::await ([&] {
-        if (controller.snapshot().audibleComparisonSlot == 3) return true;
         host (true);
         if (controller.pendingAuditionNeedsService()) controller.servicePendingAudition (-14.0, -2.0, true);
-        return controller.snapshot().audibleComparisonSlot == 3;
+        return controller.snapshot().selectedSongId == state.songSets[0].songs[1].id
+            && closeTo (block.getSample (0, 479), 0.2 * gain (2.0));
     });
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), 0.2 * gain (2.0)),

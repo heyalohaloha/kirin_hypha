@@ -12,7 +12,7 @@ namespace hypha
 AttackComponent::AttackComponent()
 {
     setTitle ("DRUM Attack");
-    setDescription ("Drum transient facts for TRACK/STEM; not a 2MIX onset detector.");
+    setDescription ("Drum transient facts for TRACK; not a 2MIX onset detector.");
     setWantsKeyboardFocus (true);
     v2->request = [this] (const auto& input, std::uint64_t& token) {
         return singleRequestSource ? singleRequestSource (input, token) : KIRIN_SNAPSHOT_BUSY; };

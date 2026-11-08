@@ -358,7 +358,7 @@ jobs:
           KirinUpdateRuntimeIntegrationTests KirinUiRenderContractTests KirinHostIdentityTests KirinSnapshotAbiContractTests
           KirinAttackUiContractTests KirinHyphaReferencePreviewRenderer KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests
           KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests
-          KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests KirinLiveCompareCorrespondenceTests
+          KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests KirinShortcutPRETests KirinShortcutPOSTTests KirinLiveCompareCorrespondenceTests
           KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests
           KirinLiveCompareLoopFeasibilityTests KirinLiveCompare_reentry_Tests KirinLiveCompare_gain_snapshot_Tests Kirin_live_blind_session_Tests
           Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests Kirin_reaper_clock_Tests Kirin_reaper_correspondence_Tests
@@ -436,7 +436,7 @@ jobs:
       - name: Validate local PRE/POST Blind and complete product flow
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
-          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
+          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product|kirin_shortcut_(pre|post)_actions)$'
 
       - name: Validate automatic PRE/POST pairing
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
@@ -544,8 +544,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # Tracktion pluginval v1.0.4 official Windows CLI binary.
           $url = 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip'
-          Invoke-WebRequest -Uri $url -OutFile pluginval_Windows.zip
-          Expand-Archive -LiteralPath pluginval_Windows.zip -DestinationPath pluginval_bin -Force
+          # GitHub's release download sometimes answers with a 5xx or a short error page. Retry until
+          # the archive itself expands, so a transient outage does not stop validation.
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile pluginval_Windows.zip
+              Expand-Archive -LiteralPath pluginval_Windows.zip -DestinationPath pluginval_bin -Force
+              break
+            } catch {
+              if ($attempt -eq 6) { throw "pluginval download failed after $attempt attempts: $($_.Exception.Message)" }
+              Write-Host "pluginval download attempt $attempt failed: $($_.Exception.Message); retrying"
+              Remove-Item -LiteralPath pluginval_Windows.zip, pluginval_bin -Recurse -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds ($attempt * 10)
+            }
+          }
           $exe = (Get-ChildItem -Path pluginval_bin -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
           if (-not $exe) { throw 'pluginval.exe not found in pluginval_Windows.zip' }
           $bundles = @(Get-ChildItem -Path $env:HYPHA_WINDOWS_BUILD_DIR -Recurse -Directory -Filter *.vst3)

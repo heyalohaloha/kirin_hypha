@@ -34,18 +34,16 @@ inline void verifyPairPreviewUiContract()
                 const auto area = shown.areas().back();
                 require (area.getX() >= 2 && area.getRight() <= badge.getWidth() - 2,
                          "unpaired text stays inside both border edges");
-                bool copperText = false;
-                for (int y = 3; y < badge.getHeight() - 3 && ! copperText; ++y)
+                bool neutralText = false;
+                for (int y = 3; y < badge.getHeight() - 3 && ! neutralText; ++y)
                     for (int x = 5; x < badge.getWidth() - 5; ++x)
                     {
-                        // Font smoothing differs by OS, so compare the hue of solid text pixels, not exact
-                        // values. Copper is about 21 degrees; the grey and the paired gold are not.
+                        // Solid text stays neutral on every platform; the copper border remains distinct.
                         const auto pixel = image.getPixelAt (x, y);
-                        if (pixel.getAlpha() > 130 && pixel.getSaturation() > 0.35f
-                            && std::abs (pixel.getHue() - COL_COPPER.getHue()) < 0.03f)
-                        { copperText = true; break; }
+                        if (pixel.getAlpha() > 180 && pixel.getBrightness() > 0.65f && pixel.getSaturation() < 0.12f)
+                        { neutralText = true; break; }
                     }
-                require (copperText, "unpaired text uses copper");
+                require (neutralText, "unpaired text stays neutral instead of orange");
                 const auto edge = image.getPixelAt (0, badge.getHeight() / 2);
                 require (std::abs (int (edge.getRed()) - int (COL_COPPER.getRed())) < 8
                          && std::abs (int (edge.getGreen()) - int (COL_COPPER.getGreen())) < 8

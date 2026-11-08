@@ -24,6 +24,12 @@ TimePageNavigation::TimePageNavigation()
     for (auto* button : { &historyButton, &runButton, &attackButton, &sharpButton, &liveButton })
         addChildComponent (button);
     addAndMakeVisible (compactCycle);
+    compactCycle.setComponentID ("time-page-cycle");
+    historyButton.setComponentID ("time-page-history");
+    runButton.setComponentID ("time-page-run");
+    attackButton.setComponentID ("time-page-drum");
+    sharpButton.setComponentID ("time-page-sharp");
+    liveButton.setComponentID ("time-page-live");
     historyButton.setTooltip ("Session history. Direct Observatory view.");
     runButton.setTooltip ("Absolute facts grouped by playback run within the selected history; not a transport control.");
     attackButton.setTitle ("DRUM Attack");

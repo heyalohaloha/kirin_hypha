@@ -1,4 +1,5 @@
 #include "HyphaSpectrumTerrain.h"
+#include "HyphaSpectrumDisplay.h"
 
 #include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaMaterialCache.h"
@@ -333,17 +334,18 @@ void paint (juce::Graphics& g, juce::Rectangle<float> plot, const Source& source
     paintRidges (g, plot, sliceRidges (source, seconds), scale, ink, floor);
 }
 
-bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
-                          const absolute_spectrum::History& history)
+bool renderLevelLandscape (juce::Image& image, float dpi, juce::Rectangle<float> plot,
+                           const absolute_spectrum::History& history, display_settings::Values settings,
+                           float minimumHz, float maximumHz)
 {
-    if (history.size() < 2u || plot.getWidth() < minimumPlotWidth)
+    if (! image.isValid() || plot.isEmpty() || ! (dpi > 0) || history.size() < 2u || plot.getWidth() < minimumPlotWidth)
         return false;
     // The history keeps one sample rate: a change clears it.
     const auto rate = (double) std::max (1u, history.at (history.size() - 1u).sampleRate);
     const Source source {
         history.size(),
         [&history, rate] (size_t index) { return (double) history.at (index).endpoint / rate; },
-        [&history] (size_t index, float from, float to) {
+        [&history, settings, minimumHz, maximumHz] (size_t index, float from, float to) {
             // Every band whose centre lies in the column counts; a column narrower than one band
             // takes the band under its middle.
             const auto& bands = history.at (index).postDbfs;
@@ -357,9 +359,30 @@ bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
             auto peak = bands[(size_t) first];
             for (int band = first + 1; band <= last; ++band)
                 peak = std::max (peak, bands[(size_t) band]);
-            return peak - levelFloorDbfs; } };
-    paint (g, plot, source, levelScale (plot), COL_SPECTRUM_POST, BG.darker (0.48f),
-           absolute_spectrum::historySeconds);
+            return peak + spectrum_display::tiltAt (static_cast<size_t> ((first + last) / 2), minimumHz, maximumHz, settings.tiltDb())
+                        + settings.rangeDb(); } };
+    auto scale = levelScale (plot);
+    scale.pixelsPerUnit = plot.getHeight() / settings.rangeDb(); scale.maximum = settings.rangeDb();
+    draw (image, dpi, plot, sliceRidges (source, absolute_spectrum::historySeconds), scale,
+          COL_SPECTRUM_POST.withMultipliedBrightness (settings.brightness()), BG.darker (0.48f));
+    return true;
+}
+
+bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
+                          const absolute_spectrum::History& history, display_settings::Values settings,
+                          float minimumHz, float maximumHz)
+{
+    if (history.size() < 2u || plot.getWidth() < minimumPlotWidth) return false;
+    const auto dpi = std::clamp (g.getInternalContext().getPhysicalPixelScaleFactor(), 1.0f, 4.0f);
+    const auto width = static_cast<int> (std::ceil (plot.getWidth() * dpi));
+    const auto height = static_cast<int> (std::ceil (plot.getHeight() * dpi));
+    auto image = material_cache::scratchImage (width, height);
+    if (! image.isValid()) return false;
+    renderLevelLandscape (image, dpi, plot, history, settings, minimumHz, maximumHz);
+    const juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (plot.toNearestInt()); g.setOpacity (1);
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+    g.drawImage (image, { plot.getX(), plot.getY(), static_cast<float> (width) / dpi, static_cast<float> (height) / dpi });
     return true;
 }
 

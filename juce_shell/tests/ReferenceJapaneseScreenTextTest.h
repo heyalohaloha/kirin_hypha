@@ -33,7 +33,7 @@ inline const std::set<juce::String>& keptWords()
         // 英語のまま残すボタン・欄・機能の語（簡単な英語は訳さない）
         "MATCH", "BLIND", "Blind", "Gain", "Match", "gain", "WHOLE", "CHECK", "True", "Peak", "Balance",
         // Audio and measurement terminology retains its English spelling.
-        "Attack", "Mono", "Stereo", "Headroom", "Spectrum", "Correlation", "CREST", "Integrated",
+        "Attack", "Mono", "Stereo", "Headroom", "Spectrum", "Correlation", "CREST", "Integrated", "Mix",
         "Onset", "Width", "Sample", "Hold", "Momentary", "Short", "term", "Loudness", "Range",
         "Sharpness", "Envelope", "Tail", "Body", "Transient", "Compression", "Buffer",
     };

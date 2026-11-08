@@ -4,6 +4,7 @@
 #include "EditorProductChecks.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveCompareNoticeProductChecks.h"
+#include "ShortcutListenCheck.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "TestProcessorStorage.h"
@@ -268,7 +269,11 @@ int main (int argc, char** argv)
         hypha::tests::editor_product::verifyHoldAfterEnd();
         hypha::tests::editor_product::verifyLoopPresentation();
     }
-    if (runs ("notices")) hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
+    if (runs ("notices"))
+    {
+        hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
+        hypha::tests::editor_product::verifyListenFromKeys();
+    }
     if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
     std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

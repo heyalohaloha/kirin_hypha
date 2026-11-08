@@ -23,7 +23,6 @@ void retireBehindWorker (std::future<Result>& running, std::vector<std::future<R
 }
 std::int64_t outputSample (std::int64_t sample, std::int64_t from, std::int64_t to)
 { return from > 0 ? static_cast<std::int64_t> (std::llround (static_cast<long double> (sample) * to / from)) : 0; }
-double unavailable() noexcept { return std::numeric_limits<double>::quiet_NaN(); }
 }
 
 bool RuntimeV2Controller::beginSelectionPreparationLocked() noexcept
@@ -84,10 +83,18 @@ juce::String RuntimeV2Controller::verifySourceBehindWorker (
     auto& running = sourceVerification;
     if (!running.check.valid())
     {
+        // 走っている hash は止められない。古い押下が空くまで最後の押下だけを持ち、確かめを積み上げない。
+        retireBehindWorker (running.check, retiredSourceVerifications);
+        sourceCheckBlocked = retiredSourceVerifications.size() > retiredSourceCheckLimit;
+        if (sourceCheckBlocked) return "reference_source_revalidating";
         try
         {
-            running.check = std::async (stagedSearchLaunch, [repository = sourceRepository, source, freshAttempt]
-                { return repository.verifySourceFile (*source, freshAttempt); });
+            running.check = std::async (stagedSearchLaunch, [this, repository = sourceRepository, source, freshAttempt]
+            {
+                auto failure = repository.verifySourceFile (*source, freshAttempt);
+                notify();  // 次の周期を待たず、確かめの続きへ
+                return failure;
+            });
         }
         catch (const std::system_error&) { return "reference_source_revalidating"; }  // 次の周期にやり直す
         running.key = key; running.generation = generation; running.source = source;
@@ -99,6 +106,14 @@ juce::String RuntimeV2Controller::verifySourceBehindWorker (
     if (failure.isEmpty()) source = running.source;
     running = {};
     return failure;
+}
+
+bool RuntimeV2Controller::sourceCheckSlotFreed()
+{
+    if (!sourceCheckBlocked) return false;
+    std::future<juce::String> nothingToRetire;
+    retireBehindWorker (nothingToRetire, retiredSourceVerifications);
+    return !(sourceCheckBlocked = retiredSourceVerifications.size() > retiredSourceCheckLimit);
 }
 
 // 探すのは別の thread。作れなければ空を返す（作業スレッドで探さず、次の周期にやり直す）。
@@ -140,6 +155,7 @@ int RuntimeV2Controller::preparedMatchWindowBlocks() const
 void RuntimeV2Controller::supplyPreparedLevel (double loudness, double peak)
 {
     const juce::ScopedLock lock (stateLock);
+    latestLiveLevel = { loudness, peak };
     if (preparedReturn.pending && preparedReturn.generation == requestedSelection.generation)
     {
         preparedReturn.available = preparedReturn.level == PreparedLevel::none
@@ -175,6 +191,7 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
         { clearPreparedWorkspace(); return false; }
         if (bSelected.load (std::memory_order_acquire)) audibleSource = publishedSource;
     }
+    if (juce::Time::currentTimeMillis() < prepared.matchRetryAtMs) return true;  // 新しい曲の値を待つあいだは間隔を空ける
     // A withdrawn publication cannot gain authority by finishing an earlier preparation.
     const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
         : repository.refresh (configuration.identity.workId, workspace);
@@ -203,10 +220,13 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
         rejected.state = RuntimeState::rejected; rejected.rejectionCode = "reference_source_changed";
         clearPreparedWorkspace(); failClosedToA(); publish (std::move (rejected)); return true;
     }
-    if (!versionComparison && !staging.readyAt (start, static_cast<int> (std::min<std::int64_t> (8192, end - start)))) return true;
+    // B は A へ戻らず替えるので、次の block が読む所まで（最長の block の 2 つ分）先に読み終える。
+    const std::int64_t head = songsOnly.load (std::memory_order_acquire) ? 16384 : 8192;
+    if (!versionComparison && !staging.readyAt (start, static_cast<int> (std::min<std::int64_t> (head, end - start)))) return true;
     if (!prepared.returnStarted && versionComparison && !stagedVersionReady (prepared, staging)) return true;
     if (!prepared.returnStarted)
     {
+        if (switchAudibleSong (prepared, staging) != SongSwitch::notAudible) return true;
         const juce::ScopedLock lock (stateLock);
         // A new Cue can require a longer A window. Keep the old C throughout
         // that preparation too; the actual new MATCH still runs after return.
@@ -272,109 +292,5 @@ bool RuntimeV2Controller::stagedVersionReady (WorkspaceSelection& prepared, Audi
     return staging.readyAt (position, static_cast<int> (std::min<std::int64_t> (hostRate / 2, remaining)));
 }
 
-void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
-{
-    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "finish_selection_enter");
-    const auto& configuration = prepared.configuration;
-    const auto& selection = prepared.selection;
-    auto& next = prepared.next;
-    const auto* candidate = &prepared.candidate;
-    const auto* cue = &prepared.cue;
-    const auto selectedSource = prepared.source;
-    const auto publicationKey = next.playbackIdentity;
-    const auto mappedCueStart = outputSample (cue->startSample, cue->sampleRateHz, next.hostSampleRateHz);
-    const auto mappedCueEnd = outputSample (cue->endSample, cue->sampleRateHz, next.hostSampleRateHz);
-    const auto& sourceKey = prepared.sourceKey;
-    if (prepared.staged)
-    {
-        activePages.store (&nextPages(), std::memory_order_release);
-        activeSourceKey = sourceKey;
-    }
-    if (currentPages().sourceInvalidated() && prepared.staged)
-    {
-        failClosedToA(); next.state = RuntimeState::rejected;
-        next.rejectionCode = "reference_source_changed"; publish (std::move (next)); return;
-    }
-    if (sourceKey != activeSourceKey || ! currentPages().sourceOpen())
-    {
-        revokeAuditionPublication();
-        if (blind.ongoing())
-            invalidateBlind();
-        else
-            selectA();
-        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_close"); currentPages().close();
-        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open");
-        const auto pinned = std::make_shared<revision_detail::PinnedSource> (selectedSource);
-        const auto openFailure = currentPages().open (*selectedSource, configuration.sampleRate,
-            configuration.channels, true, [this, pinned] (RuntimeFileRevision& revision) { return pinned->verified (sourceRepository, revision); },
-            pinned->input(), [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
-                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation(), [pinned] { return pinned->readSucceeded(); });
-        if (openFailure.isNotEmpty() || currentPages().sourceInvalidated())
-        {
-            next.state = openFailure == "reference_source_revalidating" ? RuntimeState::waiting : RuntimeState::rejected;
-            next.rejectionCode = openFailure.isNotEmpty() ? openFailure : "reference_source_changed";
-            publish (std::move (next));
-            return;
-        }
-        activeSourceKey = sourceKey;
-    }
-    next.sourceStorageNotice = revision_detail::snapshotFor (*selectedSource)->storageNotice();
-    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open_done"); workerSource = selectedSource;
-    workerSourceGeneration = selection.generation;
 
-    const auto cueKey = runtimeCuePlaybackIdentity (*cue);
-    const auto mappingKey = activeSourceKey + ":" + cueKey;
-    if (activeMappingKey != mappingKey)
-    {
-        const juce::ScopedLock mappingLock (mappingWriteLock);
-        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-        cueStart.store (mappedCueStart, std::memory_order_relaxed);
-        cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
-        cueLoops.store (cue->loopEnabled, std::memory_order_relaxed);
-        sampleLocked.store (candidate->sourceKind == "work_version"
-                            && candidate->sourceWorkId == configuration.identity.workId,
-                            std::memory_order_relaxed);
-        bHostAnchor.store (latestHostPosition.load (std::memory_order_acquire),
-                           std::memory_order_relaxed);
-        bSourceAnchor.store (mappedCueStart, std::memory_order_relaxed);
-        mappingGeneration.fetch_add (1, std::memory_order_release);
-        activeMappingKey = mappingKey;
-        activeContentMappingKey.clear();
-    }
-    // Cue の頭から鳴らし直す役（DAW の位置に合わせない曲）も、周回して頭へ戻るので頭のページを読んでおく。
-    currentPages().setPinnedCue (mappedCueStart, mappedCueEnd, cue->loopEnabled || restartsAtCueStart());
-    // MATCH compares A with what is played: the opened file's channels on this track's channels.
-    next.sourceLoudnessOffsetLu = currentPages().playbackLoudnessOffsetLu();
-    next.sourceIntegratedLoudness = selectedSource->measurementSummary
-        && selectedSource->measurementSummary->loudnessLufsI
-        ? *selectedSource->measurementSummary->loudnessLufsI : unavailable();
-    next.sourceMaximumTruePeakDbtp = selectedSource->measurementSummary
-        && selectedSource->measurementSummary->maximumTruePeakDbtp
-        ? *selectedSource->measurementSummary->maximumTruePeakDbtp : unavailable();
-    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "blind_preparation");
-    serviceBlindPreparation (configuration, *candidate, *cue, selectedSource, next, &prepared.versionPosition);
-    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_write");
-    if (!configuration.identity.library && prepared.adoptionKey != activePresetAdoptionKey
-        && presetAdoptionTransport.write (configuration.identity, prepared.event.manifestRevision,
-            prepared.sourceTemplateArtifact, prepared.event.presetArtifact, prepared.preparedAtMs))
-        activePresetAdoptionKey = prepared.adoptionKey;
-    {
-        const juce::ScopedLock lock (stateLock);
-        if (requestedConfiguration.generation != configuration.generation
-            || requestedSelection.generation != selection.generation) return;
-        versionHoldSinceMs.store (0, std::memory_order_release);
-        requestedSelection.presetId = next.presetId;
-        requestedSelection.checkId = next.checkId;
-        requestedSelection.candidateId = next.candidateId;
-        requestedSelection.cueId = prepared.songEntry ? juce::String {} : next.cueId;
-        activeEventContext = prepared.event;
-        activeEventCandidate = *candidate; activeEventCue = *cue; activeEventSource = selectedSource;
-        appliedSelectionGeneration.store (selection.generation, std::memory_order_release);
-        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "publish_ready"); publishReady (std::move (next), selectedSource, *cue);
-        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "publish_ready_done");
-        activePublishedSelectionKey = publicationKey;
-    }
-    // The new publication can already be selected while the old reader retires.
-    if (prepared.staged) nextPages().close();
-}
 }

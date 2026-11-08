@@ -3,6 +3,7 @@
         include_str!("../../../juce_shell/src/PluginEditor.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMeter.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMenu.cpp"),
+        include_str!("../../../juce_shell/src/PluginEditorOperations.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorObservatory.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorLifecycle.cpp"),
     );

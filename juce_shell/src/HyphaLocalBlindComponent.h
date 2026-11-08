@@ -56,6 +56,9 @@ public:
     meter_context::MeterContext meterContext() const noexcept { return preflightContext; }
     void setActionNotice (juce::String);
     void clearActionNotice();
+    bool requestSource (int);
+    bool requestReveal();
+    bool requestEnd();
     const local_blind::ProductSessionView& state() const noexcept { return current; }
 
     juce::Component& repairAnchor() noexcept { return repairButton; }

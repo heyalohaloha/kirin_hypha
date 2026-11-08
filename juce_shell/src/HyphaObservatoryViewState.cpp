@@ -2,6 +2,32 @@
 
 namespace hypha::observatory
 {
+void View::configureHeaderSelectors()
+{
+    trackButton.setComponentID ("observatory-meter-context-track");
+    twoMixButton.setComponentID ("observatory-meter-context-2mix");
+    trackButton.setTitle ("Measure an individual track");
+    twoMixButton.setTitle ("Measure a mix or master bus");
+    for (auto* button : { &trackButton, &twoMixButton })
+    {
+        button->setDescription (button->getTitle());
+        button->setTooltip (button->getDescription());
+    }
+    trackButton.onClick = [this] { chooseMeterContext (meter_context::MeterContext::trackStem); };
+    twoMixButton.onClick = [this] { chooseMeterContext (meter_context::MeterContext::twoMix); };
+    referenceButton.onClick = [this]
+    {
+        if (selectedDomain != Domain::reference && onDomainChange) onDomainChange (Domain::reference);
+    };
+}
+
+void View::chooseMeterContext (meter_context::MeterContext context)
+{
+    if (selectedMeterContext == context && selectedDomain != Domain::reference) return;
+    if (onContextChange) onContextChange (context); else setMeterContext (context);
+    if (selectedDomain == Domain::reference && onDomainChange) onDomainChange (lastMeasurementDomain);
+}
+
 void View::initializeVuCalibrationControl()
 {
     addChildComponent (vuCalibrationControl);
@@ -106,7 +132,7 @@ void View::setSurroundMeasurementOnly (bool enabled)
     repaint();
 }
 
-void View::toggleHybridVu()
+void View::requestHybridVuToggle()
 {
     if (hybridVuVisible())
     {
@@ -119,6 +145,7 @@ void View::toggleHybridVu()
     updateControls();
     resized();
     repaint();
+    if (onHybridVuChange) onHybridVuChange (hybridVuVisible());
 }
 
 int View::timeControlsHeight() const noexcept
@@ -167,9 +194,9 @@ juce::Rectangle<int> View::analysisBodyBounds() const noexcept
     auto area = bodyArea;
     if (selectedDomain == Domain::time)
         area.removeFromTop (timeControlsHeight());
-    // Folded, Reference keeps its bottom row (the reason line, OPEN REFERENCE) clear of the status
-    // strip: the page ends where the strip begins. The other pages let the strip pass over them.
-    if (statusStripOverBody && selectedDomain == Domain::reference)
+    // Reference keeps its bottom actions clear; FREQ keeps its bottom axis labels clear.
+    // Both pages end where the folded status strip begins.
+    if (statusStripOverBody && (selectedDomain == Domain::reference || selectedDomain == Domain::frequency))
         area.setBottom (statusStrip.getY());
     return area;
 }

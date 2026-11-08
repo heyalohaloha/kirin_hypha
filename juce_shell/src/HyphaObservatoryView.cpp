@@ -51,7 +51,7 @@ View::View (Role roleIn) : role (roleIn)
                           &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton, &timeRangeMenuButton,
                           &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                          &trackButton, &twoMixButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton })
     {
@@ -62,12 +62,16 @@ View::View (Role roleIn) : role (roleIn)
     timeButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::time); };
     frequencyButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::frequency); };
     spaceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::space); };
-    referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
+    configureHeaderSelectors();
     int focusOrder = 2;
-    for (auto* button : { &contextButton, &referenceButton, &levelButton, &timeButton,
+    for (auto* button : { &trackButton, &twoMixButton, &referenceButton, &levelButton, &timeButton,
                           &frequencyButton, &spaceButton, &domainCycleButton, &targetButton, &deltaButton })
         button->setExplicitFocusOrder (focusOrder++);
     referenceButton.setComponentID ("observatory-reference");
+    levelButton.setComponentID ("observatory-level"); timeButton.setComponentID ("observatory-time");
+    frequencyButton.setComponentID ("observatory-frequency"); spaceButton.setComponentID ("observatory-space");
+    targetButton.setComponentID ("observatory-target"); deltaButton.setComponentID ("observatory-delta");
+    resetButton.setComponentID ("observatory-reset"); domainCycleButton.setComponentID ("observatory-domain-cycle");
     setReferenceOwned (false);
     domainCycleButton.onClick = [this]
     { if (onDomainMenu) onDomainMenu(); else cycleDomain(); };
@@ -97,20 +101,13 @@ View::View (Role roleIn) : role (roleIn)
         if (onLoudnessChange) onLoudnessChange (next); else setShortTermLoudness (next);
     };
     compactRangeButton.onClick = [this] { setCompactMaximum (! compactShowsMaximum); };
-    contextButton.onClick = [this]
-    {
-        if (onContextMenu) { onContextMenu(); return; }
-        const auto next = meter_context::nextContext (selectedMeterContext);
-        if (onContextChange) onContextChange (next); else setMeterContext (next);
-    };
     scaleButton.onClick = [this]
     {
         const auto next = meter_context::nextScale (selectedScaleMode);
         if (onScaleChange) onScaleChange (next); else setScaleMode (next);
     };
     compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness"); compactRangeButton.setTooltip ("Switch current / session maximum values");
-    contextButton.setComponentID ("observatory-meter-context");
-    contextButton.setTooltip ("Choose whether this instance observes a mix bus or a track / stem"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
+    scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
     sizeButton.onClick = [this] { if (onSizeMenu) onSizeMenu(); else cycleSize(); };
     sizeButton.setTooltip ("Choose an exact editor size");
     operationsButton.setTooltip ("Keep, measurement, and display controls");
@@ -129,11 +126,7 @@ View::View (Role roleIn) : role (roleIn)
     hybridVuButton.setTitle ("Hybrid VU");
     hybridVuButton.setDescription ("Show or hide the Hybrid VU without changing measurement");
     hybridVuButton.setTooltip (hybridVuButton.getDescription());
-    hybridVuButton.onClick = [this]
-    {
-        toggleHybridVu();
-        if (onHybridVuChange) onHybridVuChange (hybridVuVisible());
-    };
+    hybridVuButton.onClick = [this] { requestHybridVuToggle(); };
     clearPeakClipButton.setComponentID ("observatory-clear-peak-clip");
     clearPeakClipButton.setTitle ("Clear True Peak and Clip holds");
     clearPeakClipButton.setDescription (
@@ -162,6 +155,7 @@ void View::setDomain (Domain value)
         return;
     retireTimePresentation (true);
     selectedDomain = value;
+    if (value != Domain::reference) lastMeasurementDomain = value;
     levelInspection.clear();
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
@@ -379,9 +373,10 @@ void View::updateControls()
     compactLoudnessButton.setToggleState (true, juce::dontSendNotification);
     compactRangeButton.setButtonText (compactShowsMaximum ? "MAX" : "CURRENT");
     compactRangeButton.setToggleState (true, juce::dontSendNotification);
-    contextButton.setButtonText (selectedMeterContext == meter_context::MeterContext::trackStem
-        ? (currentPreset().density == Density::compact ? "TRACK" : "TRACK/STEM") : "2MIX");
-    contextButton.setToggleState (true, juce::dontSendNotification);
+    trackButton.setToggleState (selectedDomain != Domain::reference
+        && selectedMeterContext == meter_context::MeterContext::trackStem, juce::dontSendNotification);
+    twoMixButton.setToggleState (selectedDomain != Domain::reference
+        && selectedMeterContext == meter_context::MeterContext::twoMix, juce::dontSendNotification);
     scaleButton.setButtonText (
         selectedScaleMode == meter_context::ScaleMode::wide ? "WIDE" : "FOCUS");
     scaleButton.setToggleState (true, juce::dontSendNotification);

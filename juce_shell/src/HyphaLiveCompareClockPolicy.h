@@ -92,6 +92,13 @@ inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
         return { live_compare::ClockAuthority::certifiedContent, 0, studioPro812 };
     if (wrapper == juce::AudioProcessor::wrapperType_VST3 && reaperBuildCertified (executableName, executableVersion))
         return { live_compare::ClockAuthority::certifiedProject, 0, false };
+   #if JUCE_MAC
+    // Keep this cycle proof on the observed native executable/build. Admission also needs
+    // the current pair's continuous-clock distance to equal its VST3 presentation difference.
+    if (wrapper == juce::AudioProcessor::wrapperType_VST3 && executableName == "Cubase 16"
+        && executableVersion == "16.0.5.174")
+        return { live_compare::ClockAuthority::cubaseCycleContent, 0, false };
+   #endif
     // Logic AU only. Presentation and continuous render must agree again in each callback;
     // this identity alone never grants PRE, MATCH, Blind or an analysis delta.
     if (wrapper == juce::AudioProcessor::wrapperType_AudioUnit && executableName == "Logic Pro"

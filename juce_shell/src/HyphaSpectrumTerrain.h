@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaPresentationContext.h"
+#include "HyphaDisplaySettings.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::absolute_spectrum { class History; }
@@ -60,7 +61,13 @@ void paint (juce::Graphics&, juce::Rectangle<float> plot, const Source&, const S
 // The six seconds of POST level on the level scale. Returns false when the plot is too narrow or
 // the history too short, so the caller keeps its flat six-second field.
 bool paintLevelLandscape (juce::Graphics&, juce::Rectangle<float> plot,
-                          const absolute_spectrum::History&);
+                          const absolute_spectrum::History&, display_settings::Values settings = {},
+                          float minimumHz = 10, float maximumHz = 22000);
+
+// Render directly into an editor-owned, cleared device raster; no intermediate image or blit.
+bool renderLevelLandscape (juce::Image&, float dpi, juce::Rectangle<float> plot,
+                           const absolute_spectrum::History&, display_settings::Values,
+                           float minimumHz, float maximumHz);
 
 // Instrument notes on the plot: corner marks, the definition of what is drawn, and the exact
 // analysis the plot shows (aperture, FFT, bands, presentation rate), all from the snapshot.

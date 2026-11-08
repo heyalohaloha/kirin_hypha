@@ -243,6 +243,7 @@ inline void verifyReferenceLoweredAReadings()
         state.comparisonSlot = 3;
         state.bSelected = true;
         state.audibleComparisonSlot = 3;
+        state.audibleSongId = state.songId;
         state.appliedGainDb = 6.0;  // 下げる前の A の基準
         state.heldAttenuationDb = held;
         reference_ui::Component panel;

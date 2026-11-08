@@ -113,6 +113,72 @@ namespace hypha::reference_audition
         }
     }
 
+    std::int64_t NormalPath::position (std::int64_t hostPosition, bool wholeVersion) const noexcept
+    {
+        std::int64_t result = wholeVersion ? std::numeric_limits<std::int64_t>::min() : -1;
+        if (end > start)
+        {
+            if (loops)
+            {
+                const auto length = end - start;
+                if (locked)
+                    result = start + wrappedDifference (hostPosition, start, length);
+                else
+                {
+                    const auto hostOffset = wrappedDifference (hostPosition, hostAnchor, length);
+                    const auto sourceOffset = wrappedDifference (sourceAnchor, start, length);
+                    const auto offset = hostOffset >= length - sourceOffset
+                        ? hostOffset - (length - sourceOffset)
+                        : sourceOffset + hostOffset;
+                    result = start + offset;
+                }
+            }
+            else if (locked)
+                result = hostPosition >= start && hostPosition < end ? hostPosition : -1;
+            else
+            {
+                std::int64_t delta = 0;
+                std::int64_t mapped = 0;
+                if (sourceAnchor >= start && sourceAnchor < end
+                    && checkedSubtract (hostPosition, hostAnchor, delta)
+                    && checkedAdd (sourceAnchor, delta, mapped)
+                    && (wholeVersion || (mapped >= start && mapped < end)))
+                    result = mapped;
+            }
+        }
+        return result;
+    }
+
+    std::int64_t NormalPath::looped (std::int64_t hostPosition) const noexcept
+    {
+        std::int64_t delta = 0, origin = 0;
+        if (end > start && sourceAnchor >= start && sourceAnchor < end
+            && checkedSubtract (hostPosition, hostAnchor, delta)
+            && checkedAdd (sourceAnchor - start, delta, origin))
+            return start + positiveModulo (origin, end - start);
+        return -1;
+    }
+
+    bool RuntimeV2Controller::readNormalPath (NormalPath& path) const noexcept
+    {
+        const auto generation = mappingGeneration.load (std::memory_order_acquire);
+        if ((generation & 1u) != 0)
+            return false;
+        path.start = cueStart.load (std::memory_order_relaxed);
+        path.end = cueEnd.load (std::memory_order_relaxed);
+        path.locked = sampleLocked.load (std::memory_order_relaxed);
+        path.loops = cueLoops.load (std::memory_order_relaxed);
+        path.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
+        path.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
+        path.pages = activePages.load (std::memory_order_acquire);
+        path.pageGeneration = path.pages->openGeneration();
+        path.gain = bLinearGain.load (std::memory_order_acquire);
+        path.switchSerial = normalSwitchSerial.load (std::memory_order_acquire);
+        path.mapping = generation;
+        path.valid = mappingGeneration.load (std::memory_order_acquire) == generation;
+        return path.valid;
+    }
+
     std::int64_t RuntimeV2Controller::mappedSourcePosition (
         std::int64_t hostPosition) const noexcept
     {
@@ -120,75 +186,10 @@ namespace hypha::reference_audition
         // profile, renderSelectedB verifies current PCM before accepting output.
         for (int attempt = 0; attempt < 3; ++attempt)
         {
-            const auto generation = mappingGeneration.load (std::memory_order_acquire);
-            if ((generation & 1u) != 0)
-                continue;
-            const auto start = cueStart.load (std::memory_order_relaxed);
-            const auto end = cueEnd.load (std::memory_order_relaxed);
-            const bool locked = sampleLocked.load (std::memory_order_relaxed);
-            const bool loops = cueLoops.load (std::memory_order_relaxed);
-            const auto hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
-            const auto sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
-            std::int64_t result = versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
-            if (end > start)
-            {
-                if (loops)
-                {
-                    const auto length = end - start;
-                    if (locked)
-                        result = start + wrappedDifference (hostPosition, start, length);
-                    else
-                    {
-                        const auto hostOffset = wrappedDifference (
-                            hostPosition, hostAnchor, length);
-                        const auto sourceOffset = wrappedDifference (
-                            sourceAnchor, start, length);
-                        const auto offset = hostOffset >= length - sourceOffset
-                            ? hostOffset - (length - sourceOffset)
-                            : sourceOffset + hostOffset;
-                        result = start + offset;
-                    }
-                }
-                else if (locked)
-                    result = hostPosition >= start && hostPosition < end
-                        ? hostPosition : -1;
-                else
-                {
-                    std::int64_t delta = 0;
-                    std::int64_t position = 0;
-                    if (sourceAnchor >= start && sourceAnchor < end
-                        && checkedSubtract (hostPosition, hostAnchor, delta)
-                        && checkedAdd (sourceAnchor, delta, position)
-                        && (versionComparison || (position >= start && position < end)))
-                        result = position;
-                }
-            }
-            if (mappingGeneration.load (std::memory_order_acquire) == generation)
-                return result;
+            NormalPath path;
+            if (readNormalPath (path)) return path.position (hostPosition, versionComparison);
         }
         return versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
-    }
-
-    std::int64_t RuntimeV2Controller::loopedCuePosition (std::int64_t hostPosition) const noexcept
-    {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const auto generation = mappingGeneration.load (std::memory_order_acquire);
-            if ((generation & 1u) != 0)
-                continue;
-            const auto start = cueStart.load (std::memory_order_relaxed);
-            const auto end = cueEnd.load (std::memory_order_relaxed);
-            const auto hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
-            const auto sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
-            std::int64_t result = -1, delta = 0, origin = 0;
-            if (end > start && sourceAnchor >= start && sourceAnchor < end
-                && checkedSubtract (hostPosition, hostAnchor, delta)
-                && checkedAdd (sourceAnchor - start, delta, origin))
-                result = start + positiveModulo (origin, end - start);
-            if (mappingGeneration.load (std::memory_order_acquire) == generation)
-                return result;
-        }
-        return -1;
     }
 
     bool RuntimeV2Controller::restartsAtCueStart() const noexcept

@@ -74,8 +74,9 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
             r.block(); due += std::chrono::nanoseconds (512LL * 1'000'000'000LL / 48000);
             if (std::chrono::steady_clock::now() < due) std::this_thread::sleep_until (due);
         };
+        // A slow host takes longer to verify and retry a source; the boundary is a state, not a time.
         const auto wait = [&] (auto predicate) {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (30);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (60);
             while (!predicate() && std::chrono::steady_clock::now() < deadline) feed();
             return predicate();
         };
@@ -84,7 +85,13 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
             if (failure >= 2 && !editorOpenFailed.load()) return false;
             return failure == 1 ? state.checkReady : state.checkSelection
                 && state.checkSelection->rejectionCode == (failure == 0 ? "reference_source_read_failed" : "reference_source_revalidating");
-        }), "the shipping processor reaches the actual initial source open boundary");
+        }) || [&] {
+            // Say where it stopped: the hook, the C selection and its code.
+            const auto state = r.post->referenceAuditionSnapshot();
+            std::cerr << "initial source wait ended: hook=" << editorOpenFailed.load() << " checkReady=" << state.checkReady
+                      << " selection=" << (state.checkSelection ? 1 : 0) << " code="
+                      << (state.checkSelection ? state.checkSelection->rejectionCode : juce::String ("-")) << std::endl;
+            return false; }(), "the shipping processor reaches the actual initial source open boundary");
         (r.editor.get()->*privateMember (NoticeEditorTick {}))();
         const auto* panel = component<reference_ui::Component> (*r.editor);
         require (panel && panel->state().transportPlaying == !stopped && panel->state().checkArmable == (failure == 1),
@@ -98,8 +105,12 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
                  "the stopped source button reaches the controller and retains its press during the read failure");
         if (cancel)
         {
-            auto* a = dynamic_cast<juce::Button*> (find (*r.editor, "reference-a"));
-            require (a != nullptr, "the shipping editor exposes A cancellation"); a->onClick();
+            if (failure == 0 && stopped) r.view().onDomainChange (observatory::Domain::level);
+            else
+            {
+                auto* a = dynamic_cast<juce::Button*> (find (*r.editor, "reference-a"));
+                require (a != nullptr, "the shipping editor exposes A cancellation"); a->onClick();
+            }
         }
         ref::revision_detail::sourceReaderOpenHookForTest.store (nullptr);
         ref::revision_detail::sourcePageOpenHookForTest.store (nullptr);
@@ -124,6 +135,13 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
         const bool referenceHeard = power > 0 && 2 * (sine * sine + cosine * cosine) / (512 * power) > 0.9;
         require (referenceHeard == !cancel && r.post->referenceOutputSlot() == (cancel ? 0 : 2),
                  "the real button's held press reaches actual source PCM; pressing A cancels it");
+        if (cancel && failure == 0 && stopped)
+        {
+            r.view().onDomainChange (observatory::Domain::reference);
+            for (int n = 0; n < 8; ++n) feed();
+            require (r.post->referenceOutputSlot() == 0 && !r.post->referenceAuditionSnapshot().pendingAudition.waiting(),
+                     "leaving REF during a stopped preparation stays cancelled after recovery, playback and return");
+        }
         std::cerr << "initial source editor case completed" << std::endl;
     }
 }

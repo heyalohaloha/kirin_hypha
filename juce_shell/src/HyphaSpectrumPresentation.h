@@ -104,7 +104,7 @@ void advanceAverageCurve (std::array<float, Size>& displayed,
 template <std::size_t Size>
 void advanceAbsoluteCurve (std::array<float, Size>& displayed,
                            const std::array<float, Size>& target,
-                           double elapsedMs, double averageMs = 0.0) noexcept
+                           double elapsedMs, double averageMs = 0.0, bool smoothAttack = false) noexcept
 {
     if (averageMs > 0.0) { advanceAverageCurve (displayed, target, elapsedMs, averageMs); return; }
     const double boundedElapsedMs = std::isfinite (elapsedMs) && elapsedMs > 0.0
@@ -115,8 +115,10 @@ void advanceAbsoluteCurve (std::array<float, Size>& displayed,
     {
         if (! std::isfinite (target[index]))
             continue;
-        if (! std::isfinite (displayed[index]) || target[index] >= displayed[index])
-            displayed[index] = target[index];
+        if (! std::isfinite (displayed[index])) displayed[index] = target[index];
+        else if (target[index] >= displayed[index])
+            displayed[index] += (target[index] - displayed[index]) * (smoothAttack
+                ? static_cast<float> (-std::expm1 (-boundedElapsedMs / 30.0)) : 1.0f);
         else
             displayed[index] = std::max (target[index], displayed[index] - releaseDb);
     }

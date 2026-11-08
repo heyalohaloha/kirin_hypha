@@ -107,8 +107,9 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     const bool layoutChanged = nextValid && haveInteractionDefinition
         && ! sameLayoutDefinition (interactionDefinition, next);
     if (layoutChanged)
-        clearInteractionState();
+    { clearInteractionState(); backdrop.invalidate(); absoluteHistory.clear(); }
     snapshot = next;
+    spectrumContinuity = 0;
     midSideObservation = false;
     midSideSnapshotValid = false;
     haveSnapshot = true;
@@ -127,26 +128,19 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
             interactionDefinition = next;
             haveInteractionDefinition = true;
         }
-        const auto& calmWeights = calmWeightsFor (snapshot.min_hz, snapshot.max_hz);
-        if (nextValid && snapshot.has_data != 0)
-            displayedPre = spectrum_presentation::calmLowFrequencies (
-                snapshot.pre_dbfs, calmWeights);
-        else
-            displayedPre.fill (0.0f);
-        displayedPost = spectrum_presentation::calmLowFrequencies (
-            snapshot.post_dbfs, calmWeights);
-        const auto selected = spectrum_delta::select (
-            snapshot, shapeObservation, calmWeights);
-        displayedDelta = selected.values;
-        displayedDeltaValid = selected.valid;
-        averagedDeltaValid = selected.valid;
-        readoutPre = displayedPre;
-        readoutPost = displayedPost;
-        readoutDelta = displayedDelta;
-        readoutDeltaValid = displayedDeltaValid;
-        pendingPre = displayedPre;
-        pendingPost = displayedPost;
-        pendingDelta = displayedDelta;
+        std::copy (std::begin (snapshot.pre_dbfs), std::end (snapshot.pre_dbfs), readoutPre.begin());
+        std::copy (std::begin (snapshot.post_dbfs), std::end (snapshot.post_dbfs), readoutPost.begin());
+        const auto raw = spectrum_delta::select (snapshot, shapeObservation, {});
+        readoutDelta = raw.values;
+        displayedDeltaValid = averagedDeltaValid = pendingDeltaValid = raw.valid;
+        readoutDeltaValid = raw.valid;
+        pendingPre = readoutPre;
+        pendingPost = readoutPost;
+        pendingDelta = readoutDelta;
+        displayedPre = spectrum_display::spatial (pendingPre, snapshot.min_hz, snapshot.max_hz, displaySettings[display_settings::smooth]);
+        displayedPost = spectrum_display::spatial (pendingPost, snapshot.min_hz, snapshot.max_hz, displaySettings[display_settings::smooth]);
+        displayedDelta = spectrum_display::spatial (pendingDelta, snapshot.min_hz, snapshot.max_hz,
+            shapeObservation && displaySettings[display_settings::smooth] == 0 ? 1 : displaySettings[display_settings::smooth], &pendingDeltaValid);
         pendingDeltaValid = displayedDeltaValid;
         if (nextValid || pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
             absoluteHistory.append (snapshot);
@@ -156,7 +150,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
                 focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
             focusTrail->append (snapshot.presentation_end_samples,
                                 snapshot.sample_rate,
-                                displayedDelta, displayedDeltaValid);
+                                pendingDelta, pendingDeltaValid);
         }
     }
     else
@@ -179,14 +173,17 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     havePendingSnapshot = true;
     curveDirty = false;
     numericDirty = false;
+    resumeCurve = false;
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
     lastCurvePresentationMs = nowMs;
     lastCurveUpdateMs = nowMs;
     lastNumericPresentationMs = nowMs;
+    if (nextValid) peakReadout.update (pendingPost, snapshot.min_hz, snapshot.max_hz, nowMs);
+    else peakReadout.clear();
     repaint();
 }
 
-void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
+void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch, uint64_t postContinuity, uint64_t deltaContinuity)
 {
     if (batch.count > KIRIN_SPECTRUM_BATCH_CAPACITY)
         return;
@@ -223,10 +220,16 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
     const bool presentationMovedBackwards = pendingValid
         && batch.latest.presentation_end_samples
             < pendingSnapshot.presentation_end_samples;
+    const auto continuity = absoluteObservation ? postContinuity : deltaContinuity;
+    // A new producer segment may have completely displaced the old segment in the recovery ring.
+    const bool continuityChanged = continuity != spectrumContinuity;
     uint32_t first = 0u;
-    if (! pendingValid || definitionChanged || presentationMovedBackwards)
+    if (continuityChanged || ! pendingValid || definitionChanged || presentationMovedBackwards)
     {
+        peakReadout.clear();
+        if (continuityChanged) haveSnapshot = false;
         setSnapshot (batch.frames[0]);
+        spectrumContinuity = continuity;
         first = 1u;
     }
     for (uint32_t index = first; index < batch.count; ++index)
@@ -234,14 +237,23 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
         if (batch.frames[index].presentation_end_samples
             > pendingSnapshot.presentation_end_samples)
         {
-            queueSnapshot (batch.frames[index]);
+            queueSnapshot (batch.frames[index], continuity);
         }
+    }
+    if (continuityChanged)
+    {
+        // Recover all measured history first, then seed the drawing from the current segment.
+        // History rejects this duplicate endpoint; a new identity still resets identical curves.
+        peakReadout.clear();
+        haveSnapshot = false;
+        setSnapshot (batch.latest);
+        spectrumContinuity = continuity;
     }
 }
 
-void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
+void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next, uint64_t continuity)
 {
-    if (havePendingSnapshot
+    if (havePendingSnapshot && continuity == spectrumContinuity
         && std::memcmp (&pendingSnapshot, &next, sizeof (next)) == 0)
         return;
     const bool previousValid = havePendingSnapshot
@@ -249,19 +261,25 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
     const bool nextValid = validSnapshot (next, absoluteObservation);
     const bool layoutChanged = previousValid && nextValid
         && ! sameLayoutDefinition (pendingSnapshot, next);
-    if (! haveSnapshot || ! previousValid || ! nextValid || layoutChanged)
+    const bool identityChanged = continuity != spectrumContinuity;
+    const bool clockBreak = previousValid && (identityChanged
+        || next.presentation_end_samples <= pendingSnapshot.presentation_end_samples
+        || (continuity == 0 && next.presentation_end_samples - pendingSnapshot.presentation_end_samples
+            > static_cast<int64_t> (next.sample_rate / 20u)));
+    if (! haveSnapshot || ! previousValid || ! nextValid || layoutChanged || clockBreak || resumeCurve)
     {
+        if (resumeCurve || next.presentation_end_samples <= pendingSnapshot.presentation_end_samples) peakReadout.clear();
         setSnapshot (next);
+        spectrumContinuity = continuity;
         return;
     }
 
-    const auto& calmWeights = calmWeightsFor (next.min_hz, next.max_hz);
     if (next.has_data != 0)
-        pendingPre = spectrum_presentation::calmLowFrequencies (next.pre_dbfs, calmWeights);
+        std::copy (std::begin (next.pre_dbfs), std::end (next.pre_dbfs), pendingPre.begin());
     else
         pendingPre.fill (0.0f);
-    pendingPost = spectrum_presentation::calmLowFrequencies (next.post_dbfs, calmWeights);
-    const auto selected = spectrum_delta::select (next, shapeObservation, calmWeights);
+    std::copy (std::begin (next.post_dbfs), std::end (next.post_dbfs), pendingPost.begin());
+    const auto selected = spectrum_delta::select (next, shapeObservation, {});
     pendingDelta = selected.values;
     pendingDeltaValid = selected.valid;
     // A missing source frame breaks the average even when it falls between drawing ticks.
@@ -287,6 +305,7 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
 
 void SpectrumComponent::clearSnapshot()
 {
+    psbMotion.clear(); backdrop.invalidate(); peakReadout.clear();
     absolutePsbAvailable = deltaPsbAvailable = false;
     psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     snapshot = {};
@@ -309,6 +328,7 @@ void SpectrumComponent::clearSnapshot()
     clearInteractionState();
     haveSnapshot = false;
     havePendingSnapshot = false;
+    spectrumContinuity = 0;
     curveDirty = false;
     numericDirty = false;
     hoverNeedsRepaint = false;
@@ -328,6 +348,7 @@ void SpectrumComponent::clearInteractionState() noexcept
     markedDelta.fill (0.0f);
     markedDeltaValid.fill (0u);
     focusTrail.reset();
+    peakReadout.clear();
     haveInteractionDefinition = false;
     haveMark = false;
     hoverNormalisedX = -1.0f;
@@ -345,38 +366,33 @@ void SpectrumComponent::presentationTickAt (double nowMs)
         && nowMs >= modeActionNoticeUntilMs;
     bool needsRepaint = hoverNeedsRepaint || noticeExpired;
     hoverNeedsRepaint = false;
-    if (curveDirty && havePendingSnapshot
-        && nowMs - lastCurvePresentationMs >= 1'000.0
-            / (double) ui_contract::spectrumCurvePresentationHz)
+    if (psbObservation && psbMotion.advance (nowMs)) needsRepaint = true;
+    if (curveDirty && havePendingSnapshot && nowMs > lastCurveUpdateMs)
     {
-        const double intervalMs = 1'000.0
-            / (double) ui_contract::spectrumCurvePresentationHz;
-        const double elapsedMs = std::max (0.0, nowMs - lastCurveUpdateMs);
+        const auto elapsedMs = nowMs - lastCurveUpdateMs;
         snapshot = pendingSnapshot;
-        if (lowScope && average == Average::live)
-        {
-            // The long LOW window is its own smoothing. A slow fall on top of it would leave the
-            // curve above the numbers read from the same frames.
-            displayedPre = pendingPre;
-            displayedPost = pendingPost;
-            displayedDelta = pendingDelta;
-            averagedDeltaValid = pendingDeltaValid;
-        }
-        else
-        {
-            const auto averageMs = spectrum_average::milliseconds (average);
-            spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs, averageMs);
-            spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs, averageMs);
-            spectrum_presentation::advanceSignedDeltaCurve (
-                displayedDelta, pendingDelta, averagedDeltaValid, pendingDeltaValid, elapsedMs, averageMs);
-        }
+        const auto spatial = [&] (const auto& bins) { return spectrum_display::spatial (
+            bins, snapshot.min_hz, snapshot.max_hz, displaySettings[display_settings::smooth]); };
+        const auto pre = spatial (pendingPre), post = spatial (pendingPost);
+        const auto delta = spectrum_display::spatial (pendingDelta, snapshot.min_hz, snapshot.max_hz,
+            shapeObservation && displaySettings[display_settings::smooth] == 0 ? 1 : displaySettings[display_settings::smooth], &pendingDeltaValid);
+        const auto averageMs = average == Average::live && lowScope ? 250.0
+            : spectrum_average::milliseconds (average);
+        spectrum_presentation::advanceAbsoluteCurve (displayedPre, pre, elapsedMs, averageMs, true);
+        spectrum_presentation::advanceAbsoluteCurve (displayedPost, post, elapsedMs, averageMs, true);
+        spectrum_presentation::advanceSignedDeltaCurve (
+            displayedDelta, delta, averagedDeltaValid, pendingDeltaValid, elapsedMs, averageMs);
         displayedDeltaValid = pendingDeltaValid;
-        lastCurveUpdateMs = nowMs;
+        lastCurveUpdateMs = lastCurvePresentationMs = nowMs;
         curveDirty = false;
-        lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs
-                                ? nowMs : lastCurvePresentationMs + intervalMs;
+        for (size_t i = 0; i < post.size(); ++i)
+            curveDirty = curveDirty || std::abs (displayedPre[i] - pre[i]) > 0.001f
+                || std::abs (displayedPost[i] - post[i]) > 0.001f
+                || (pendingDeltaValid[i] && std::abs (displayedDelta[i] - delta[i]) > 0.001f);
         needsRepaint = true;
     }
+    if (lowScope && havePendingSnapshot && currentSnapshotValid()
+        && peakReadout.update (pendingPost, snapshot.min_hz, snapshot.max_hz, nowMs)) needsRepaint = true;
     if (numericDirty && havePendingSnapshot
         && nowMs - lastNumericPresentationMs >= 1'000.0
             / (double) ui_contract::analysisNumericPresentationHz)

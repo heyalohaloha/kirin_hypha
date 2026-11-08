@@ -15,13 +15,15 @@
 #include "HyphaSpectrumDeltaSelection.h"
 #include "HyphaSpectrumPresentation.h"
 #include "HyphaSpectrumAverage.h"
+#include "HyphaSpectrumDisplay.h"
+#include "HyphaSpectrumFrameDriver.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_display_ffi.h"
 
 namespace hypha
 {
-// POST-only presentation component. It receives a fixed Rust snapshot and owns no timer, file,
-// FFT, pairing, or audio state. Spatial calm and curve ballistics remain display-only; raw analysis
+// POST-only presentation component. It receives fixed Rust snapshots and owns no source timer,
+// file, FFT, pairing, or audio state. VBlank advances only the drawing. Spatial calm and curve ballistics remain display-only; raw analysis
 // stays in Rust and an incompatible exact frame becomes a factual status.
 class SpectrumComponent final : public juce::Component,
                                 public juce::SettableTooltipClient
@@ -63,10 +65,24 @@ public:
         repaint();
     }
 
+    void setDisplaySettings (display_settings::Values next)
+    {
+        if (displaySettings == next) return;
+        displaySettings = next; curveDirty = havePendingSnapshot; backdrop.invalidate(); repaint();
+    }
+    display_settings::Values displaySettingsForTest() const noexcept { return displaySettings; }
+    double displayedPsbCeilingForTest() const noexcept { return psbMotion.ceiling; }
+    double peakLabelUpdateTimeForTest() const noexcept { return peakReadout.updated; }
+    void setHistoryCacheEnabledForTest (bool enabled) { backdrop.enabled = enabled; backdrop.invalidate(); }
+    unsigned backdropBuildsForTest() const noexcept { return backdrop.builds; }
+    void setAnimationVisible (bool shown) { animationVisible = shown; frames.setEnabled (shown && signalActive); }
+    bool frameDriverActiveForTest() const noexcept { return frames.active(); }
+    double displayedPsbForTest (size_t band) const noexcept { return psbMotion.shown[band]; }
+    const spectrum_peaks::Peaks& peakLabelsForTest() const noexcept { return peakReadout.peaks; }
     void setSnapshot (const KirinSpectrumView& next);
-    void setMidSideSnapshot (const KirinMidSideSpectrumView& next);
-    void setBatch (const KirinSpectrumBatch& batch);
-    void queueSnapshot (const KirinSpectrumView& next);
+    void setMidSideSnapshot (const KirinMidSideSpectrumView& next, uint64_t continuity = 0);
+    void setBatch (const KirinSpectrumBatch& batch, uint64_t postContinuity = 0, uint64_t deltaContinuity = 0);
+    void queueSnapshot (const KirinSpectrumView& next, uint64_t continuity = 0);
     void clearSnapshot();
     void presentationTick();
     void presentationTickAt (double nowMs);
@@ -155,6 +171,11 @@ public:
     std::function<bool(bool)> onScopeChange;
 
 private:
+    display_settings::Values displaySettings;
+    spectrum_display::PeakReadout peakReadout;
+    spectrum_display::PsbMotion psbMotion;
+    spectrum_display::Backdrop backdrop;
+    bool resumeCurve = false, animationVisible = true;
     class AverageButton final : public juce::Button
     {
     public:
@@ -169,24 +190,9 @@ private:
     void clearInteractionState() noexcept;
     bool currentSnapshotValid() const noexcept;
     bool currentPostSnapshotValid() const noexcept;
-    const std::array<float, KIRIN_SPECTRUM_BAND_COUNT>& calmWeightsFor (
-        float minimumHz, float maximumHz) noexcept
-    {
-        if (! calmWeightsValid
-            || std::memcmp (&calmMinimumHz, &minimumHz, sizeof (float)) != 0
-            || std::memcmp (&calmMaximumHz, &maximumHz, sizeof (float)) != 0)
-        {
-            cachedCalmWeights = spectrum_presentation::lowFrequencyCalmWeights<
-                KIRIN_SPECTRUM_BAND_COUNT> (minimumHz, maximumHz);
-            calmMinimumHz = minimumHz;
-            calmMaximumHz = maximumHz;
-            calmWeightsValid = true;
-        }
-        return cachedCalmWeights;
-    }
-
     KirinSpectrumView snapshot {};
     KirinMidSideSpectrumView midSideSnapshot {};
+    uint64_t midSideContinuity = 0;
     KirinSpectrumView pendingSnapshot {};
     KirinSpectrumView interactionDefinition {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
@@ -204,19 +210,16 @@ private:
     spectrum_delta::Validity readoutDeltaValid {};
     spectrum_delta::Validity pendingDeltaValid {};
     spectrum_delta::Validity markedDeltaValid {};
-    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> cachedCalmWeights {};
     std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
     bool havePendingSnapshot = false;
+    uint64_t spectrumContinuity = 0;
     bool haveInteractionDefinition = false;
     bool curveDirty = false;
     bool numericDirty = false;
     bool haveMark = false;
     float hoverNormalisedX = -1.0f;
     float focusFrequencyHz = -1.0f;
-    float calmMinimumHz = 0.0f;
-    float calmMaximumHz = 0.0f;
-    bool calmWeightsValid = false;
     uint8_t channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
     uint8_t inputChannels = 0;
     juce::String modeActionNotice;
@@ -246,6 +249,7 @@ private:
     double lastCurveUpdateMs = 0.0;
     double lastNumericPresentationMs = 0.0;
 
+    spectrum_display::FrameDriver frames { *this, [this] (double now) { presentationTickAt (now); } };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumComponent)
 };
 }

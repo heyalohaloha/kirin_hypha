@@ -93,12 +93,37 @@ inline bool logicRenderPair (const BlockClock& pre, const BlockClock& post) noex
         && ((! pre.loop.active && ! post.loop.active) || pre.loop.sameRange (post.loop));
 }
 
+inline bool cubaseCycleClock (const BlockClock& block) noexcept
+{ return block.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::cubaseCycleContent); }
+
+// The observed Cubase serial callback pair carries the same compensated content origin.
+// Presentation independently fences its PDC distance, including zero and whole-loop delays.
+// Repeated PPQ/sample positions cannot excuse another occurrence of either continuous clock.
+inline bool cubaseCyclePair (const BlockClock& pre, const BlockClock& post) noexcept
+{
+    std::int64_t distance = 0;
+    const auto basis = static_cast<std::uint8_t> (ClockBasis::vst3Continuous);
+    return cubaseCycleClock (pre) && cubaseCycleClock (post)
+        && pre.clockBasis == basis && post.clockBasis == basis
+        && pre.clockValid && post.clockValid && pre.projectValid && post.projectValid
+        && pre.playing && post.playing && !pre.afterGap && !post.afterGap
+        && pre.frames > 0 && pre.frames == post.frames
+        && pre.presentationSource == 1 && post.presentationSource == 1
+        && pre.outputPresentationValid && post.outputPresentationValid
+        && pre.outputPresentationSamples >= post.outputPresentationSamples
+        && checkedClockSubtract (pre.clock, post.clock, distance)
+        && distance == static_cast<std::int64_t> (pre.outputPresentationSamples - post.outputPresentationSamples)
+        && pre.loop.sameRange (post.loop);
+}
+
 // One shared rule for a previously proven K, whether observed before or during an audition.
 // This NEVER derives K, a PCM index, or a new lap from musical coordinates.
 inline bool corroborateLoop (const LoopAnchor& anchor, const BlockClock& block,
                             std::int64_t start, double rate, BlockClock& verified,
                             const BlockClock* preProof = nullptr) noexcept
 {
+    if (cubaseCycleClock (block) || (preProof != nullptr && cubaseCycleClock (*preProof)))
+        if (preProof == nullptr || start != block.clock || !cubaseCyclePair (*preProof, block)) return false;
     if (! block.loop.usable (rate) || ! anchor.loopKnown || ! anchor.loop.sameRange (block.loop)) return false;
     if (start < anchor.clock)
     {

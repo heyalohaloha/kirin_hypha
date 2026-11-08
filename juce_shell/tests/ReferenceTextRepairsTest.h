@@ -80,7 +80,7 @@ inline void verifyApprovalPreview()
     state.action.offer.slot = 2; panel.setState (state);
     require (! std::isfinite (list->rows()[0].lowerAOfferDb), "a C offer never labels the B source");
     require (std::abs (list->rows()[0].gainDb - 3.9) < 1.0e-9, "an offer for C never changes B's preview");
-    state.bSelected = true; state.audibleComparisonSlot = 3; state.appliedGainDb = 1.2;
+    state.bSelected = true; state.audibleComparisonSlot = 3; state.appliedGainDb = 1.2; state.audibleSongId = state.songId;
     state.action.offer.slot = 3; panel.setState (state);
     require (std::abs (list->rows()[0].gainDb + 0.8) < 1.0e-9, "a playing source still shows its actual applied gain");
 }

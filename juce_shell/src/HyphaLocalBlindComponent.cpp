@@ -62,21 +62,21 @@ Component::Component()
     repairButton.onClick = [this] { if (onRepair) onRepair(); };
     contextChoice.setComponentID ("local-blind-context");
     contextChoice.setTitle ("Gain Match mode for this comparison");
-    contextChoice.setTooltip ("2MIX: for a mix or master bus. TRACK / STEM: for an individual track or stem. Applies to this comparison.");
+    contextChoice.setTooltip ("TRACK: for an individual track. 2MIX: for a mix or master bus. Applies to this comparison.");
     contextChoice.setDescription (contextChoice.getTooltip());
     contextChoice.setColour (juce::ComboBox::textColourId, COL_NORMAL);
     contextChoice.setColour (juce::ComboBox::arrowColourId, COL_FLORA);
     contextChoice.setLookAndFeel (&contextLookAndFeel);
+    contextChoice.addItem ("TRACK", 2);
     contextChoice.addItem ("2MIX", 1);
-    contextChoice.addItem ("TRACK / STEM", 2);
     contextChoice.setSelectedId (1, juce::dontSendNotification);
     addChildComponent (contextChoice);
     styleButton (stopButton, "local-blind-stop", "Stop the comparison safely");
     styleButton (returnButton, "local-blind-return", "Return explicitly to the live signal");
     styleButton (closeButton, "local-blind-close", "Close Blind Compare");
 
-    sourceOne.onClick = [this] { if (onSelectStimulus) onSelectStimulus (1); };
-    sourceTwo.onClick = [this] { if (onSelectStimulus) onSelectStimulus (2); };
+    sourceOne.onClick = [this] { requestSource (1); };
+    sourceTwo.onClick = [this] { requestSource (2); };
     answerOne.onClick = [this] { if (onAnswer) onAnswer (Answer::one); };
     answerTwo.onClick = [this] { if (onAnswer) onAnswer (Answer::two); };
     noPreference.onClick = [this] { if (onAnswer) onAnswer (Answer::noPreference); };
@@ -88,7 +88,7 @@ Component::Component()
     };
     namedButton.onClick = [this]
     { if (onStartNamed) onStartNamed (current.trial.lowerPostApprovalRequired); };
-    revealButton.onClick = [this] { if (onReveal) onReveal(); };
+    revealButton.onClick = [this] { requestReveal(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     contextChoice.onChange = [this]
     {
@@ -98,10 +98,33 @@ Component::Component()
         else contextChoice.setSelectedId (preflightContext == meter_context::MeterContext::trackStem ? 2 : 1,
                                           juce::dontSendNotification);
     };
-    stopButton.onClick = [this] { if (onStop) onStop(); };
+    stopButton.onClick = [this] { requestEnd(); };
     returnButton.onClick = [this] { if (onReturn) onReturn(); };
     closeButton.onClick = [this] { if (onClose) onClose(); };
     refreshPresentation();
+}
+
+bool Component::requestSource (int source)
+{
+    auto* button = source == 1 ? &sourceOne : source == 2 ? &sourceTwo : nullptr;
+    if (button == nullptr || ! button->isVisible() || ! button->isEnabled() || ! onSelectStimulus)
+        return false;
+    onSelectStimulus (source);
+    return true;
+}
+
+bool Component::requestReveal()
+{
+    if (! revealButton.isVisible() || ! revealButton.isEnabled() || ! onReveal) return false;
+    onReveal();
+    return true;
+}
+
+bool Component::requestEnd()
+{
+    if (! stopButton.isVisible() || ! stopButton.isEnabled() || ! onStop) return false;
+    onStop();
+    return true;
 }
 
 void Component::styleButton (juce::Button& button, const juce::String& id,
@@ -290,7 +313,7 @@ void Component::layoutPreflight()
     auto area = getLocalBounds().reduced (margin);
     auto header = area.removeFromTop (compact ? 22 : 34);
     const auto font = contextLookAndFeel.getComboBoxFont (contextChoice);
-    const int choiceWidth = juce::roundToInt (std::ceil (font.getStringWidthFloat ("TRACK / STEM"))) + 38;
+    const int choiceWidth = juce::roundToInt (std::ceil (font.getStringWidthFloat ("TRACK"))) + 38;
     if (compact)
     {
         titleLabel.setJustificationType (juce::Justification::centred);

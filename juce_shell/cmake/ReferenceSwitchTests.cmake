@@ -1,0 +1,2 @@
+target_sources(KirinReferenceAuditionRuntimeTests PRIVATE tests/reference_b_switch_test.cpp)
+add_test(NAME kirin_reference_b_switch COMMAND KirinReferenceAuditionRuntimeTests --b-switch-only)

@@ -106,9 +106,9 @@ void SongList::paint (juce::Graphics& g)
         g.setColour (row.playing ? COL_SPECTRUM_DELTA : COL_MUTED);
         if (row.preparation != "NOT FOUND" && row.preparation != "ANALYSIS FAILED" && std::isfinite (row.gainDb)) text_style::drawEllipsized (g, gainText (row.gainDb), cells[3], juce::Justification::centredRight);
         const bool missing = row.preparation == "NOT FOUND" || row.preparation == "ANALYSIS FAILED";  // Kirin OS がファイルを確かめられない（待っても進まない）
-        g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.preparing && ! missing ? COL_FLORA : COL_MUTED);
+        g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.switching || (row.preparing && ! missing) ? COL_FLORA : COL_MUTED);
         text_style::drawEllipsized (g, std::isfinite (row.lowerAOfferDb) && row.lowerAOfferDb < 0.0
-                                       ? "A " + gainText (row.lowerAOfferDb) : missing ? row.preparation : row.playing ? "PLAYING" : ! row.preparing ? "READY"
+                                       ? "A " + gainText (row.lowerAOfferDb) : missing ? row.preparation : row.playing ? "PLAYING" : row.switching ? "SWITCHING" : ! row.preparing ? (row.loaded ? "READY" : "OS READY")
                                        : row.preparation.isNotEmpty() ? row.preparation : "PREPARING",
                                     cells[4], juce::Justification::centredRight);
     }
@@ -123,7 +123,7 @@ void SongList::mouseDown (const juce::MouseEvent& event)
     if (! content.contains (event.getPosition())) return;
     const auto index = (event.getPosition().getY() - content.getY()) / rowHeight();
     if (index >= content.getHeight() / rowHeight() || index >= static_cast<int> (items.size())) return;
-    const auto& row = items[static_cast<size_t> (index)];
+    const auto row = items[static_cast<size_t> (index)];
     if (! row.selected && onChoose) onChoose (row.id);
 }
 }

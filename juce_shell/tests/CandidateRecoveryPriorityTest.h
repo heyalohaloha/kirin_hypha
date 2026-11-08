@@ -1,11 +1,62 @@
 #pragma once
+#include "CandidateRecoveryTest.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include <cstring>
 
 namespace hypha::tests
 {
+template<class Require> void verifyCandidateLoopGuidance (Require require)
+{
+    using namespace live_compare;
+    for (const bool loop : { false, true })
+    {
+        ProductTestClock wall;
+        CandidateHost<Require> host (wall, require, 2, 480);
+        host.pair(); auto& post = host.post();
+        if (loop) for (auto& clock : host.clocks) clock.loopLength = 48000;
+        else host.clocks[0].available = false;
+        require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started,
+                 "loop guidance starts through the actual A/B entry");
+        post.selectLiveComparePre (true);
+        host.render (299, false, true, false);
+        require (!post.liveCompareStatus().prolongedWait, "A/B guidance stays quiet before three seconds");
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const i18n::ScopedLanguage scoped (language);
+            auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
+            editor->setVisible (true); candidateTick (*editor);
+            const auto warning = text_style::shownText (
+                dynamic_cast<KirinHyphaEditor&> (*editor).*candidateEditorTick (CandidateEditorWarning {}));
+            require (!warning.contains (text_style::shownText ("A/B: timing unavailable; check PRE1 and PRE2"))
+                && !warning.contains (text_style::shownText ("Loop timing unavailable; turn loop off to compare (POST)")),
+                     "the actual A/B editor hides recovery guidance during initial preparation");
+            post.editorBeingDeleted (editor.get());
+        }
+        host.render (2, false, true, false);
+        const auto status = post.liveCompareStatus();
+        require (status.prolongedWait && status.preSelected && !status.preAudible
+            && status.verdict != Verdict::accepted, "unconfirmed A/B keeps the selection and POST after three seconds");
+        requireCandidateRawPost (host, require);
+        const char* expected = loop ? "Loop timing unavailable; turn loop off to compare (POST)"
+                                    : "A/B: timing unavailable; check PRE1 and PRE2";
+        require (status.observation == (loop ? RecoveryReason::loopClockUnavailable : RecoveryReason::notWritten),
+                 "loop clock failure takes notice priority; other candidate failures keep their reason");
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const i18n::ScopedLanguage scoped (language);
+            auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
+            editor->setVisible (true); candidateTick (*editor);
+            const auto warning = dynamic_cast<KirinHyphaEditor&> (*editor).*candidateEditorTick (CandidateEditorWarning {});
+            require (text_style::shownText (warning) == text_style::shownText (expected),
+                     "the actual A/B editor shows the loop remedy instead of the generic PRE1/PRE2 notice in both languages");
+            post.editorBeingDeleted (editor.get());
+        }
+    }
+}
+
 template<class Require> void verifyCandidateRecoveryPriority (Require require)
 {
+    verifyCandidateLoopGuidance (require);
     using namespace live_compare;
     using namespace live_compare_ui;
     Status named; named.active = named.prolongedWait = named.preSelected = named.preWaiting = true;

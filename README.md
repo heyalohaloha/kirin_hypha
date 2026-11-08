@@ -220,7 +220,7 @@ or delay audio: the same input produces the same output, every time. An explicit
 is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
 Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
 
-Two display filters exist in the shipping JUCE surface. They affect what is drawn, never what is
+Presentation controls in the shipping JUCE surface affect what is drawn, never what is
 measured, stored, or read back.
 
 FREQ's **AVG** chooses **LIVE** (the existing response), **0.2 S**, **1 S**, **3 S** or **10 S**.
@@ -229,17 +229,22 @@ interval the curve covers about 63% of a step. Use a short time for quick change
 for the overall trend. The same setting covers LR, MID, SIDE, M/S, LOW, RAW and SHAPE. It does not
 filter numeric readings, FOCUS Trail, PSB, MARK, peak hold, Record, Keep or values sent to Kirin OS.
 Choose it at 125% or larger; 100% only names a non-default choice. Each project's state remembers
-it, omits LIVE, and opens older states with the unchanged LIVE response.
+it, omits LIVE, and opens older states with LIVE selected. Continuity travels with each
+publication: a GUI poll that skips the short recovery batch keeps AVG, while a real gap starts a
+new curve even if its warming state was never drawn. PSB eases its vertical scale together with
+its bars; numeric readings remain the captured values.
 
-- **Live FREQ curves (AVG LIVE).** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
-  and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
-  neither sign is favoured.
+- **Live FREQ curves (AVG LIVE).** The absolute PRE / POST / MID / SIDE spectra rise with a 30 ms
+  time constant and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically
+  over 150 ms, so neither sign is favoured. LOW follows in both directions over 250 ms. Drawing
+  advances between the 30 Hz observations on each display frame.
 - **MONO's live curve.** A band with nothing to measure in the current 100 ms observation (the rest
   between two drum hits, for instance) keeps the value it was last measured at for up to one second,
   drawn faintly, so the curve does not blink between hits. After that the band breaks the line.
 
-Watch draws the measurement engine's own Watch snapshot directly. SPACE's six-second MONO
-field draws observations as measured.
+Watch uses the measurement engine's own Watch snapshot; LEVEL's NUM RATE can hold its numerical
+reading for a chosen interval. Each metric becoming available or unavailable is shown immediately,
+as are Session completion and changes to confirmed coverage. SPACE's six-second MONO field draws observations as measured.
 
 When playback stops, or a rest outlasts the 3-second Watch window, the pages with a six-second history
 (FREQ's field or landscape, LIVE, SHARP and SPACE's MONO field) keep what was measured on screen,
@@ -286,6 +291,31 @@ layout and the measurement vocabulary are the same in both languages. Action lab
 except Blind's **REVEAL** and **END**, which read the same in both. Names you give stay as written. The language changes
 only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
 Kirin OS, and every measurement stay the same.
+
+## Keys
+
+Click the Hypha window and its keys work there. Hover a control to see its key, or press **F**
+(**MENU > KEYS**) for the list of what works now. A key Hypha does not use goes back to the DAW, and so
+do Space, the numeric keypad and anything held with Cmd, Ctrl or Alt. A key the DAW takes first does not
+reach Hypha.
+
+| Keys | Does |
+|---|---|
+| Shift+1 to Shift+5 | LEVEL, TIME, FREQ, SPACE, REFERENCE |
+| Q, W, E | LISTEN, A/B (asks for PRE2 and the placement first), BLIND (Version Blind in REF) |
+| 1, 2 | PRE and POST in LISTEN, A and B in A/B, SOURCE 1 and 2 in BLIND |
+| 1, 2, 3, 4 | A, B, C and V in REF |
+| G, Shift+G | MATCH, the MATCH / AUTO choice |
+| T, Shift+T | END, RETURN |
+| Shift+E | REVEAL |
+| A / D, Shift+A / D | Song, Version in REF |
+| X / C, Shift+X / C | TIME page or REF tab, Cue in REF |
+| Shift+Q / W | Reference set or CHECK SET in REF |
+| Z, Shift+Z | Absolute reading, Δ |
+| V, Shift+F, Shift+V | Hybrid VU, TP / Clip CLEAR, RESET (asks first) |
+| Tab, Return, Esc | Next control, press it, close the list |
+
+Approving a level change, Record / Keep and the pair have no key of their own: Tab reaches them.
 
 ## Channel scope
 
@@ -656,6 +686,8 @@ In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. I
 cyan Mid and violet Side curves calculated from the same aperture, with a shared
 0 to −96 dBFS scale and a two-value probe at every editor size. M/S is an absolute POST observation:
 the Δ target is disabled until LR, MID, or SIDE is selected, and M/S is disabled while Δ is active.
+M/S retains AVG and a locked frequency when the UI skips continuous observations; a new analysis
+aperture segment resets the curve without interpolating across the gap.
 M/S creates no PRE request, six-second field, peak hold, MARK, or Focus Trail, and its choice never
 leaks into SHARP. The loaded plug-in instance remembers the choice across editor close/reopen, but
 new instances and restored DAW sessions start from the existing LR default.
@@ -722,12 +754,33 @@ Its Hann aperture is rounded from the 48 kHz reference time of `4096 / 48000` se
 85.33 ms), and its FFT is the smallest power of two that preserves at least 2× zero-padding. Thus
 48 kHz remains exactly 4096 samples / 8192 FFT points, while 44.1, 96, 192, and 384 kHz use
 3763/8192, 8192/16384, 16384/32768, and 32768/65536 respectively. Analysis remains at 30 Hz. The live
-curve presents the newest frame at 12 Hz and numeric probe values at 2 Hz, without averaging or
-changing the measured endpoint. All curve points, hover interpolation, MARK, and Focus Trail use the
+curve advances on every display VBlank after the 30 Hz source poll; numeric probes retain the raw
+values at 2 Hz. Monotone cubic curves do not overshoot or join missing frequency bands. Missing
+windows, clock gaps and pair/layout boundaries restart the drawing without interpolating across them.
+LOW's LIVE curve follows with a 250 ms time constant; its note/frequency/dB labels stay together for
+one second. PSB keeps its 10 Hz measurements and advances only its drawing between observations.
+Neither presentation changes the measured endpoint. All curve points, hover interpolation, MARK, and Focus Trail use the
 same logarithmic band centres `(index + 0.5) / 256`. The first and last edge labels remain plot
 boundaries, not invented samples. It compares measured programme energy rather
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
+
+**MENU → Display → FREQ** offers **RANGE** (60 / 90 / 120 dB, with the established 96 dB default),
+**TILT** (0 / 3 / 4.5 / 6 dB/oct), **SMOOTH** (OFF / 1/24 / 1/12 / 1/6 oct, with the established
+low-band smoothing as STD), **LIGHT** (0.7 / 1 / 1.3), and **PEAK** (ON / OFF). Tilt is referenced to
+1 kHz and applies only to absolute displays; Δ keeps its original meaning. Peak readings, numeric
+probes, MARK and measured histories bypass curve processing. The measured history background is
+cached between observations. Default settings retain the established range, smoothing, brightness
+and peak line. At compact sizes FREQ leaves the bottom axis clear of the status strip.
+The unpaired badge keeps its copper frame with neutral text.
+
+**MENU → Display → LEVEL / NUM RATE** selects **LIVE** (the established cadence), **0.2 S**, **0.5 S**
+or **1 S** for numerical readings. Slower choices hold one measured reading rather than average it,
+including the MAX TP lower-bound number while its Session summary is pending.
+State and availability boundaries appear immediately. Measurement, history, meter movement,
+Capture, Record, Keep and Kirin OS output retain their raw values. Like FREQ AVG, these display
+choices belong to the project state: only non-default values are saved, and older states retain
+the established defaults.
 
 ### TIME / SHARP: Perceptual Δ (on demand)
 
@@ -953,6 +1006,7 @@ Reference has four roles, each with its own button in the same place at every si
   to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
   C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
+  V works best with Hypha on the 2Mix.
 
 **Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
@@ -966,10 +1020,16 @@ are not stored, and no target is written into Kirin OS. The Kirin OS license is 
 registration and measurement preparation are unnecessary for these targets. Remove a selected target
 with the minus button.
 
-Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
-display. Choosing a different song, Check, Cue or Version changes only that role: if it was playing,
-it fades to A and plays the new choice with a new MATCH as soon as it is ready; the other roles keep
-playing. Receiving or restoring settings never starts a role.
+Only one role sounds at a time. The A/B/C/V buttons change the sound; pages within Reference change only the
+display. Leaving Reference returns to A with a short fade and cancels pending playback. The selections remain,
+and reopening Reference does not start playback. Blind keeps its existing exit behavior. Choosing a different
+Check, Cue or Version changes only that role: if it was playing, it fades to A and plays the new choice with a new
+MATCH as soon as it is ready; the other roles keep playing. Choosing a different B song keeps the current song
+playing while the new one prepares, then crosses directly to it with its own MATCH, without passing through A.
+The pressed row is selected at once and PLAYING moves when the new song is actually heard. While the B page is
+open, Hypha checks the listed songs ahead of a press, up to 8 songs and 1 GB. If a song cannot be prepared or
+matched, the current song keeps playing and the status line says why; the choice completes by itself when it can.
+Receiving or restoring settings never starts a role.
 
 **Level matching.** B and V follow A: every second Hypha measures A's gated loudness over the last
 10 seconds (BS.1770 gating of the 100 ms momentary history) and moves the audition copy toward
@@ -1485,10 +1545,10 @@ The signed 1.1.51 release has passed the one-pass/END flow and safe session reop
 VST3 stereo on Intel macOS. That result does not establish the same acceptance in every format
 or host configuration.
 
-The normal header's Meter Context control opens a descriptive choice rather than switching on one
-click. Blind inherits it when opened and keeps any override within that comparison.
+The header groups **TRACK**, **2MIX** and **REFERENCE** in that order. TRACK and 2MIX select
+the measurement context directly. Blind inherits it when opened and keeps any override within that comparison.
 **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
-**TRACK/STEM** identifies an individual track or stem and uses short or sparse event energy.
+**TRACK** identifies an individual track and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
 Reference Version Blind is a separate whole-song
@@ -1508,8 +1568,12 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
-The header places **REF** immediately after **2MIX / TRACK/STEM**. It opens the same Reference
-page, lights when that page is open, and retains the existing Kirin OS license and connection help.
+The header's **REFERENCE** button opens the Reference page and retains the existing Kirin OS
+license and connection help. Its label shortens to **REF** only when the available width requires it.
+Only one of TRACK, 2MIX and REFERENCE lights: REFERENCE while its page is open, otherwise the
+selected measurement context. From Reference, TRACK or 2MIX selects that context and returns to
+the last LEVEL, TIME, FREQ or SPACE page (LEVEL if none was visited), using the normal return to A.
+Pressing the lit button does nothing.
 PRE shows the same header action disabled. The measurement row and its view menu contain
 **LEVEL / TIME / FREQ / SPACE**; PRE keeps unavailable FREQ disabled. POST and Δ have equal-width
 buttons wherever both are shown. Reference shortcuts and saved page selection are unchanged.

@@ -463,8 +463,7 @@ private:
 int main (int argc, char** argv)
 {
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
-    auto signal = readFixture (argv[1]);
-    auto sandbox = std::make_unique<ReferenceValidationStorageSandbox>();
+    auto signal = readFixture (argv[1]); auto sandbox = std::make_unique<ReferenceValidationStorageSandbox>();
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox->directory());
    #if JUCE_MAC
@@ -472,6 +471,7 @@ int main (int argc, char** argv)
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
+    if (argc == 3 && std::string (argv[2]) == "--cubase-cycle-only") { hypha::tests::verifyCubaseCycleProduct (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-stopped-return-only") { hypha::tests::verifyCandidateStoppedSourceReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-return-only")
     { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }

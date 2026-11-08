@@ -16,6 +16,7 @@
 #include "HyphaFeedbackStrip.h"
 #include "HyphaHelpLineBar.h"
 #include "HyphaHoverHelpPreference.h"
+#include "HyphaKeysPanel.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextButton.h"
@@ -59,7 +60,7 @@ public:
     void visibilityChanged() override;
     // 300% 以上は、指している項目の説明を足元に出す（PluginEditorHelpLine.cpp）。`point` はエディターの座標。
     // wholeRow：足元の段の全幅（図・値・タブ）か、左の状態の所だけ（足元のボタン）か。出さないときは空。
-    struct HelpLine { juce::String text; bool wholeRow = false; };
+    struct HelpLine { juce::String text; bool wholeRow = false; juce::String mark {}; };
     HelpLine helpLineAt (juce::Point<int> point);
     // The shown status told whole, when it has more to say (the live comparison's cause, then
     // what plays now and how to go on); empty otherwise.
@@ -67,8 +68,27 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseEnter (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    // The window's keys (PluginEditorShortcuts.cpp): a key it does not use goes back to the host.
+    void mouseDown (const juce::MouseEvent&) override;
+    bool keyPressed (const juce::KeyPress&) override;
+    bool keyStateChanged (bool isKeyDown) override;
+    void focusLost (FocusChangeType) override;
+    void focusOfChildComponentChanged (FocusChangeType) override;
 
 private:
+    void configureShortcuts();
+    bool shortcutsListening() const;
+    hypha::shortcuts::Context shortcutContext() const;
+    void performShortcut (hypha::shortcuts::Command);
+    void showActionNotice (const juce::String& english);
+    bool refusedByBlind();
+    void toggleKeysList();
+    void openKeysList();
+    void closeKeysList();
+    void refreshKeysList();
+    hypha::shortcuts::HeldKeys heldShortcutKeys;
+    juce::Component::SafePointer<juce::Component> keysFocusReturn;
+    bool keysOpenedInBlind = false;
     bool helpLineActive() const;
     void updateHelpLine();
     // The window, rows, marks and headers are TextLookAndFeel's one Kirin Select drawing; this
@@ -111,7 +131,14 @@ private:
     // shown whenever the editor may be resized.
     hypha::EditorResizeGrip resizeGrip { this, &sizeConstrainer };
     hypha::HelpLineBar helpLineBar; // the help line over the footer at 300% and above
+    hypha::KeysPanel keysPanel;     // MENU > KEYS, or F
+    void configureNavigationActions();
+    void requestObservatoryDomain (hypha::observatory::Domain);
+    void requestObservationTarget (hypha::observatory::ObservationTarget);
     void configureMeterContext();
+    void requestMeterSessionReset();
+    void performMeterSessionReset();
+    void requestPeakClipClear();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
@@ -124,6 +151,7 @@ private:
     hypha::capture::Snapshot freezeObservatoryCapture (int width, int height);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
+    void requestTimePage (AnalysisPage page);
     void setAnalysisPage (AnalysisPage page);
     void configureSharpnessAnalysis (int pairStatus);
     void configureSpectrumAnalysis();
@@ -138,6 +166,7 @@ private:
     std::unique_ptr<KirinAttackBandSummaryV2> drumSummary;
     std::vector<KirinSnapshotEventKey> drumNavigationKeys;
     void configureSpectrumCallbacks();
+    std::uint64_t spectrumAuthorityTicket = 0;
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
@@ -188,6 +217,14 @@ private:
     void layoutLocalBlindProduct();
     void setLocalBlindIsolation (bool active);
     void configureLiveBlind();
+    void performComparisonShortcut (hypha::shortcuts::Command);
+    void stepTimePage (int direction);
+    bool blindRunning() const;
+    hypha::blind_ui::ScreenComponent* activeBlindScreen();
+    void requestBlindStart();
+    void requestBlindSource (int source);
+    void requestBlindReveal();
+    void requestBlindEnd();
     void addLiveCompareMenu (juce::PopupMenu&, bool keepActive);
     bool handleLiveCompareMenu (int result);
     void openLiveBlind (std::optional<std::uint64_t> waitedTicket = std::nullopt);
@@ -196,6 +233,12 @@ private:
     void showCandidateCompareMenu();
     void confirmCandidateCompare (const juce::String& pre2, std::uint64_t ticket);
     void startCandidateConfirmed (const juce::String&, std::uint64_t, bool waitForReturn = true);
+    void requestListenStart();
+    void requestListenSelect (bool pre);
+    void requestListenMatch();
+    void requestListenAutoMenu();
+    void requestListenEnd();
+    void requestNormalLevelReturn();
     bool refreshLiveCompare(); // true only when this refresh published a new fault notification
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
@@ -237,7 +280,6 @@ private:
     void showOperationsMenu();
     juce::PopupMenu operationsMenu();
     void showTimeRangeMenu();
-    void showMeterContextMenu (juce::Component& anchor);
     void applyMeterContextChoice (hypha::meter_context::MeterContext);
     void showDomainMenu();
     void showSizeMenu();
@@ -304,7 +346,7 @@ private:
     hypha::EditableName       nameField;                  // PRE name / POST exact-pair selector
     hypha::FeedbackStrip      feedbackStrip;              // compact sizes: toast > persistent error > Keeping
     std::unique_ptr<juce::FileChooser> captureChooser;
-    std::unique_ptr<juce::AlertWindow> noteDialog;
+    std::unique_ptr<juce::AlertWindow> noteDialog, meterResetDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY

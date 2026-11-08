@@ -53,7 +53,7 @@ bool trackStemPolicy (const local_blind::ProductSessionView& state) noexcept
 
 juce::String contextTag (bool trackStem)
 {
-    return trackStem ? "TRACK / STEM" : "2MIX";
+    return trackStem ? "TRACK" : "2MIX";
 }
 
 // INV-LC17: the named A/B says which is which and the fixed gain each one plays at.

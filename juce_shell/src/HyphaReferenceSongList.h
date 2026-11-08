@@ -10,7 +10,7 @@
 #include "HyphaPresentationContext.h"
 
 // B（REF）の画面の左の曲の一覧。行は 番号・曲名・LUFS-I（Kirin OS の Cue の値）・MATCH の gain・状態
-// （PLAYING／READY／PREPARING。準備中は Kirin OS の言う状態）。色で採点しない（状態は文字で出す）。
+// （PLAYING／SWITCHING／READY／OS READY／PREPARING。準備中は Kirin OS の言う状態）。色で採点しない（状態は文字で出す）。
 // 2026-10-04：見出しの下に A の行（直近の窓の音量、金）を置き、MATCH は鳴っていない曲にも押したときの gain
 // （A の窓 − その曲の Cue の Integrated）を薄く出す（鳴っている曲だけだった）。
 // 行を押すとその曲を選ぶ（B が鳴っていれば B のまま切り替わる）。
@@ -27,6 +27,8 @@ public:
         bool selected = false, playing = false, preparing = false;
         juce::String preparation;  // 準備中の曲の Kirin OS の状態（2 AHEAD・CHECKING・NOT FOUND など、無ければ空）
         double lowerAOfferDb = std::numeric_limits<double>::quiet_NaN();
+        bool switching = false;  // 選んだ曲が鳴るのを待っている（前の曲が鳴っているあいだを含む）
+        bool loaded = false;     // Hypha が確かめ終えている（押せばすぐ替わる）。無ければ Kirin OS の準備だけ
     };
 
     SongList();

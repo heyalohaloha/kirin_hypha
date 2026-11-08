@@ -138,9 +138,9 @@ bool KirinHyphaEditor::handleLiveCompareMenu (int result)
     if (result == 45) { showCandidateCompareMenu(); return true; }
     if (result < 40 || result > 44) return false;
     if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
-    if (result == 40 && observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();
-    if (result == 41 && observatoryView.onLiveCompareMatch) observatoryView.onLiveCompareMatch();
-    if (result == 42 || result == 43) processorRef.selectLiveComparePre (result == 42);
+    if (result == 40) requestListenStart();
+    if (result == 41) requestListenMatch();
+    if (result == 42 || result == 43) requestListenSelect (result == 42);
     return true;
 }
 #endif

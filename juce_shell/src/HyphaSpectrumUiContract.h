@@ -14,7 +14,7 @@ namespace hypha::ui_contract
     static_assert (deltaBlockedByMidSide (true, false, true));
     static_assert (! deltaBlockedByMidSide (false, false, true));
     constexpr int spectrumPresentationHz = 30;
-    constexpr int spectrumCurvePresentationHz = 12;
+    // Curve presentation follows VBlank; the source acquisition remains 30 Hz.
     constexpr int perceptualCurvePresentationHz = 5;
     constexpr int analysisNumericPresentationHz = 2;
     constexpr int spectrumToggleWidth = 84;

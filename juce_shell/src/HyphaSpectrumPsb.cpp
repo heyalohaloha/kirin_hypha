@@ -70,6 +70,7 @@ void SpectrumComponent::setPsbSnapshot (const KirinPsbView& frame)
         && frame.state_epoch_samples % frame.aperture_samples == 0;
     const bool nextAbsoluteAvailable = ready && frame.is_delta == 0 && validAbsolutePsb (nextAbsolute);
     const bool nextDeltaAvailable = ready && frame.is_delta != 0 && validDeltaPsb (nextDelta);
+    psbMotion.accept (frame, nextAbsoluteAvailable || nextDeltaAvailable, juce::Time::getMillisecondCounterHiRes());
     if (samePsb (absolutePsb, nextAbsolute) && samePsb (deltaPsb, nextDelta)
         && absolutePsbAvailable == nextAbsoluteAvailable
         && deltaPsbAvailable == nextDeltaAvailable && psbStatus == frame.status)
@@ -86,6 +87,8 @@ void SpectrumComponent::setSignalActive (bool active)
 {
     if (signalActive == active) return;
     signalActive = active;
+    frames.setEnabled (active && animationVisible);
+    if (! active) { curveDirty = false; resumeCurve = true; }
     repaint();
 }
 
@@ -111,7 +114,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
         psb_painter::paint (g, getLocalBounds().toFloat(), {
             values, signalActive && (absoluteObservation ? absolutePsbAvailable
                 : deltaPsbAvailable && pairingLoopBlock != live_compare::LoopPairingBlock::auCycle),
-            ! absoluteObservation, psbHoverBand, psbStatusText(), presentationContext });
+            ! absoluteObservation, psbHoverBand, psbStatusText(), presentationContext, &psbMotion.shown, psbMotion.ceiling });
     }
     else
     {
@@ -127,7 +130,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
             haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
             presentationContext, pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
                 ? pairingLoopBlock : live_compare::LoopPairingBlock::none,
-            signalActive && currentPostSnapshotValid(), lowScope, average
+            signalActive && currentPostSnapshotValid(), lowScope, average, displaySettings,
+            &peakReadout.peaks, &backdrop
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }

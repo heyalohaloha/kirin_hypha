@@ -10,6 +10,7 @@ namespace ui = hypha::ui_contract;
 
 void KirinHyphaEditor::configureSpectrumCallbacks()
 {
+    spectrumView.setDisplaySettings (processorRef.displaySettings.get());
     spectrumView.setAverageChoice (processorRef.spectrumAverage.get());
     spectrumView.onAverageChange = [this] (auto value) { processorRef.setSpectrumAveragePreference (value); };
     spectrumView.onChannelModeChange = [this] (uint8_t channelMode)
@@ -200,6 +201,7 @@ void KirinHyphaEditor::updateAnalysisBodyPresentation()
 
 void KirinHyphaEditor::syncAnalysisDemand()
 {
+    spectrumView.setAnimationVisible (! observatoryView.hybridVuVisible());
     const auto demand = desiredAnalysisDemand();
     if (hypha::analysis::active (demand))
         processorRef.setAnalysisDemand (analysisOwnerToken, demand);
@@ -238,7 +240,9 @@ bool KirinHyphaEditor::refreshAnalysisViews (
             processorRef.guidePresentationSnapshot()));
         if (haveOwners) spectrumView.setAnalysisOwnerNames (ownerNames);
         spectrumView.setAverageChoice (processorRef.spectrumAverage.get());
-        spectrumView.presentationTick();
+        spectrumView.setDisplaySettings (processorRef.displaySettings.get());
+        if (spectrumAuthorityTicket != processorRef.restoreOrPairTicket())
+        { spectrumView.clearSnapshot(); spectrumAuthorityTicket = processorRef.restoreOrPairTicket(); }
         spectrumView.setSignalActive (liveInput);
         spectrumView.setPairingLoopBlock (processorRef.analysisPairingLoopBlock());
         if (spectrumView.isPsbObservation())
@@ -251,15 +255,19 @@ bool KirinHyphaEditor::refreshAnalysisViews (
             if (processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
             {
                 KirinMidSideSpectrumView frame {};
-                if (processorRef.pollMidSideSpectrum (frame))
-                    spectrumView.setMidSideSnapshot (frame);
+                uint64_t continuity = 0;
+                if (processorRef.pollMidSideSpectrum (frame, &continuity))
+                    spectrumView.setMidSideSnapshot (frame, continuity);
             }
             else
             {
                 KirinSpectrumBatch batch {};
-                if (processorRef.pollSpectrumBatch (batch)) spectrumView.setBatch (batch);
+                uint64_t postContinuity = 0, deltaContinuity = 0;
+                if (processorRef.pollSpectrumBatch (batch, &postContinuity, &deltaContinuity))
+                    spectrumView.setBatch (batch, postContinuity, deltaContinuity);
             }
         }
+        spectrumView.presentationTick(); // Acquire first; VBlank advances between source polls.
     }
     else if (analysisPage == AnalysisPage::perceptual)
     {

@@ -100,7 +100,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
         return;
     }
 
-    const auto ceiling = niceCeiling (state);
+    const auto ceiling = state.drawnCeiling > 0 ? static_cast<float> (state.drawnCeiling) : niceCeiling (state);
     const auto baseline = state.delta ? plot.getCentreY() : plot.getBottom();
     g.setColour (COL_MUTED.withAlpha (0.15f));
     for (int line = 0; line <= 4; ++line)
@@ -115,7 +115,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     const auto colour = state.delta ? COL_SPECTRUM_DELTA : COL_SPECTRUM_POST;
     for (std::size_t index = 0; index < bandCount; ++index)
     {
-        const auto value = state.values[index];
+        const auto value = state.drawn ? (*state.drawn)[index] : state.values[index];
         const auto amount = (float) juce::jlimit (0.0, (double) ceiling, std::abs (value));
         const auto availableHeight = state.delta ? plot.getHeight() * 0.5f : plot.getHeight();
         const auto height = availableHeight * amount / ceiling;
@@ -138,8 +138,8 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     };
     text_style::drawText (g, "0-24 Bark | LR", axisLegend.withTrimmedRight (90.0f * scale).toNearestInt(),
                 juce::Justification::centredLeft);
-    text_style::drawText (g, state.delta ? "+/- " + juce::String (ceiling * 100.0f, 0) + " PP"
-                            : "0 - " + juce::String (ceiling * 100.0f, 0) + "%",
+    const auto limitText = juce::String (ceiling * 100.0f, 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".");
+    text_style::drawText (g, state.delta ? "+/- " + limitText + " PP" : "0 - " + limitText + "%",
                 axisLegend.toNearestInt(),
                 juce::Justification::centredRight);
     for (const int band : { 1, 5, 10, 15, 20 })
@@ -159,7 +159,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
         readout = readout.removeFromTop (18.0f * scale).removeFromRight (juce::jmin (plot.getWidth(), 210.0f));
         g.setColour (BG.brighter (0.1f).withAlpha (0.96f));
         g.fillRoundedRectangle (readout, 3.0f * scale);
-        g.setColour (colour);
+        g.setColour (COL_NORMAL);
         text_style::drawText (g, text, readout.toNearestInt(), juce::Justification::centred);
     }
 }

@@ -17,6 +17,8 @@ struct State
     int hoverBand = -1;
     juce::String unavailableText = "PSB WARMING";
     presentation::Context presentation = presentation::defaultContext();
+    const std::array<double, bandCount>* drawn = nullptr;
+    double drawnCeiling = 0;
 };
 
 void paint (juce::Graphics&, juce::Rectangle<float>, const State&);

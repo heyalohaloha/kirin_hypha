@@ -90,7 +90,20 @@ else
     echo "==> download pluginval: $URL"
     rm -rf "$CACHE_DIR/pluginval.app" "$CACHE_DIR/unpacked"
     mkdir -p "$CACHE_DIR/unpacked"
-    curl -L "$URL" -o "$ZIP"
+    # GitHub's release download sometimes answers with a short error page or a 5xx. Retry until the
+    # archive itself is whole, so a transient outage does not stop validation.
+    for attempt in 1 2 3 4 5 6; do
+      if curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 "$URL" -o "$ZIP" && unzip -tq "$ZIP" >/dev/null 2>&1; then
+        break
+      fi
+      if [[ "$attempt" == 6 ]]; then
+        echo "ERROR: pluginval download failed after $attempt attempts: $URL" >&2
+        exit 1
+      fi
+      echo "==> pluginval download attempt $attempt failed; retrying"
+      rm -f "$ZIP"
+      sleep $((attempt * 10))
+    done
     unzip -q "$ZIP" -d "$CACHE_DIR/unpacked"
     APP_PATH="$(find "$CACHE_DIR/unpacked" -maxdepth 3 -type d -name pluginval.app | head -n 1)"
     if [[ -z "$APP_PATH" ]]; then

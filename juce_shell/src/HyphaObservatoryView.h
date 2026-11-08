@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaLevelReadout.h"
 #include <functional>
 #include <optional>
 #include <vector>
@@ -33,6 +34,7 @@ class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit View (Role roleIn);
+    void requestHybridVuToggle();
     std::function<void()> onBodyLayoutChanged;
 
     std::function<void (Domain)> onDomainChange;
@@ -41,7 +43,6 @@ public:
     std::function<void (SizePreset)> onSizeChange;
     std::function<void (bool)> onLoudnessChange;
     std::function<void (meter_context::MeterContext)> onContextChange;
-    std::function<void()> onContextMenu;
     std::function<void (meter_context::ScaleMode)> onScaleChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
@@ -66,7 +67,6 @@ public:
     std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
     juce::Component& domainMenuAnchor() noexcept { return domainCycleButton; }
-    juce::Component& contextMenuAnchor() noexcept { return contextButton; }
     juce::Component& sizeMenuAnchor() noexcept { return sizeButton; }
     juce::Component& operationsMenuAnchor() noexcept { return operationsButton; }
     juce::Component& guideDetailsAnchor() noexcept { return guideButton; }
@@ -149,6 +149,7 @@ public:
     }
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
+    void setLevelNumericInterval (double ms) { levelReadout.setInterval (ms); }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     bool setTimeSnapshot (const KirinTimeSnapshotV2&, std::vector<KirinTimeHistoryEntryV2>,
                           std::vector<KirinTimeHistoryEntryV2>, double, double, bool);
@@ -163,7 +164,7 @@ public:
     const KirinMeterSession& cumulativeMeterForDisplay() const noexcept;
     bool sessionSummaryPending() const noexcept;
     juce::String sessionSummaryScope() const;
-    juce::String sessionMaximumBoundText() const;
+    juce::String sessionMaximumBoundText (const KirinMeterSession* displayed = nullptr) const;
     capture::PresentationStamp capturePresentationStamp() const noexcept;
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
@@ -317,7 +318,6 @@ private:
     void cycleDomain();
     void cycleTimeRange();
     void cycleSize();
-    void toggleHybridVu();
     void initializeVuCalibrationControl();
     void updateVuVisibility(); void refreshVuTargets();
     void paintHybridVu (juce::Graphics&);
@@ -363,10 +363,14 @@ private:
     bool recordDisplayShowing() const noexcept;
 
     Role role;
+    void configureHeaderSelectors();
+    void chooseMeterContext (meter_context::MeterContext);
+    Domain lastMeasurementDomain = Domain::level;
     Domain selectedDomain = Domain::level;
     ObservationTarget selectedTarget = ObservationTarget::absolute;
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
+    level_readout::Display levelReadout;
     mono_sum_history::History monoSumHistory;
     space_live::Display spaceLive { *this, [this] { repaint (spaceTraceBounds()); } };
     bool frameAvailable = false;
@@ -439,7 +443,7 @@ private:
     Button timeButton { "TIME", true };
     Button frequencyButton { "FREQ", true };
     Button spaceButton { "SPACE", true };
-    Button referenceButton { "REF", false };
+    Button referenceButton { "REFERENCE", false };
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
@@ -447,7 +451,7 @@ private:
     Button timeRangeMenuButton { {}, false, Button::Mark::menuArrow };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
-    Button contextButton { {}, false };
+    Button trackButton { "TRACK", false }, twoMixButton { "2MIX", false };
     Button scaleButton { {}, false };
     Button sizeButton { {}, false };
     Button operationsButton { "MENU", false };

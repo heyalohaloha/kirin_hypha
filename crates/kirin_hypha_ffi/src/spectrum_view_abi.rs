@@ -70,3 +70,84 @@ pub(super) fn c_spectrum_from_timeline(
         shape_valid: shape.map(|value| u8::from(value.is_some())),
     }
 }
+
+/// Poll presentation continuity together with the unchanged legacy recovery batch.
+///
+/// # Safety
+/// All pointers must be live and writable as applicable. UI thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_spectrum_batch_continuous(
+    handle: *mut super::KirinHyphaEngine,
+    out: *mut KirinSpectrumBatch,
+    post_continuity: *mut u64,
+    delta_continuity: *mut u64,
+) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out.is_null()
+            || post_continuity.is_null()
+            || delta_continuity.is_null()
+        {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_spectrum_batch() else {
+            return false;
+        };
+        let span = snapshot.post_spectrum_history.continuity_span();
+        let delta = snapshot.spectrum_timeline.continuity();
+        let batch = super::to_c_spectrum_batch(snapshot);
+        let post = post_identity_for(&batch.latest, span);
+        unsafe {
+            *out = batch;
+            *post_continuity = post;
+            *delta_continuity = delta;
+        }
+        true
+    }))
+    .unwrap_or(false)
+}
+
+fn post_identity_for(view: &KirinSpectrumView, span: Option<(i64, i64, u64)>) -> u64 {
+    span.filter(|(start, end, _)| {
+        view.post_has_data != 0 && (*start..=*end).contains(&view.presentation_end_samples)
+    })
+    .map_or(0, |(_, _, identity)| identity)
+}
+
+#[cfg(test)]
+mod continuity_tests {
+    use super::*;
+    #[test]
+    fn failed_poll_preserves_all_outputs_and_legacy_batch_layout() {
+        let mut batch = super::super::to_c_spectrum_batch(Default::default());
+        batch.count = 5;
+        let (mut post, mut delta) = (123, 456);
+        assert!(!unsafe {
+            kirin_hypha_poll_spectrum_batch_continuous(
+                std::ptr::null_mut(),
+                &mut batch,
+                &mut post,
+                &mut delta,
+            )
+        });
+        assert_eq!((batch.count, post, delta), (5, 123, 456));
+        assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 39_608);
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 4_400);
+    }
+    #[test]
+    fn a_join_cannot_borrow_a_newer_post_segments_identity() {
+        let mut view = super::super::empty_c_spectrum();
+        view.post_has_data = 1;
+        for endpoint in [3000, 4800, 9600] {
+            view.presentation_end_samples = endpoint;
+            assert_eq!(post_identity_for(&view, Some((1600, 9600, 17))), 17);
+        }
+        view.presentation_end_samples = 4800;
+        assert_eq!(post_identity_for(&view, Some((6400, 12800, 23))), 0);
+        assert_eq!(post_identity_for(&view, None), 0);
+        view.presentation_end_samples = 12800;
+        assert_eq!(post_identity_for(&view, Some((6400, 12800, 23))), 23);
+        view.post_has_data = 0;
+        assert_eq!(post_identity_for(&view, Some((6400, 12800, 23))), 0);
+    }
+}

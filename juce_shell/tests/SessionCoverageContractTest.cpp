@@ -172,6 +172,61 @@ void verifyPlayingAndTimeCapture (KirinObservatoryFrame frame)
         }
     }
 }
+void verifyNumericCoverageBoundary (KirinObservatoryFrame frame)
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const auto& preset : observatory::sizePresets)
+        {
+            i18n::ScopedLanguage scoped (language);
+            observatory::View view (observatory::Role::post);
+            view.setSize (preset.width, preset.height); view.setLevelNumericInterval (1000);
+            view.setObservatoryFrame (frame, true);
+            KirinMeterSessionV2 coverage { 2, sizeof (coverage), frame.meter, frame.meter.active_frames - 479,
+                479, KIRIN_SESSION_SUMMARY_PENDING_TAIL, {} };
+            const auto paint = [&] { return view.createComponentSnapshot (view.getLocalBounds()); };
+            view.setSessionCoverage (coverage); const auto pending = paint();
+            for (const auto peak : { -0.8, -0.4, 0.2 })
+            {
+                coverage.session.max_true_peak = peak;
+                view.setSessionCoverage (coverage);
+                require (samePixels (pending, paint()),
+                         "NUM RATE 1 S holds the painted lower-bound number within the same pending Session");
+                require (view.cumulativeMeterForDisplay().max_true_peak == peak,
+                         "pending numerical hold leaves the published Session maximum unchanged");
+            }
+            view.setLevelNumericInterval (0);
+            require (! samePixels (pending, paint()), "LIVE adopts the latest pending bound and proves the pixel oracle changes");
+            view.setLevelNumericInterval (1000); paint();
+            for (const auto peak : { std::numeric_limits<double>::quiet_NaN(), -0.6,
+                                     std::numeric_limits<double>::quiet_NaN(), -0.5 })
+            {
+                coverage.session.max_true_peak = peak;
+                view.setSessionCoverage (coverage);
+                const auto availability = paint();
+                view.setLevelNumericInterval (0);
+                require (samePixels (availability, paint()),
+                         "pending MAX TP availability changes paint immediately at every size in both languages");
+                view.setLevelNumericInterval (1000); paint();
+            }
+            const auto beforeCompletion = paint();
+            coverage.summary_status = KIRIN_SESSION_SUMMARY_COMPLETE;
+            coverage.session.max_true_peak = -0.8; coverage.session.plr = 13.5;
+            coverage.processed_frames = coverage.session.active_frames; coverage.pending_frames = 0;
+            view.setSessionCoverage (coverage);
+            const auto completed = paint();
+            require (view.sessionMaximumBoundText().isEmpty() && ! samePixels (beforeCompletion, completed),
+                     "NUM RATE 1 S paints the completed MAX TP together with removal of its lower-bound sign");
+            view.setLevelNumericInterval (0);
+            require (samePixels (completed, paint()), "tail completion paints the same facts as LIVE at every size");
+            // Prime a completed hold, then make the coverage too old without changing generation/state.
+            view.setLevelNumericInterval (1000); paint();
+            --coverage.session.active_frames; view.setSessionCoverage (coverage);
+            const auto unconfirmed = paint();
+            require (view.sessionSummaryPending(), "old coverage loses confirmation immediately");
+            view.setLevelNumericInterval (0);
+            require (samePixels (unconfirmed, paint()), "coverage loss replaces held summary with the current confirmed prefix");
+        }
+}
 }
 void verifySessionCoverageContract()
 {
@@ -192,6 +247,7 @@ void verifySessionCoverageContract()
                                  KIRIN_SESSION_SUMMARY_PENDING_TAIL, {} };
     verifyHeldCoverage (frame);
     verifyPlayingAndTimeCapture (frame);
+    verifyNumericCoverageBoundary (frame);
     observatory::View rounding (observatory::Role::post);
     rounding.setObservatoryFrame (frame, true);
     const std::pair<double, const char*> endpoints[] {

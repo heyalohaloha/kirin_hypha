@@ -17,8 +17,10 @@ inline void arrangeVersionRows (std::vector<SelectionOption>& rows, const juce::
                                 const juce::String& autoId)
 {
     juce::StringArray current, order;
-    for (const auto& row : rows)
+    int index = 0;
+    for (auto& row : rows)
     {
+        row.sourceIndex = index++;
         order.addIfNotAlreadyThere (row.workId);
         if (row.id == selectedId || (autoId.isNotEmpty() && row.id == autoId))
             current.addIfNotAlreadyThere (row.workId);

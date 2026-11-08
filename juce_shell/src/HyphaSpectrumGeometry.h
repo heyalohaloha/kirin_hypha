@@ -68,10 +68,16 @@ namespace hypha::spectrum_geometry
     }
 
     inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds,
-                                                    bool reserveFocusTrail = false) noexcept
+                                                    bool reserveFocusTrail = false, float rangeDb = 96.0f,
+                                                    bool absolute = true) noexcept
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
+        if (rangeDb >= 120.0f && scale < 1.375f)
+        {
+            if (absolute) plot.removeFromLeft (14.0f * scale);
+            else if (! viewOnly (scale)) plot.removeFromRight (14.0f * scale);
+        }
         if (! viewOnly (scale))
             plot.removeFromTop (curveHeaderHeight (scale));
         if (reserveFocusTrail && scale > 1.1f)

@@ -6,6 +6,7 @@
 namespace hypha::live_compare_ui
 {
 using Reason = live_compare::RecoveryReason;
+const char* startFailure (live_compare::StartResult result) noexcept;
 
 inline bool startNeedsPreChoice (live_compare::StartResult result) noexcept
 { return result == live_compare::StartResult::noPair || result == live_compare::StartResult::preUnavailable; }

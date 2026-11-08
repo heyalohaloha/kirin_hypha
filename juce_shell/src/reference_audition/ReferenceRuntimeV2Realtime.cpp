@@ -4,6 +4,9 @@
 
 namespace hypha::reference_audition
 {
+   #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    void observeReferenceNormalPathRead (const RuntimeV2Controller*);
+   #endif
     void RuntimeV2Controller::serviceDeferredAudioThreadActions()
     {
         // Journal observes the completed session before this worker retires its data.
@@ -15,6 +18,39 @@ namespace hypha::reference_audition
         ReferenceSessionRetirement cancelled;
         if (pending && blind.cancelUnheardStart (cancelled) && cancelled.outputGateToken == pending)
             releaseOutputGate (pending);
+    }
+
+    // The new song has taken this block's path. An audible previous song crossfades directly into it
+    // from a private copy of its last path, and its page bank stays open until the blend ends.
+    void RuntimeV2Controller::beginSwitchBlend (const NormalPath& path) noexcept
+    {
+        if (rtPath.valid && rtNormalBlend > 0.0f)
+        {
+            rtOutgoing = rtPath;
+            rtOutgoing.gain = rtTrackingRamp.value();
+            rtSwitchBlend = 0.0f;
+            rtSwitchBlending = true;
+        }
+        else normalSwitchRetired.store (path.switchSerial, std::memory_order_release);
+        rtTrackingRamp.settle (path.gain);
+    }
+
+    void RuntimeV2Controller::finishSwitchBlend() noexcept
+    {
+        if (! rtSwitchBlending) return;
+        rtSwitchBlending = false;
+        normalSwitchRetired.store (rtPath.switchSerial, std::memory_order_release);
+    }
+
+    bool RuntimeV2Controller::renderOutgoingSong (std::int64_t hostPosition, int channels, int frames) noexcept
+    {
+        float* const channelData[2] { (*normalOutgoing)[0].data(), (*normalOutgoing)[1].data() };
+        juce::AudioBuffer<float> outgoing (channelData, channels, frames);
+        auto position = rtOutgoing.position (hostPosition, versionComparison);
+        const bool restart = rtOutgoing.restarts (versionComparison);
+        if (position < 0 && restart) position = rtOutgoing.looped (hostPosition);
+        return position >= 0 && rtOutgoing.pages->renderCueResult (outgoing, position, rtOutgoing.start, rtOutgoing.end,
+            rtOutgoing.loops || restart, rtOutgoing.gain, rtOutgoing.pageGeneration) == AudioPages::RenderResult::rendered;
     }
 
     void RuntimeV2Controller::serviceOutputRetirement()
@@ -86,59 +122,68 @@ namespace hypha::reference_audition
         if (frames < 1 || frames > 8192 || channels < 1 || channels > 2)
         { failClosedToAFromAudioThread(); rtNormalBlend = 0.0f; normalAudible.store (false); return false; }
         const auto epoch = activeAuditionEpoch.load (std::memory_order_acquire);
-        if (rtNormalEpoch != epoch) { rtNormalBlend = 0.0f; rtNormalEpoch = epoch; }
+        if (rtNormalEpoch != epoch) { rtNormalBlend = 0.0f; rtNormalEpoch = epoch; finishSwitchBlend(); rtPath = {}; }
+        if (rtNormalBlend <= 0.0f) finishSwitchBlend();
         const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
         const bool selected = normalTarget && bSelected.load (std::memory_order_acquire);
-        // gain が変わったら 50 ms の直線で動かす。まだ聴こえていない（入りのフェードの前）なら即座に合わせる。
-        const float targetGain = bLinearGain.load (std::memory_order_acquire);
         const int rampFrames = trackingRampFrames.load (std::memory_order_acquire);
-        if (rtNormalBlend <= 0.0f) rtTrackingRamp.settle (targetGain);
         for (int c = 0; c < channels; ++c)
             std::copy_n (buffer.getReadPointer (c), frames, normalLiveA[static_cast<size_t> (c)].data());
         const auto inputContinuity = aCapture.continuity();
-        auto* const renderingPages = &currentPages();
-        std::uint64_t renderedMapping = 0;
+        NormalPath path;
         bool rendered = false;
         auto pageResult = AudioPages::RenderResult::invalid;
         for (int attempt = 0; attempt < 3 && ! rendered; ++attempt)
         {
-            const auto generation = mappingGeneration.load (std::memory_order_acquire);
-            if ((generation & 1u) != 0)
-                continue;
-            auto sourcePosition = mappedSourcePosition (hostPosition);
-            const auto start = cueStart.load (std::memory_order_relaxed);
-            const auto end = cueEnd.load (std::memory_order_relaxed);
-            const auto loops = cueLoops.load (std::memory_order_relaxed);
+            NormalPath read;
+            // A paired song switch is being written: this block belongs to the last complete path.
+            if (! readNormalPath (read))
+            {
+                if (! rtPath.valid || rtNormalBlend <= 0.0f) continue;
+                read = rtPath;
+            }
+           #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            observeReferenceNormalPathRead (this);
+           #endif
+            auto sourcePosition = read.position (hostPosition, versionComparison);
             // Cue の頭から鳴らし直す役は、Cue の終わり・DAW のループで外へ出ても止めずに周回する（A へ切ると約 0.5 秒
             // 鳴らず、Rust の試聴と記録を作り直す）。
-            const bool restart = restartsAtCueStart();
+            const bool restart = read.restarts (versionComparison);
             if (sourcePosition < 0 && restart)
-                sourcePosition = loopedCuePosition (hostPosition);
-            if (sourcePosition < 0
-                || mappingGeneration.load (std::memory_order_acquire) != generation)
+                sourcePosition = read.looped (hostPosition);
+            if (sourcePosition < 0)
                 continue;
-            pageResult = renderingPages->renderCueResult (buffer, sourcePosition, start, end, loops || restart, 1.0f);
+            path = read;
+            // Only the PCM opened with this path: a callback that stalled while its bank was reused for another
+            // song reads nothing and takes the current path, never the other song at this song's gain.
+            pageResult = path.pages->renderCueResult (buffer, sourcePosition, path.start, path.end, path.loops || restart, 1.0f,
+                                                      path.pageGeneration);
             rendered = pageResult == AudioPages::RenderResult::rendered;
-            renderedMapping = generation;
         }
+        // A paired switch leaves the old bank open until this thread retires it, so a complete block
+        // of the previous song stays valid. Any other replacement of the bank or the map ends the block.
+        const bool pairedSwitch = rendered && (normalSwitchWriting.load (std::memory_order_acquire)
+            || path.switchSerial != normalSwitchSerial.load (std::memory_order_acquire));
         // A completed preparation can replace the page bank while an earlier callback
         // is finishing. That callback must never mix the new PCM with the old gain.
         if (epoch != auditionEpoch.load (std::memory_order_acquire)
             || epoch != activeAuditionEpoch.load (std::memory_order_acquire)
-            || renderingPages != &currentPages()
-            || (rendered && renderedMapping != mappingGeneration.load (std::memory_order_acquire)))
+            || (! pairedSwitch && path.valid && path.pages != &currentPages())
+            || (rendered && ! pairedSwitch && path.mapping != mappingGeneration.load (std::memory_order_acquire)))
         {
             for (int c = 0; c < channels; ++c)
                 std::copy_n (normalLiveA[static_cast<size_t> (c)].data(), frames, buffer.getWritePointer (c));
             rtNormalBlend = 0.0f; normalAudible.store (false, std::memory_order_release);
+            finishSwitchBlend();
             return false;
         }
         if (! rendered)
         {
             restoreReferenceLiveInput (buffer, [&] (int c) { return normalLiveA[static_cast<size_t> (c)].data(); });
             rtNormalBlend = 0.0f; normalAudible.store (false, std::memory_order_release);
+            finishSwitchBlend();
             if (pageResult == AudioPages::RenderResult::waitingForPages
-                && renderedMapping == mappingGeneration.load (std::memory_order_acquire))
+                && path.mapping == mappingGeneration.load (std::memory_order_acquire))
             {
                 normalPageWaiting.store (true, std::memory_order_release);
                 if (!selected)
@@ -171,18 +216,36 @@ namespace hypha::reference_audition
             failClosedToAFromAudioThread(); rtNormalBlend = 0.0f; normalAudible.store (false);
             return false;
         }
+        const float targetGain = path.gain;
+        if (path.switchSerial != rtPath.switchSerial) beginSwitchBlend (path);
+        rtPath = path;
+        // gain が変わったら 50 ms の直線で動かす。まだ聴こえていない（入りのフェードの前）なら即座に合わせる。
+        if (rtNormalBlend <= 0.0f) rtTrackingRamp.settle (targetGain);
+        if (rtSwitchBlending && ! renderOutgoingSong (hostPosition, channels, frames))
+        {
+            // The previous song cannot finish this crossfade, so the new one enters from A.
+            rtNormalBlend = 0.0f;
+            finishSwitchBlend();
+        }
         const float step = normalFadeStep.load (std::memory_order_acquire);
         for (int f = 0; f < frames; ++f)
         {
             const float gain = rtTrackingRamp.next (targetGain, rampFrames);
             rtNormalBlend = selected ? juce::jmin (1.0f, rtNormalBlend + step) : juce::jmax (0.0f, rtNormalBlend - step);
+            if (rtSwitchBlending) rtSwitchBlend = juce::jmin (1.0f, rtSwitchBlend + step);
             for (int c = 0; c < channels; ++c)
             {
                 const auto a = normalLiveA[static_cast<size_t> (c)][static_cast<size_t> (f)];
-                const auto b = buffer.getSample (c, f) * gain;
+                auto b = buffer.getSample (c, f) * gain;
+                if (rtSwitchBlending)
+                {
+                    const auto previous = (*normalOutgoing)[static_cast<size_t> (c)][static_cast<size_t> (f)];
+                    b = previous + (b - previous) * rtSwitchBlend;
+                }
                 buffer.setSample (c, f, rtNormalBlend == 0.0f ? a : rtNormalBlend == 1.0f ? b : a + (b - a) * rtNormalBlend);
             }
         }
+        if (rtSwitchBlending && rtSwitchBlend >= 1.0f) finishSwitchBlend();
         normalAudible.store (rtNormalBlend > 0.0f, std::memory_order_release);
         if (!selected && rtNormalBlend == 0.0f)
         {

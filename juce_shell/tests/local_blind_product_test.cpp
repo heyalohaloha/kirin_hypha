@@ -4,6 +4,7 @@
 #include "../src/HyphaLocalBlindComponent.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "TestProcessorStorage.h"
+#include "ShortcutTestAccess.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -105,6 +106,13 @@ private:
     {
         if (editor != nullptr) post->editorBeingDeleted (editor.get());
         editor.reset();
+    }
+
+    KirinHyphaEditor& shortcutEditor()
+    {
+        auto* result = dynamic_cast<KirinHyphaEditor*> (editor.get());
+        require (result != nullptr, "shared actions require the real editor");
+        return *result;
     }
 
     bool click (const char* id, bool requireVisible = true)
@@ -261,7 +269,10 @@ private:
                 break;
             case 32:
                 // POST by name on a replay from before the range.
-                if (post->isPlaying() || ! click ("local-blind-source-2")) break;
+                if (post->isPlaying()) break;
+                if (auto* button = dynamic_cast<juce::Button*> (find (*editor, "local-blind-source-2"));
+                    button == nullptr || ! button->isVisible() || ! button->isEnabled()) break;
+                (shortcutEditor().*shortcutMember (hypha::tests::ShortcutBlindSource {})) (2);
                 passNumber.store (4);
                 cue (nativeStart - 1003);
                 ++stage;
@@ -300,6 +311,8 @@ private:
             case 5:
                 if (! state.trial.heardOneComplete || state.trial.pendingStimulus != 2) break;
                 require (! state.trial.canAnswer, "first side alone cannot answer");
+                (shortcutEditor().*shortcutMember (hypha::tests::ShortcutBlindReveal {}))();
+                require (post->localBlindProductView().phase != Phase::revealed, "shared REVEAL rejects an unplayed source");
                 play.store (false);
                 ++stage;
                 break;
@@ -332,7 +345,9 @@ private:
                 require ((correlationOne.load() > 0) == (state.trial.revealedOneSide == 1)
                              && correlationOne.load() * correlationTwo.load() < 0,
                          "revealed assignment agrees with the two distinct captured PCM outputs");
-                if (! click ("local-blind-stop")) break;
+                if (auto* button = dynamic_cast<juce::Button*> (find (*editor, "local-blind-stop"));
+                    button == nullptr || ! button->isVisible() || ! button->isEnabled()) break;
+                (shortcutEditor().*shortcutMember (hypha::tests::ShortcutBlindEnd {}))();
                 ++stage;
                 break;
             case 10:

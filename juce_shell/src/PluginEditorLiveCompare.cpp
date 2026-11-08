@@ -20,7 +20,6 @@ namespace ui = hypha::ui_contract;
 using hypha::live_compare::MatchChoice;
 using hypha::live_compare::MatchFailure;
 using hypha::live_compare::MatchPlan;
-using hypha::live_compare::StartResult;
 
 juce::String signedDb (double db)
 {
@@ -53,25 +52,6 @@ juce::String alignedText (double ms, bool candidate)
     return juce::String (candidate ? "A " : "PRE ") + juce::String (ms, 2) + " ms aligned";
 }
 
-juce::String startFailure (StartResult result)
-{
-    switch (result)
-    {
-        case StartResult::started:
-        case StartResult::notPost:           return {};
-        case StartResult::contentHeld:       return "Timing changed: check chain delay (POST)";
-        case StartResult::comparisonBusy:    return "End the current comparison first";
-        case StartResult::returnPending:     return "Ended; normal level returns with audio";
-        case StartResult::returnRequired:    return "Press RETURN first";
-        case StartResult::notReady:          return "LISTEN could not start";
-        case StartResult::noPair:            return "Choose the PRE first";
-        case StartResult::unsupportedLayout: return "Mono / stereo only";
-        case StartResult::preUnavailable:    return hypha::live_compare_ui::preUnavailableNotice();
-        case StartResult::preMultiMono:      return "PRE is multi-mono: insert it as stereo";
-    }
-    return {};
-}
-
 juce::String matchFailure (MatchFailure failure)
 {
     switch (failure)
@@ -92,53 +72,8 @@ juce::String matchFailure (MatchFailure failure)
 void KirinHyphaEditor::configureLiveCompare()
 {
     observatoryView.onCandidateCompare = [this] { showCandidateCompareMenu(); };
-    observatoryView.onLiveCompareStart = [this]
-    {
-        // INV-LC14: a press that waited starts with the ticket of its press; a new press takes the latest one.
-        liveCompareStartAfterReturnCandidate.clear();
-        const auto waited = std::exchange (liveCompareStartPressed, std::nullopt);
-        const auto pressTicket = waited.value_or (processorRef.restoreOrPairTicket());
-        StartResult result = StartResult::notReady;
-        std::uint64_t generation = 0;
-        hypha::live_compare_ui::performAction (hypha::live_compare_ui::ActionFaultScope::duringAction,
-            [this, &result, &generation, waited]
-            {
-                result = processorRef.startLiveCompare (waited);
-                generation = processorRef.liveCompareStatus().sessionGeneration;
-                liveCompareMatched = liveCompareLimited = liveCompareInterruptSeen = false;
-                liveCompareActiveSeen = result == StartResult::started;
-                liveCompareAuto = {};
-                return result == StartResult::started ? hypha::live_compare_ui::ActionOutcome::success
-                                                      : hypha::live_compare_ui::ActionOutcome::refusal;
-            }, [this] { return refreshLiveCompare(); },
-            [this, &generation]
-            { return hypha::live_compare_ui::currentNamedAction (processorRef.liveCompareStatus(), generation, false); },
-            [this, &result, waited, pressTicket]
-            {
-                using hypha::live_compare_ui::StartAfterReturn;
-                if (waited && result != StartResult::started && processorRef.restoreOrPairTicket() != *waited)
-                    return;  // restored or re-paired since the press: the press is dropped, not refused
-                if (! waited && result != StartResult::started
-                    && hypha::live_compare_ui::onStartPressed (result) == StartAfterReturn::returnFirst)
-                {
-                    observatoryView.onLiveCompareReturn();  // the same RETURN, then LISTEN on this press
-                    liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
-                    liveCompareStartAfterReturnKey = waitingPairKey();
-                    liveCompareStartAfterReturnTicket = pressTicket;
-                    liveCompareStartAfterReturnBlind = false;
-                    showToast ("Returning POST to normal, then LISTEN");
-                    return;
-                }
-                if (result != StartResult::started) showToast (startFailure (result));
-                if (hypha::live_compare_ui::startNeedsPreChoice (result)) showCandidateMenu();
-            });
-    };
-    observatoryView.onLiveCompareSelect = [this] (bool pre)
-    {
-        processorRef.selectLiveComparePre (pre);
-        liveCompareInterruptSeen = false;
-        refreshLiveCompare();
-    };
+    observatoryView.onLiveCompareStart = [this] { requestListenStart (); };
+    observatoryView.onLiveCompareSelect = [this] (bool pre) { requestListenSelect (pre); };
     // INV-LC16: a window that shows the same LISTEN again continues the AUTO that rested. Loop wraps and
     // playback gaps move sessionGeneration, not the LISTEN; a rest that cannot continue says so.
     const auto rest = std::exchange (processorRef.liveCompareAutoRest(), {});
@@ -154,31 +89,9 @@ void KirinHyphaEditor::configureLiveCompare()
     else if (isPost && rest.on)
         liveCompareAuto.hiddenStopNoticePending = true;
     // Once matched, MATCH offers MATCH again and AUTO (INV-LC16); the first MATCH measures at once.
-    observatoryView.onLiveCompareMatch = [this]
-    {
-        if (liveCompareMatched)
-            chooseLiveCompareFollow();
-        else
-            matchLiveCompare();
-    };
-    observatoryView.onLiveCompareEnd = [this]
-    {
-        liveCompareStartAfterReturnUntil = 0.0;
-        processorRef.finishLiveCompare();
-        liveCompareFinishingSeen = true;
-        liveCompareMatched = false;
-        liveCompareLimited = false;
-        liveCompareActiveSeen = false;
-        liveCompareAuto = {};
-        refreshLiveCompare();
-    };
-    observatoryView.onLiveCompareReturn = [this]
-    {
-        if (returnReferenceLevelIfHeld()) { refreshLiveCompare(); return; }  // Reference が下げた A を戻す
-        processorRef.returnLiveComparePostToNormal();
-        liveCompareFinishingSeen = true;
-        refreshLiveCompare();
-    };
+    observatoryView.onLiveCompareMatch = [this] { requestListenMatch (); };
+    observatoryView.onLiveCompareEnd = [this] { requestListenEnd (); };
+    observatoryView.onLiveCompareReturn = [this] { requestNormalLevelReturn (); };
 }
 
 // The explicit MATCH: measure the latest window and apply it, asking first when PRE would pass the
@@ -448,7 +361,7 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
     {
         liveCompareStartAfterReturnUntil = 0.0;
         liveCompareStartAfterReturnCandidate.clear();
-        showToast (startFailure (admission));
+        showToast (hypha::live_compare_ui::startFailure (admission));
         return;
     }
     if (next != StartAfterReturn::start) return;

@@ -125,12 +125,13 @@ bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAuditi
 bool KirinHyphaProcessorBase::selectReferenceC() { return requestReferenceAudition (2); }
 bool KirinHyphaProcessorBase::selectReferenceRef() { return requestReferenceAudition (3); }  // B（REF）
 
-// B の曲と B SET。B が鳴っていれば、新しい曲が準備でき次第 B のまま鳴る。
+// B の曲と B SET。B が鳴っていれば旧曲を鳴らしたまま準備し、押したときの A で新しい MATCH を決めて替える。
 bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    const bool selected = licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->selectSong (id);
+    if (! licenseIsOs() || referenceAuditionController == nullptr) return false;
+    const auto level = referenceLiveALevel (false, referenceAuditionController->liveWindowBlocks (3), 0);
+    const bool selected = referenceAuditionController->selectSong (id, level.loudness, level.peak);
     if (selected && referencePendingAuditionNeedsService()) requestServiceTimer();
     return selected;
    #else
@@ -414,7 +415,8 @@ void KirinHyphaProcessorBase::createReferenceAuditionController()
         }, [this](bool active) {
             const juce::ScopedLock lock(handleLock);
             return hyphaHandle && kirin_hypha_set_version_blind_capture_exclusion(hyphaHandle,active);
-        }, [this] { captureStateNotification.changed(); }, [this] { return externalOutputStates(); });
+        }, [this] { captureStateNotification.changed(); }, [this] { return externalOutputStates(); },
+        [this] { requestServiceTimer(); });
 }
 #endif
 

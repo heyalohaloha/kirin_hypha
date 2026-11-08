@@ -122,16 +122,16 @@ namespace hypha::reference_audition
     AudioPages::RenderResult AudioPages::renderCueResult (juce::AudioBuffer<float>& destination,
                                 std::int64_t sourcePosition,
                                 std::int64_t cueStart, std::int64_t cueEnd,
-                                bool loopEnabled, float linearGain) noexcept
+                                bool loopEnabled, float linearGain, std::uint64_t expectedGeneration) noexcept
     {
         return renderRegion (destination, sourcePosition, cueStart, cueEnd,
-                             loopEnabled, linearGain);
+                             loopEnabled, linearGain, expectedGeneration);
     }
 
     AudioPages::RenderResult AudioPages::renderRegion (juce::AudioBuffer<float>& destination,
                                    std::int64_t sourcePosition,
                                    std::int64_t regionStart, std::int64_t regionEnd,
-                                   bool loopEnabled, float linearGain) noexcept
+                                   bool loopEnabled, float linearGain, std::uint64_t expectedGeneration) noexcept
     {
         if (!sourceVerified.load (std::memory_order_acquire)) return RenderResult::waitingForPages;
         const int frames = destination.getNumSamples();
@@ -180,8 +180,10 @@ namespace hypha::reference_audition
             }
         }
 
-        request (sourcePosition);
         const auto generation = activeGeneration.load (std::memory_order_acquire);
+        if (expectedGeneration != 0 && generation != expectedGeneration)
+            return RenderResult::invalid;
+        request (sourcePosition);
         std::array<Page*, pageCount> acquired {};
         size_t acquiredCount = 0;
         const auto releaseAll = [&]() noexcept
