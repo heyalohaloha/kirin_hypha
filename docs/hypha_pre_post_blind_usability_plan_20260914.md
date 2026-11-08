@@ -14,7 +14,7 @@ Live Blindの全サイズ表示、MATCH再利用、上昇量を示すEND、close
 
 追加指示: Referenceにも制作設定、Undo、書き出し、中断後の再生に関する同じ安全条件を適用する。
 これらの正本を[比較機能の共通安全契約](hypha_comparison_safety_contract_20260914.md)へ分離し、本書はLocal Blind固有の操作を定義する。
-本書は[Reference統合実装計画v4](reference_c_tonal_balance_plan_20260914.md)の構成文書であり、BL0〜BL4とBL-V01〜BL-V12、BL-U1〜BL-U3を統合計画の完成条件に含める。
+本書は[Reference統合実装計画v4](reference_c_balance_plan_20260914.md)の構成文書であり、BL0〜BL4とBL-V01〜BL-V12、BL-U1〜BL-U3を統合計画の完成条件に含める。
 統合計画は共通の所有権、通知、共存試験を正本とし、本書はLocal Blind固有の状態、操作、診断、実機比較を正本とする。
 
 ## 1. 完成範囲
@@ -25,7 +25,7 @@ Live Blindの全サイズ表示、MATCH再利用、上昇量を示すEND、close
 
 回答不要の即時比較、リアルタイムAUTO Gain、可変Capture長、全曲Blind、複数ペアの一括切替、音声履歴の永続保存は追加しない。
 これらを次期版へ移す決定でもなく、本計画とは別の範囲判断を要する機能として扱う。
-Reference A/B/C、CのTonal Balance、聴きどころ、今日の確認、比較しおり、Kirin OSの保存形式も変更しない。
+Reference A/B/C、CのBalance、聴きどころ、今日の確認、比較しおり、Kirin OSの保存形式も変更しない。
 Kirin OSやWork接続をLocal Blindの必須条件にしない。
 
 利用者がDAWで再生と位置移動を行う境界を維持する。

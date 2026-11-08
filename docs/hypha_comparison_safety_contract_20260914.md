@@ -95,7 +95,7 @@ Hypha内部の履歴記録とDAWのUndo履歴も同一視しない。
 | --- | --- | --- |
 | 一時試聴 | 可聴A/B/C、Blind Source 1/2、出力receipt、Gain適用、進行表示 | parameter gesture 0、保存内容が不変ならdirty通知0 |
 | 保存するReference選択 | Version、Preset、Check、Candidate、Cue、保存対象の表示設定 | 値が変わった確定snapshotごとに必要なdirty通知1回。同値再選択は0回 |
-| 非同期commit | Capture、Tonal ready、workflow checkpoint、しおり、メモ | 依存物とsnapshotの確定後に必要なdirty通知1回。古いgenerationと同じcommitの再公開は0回 |
+| 非同期commit | Capture、Balance ready、workflow checkpoint、しおり、メモ | 依存物とsnapshotの確定後に必要なdirty通知1回。古いgenerationと同じcommitの再公開は0回 |
 
 通知回数はHyphaが発行した事実とhostが作るUndo項目を分けて記録する。
 一時試聴の通知を抑えた結果、保存するReference選択や非同期commitが再openで失われた場合は不合格とする。
@@ -192,7 +192,7 @@ Studio One VST3の両OS、出荷対象AU、Pro Tools AAXの両OSを最低対象�
 UIだけのフラグや一つの新しい万能状態機械へ寄せない。
 新たな自動保護が必要なら、その経路の再現試験を先に追加し、既存の減衰承認と通常復帰を保って修正する。
 
-Referenceの[統合計画](reference_c_tonal_balance_plan_20260914.md)と[聴取手順計画](reference_listening_workflow_plan_20260914.md)、[PRE/POST Blind計画](hypha_pre_post_blind_usability_plan_20260914.md)の共通完了ゲートにCS1〜CS8を加える。
+Referenceの[統合計画](reference_c_balance_plan_20260914.md)と[聴取手順計画](reference_listening_workflow_plan_20260914.md)、[PRE/POST Blind計画](hypha_pre_post_blind_usability_plan_20260914.md)の共通完了ゲートにCS1〜CS8を加える。
 個別機能は互いの実装を待たず進められるが、共存する同じ最終sourceの試験を省略しない。
 四条件に関係する共有sourceを変えた場合は、影響する全比較経路を再検証する。
 更新後のexact commit、OS/DAW/format、素材、通知の取得方法、数値結果、未完了事項を一つの証跡へ記録する。

@@ -5,9 +5,9 @@
 状態: 計画修正と統合。製品コードの実装、実画面の検証、配置、公開は未実施。
 対象: 聴きどころの再利用 → 今日の確認 → 比較しおり。
 
-計画全体の入口と共通契約は[Reference統合実装計画v4](reference_c_tonal_balance_plan_20260914.md)に置く。
+計画全体の入口と共通契約は[Reference統合実装計画v4](reference_c_balance_plan_20260914.md)に置く。
 本書は聴取手順の詳細とWG0〜WG4、R1〜R12、V1〜V3を定義する。
-統合計画のTonal工程G0〜G4と区別するため、本書の工程IDにWGを使う。
+統合計画のBalance工程G0〜G4と区別するため、本書の工程IDにWGを使う。
 
 2026-09-14追加指示により、全試聴入口に[比較機能の共通安全契約](hypha_comparison_safety_contract_20260914.md)とCS1〜CS8を適用する。
 今日の確認としおりの再開は準備までとし、比較音を自動再生しない。
@@ -27,8 +27,8 @@ MIXとMasteringを主な利用場面とし、同じ保存契約と操作を使�
 | 今日の確認 | Presetから今回の項目を選び、順に確認して途中から再開する | Presetの項目や順序を変えず、その回だけの選択と本人の確認状態を持つ |
 | 比較しおり | 比較条件とメモを保存し、履歴からその条件を準備する | Historyの閲覧に、条件を再検証して呼び出す操作を加える |
 
-Tonal Balanceの計測、ジャンル分布、自分の基準セット、A/C区間ペア、自動選曲、自動Cue抽出、Audio onlyの追加導線、帯域Solo、Mono/M/S試聴、Album専用機能は追加しない。
-Tonal Balanceの数値契約を変更せず、その実装を本機能群の着手条件にしない。
+Balanceの計測、ジャンル分布、自分の基準セット、A/C区間ペア、自動選曲、自動Cue抽出、Audio onlyの追加導線、帯域Solo、Mono/M/S試聴、Album専用機能は追加しない。
+Balanceの数値契約を変更せず、その実装を本機能群の着手条件にしない。
 比較状態、保存snapshot、合算資源、配信識別、共存時の完成条件は統合計画第12節に従う。
 Work接続の必須化、DAW transportの自動操作、音源の自動再生、クラウド同期、音源同梱の新しい持出し機能も含めない。
 以下の新しいデータ形式とモジュール名は実装契約案であり、現行製品に存在するものではない。
@@ -147,7 +147,7 @@ OSから特定POSTを自動選択せず、Work接続や新しいConnect操作を
 ### 比較状態と戻り先
 
 receiverが持つ操作上のmodeはnormal、review、bookmarkのいずれか一つとする。
-これは音声A/B/CやTonal表示の選択とは別であり、UIへ内部名を常設することを要求しない。
+これは音声A/B/CやBalance表示の選択とは別であり、UIへ内部名を常設することを要求しない。
 通常B/Cの選択、確認回の再開checkpoint、しおりの一時条件を別に保持する。
 戻り先は通常選択と最大一つの中断中reviewへのrefで表し、しおりを重ねるたびに履歴stackを増やさない。
 
@@ -288,7 +288,7 @@ moments、reviews、bookmarksにはIDとrevisionごとの不変JSONを置き、i
 既存保存処理でPresetを確定し、実際のreceiptが一致してから適用元linkを確定する。
 途中終了後は一致したPresetだけにlinkを補完し、同名Presetや後続revisionへ付け直さない。
 linkの確定が遅れても、保存したCueとメモはPreset単体で使える形式にする。
-Tonal形式が先に実装された場合は、その形式別保存dispatcherを使い、旧領域へ新版Presetを書き戻さない。
+Balance形式が先に実装された場合は、その形式別保存dispatcherを使い、旧領域へ新版Presetを書き戻さない。
 
 ### Hyphaへの追加配信
 
@@ -352,7 +352,7 @@ A復帰、取消、通常音声の継続はこの保存待ちの容量に依存�
 通常Libraryの試聴eventは開始時のLibrary形式に対応するwriterへ、一時比較の試聴eventは追加journalへ送る。
 同じ試聴を両方へ二重記録せず、音声側で確認した事実を共通の投影から受け取る。
 OS Historyは保存元namespaceを含むkeyで統合し、開始と完了のcontext全体を照合する。
-Tonal計画のpublication_refと同じ識別規則を用いるが、その新版event実装が完成済みとは仮定しない。
+Balance計画のpublication_refと同じ識別規則を用いるが、その新版event実装が完成済みとは仮定しない。
 保存先namespace、由来のpublication_ref、実際の条件revisionのreceiptは統合計画第12節に従って区別する。
 壊れた追加eventはその記録だけを保留し、既存Historyや正常な確認回を表示不能にしない。
 
@@ -366,7 +366,7 @@ ReferenceChoicesへは通常B/C選択だけを保存し、reviewやbookmarkの�
 旧版を経由した再保存で追加要素が失われる場合は自動再開を保証せず、OSの原本から明示的に開き直せるようにする。
 
 getStateInformationは事前に組み立てた一組のsnapshotを読むだけとし、その場でファイルI/Oやencodeを行わない。
-統合計画第12節の共通組立て責務を使い、Tonal readyとworkflow更新の完了順で他方を巻き戻さない。
+統合計画第12節の共通組立て責務を使い、Balance readyとworkflow更新の完了順で他方を巻き戻さない。
 setStateInformation直後の再保存でも受信済みの有界な追加要素を保持し、非同期復元前に消さない。
 checkpoint更新後はEditorの有無と無関係に非RTでdirty通知し、古いgenerationからの通知や結果公開を拒否する。
 DAW保存時点以後の未保存操作はローカルjournalから回復可能な分だけ提示し、dirty通知を自動保存完了と呼ばない。
@@ -388,8 +388,8 @@ DAW保存時点以後の未保存操作はローカルjournalから回復可能�
 | 追加の常駐メモリ | 1 POSTあたり8 MiB以内を初期予算とし、読取り中、公開中、保存中、再送中、退役ownerの残存分を含む合計peakを実測する |
 
 上限は新実装の達成値ではなく、WG0で最大入力を使って確認する設計予算である。
-Tonal計画の保存増分が共存する場合も、既存state用予約を機能ごとに重複計上しない。
-Capture、Tonal、今回の追加要素を含む実encoder出力で合算し、入り切らなければメタデータ配置を改訂する。
+Balance計画の保存増分が共存する場合も、既存state用予約を機能ごとに重複計上しない。
+Capture、Balance、今回の追加要素を含む実encoder出力で合算し、入り切らなければメタデータ配置を改訂する。
 共通の配分は統合計画第8節の1,041,420 bytesであり、1 MiBまでの余裕は7,156 bytesである。
 この算術値を実encoderの達成値とせず、戻り先、最大Unicode、escape、restore待ちも含めて検証する。
 既存Captureの内容削除や、メモの無断切捨てで合格扱いにしない。
@@ -456,11 +456,11 @@ WG0は三つの実装が別々の保存方式へ分かれないための共通�
 ### WG0の必須証跡
 
 各証跡に両repoのexact commit、試作差分のhash、fixture、実行環境、コマンド、期待値と実測値を記録する。
-Tonal側のG0と共通の証跡を使う条件と、未実装側の最大形式fixtureの扱いは統合計画第12節に従う。
+Balance側のG0と共通の証跡を使う条件と、未実装側の最大形式fixtureの扱いは統合計画第12節に従う。
 
 | ID | 必須の実証と終了条件 | 代替不可の条件と後続検証 |
 | --- | --- | --- |
-| WG0-E | 実encoder／decoderの試作に最大Capture、Tonal最大形式、workflow最大形式、最大既存設定を同時投入し、stateが1 MiB未満、workflow増分4 KiB以内、読戻し欠落0を確認 | 手計算やJSON文字列長では不可。旧readerとrestore直後再保存も実行し、最終DAW保存はWG4で確認 |
+| WG0-E | 実encoder／decoderの試作に最大Capture、Balance最大形式、workflow最大形式、最大既存設定を同時投入し、stateが1 MiB未満、workflow増分4 KiB以内、読戻し欠落0を確認 | 手計算やJSON文字列長では不可。旧readerとrestore直後再保存も実行し、最終DAW保存はWG4で確認 |
 | WG0-F | 実filesystem上のwriterで条件artifact、journal、commit head、outbox、OS原本、ackの各境界へ終了・欠損・書込み失敗を注入し、第7節の表どおりに回復する | メモリ上の保存モデルでは不可。OS不在の条件改訂と偽ack、依存物未着を含め、製品入口の全R2／R9／R10は後続実装で確認 |
 | WG0-C | 現行の準備・admission・A復帰入口へ接続した一時context試作で、同じCheckの別Cue、reviewからしおりへの往復、古いreceipt、callback不在を実行する | modeを変えるだけのモデルでは不可。検証済み条件だけが適用され、自動B/C再生0、通常選択の汚染0を確認。最終DAW音声経路はWG4で確認 |
 | WG0-L | 実保存ownerと遅延I/Oを使い、macOS／Windowsの隔離した検証ホストで対象wrapperをload／unloadする。退役中を含む追加RAM8 MiB以内と、破棄後の実行中コード・callback残存0を確認 | threadを持たない模擬unloadやgeneration更新だけでは不可。停止できないI/Oを残してunloadする方式は不合格。UI／RTの完了待ち0を満たし、対象DAWではWG4で再検証 |
@@ -484,9 +484,9 @@ WG0終了時に各行をpass／fail／未実施で示し、実行試作、契約
 | R7 しおり作成 | A/B、A/C、今日の確認内外、未試聴条件、選択変更直後、旧Historyを使う | 保存対象が明示され、聴取事実を捏造しない。目的と今回のメモが独立 |
 | R8 しおり再開 | 当時と違うA、同じ曲の別Version、gain不足、位置不明、音源欠損、旧Preset削除、二つのしおりを続けて開く、reviewへの復帰と途中取消を含める | 検証済み一時contextだけ準備し、gainを再検証。通常選択と中断項目は不変。戻り先の入れ子や似た曲への代入なし。当時のA音声再現を約束せず、自動再生0回 |
 | R9 配信と履歴 | legacy／tonal-v1／workflow-v1の同じrevision/event ID、OS再起動、途中公開、重複再送、順序逆転、偽ack、依存artifact未着を使う | 保存先と由来namespace、condition receiptを区別。依存物の永続化前にackなし。二重取込みなし。異常記録だけ保留し、旧LibraryとHistoryを維持 |
-| R10 保存と破棄 | 条件・メモartifact、journal、commit head、checkpoint、dirty、OS確定、ackの各前後で終了。restore直後保存、書込み失敗、遅延I/O、Tonal readyとの完了順反転、wrapper unloadも確認 | 第7節の復元表どおり。ローカルcommit後は依存物を含め回復可能、commit前の未保存を復元済みとしない。動作中の失敗は入力と再試行を保持。snapshot混在と巻戻し0、破棄済みcallback0、RT/UIの完了待ち0 |
-| R11 最大値と安全性 | 最大Capture、最大既存設定、今回の最大状態、Tonal共存、超過長、symlink、path逸脱、破損を使う | 第8節のencode/RAM上限内。既存データ欠落0。通常Aのbit identityと0 samplesを維持 |
-| R12 利用手順と表示 | V1〜V3を全5サイズ、英日OS、Preview、keyboard、Blindで通す。Tonal表示あり／なし、reviewとしおりの往復も確認する | V課題の操作上限を満たし、通常A/B/Cの操作数増加なし。追加Connect、既知条件の再入力、別条件や保存状態の誤認、秘匿情報の漏出は0 |
+| R10 保存と破棄 | 条件・メモartifact、journal、commit head、checkpoint、dirty、OS確定、ackの各前後で終了。restore直後保存、書込み失敗、遅延I/O、Balance readyとの完了順反転、wrapper unloadも確認 | 第7節の復元表どおり。ローカルcommit後は依存物を含め回復可能、commit前の未保存を復元済みとしない。動作中の失敗は入力と再試行を保持。snapshot混在と巻戻し0、破棄済みcallback0、RT/UIの完了待ち0 |
+| R11 最大値と安全性 | 最大Capture、最大既存設定、今回の最大状態、Balance共存、超過長、symlink、path逸脱、破損を使う | 第8節のencode/RAM上限内。既存データ欠落0。通常Aのbit identityと0 samplesを維持 |
+| R12 利用手順と表示 | V1〜V3を全5サイズ、英日OS、Preview、keyboard、Blindで通す。Balance表示あり／なし、reviewとしおりの往復も確認する | V課題の操作上限を満たし、通常A/B/Cの操作数増加なし。追加Connect、既知条件の再入力、別条件や保存状態の誤認、秘匿情報の漏出は0 |
 
 WG0では1,000件の聴きどころと10,000件のしおりを検索fixtureとして用意し、先頭だけでなく末尾の項目と同名曲を確認する。
 検索結果の件数と読取り量を別々に測り、128件表示を全探索量の上限とは扱わない。
@@ -494,7 +494,7 @@ WG0では1,000件の聴きどころと10,000件のしおりを検索fixtureと�
 
 ### 操作数と理解を確認する三つの課題
 
-V1〜V3は、Tonal側のU1〜U3とは別の聴取手順の課題である。
+V1〜V3は、Balance側のU1〜U3とは別の聴取手順の課題である。
 初回登録、反復確認、翌日再開を分け、準備時間と反復時の省力化を混ぜない。
 
 | ID | 開始条件と課題 | 操作と理解の合格条件 |
@@ -536,7 +536,7 @@ macOSとWindows、Studio OneとPro Toolsの対象wrapperで、通常試聴、保
 既存3 suiteの110件passを新機能の完成証拠にせず、全体検証は未完了と記録する。
 今回の変更は本書と統合計画v4だけで、作業開始前から変更されていたS-1音源と他worktreeの製品差分を保持する。
 比較modeと戻り先、attempt内条件の確定順、WG0の実行必須証跡、V1〜V3の受入条件を追加した。
-統合計画では共通DAW snapshot、Tonal表示との分離、三経路の履歴識別、合算容量、共存試験へ接続した。
+統合計画では共通DAW snapshot、Balance表示との分離、三経路の履歴識別、合算容量、共存試験へ接続した。
 新しいcommitとB番号は発行しない。
 新しい外部APIや外部計測方式を導入しないため、今回は追加の外部調査を必要条件にしない。
 
@@ -559,4 +559,4 @@ macOSとWindows、Studio OneとPro Toolsの対象wrapperで、通常試聴、保
 - [DAW状態の現行保存](../juce_shell/src/reference_audition/ReferenceComparisonSettings.h)
 - [共通Reference UI](../juce_shell/src/HyphaReferenceComponent.cpp)
 - [Hyphaの表示契約](hypha_ce2226_jungle_visual_system_20260901.md)
-- [Reference統合実装計画v4・共通契約とTonal詳細](reference_c_tonal_balance_plan_20260914.md)
+- [Reference統合実装計画v4・共通契約とBalance詳細](reference_c_balance_plan_20260914.md)

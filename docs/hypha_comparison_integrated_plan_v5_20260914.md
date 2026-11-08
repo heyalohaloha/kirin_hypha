@@ -25,7 +25,7 @@
 
 | 参照文書 | v5で採用する内容 | v5が置き換える内容 |
 | --- | --- | --- |
-| [Reference統合実装計画v4](reference_c_tonal_balance_plan_20260914.md) | 第3節から第10節までのBalance固有の測定、Capture、配信、表示、T1からT10、U1からU3 | 題名、実装基点、共通完成条件、DAW保存予算、host matrix、他機能の所有 |
+| [Reference統合実装計画v4](reference_c_balance_plan_20260914.md) | 第3節から第10節までのBalance固有の測定、Capture、配信、表示、T1からT10、U1からU3 | 題名、実装基点、共通完成条件、DAW保存予算、host matrix、他機能の所有 |
 | [聴取再利用と確認手順](reference_listening_workflow_plan_20260914.md) | 聴きどころ、今日の確認、比較しおり、WG0からWG4、R1からR12、V1からV3 | B-884基点、実行ID、共通保存予算、共通完成条件、文書更新記録 |
 | [PRE/POST Blind](hypha_pre_post_blind_usability_plan_20260914.md) | 固定4秒Capture、再比較、診断、Pause、GainMatch比較、BL0からBL4、BL-V01からBL-V12、BL-U1からBL-U3 | host matrixの所有、統合完成条件 |
 | [比較機能の共通安全契約](hypha_comparison_safety_contract_20260914.md) | CS1からCS8、制作設定、Undo、offline書き出し、失効後の自動再生禁止 | 実装基点、host matrixの所有、統合完成条件 |
@@ -486,7 +486,7 @@ revision 2の作業は本書の修正と規範付属書の追加である。
 ## 17. 参照
 
 - [v5実行・検証契約](hypha_comparison_v5_execution_contract_20260914.md)
-- [Reference統合実装計画v4](reference_c_tonal_balance_plan_20260914.md)
+- [Reference統合実装計画v4](reference_c_balance_plan_20260914.md)
 - [聴取再利用と確認手順](reference_listening_workflow_plan_20260914.md)
 - [PRE/POST Blind](hypha_pre_post_blind_usability_plan_20260914.md)
 - [比較機能の共通安全契約](hypha_comparison_safety_contract_20260914.md)

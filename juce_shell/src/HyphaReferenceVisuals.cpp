@@ -375,7 +375,7 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
     if (state.separateComparisons && state.comparisonSlot == 2 && rangeStripBinding (binding)
         && paintCueRangeStrips (g, area, state, binding, presentation, window))
         return;
-    // Kirin OS の view_bindings に balance は無い（Tonal の BALANCE の絵は 2026-10-04 に外した）。
+    // Kirin OS の view_bindings に balance は無い（以前の BALANCE の絵は 2026-10-04 に外した）。
     if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation, window);
     else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation, window);
     else if (binding == "waveform") drawWaveform (g, area, state, presentation, window);

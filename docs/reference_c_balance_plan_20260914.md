@@ -1,12 +1,12 @@
-# Reference統合実装計画 v4（Tonal Balance、聴取再利用、確認手順、PRE/POST Blind）
+# Reference統合実装計画 v4（Balance、聴取再利用、確認手順、PRE/POST Blind）
 
 作成日: 2026-09-14。
-改訂: 第4版の第2統合改訂。Tonal Balanceと聴取再利用の統合契約を維持し、Local PRE/POST Blind第2版の状態、診断、実機受入を組み込む。
+改訂: 第4版の第2統合改訂。Balanceと聴取再利用の統合契約を維持し、Local PRE/POST Blind第2版の状態、診断、実機受入を組み込む。
 状態: 実装計画。方式の実証は未完了であり、製品コードの実装、配布、DAWへの配置は今回の作業に含めない。
-対象: MIX／MasteringのTonal Balance、聴きどころの再利用 → 今日の確認 → 比較しおり、ローカルPRE/POST Blind。
+対象: MIX／MasteringのBalance、聴きどころの再利用 → 今日の確認 → 比較しおり、ローカルPRE/POST Blind。
 
-本書を統合計画の入口とし、既存リンクを保つためファイル名は変更しない。
-第3〜10節はTonal Balanceの詳細、第12節は聴取手順との統合契約、第13節はLocal PRE/POST Blindとの統合契約を扱う。
+本書を統合計画の入口とする。
+第3〜10節はBalanceの詳細、第12節は聴取手順との統合契約、第13節はLocal PRE/POST Blindとの統合契約を扱う。
 [聴取再利用と確認手順の詳細](reference_listening_workflow_plan_20260914.md)は本書の構成文書であり、別の独立計画として競合する既定値を持たせない。
 [PRE/POST Blindの詳細](hypha_pre_post_blind_usability_plan_20260914.md)も本書の構成文書とし、BL0〜BL4、BL-V01〜BL-V12、BL-U1〜BL-U3を統合計画の完成条件に含める。
 共通の選択、保存、資源、履歴、工程の境界は本書を正本とし、聴取手順固有の操作とR試験は詳細文書を正本とする。
@@ -18,7 +18,7 @@ Local Blind固有の固定4秒Capture、診断、回答、Reveal、Return、Gain
 
 ## 1. 利用者に届ける結果
 
-MIXとMasteringのどちらでも、CのTonal Balanceを選ぶと、現在の音Aと選んだ比較曲Cの周波数バランスを同じ尺度で確認できる。
+MIXとMasteringのどちらでも、CのBalanceを選ぶと、現在の音Aと選んだ比較曲Cの周波数バランスを同じ尺度で確認できる。
 Kirin OSにあるジャンル分布も、同じ測定定義のまま表示基準として利用できるようにする。
 低域から高域までの関係を見て、必要な帯域を詳しく確かめ、固定Loudness Matchで聴き直す流れを一つのCheck内に収める。
 
@@ -32,12 +32,12 @@ AはDAW入力、Bは登録Version、CはCheckに割り当てた比較曲であ�
 第10節のU1〜U3で操作数と条件の理解を確認し、技術試験のpassだけで使いやすさを確認済みとしない。
 
 聴取手順では、登録済みの曲とCueを別Presetへ再利用し、その回に選んだCheckを確認して、比較条件と本人のメモを次回へ残す。
-確認状態を品質の合否や聴取の証明に変換せず、Tonalの分布も採点に使わない。
-この3機能も統合計画の完成範囲に含め、Tonalだけの完了を統合計画全体の完了と呼ばない。
+確認状態を品質の合否や聴取の証明に変換せず、Balanceの分布も採点に使わない。
+この3機能も統合計画の完成範囲に含め、Balanceだけの完了を統合計画全体の完了と呼ばない。
 
 Local PRE/POST Blindでは、制作音を変更せずに固定した4秒のPRE/POSTコピーを比較し、準備済みの取り直し、短音の不成立理由、Pauseとofflineを含む中断、通常出力への復帰を一つの手順として扱う。
 比較用Contextだけを同じprocessorとexact pairで再利用し、PCM、固定Gain、承認、Source割当、回答、再生許可は引き継がない。
-Local BlindはKirin OSやWork接続を必要条件にせず、Tonalと聴取手順の保存schemaも変更しない。
+Local BlindはKirin OSやWork接続を必要条件にせず、Balanceと聴取手順の保存schemaも変更しない。
 BL4まで完了していない状態で、Reference側の完了を統合計画全体の完了と呼ばない。
 
 ## 2. 実装基点と確認済みの制約
@@ -56,8 +56,8 @@ work.jsonのschema変更も本計画の前提にしない。
 
 | 確認した現状 | 設計への反映 |
 | --- | --- |
-| Mastering先頭のTonal balanceは絶対Spectrum全域と低域を表示する | 項目を維持し、相対パワーの専用表示を接続する |
-| MIX先頭のBalanceにはmusical priorityの目的がある | 楽器間バランスを残し、Tonal Balanceを追加する |
+| Mastering先頭のBalanceは絶対Spectrum全域と低域を表示する | 項目を維持し、相対パワーの専用表示を接続する |
+| MIX先頭のBalanceにはmusical priorityの目的がある | 楽器間バランスを残し、周波数分布のBalanceを追加する |
 | ジャンルはkirin_multires_relative_power.v1、60帯域、P10/P50/P90。runtime bundleは38,594 bytes、6ジャンル | 検証済みbundleとresolverを使い、別corpusや分類器を作らない |
 | 既存Reference Spectrumは64点の絶対振幅dBFS | 補間だけで60帯域の相対パワーに転用しない |
 | VisualObservationはalignment、参照波形、参照音源decodeの成功に依存する | A単独の観測を先行分離し、Cの成立条件には同曲alignmentを持ち込まない |
@@ -67,27 +67,27 @@ work.jsonのschema変更も本計画の前提にしない。
 | B-887はCapture、通常Reference試聴、両Blindの開始予約を同じPOSTで排他化し、Reference側の解析需要を一つのownerへ集約した | Local Blindは既存のBlind admissionを維持し、ReferenceAnalysisOwnerのshared grantへ混ぜない。物理2枠の合算と開始排他を別々に検証する |
 | Local Blindは固定4秒Capture、固定Gain、完全聴取、回答、Reveal、明示Returnを持つ | 操作短縮でこれらを自動化せず、比較用Contextだけを非永続で再利用する |
 
-先の「MIXのBalanceを単純にTonal Balanceへ置換する」と「Genre Contextを削除する」は採用しない。
+先の「MIXのBalanceを単純に周波数分布のBalanceへ置換する」と「Genre Contextを削除する」は採用しない。
 既存ジャンルに対する「上、範囲内、下」は測定上の関係として使い、合否やEQ修正指示へ変換しない。
 
 ## 3. Check Presetの構成
 
 | Preset | 冒頭の順番 | 役割 |
 | --- | --- | --- |
-| MIX | Tonal Balance → Musical Balance → Kick and bass → Vocal balance → Midrange → High end | 全帯域の分布、楽器間の優先関係、局所の確認へ進む |
-| Mastering | Tonal Balance → Loudness → True Peak → Dynamics → Stereo and phase | 全帯域の分布を確認してから音量とダイナミクスを見る |
+| MIX | Balance → Musical Balance → Kick and bass → Vocal balance → Midrange → High end | 全帯域の分布、楽器間の優先関係、局所の確認へ進む |
+| Mastering | Balance → Loudness → True Peak → Dynamics → Stereo and phase | 全帯域の分布を確認してから音量とダイナミクスを見る |
 
 MIXの後続項目とMasteringのLow-end consistency、Section difference、Album contextは維持する。
-MIXには既存catalogの`tonal_balance`を追加し、同じ意味のcatalog項目を新設しない。
+MIXには既存catalogの周波数分布のBalanceを追加し、同じ意味のcatalog項目を新設しない。
 新しいMIXのBalanceは表示名と説明を「楽器間バランス」と明確にし、既定は`audition_only`にする。
 楽器の抽出やボーカル量の推定値は作らない。
 この変更は新しいFactory revisionにだけ適用し、保存済みの利用者Presetを改変しない。
 
-Tonal Balanceの計測定義と操作は両Presetで共通にする。
+Balanceの計測定義と操作は両Presetで共通にする。
 MIXだけ緩い判定、Masteringだけ厳しい判定といった閾値差を設けない。
 工程の違いは説明文と利用者が登録する候補曲、Cueで表す。
-新しい主表示bindingは`tonal_balance`とし、既存`spectrum_full`／`spectrum_low`の意味を変えない。
-Tonal Balanceの中で全域と低域の詳細を扱い、既定では全域グラフと同じ内容の低域グラフを常設で重ねない。
+新しい主表示bindingは周波数分布のBalance専用とし、既存`spectrum_full`／`spectrum_low`の意味を変えない。
+Balanceの中で全域と低域の詳細を扱い、既定では全域グラフと同じ内容の低域グラフを常設で重ねない。
 
 ## 4. Cの表示と操作
 
@@ -99,7 +99,7 @@ Tonal Balanceの中で全域と低域の詳細を扱い、既定では全域グ�
 通常はAと選択曲Cを表示する。
 Kirin OSのCheck詳細から既存のジャンル分布を指定した場合は、その分布帯と名称を補助表示する。
 ジャンル未設定でもA/C比較を使える。
-Genre Contextという聴取項目と、Tonal Balanceの表示に使うジャンル指定は別の設定である。
+Genre Contextという聴取項目と、Balanceの表示に使うジャンル指定は別の設定である。
 
 - 凡例は下記の常設情報と詳細情報に分ける。AのLIVE／CAPTURED、Cの曲とCue、集計条件の違い、選択した分布帯の種類は、詳細を開かなくても識別できるようにする。
 - CAPTUREDの波形範囲を変えたら保存済み帯域時系列を再集計する。範囲解除は全域要約へ戻し、Capture開始、保持データの置換、音声commandを発行しない。
@@ -131,7 +131,7 @@ Blindの非表示規則は、これらの詳細とaccessibilityにも適用す�
 
 ### ジャンル設定から同じ比較へ戻る動線
 
-HyphaのTonal表示から1操作で、Kirin OSの該当Check詳細を開く接続動線を設ける。
+HyphaのBalance表示から1操作で、Kirin OSの該当Check詳細を開く接続動線を設ける。
 新しい編集画面をHyphaへ複製せず、ジャンルの選択と明示保存はOSの正本で行う。
 接続要求にはreceiver、namespace、Preset revision、Check IDと要求IDを含め、戻る操作は1操作とする。
 戻り先を他POSTや現在開いている別Checkから推定しない。
@@ -207,7 +207,7 @@ Capture ID、全域要約、既存の波形、変更検知索引、Bとのreceip
 範囲解除は保存済みの全域要約へ戻る。
 解析jobにはCapture IDと範囲generationを結び、範囲連打、Capture切替、復元後に古いjobが現在の表示を上書きしない。
 旧Capture、時系列の欠損、破損時は既存Captureを保持し、区間値だけを利用不可にする。
-旧Captureに全域Tonal summaryも存在しない場合は、その値も欠測にし、従来のCapture表示だけを維持する。
+旧Captureに全域Balance summaryも存在しない場合は、その値も欠測にし、従来のCapture表示だけを維持する。
 明示的な区間操作には理由と「全域へ戻る」「保存データを読み込む」の出口を出し、取り直しを通常の確認手順にしない。
 
 ## 6. 観測と配信の責務
@@ -217,13 +217,13 @@ Capture ID、全域要約、既存の波形、変更検知索引、Bとのreceip
 Hyphaに、参照曲の状態から独立したA観測の所有者を設ける。
 既存VisualObservationから置換前入力の取得、連続性判定、admissionの所有を分離し、Bのdecodeと同曲mappingは比較側へ残す。
 C音源、参照波形、alignment、ジャンル、OS接続の有無をA観測の開始条件にしない。
-A側の開始条件はTonal表示またはCaptureによる観測要求、有効な入力設定、観測可能な実時間入力、既存Analysis枠の取得とする。
+A側の開始条件はBalance表示またはCaptureによる観測要求、有効な入力設定、観測可能な実時間入力、既存Analysis枠の取得とする。
 Cのdecodeやartifact検証が失敗しても、有効なA入力の計測を止めない。
 OSライセンス、役割、offline、bypass、Blindの既存境界は維持する。
 
 一つのreceiverでLIVEからCaptureへ進む場合は、一つのA観測所有者の枠を引き継ぐ。
 Captureの窓起点は取得開始で新設するが、LIVEの窓をCaptureへ流用しない。
-同じ入力を使う既存観測と新Tonal観測はworker側で分配し、audio callbackでの新しい二重コピーを前提にしない。
+同じ入力を使う既存観測と新Balance観測はworker側で分配し、audio callbackでの新しい二重コピーを前提にしない。
 Capture終了、取消、restore、画面close、破棄では第8節のrunning→draining→releasedに従う。
 保持済み値の閲覧だけではLIVE計測を常駐させず、終了処理中の枠と現在の音声出力を区別する。
 Blindへ入ると表示用jobと公開snapshotを失効させ、既存の観測禁止条件を共有する。
@@ -232,7 +232,7 @@ Blind終了や画面再open時は現在の要求を再評価し、前epochの停
 ### LIVE観測と通常B/C試聴の枠共有
 
 同じreceiverではA観測のownerをAnalysis枠の寿命管理者とし、LIVE、Capture、通常B/C試聴を、その枠を使う別々のconsumerとして登録する。
-通常試聴だけを行う場合も枠の寿命管理を通すが、Tonal計測の要求がなければそのworkerは起動しない。
+通常試聴だけを行う場合も枠の寿命管理を通すが、Balance計測の要求がなければそのworkerは起動しない。
 Analysis枠の借用と、既存のproject／process単位の試聴排他権は別の契約とし、借用によって試聴の禁止条件を迂回しない。
 Blindは通常B/C試聴の借用対象へ含めず、既存の専用許可と観測禁止条件を維持する。
 
@@ -267,10 +267,10 @@ Reference Capture、通常Reference試聴、Reference Blind、Local Blindのど�
 Local Blindの開始によって失効した通常B/Cの待機要求は後から再生せず、Reference側の音声選択とHistoryへ試聴済み事実を作らない。
 
 Local Blindの4秒Captureと固定Gain解析は既存のBlind admissionを使い、ReferenceAnalysisOwnerの用途別grantとして登録しない。
-Tonalの窓、Capture Aの帯域時系列、通常B/Cのdecode結果も入力へ転用しない。
+Balanceの窓、Capture Aの帯域時系列、通常B/Cのdecode結果も入力へ転用しない。
 両者は物理2枠の上限だけを共有し、Local BlindをReference側の借用と呼んで処理量や枠を隠さない。
 Local Blindが`preparedDiscardPending`または通常復帰待ちにある間は、RT退役ackと音声receiptを満たすまで用途を解放済みと扱わない。
-一方、音声の通常復帰はTonal保存、workflow保存、OS配信、診断表示を待たずに要求できる。
+一方、音声の通常復帰はBalance保存、workflow保存、OS配信、診断表示を待たずに要求できる。
 開始予約、解析枠、試聴排他、音声復帰は別々の事実として追跡し、一つのboolから全状態を推定しない。
 
 Local Blindの一時Contextは同じprocessorとexact PRE/POST pairにだけ属し、DAW保存snapshot、Work、ReferenceChoices、workflowへ入れない。
@@ -280,11 +280,11 @@ Editor close/openでは条件が有効なContextだけを再表示できるが�
 
 ### Cとジャンルの準備
 
-Kirin OSはW-3080のSpectral Balance計測とresolverを使い、音源起点を維持したC/Cue用Tonal artifactを準備する。
+Kirin OSはSpectral Balance計測とresolverを使い、音源起点を維持したC/Cue用Balance artifactを準備する。
 既存artifactと同じidentity、起点、方式なら再利用し、Cue選択のためだけに窓を置き直さない。
 音源のfile/PCM identity、Cueの整数sample範囲、第5節の窓receipt、band定義、集計方式をartifactへ結び付ける。
-音源配信とoptionalな観測配信は別に進め、新Tonalの準備を理由に音源やBのVersions公開を待たせない。
-Tonalだけの追加公開は音源receiptを書き換えず、第7節の観測indexで通知する。
+音源配信とoptionalな観測配信は別に進め、新Balanceの準備を理由に音源やBのVersions公開を待たせない。
+Balanceだけの追加公開は音源receiptを書き換えず、第7節の観測indexで通知する。
 
 Hyphaは同じ数値契約を独立実装し、OSのRustやJSコードをGPL repositoryへコピーしない。
 ジャンルはOSが公開した検証済みruntime artifactを読む。
@@ -308,14 +308,14 @@ corpus、曲名、個別profile、非公開の元データをHyphaへ複製し�
 | 編集途中データ | reference/editor_drafts/<preset_id>.v1.jsonを維持 | reference/tonal-v1/editor_drafts/<preset_id>.v2.json。参照元namespaceとrevisionを含む |
 
 旧形式のPresetを旧schemaのまま編集する場合だけ、既存の保存処理を使う。
-Tonal追加やジャンル設定によって新版へ移る編集は、新revisionを新領域へ保存し、元の旧Preset、旧default、旧draftを書き換えない。
+Balance追加やジャンル設定によって新版へ移る編集は、新revisionを新領域へ保存し、元の旧Preset、旧default、旧draftを書き換えない。
 新版でのdefault変更は新版stateにだけ保存する。
 保存処理、import/export、draft復元、IPCの入口で形式を判定し、UI側だけの振分けに依存しない。
 新版fileを旧indexへ登録したり、拡張子だけv1にして旧writerへ渡したりしない。
 新版編集を保存するときは旧版が元のrevisionを使い続けることを短く伝える。
 
 初回移行は旧保存物の検証済みsnapshotを読み、旧Preset IDとrevision/hashを新stateの対応表へ記録する。
-新しいTonal既定値を保存済み利用者Presetへ自動適用しない。
+新しいBalance既定値を保存済み利用者Presetへ自動適用しない。
 新Presetとstate snapshotを先に検証保存し、既存の単一writer権限と期待revision/hashを再確認してから新headだけをatomicに更新する。
 中断した移行は公開済みheadから再開し、旧領域を修復名目で削除、置換しない。
 旧新版を同時起動した場合も、既存のwriter権限を得ていないプロセスは保存、移行、配信を行わない。
@@ -334,7 +334,7 @@ Tonal追加やジャンル設定によって新版へ移る編集は、新revisi
 | 配信 | transport rootからの相対path | 契約 |
 | --- | --- | --- |
 | 旧版 | library/manifest.json | OS側の対応実装のLibrary 1.1とPreset projection 1.0。旧canonical storageの現在の有効一覧とVersionsを公開する |
-| 新版 | library/tonal-v1/manifest.json | Library 2.0とPreset projection 2.0。旧保存物の検証済み参照と新版stateから構成し、Tonal viewとジャンル設定を表現する |
+| 新版 | library/tonal-v1/manifest.json | Library 2.0とPreset projection 2.0。旧保存物の検証済み参照と新版stateから構成し、Balance viewとジャンル設定を表現する |
 | 新版観測 | library/tonal-v1/observations/manifest.json | 観測index 1.0。source identity、Check、Cue、methodに対応する不変artifactのreceiptを更新する |
 | 新版の稼働証明 | library/tonal-v1/presence.json | 既存presenceのproducer sessionと、新版headのrevision/hash、入力stateのreceiptを結び付ける。旧presenceのschemaは変えない |
 
@@ -359,7 +359,7 @@ OS停止中は最後に検証した公開物をofflineとして保持する。
 
 ### Presetと表示設定の同一性
 
-Factoryは明示的なstable ID表へ整理し、既存CheckのIDを保持したまま新規Tonal Checkへ新IDを割り当てる。
+Factoryは明示的なstable ID表へ整理し、既存CheckのIDを保持したまま新規Balance Checkへ新IDを割り当てる。
 MIXとMasteringには新しいFactory revisionを発行し、同revisionの本文とhashを差し替えない。
 旧Factory、利用者Preset、Work snapshot、Historyへ新しい既定値を自動適用しない。
 Preview requestとPresetのimport/exportも新viewを表現するversionとclosed schemaを持つ。
@@ -390,11 +390,11 @@ hash不一致、未知namespace、archive欠損、片側event欠損は当該even
 
 ### Captureの埋込み情報と帯域時系列
 
-DAW状態には既存Captureと、version付きの別XML要素に入れたTonal保存状態を持たせる。
+DAW状態には既存Captureと、version付きの別XML要素に入れたBalance保存状態を持たせる。
 既存ReferenceChoicesのversion = 1とACaptureのdata属性は従来形式を維持する。
-Tonal追加要素はCapture IDと取得内容のhashへ結び付け、後付けのB receiptや表示設定はこのhashの対象から外す。
+Balance追加要素はCapture IDと取得内容のhashへ結び付け、後付けのB receiptや表示設定はこのhashの対象から外す。
 既存blobを拡張せず、旧readerは新要素を無視して従来のCaptureを読める構造にする。
-旧版で再保存するとTonal追加情報が落ちる場合があるため、旧版経由のround tripは保証せず、元の保存データから復元可能にする。
+旧版で再保存するとBalance追加情報が落ちる場合があるため、旧版経由のround tripは保証せず、元の保存データから復元可能にする。
 
 帯域時系列はHypha所有のcapture-tonal-v1/artifacts/<sha256>.binへ保存する。
 artifactはf32帯域値、validity、窓列、method、Capture ID、取得範囲を持ち、全曲PCMは含めない。
@@ -403,28 +403,28 @@ artifactはf32帯域値、validity、窓列、method、Capture ID、取得範囲
 
 ### Capture終了時の確定とDAW保存
 
-base Captureの保持とTonalの確定を別の状態で公開する。
+base Captureの保持とBalanceの確定を別の状態で公開する。
 下表の状態名は内部契約であり、そのままUIの常設ラベルにはしない。
 
-| Tonal状態 | 保存する追加情報 | 区間表示と復元 |
+| Balance状態 | 保存する追加情報 | 区間表示と復元 |
 | --- | --- | --- |
-| none | Tonalなし | 旧Capture等。従来のCapture表示を維持する |
-| pending | Capture ID、取得内容hash、method、期待する取得終端、recovery key。完成artifactのreceiptは持たない | Tonalは保存処理中。base Captureは保存でき、区間を確定値として表示しない |
+| none | Balanceなし | 旧Capture等。従来のCapture表示を維持する |
+| pending | Capture ID、取得内容hash、method、期待する取得終端、recovery key。完成artifactのreceiptは持たない | Balanceは保存処理中。base Captureは保存でき、区間を確定値として表示しない |
 | ready | 全域要約と、検証済みartifactのreceipt | 同じ取得内容に結び付く区間を表示、復元できる |
-| unavailable | 同じCaptureの識別と失敗理由 | base Captureを保持し、Tonalの保存未完了または失敗を明示する |
+| unavailable | 同じCaptureの識別と失敗理由 | base Captureを保持し、Balanceの保存未完了または失敗を明示する |
 
 終了時の順序は次のとおりとする。
 
 1. base Captureの確定時に、同じCapture IDと取得内容hashを持つpendingを一組の保存snapshotとして公開する。既存Captureのdirty通知を出す。
-2. Tonal workerは受理済み終端まで処理し、writerが全窓とvalidityを永続化する。完全性、取得終端、hashを検証したartifactと、その取得に結び付くsealed記録を保存する。
+2. Balance workerは受理済み終端まで処理し、writerが全窓とvalidityを永続化する。完全性、取得終端、hashを検証したartifactと、その取得に結び付くsealed記録を保存する。
 3. sealed artifactから全域要約を集計し、readyのcommit記録を不変保存する。recovery headをその記録へatomicに進める。
-4. 現在のCapture ID、取得内容hash、state generationが一致する場合だけreadyの保存snapshotへ切り替え、Tonal専用のdirty通知を追加する。Editorが閉じていても通知する。
+4. 現在のCapture ID、取得内容hash、state generationが一致する場合だけreadyの保存snapshotへ切り替え、Balance専用のdirty通知を追加する。Editorが閉じていても通知する。
 
-各公開snapshotはbase blobとTonal状態を一組の不変オブジェクトとして持ち、異なるCaptureの要素を別々に読み合わせない。
+各公開snapshotはbase blobとBalance状態を一組の不変オブジェクトとして持ち、異なるCaptureの要素を別々に読み合わせない。
 聴取手順との共存時は、この一組を第12節の共通保存snapshotに収め、workflowのcheckpoint更新で巻き戻さない。
 getStateInformationは公開済みsnapshotだけを取得し、queue drain、hash、encode、ファイル読取りをその場で開始しない。
-setStateInformation直後の再保存は、検証待ちの受信済みbaseとTonal追加要素を有界のまま保持し、非同期decode前に落とさない。
-壊れた追加要素はTonalだけ拒否し、正常なbase Captureを消さない。
+setStateInformation直後の再保存は、検証待ちの受信済みbaseとBalance追加要素を有界のまま保持し、非同期decode前に落とさない。
+壊れた追加要素はBalanceだけ拒否し、正常なbase Captureを消さない。
 dirty通知はprocessorの有効なlifecycle tokenに結び付け、破棄済みprocessorや古いgenerationへ遅延callbackを送らない。
 DAWへのdirty通知は自動保存の完了を意味しない。
 
@@ -440,20 +440,20 @@ sealedは期待終端までの帯域時系列が永続化済みであること�
 | --- | --- |
 | ready記録あり、DAWはpendingのまま保存されている | keyとhashを検証し、音声再取得なしでreadyへ復元してdirty通知 |
 | sealed記録あり、全域要約の確定前 | 保存済み帯域値だけから集計を完了し、readyへ復元 |
-| sealed前にプロセス終了、末尾未永続化、記録破損、別PCでrecovery欠損 | unavailableを公開してbase Captureを保持。未保存の窓を推定せず、Tonal未完了を表示 |
+| sealed前にプロセス終了、末尾未永続化、記録破損、別PCでrecovery欠損 | unavailableを公開してbase Captureを保持。未保存の窓を推定せず、Balance未完了を表示 |
 | 新Capture、別restore、取消が先行した後に旧jobが完了 | 旧Captureの不変保存物は保持できるが、現在のsnapshotとdirty通知を上書きしない |
 
-sealed前の強制終了から完全なTonal復元は保証しない。
+sealed前の強制終了から完全なBalance復元は保証しない。
 その境界を「保存済み」と表示せず、再取得なしの復元保証はsealed以後とする。
 未完了ファイル、孤立したartifact、ready記録だけを見つけた場合も、保存されたCaptureのkeyと取得内容の照合なしに採用しない。
-成功、失敗、取消の各終端でもbase Captureの既存置換規則を変えず、Tonalの都合で過去heldを消さない。
+成功、失敗、取消の各終端でもbase Captureの既存置換規則を変えず、Balanceの都合で過去heldを消さない。
 
 ### Capture保存データの持出し
 
 同じPCの保存復元ではreceiptとrecovery keyから自動解決し、利用者にpathを再入力させない。
 別PCへの持出しは、Capture状態と参照artifact、必要なcommit記録をまとめる書出し／読込みで扱う。
 pendingの書出しをreadyの完全bundleとして完了させず、sealedから確定できる場合は非RTで完了後に書き出す。
-sealedがなければTonalを含む完全な書出しは未完了と伝える。
+sealedがなければBalanceを含む完全な書出しは未完了と伝える。
 読込みはhash、Capture ID、取得内容、長さ、方式、path containmentを検証してからローカルへ保存する。
 DAWプロジェクトだけの移動では完全な区間復元を保証せず、欠損時も埋込み済み全域要約とbase Captureは保持する。
 確定保存物をcache掃除や現在のPOST数だけで自動削除しない。
@@ -485,7 +485,7 @@ Editorやprocessorを破棄する場合も、退役ownerはjobと枠の寿命を
 wrapperのunload境界で実行中コードやcallbackを残さない終了手順をG0で実証する。
 枠の移譲は停止ack後にだけ行い、旧epochと新epochを一つの枠で同時に走らせない。
 第6節の借用では所有者を変えず、試聴consumerの出力終了receiptと非RT処理の停止も解放条件へ含める。
-CaptureのTonal確定処理もdraining中の仕事に計上し、停止後の「後片付け」という名で枠外へ逃がさない。
+CaptureのBalance確定処理もdraining中の仕事に計上し、停止後の「後片付け」という名で枠外へ逃がさない。
 一方、定常動作で同じreceiverのLIVEとCaptureを引き継ぐ際は、停止と窓起点の切替を確認した上で同じ枠を保持できる。
 
 保持artifactの再集計は、計測中なら同じownerの有界jobとして扱い、停止中なら既存枠を取得する。
@@ -493,23 +493,23 @@ CaptureのTonal確定処理もdraining中の仕事に計上し、停止後の「
 runningとdrainingの両方を数え、既存の2枠に対して3枠目を作らない。
 枠不足時は、現在の有効表示をその対象範囲のまま保持し、新しい範囲の値と偽らず要求の待機を表示する。
 枠はwrapper内のstaticだけで数えず、既存の共有leaseで混在wrapperからも判定する。
-同じreceiverでの試聴開始待ちは解析jobの待ち行列と分け、新TonalのFFT、集計、保存I/Oを枠外で始める理由にしない。
-既存の試聴音源のdecodeと準備は従来の許可境界を維持し、新Tonalの待機を開始条件へ持ち込まない。
+同じreceiverでの試聴開始待ちは解析jobの待ち行列と分け、新BalanceのFFT、集計、保存I/Oを枠外で始める理由にしない。
+既存の試聴音源のdecodeと準備は従来の許可境界を維持し、新Balanceの待機を開始条件へ持ち込まない。
 
 RT入力queueとworkerへの受渡しbufferは合計2 MiB以内に収める。
-consumer別のgenerationと有界mailboxを使い、遅いTonalやディスク処理が既存Captureを待たせない。
-Tonal側の受渡し欠落は当該窓の欠測または当該取得のTonal保存失敗として扱う。
-音声継続とbase Captureに対する失敗条件は、Tonal表示の都合で厳しくしない。
+consumer別のgenerationと有界mailboxを使い、遅いBalanceやディスク処理が既存Captureを待たせない。
+Balance側の受渡し欠落は当該窓の欠測または当該取得のBalance保存失敗として扱う。
+音声継続とbase Captureに対する失敗条件は、Balance表示の都合で厳しくしない。
 
 ### DAW保存データ
 
-64 KiBのTonal追加上限は撤回する。
+64 KiBのBalance追加上限は撤回する。
 以下は圧縮を前提にしない配分であり、完成したplugin stateの実encoder出力を最終判定に使う。
 
 | 内訳 | 上限bytes |
 | --- | ---: |
 | 既存Captureの宣言上限 | 988,172 |
-| Tonal状態、全域要約、receiptまたはpending情報、表示設定のencode後増分 | 16,384 |
+| Balance状態、全域要約、receiptまたはpending情報、表示設定のencode後増分 | 16,384 |
 | 聴取手順のmode、戻り先ref、checkpoint等のencode後増分 | 4,096 |
 | その他の既存plugin stateと外側XML等のための追加予約 | 32,768 |
 | 統合時の合計 | 1,041,420 |
@@ -518,13 +518,13 @@ Tonal側の受渡し欠落は当該窓の欠測または当該取得のTonal保�
 16 KiBはraw structの大きさではなく、base64、文字列escape、field名、paddingを含む保存後の増分上限とする。
 既存metadataと追加予約を区別して実測し、実際の非Capture状態が予約を超えるならG0で形式を改訂する。
 既存Captureの最大取得時間、波形、索引、receipt、他の設定を削って予算を満たさない。
-最大Capture、最大Tonal、最大聴取手順、最大既存設定を同時に入れたDAW状態で1 MiB未満と、欠落なしの読戻しを要求する。
+最大Capture、最大Balance、最大聴取手順、最大既存設定を同時に入れたDAW状態で1 MiB未満と、欠落なしの読戻しを要求する。
 聴取手順の4 KiBには戻り先と保存参照のescape等も含め、32 KiBの既存state用予約を両機能で二重計上しない。
 合計は算術上の配分であり、実encoderで達成した容量とは扱わない。
 
 ### 帯域時系列とworker
 
-1 Captureの確定したTonal保存物は、時系列artifactとrecovery記録を合算して16 MiB以内にする。
+1 Captureの確定したBalance保存物は、時系列artifactとrecovery記録を合算して16 MiB以内にする。
 headerとindexは合計64 KiB以内、sealed/ready記録とrecovery headは合計32 KiB以内とする。
 既存のplane別band数18／12／30とhopを使い、2時間の窓数上限を14,401／36,001／72,001とする。
 validityは各planeの全窓×帯域を連続bit列として保持し、plane全体でbyteへ切り上げる。窓ごとのbyte paddingは含めない。
@@ -533,9 +533,9 @@ headerとindexに64 KiB、recovery記録に32 KiBを加えても、16 MiBまで4
 同一filesystem内のrenameでstagingを確定し、同じpayloadの確定コピーを二重に保持しない。
 書出しbundleの作成中に必要な別領域も空き容量検証の対象にする。
 rateごとの整数hopと実窓長で再計算し、この値を全rateの実証結果とは扱わない。
-容量不足、書込み拒否、途中終了はTonal artifactへ閉じ、確定した既存データを自動削除して空きを作らない。
+容量不足、書込み拒否、途中終了はBalance artifactへ閉じ、確定した既存データを自動削除して空きを作らない。
 
-追加Tonal RAMは同じreceiverの所有者あたり32 MiB以内とし、FFT、作成中、保持、restore待ち、pending受信state、recovery検証、公開snapshot、I/O buffer、encode一時領域を合算する。
+追加Balance RAMは同じreceiverの所有者あたり32 MiB以内とし、FFT、作成中、保持、restore待ち、pending受信state、recovery検証、公開snapshot、I/O buffer、encode一時領域を合算する。
 退役ownerの残存RAMを次のownerの予算から隠さず、running/drainingを含む全体peakを測る。
 既存Captureの16 MiB予算とは別に計測し、両者と共有queueを重複なく含む全体peak RSSも報告する。
 共存時は聴取手順の追加8 MiB／POSTも測定対象に含める。
@@ -558,7 +558,7 @@ OSとHyphaのパスは第2節のReference worktreeを基準とする。
 
 | 所有 | 対象 | 変更内容 |
 | --- | --- | --- |
-| OS Check | referenceWorkspaceFactoryCatalog.mjs、referenceWorkspaceCheckViewBindings.mjs、referenceWorkspaceCheck.mjs、Preset/schema群 | 共通Tonal view、MIX追加、stable ID、新revision、形式別の検証 |
+| OS Check | referenceWorkspaceFactoryCatalog.mjs、referenceWorkspaceCheckViewBindings.mjs、referenceWorkspaceCheck.mjs、Preset/schema群 | 共通Balance view、MIX追加、stable ID、新revision、形式別の検証 |
 | OS 保存 | referenceWorkspaceTemplateRepository.mjs、referenceWorkspacePresetRegistry.mjs、referenceWorkspaceGlobalSettings.mjs、referenceWorkspaceEditorDraft.mjs、src/port/reference/ipcRouter.cjs、新referenceTonalStateRepository.mjs | canonical storageとdraftの旧新版分離、atomic state head、非破壊移行、旧OSでの編集との照合 |
 | OS 設定UI | ReferenceCheckEditor.jsx、ReferenceWorkspaceScreen.jsx、referenceWorkspaceSupport.js、locales/{ja,en}.json、src/port/reference/ipcRouter.cjs、関連request／response schema | 明示ジャンル、目的、旧版への配信状況、移行表示、receiverとCheckを指定した編集往復、取消と競合 |
 | OS 数値 | native/src/spectral_balance.rs、spectralBalanceContract.mjs、readSpectralBalanceModel.mjs、genreSpectralBalanceReference{,Contract}.mjs | 起点保持、整数範囲、同じ窓列の集計、fixture。既存MEASUREの意味は変更しない |
@@ -571,7 +571,7 @@ OSとHyphaのパスは第2節のReference worktreeを基準とする。
 | Hypha Local Blind診断 | crates/kirin_measure/src/reference_gain.rs、crates/kirin_hypha_ffi/src/reference_gain_ffi.rs、kirin_hypha_reference_ffi.h、HyphaLocalBlindFailureText.h | 既存Gain算式を変えない診断付きABI、全Rust errorのreason code写像、世代付き結果、原因別の修復出口 |
 | Hypha 共通出力とhost通知 | PluginProcessorAudition.cpp、PluginProcessorState.cpp、HyphaCaptureStateNotification.h、通常Referenceと両Blindのrestore／return経路 | 共通安全契約CS1〜CS8、offlineとbypassの最初のbuffer、一時試聴と保存snapshotの通知分離、旧要求の自動再生拒否 |
 | Hypha History | ReferenceRuntimeEventTransport.*、event contextの生成箇所、関連schema/test | 開始時publication_refの固定、新旧event保存先、遅延completionと再接続の同一性 |
-| Hypha 共通保存と一時選択 | PluginProcessorState.cpp、ReferenceComparisonController.*、ReferenceComparisonSettings.h、新ReferenceWorkflowState.*と保存snapshot組立て責務 | 第12節の通常選択と戻り先の分離、base Capture＋Tonalとworkflowの領域別更新、restore時の全体失効、相互巻戻し防止 |
+| Hypha 共通保存と一時選択 | PluginProcessorState.cpp、ReferenceComparisonController.*、ReferenceComparisonSettings.h、新ReferenceWorkflowState.*と保存snapshot組立て責務 | 第12節の通常選択と戻り先の分離、base Capture＋Balanceとworkflowの領域別更新、restore時の全体失効、相互巻戻し防止 |
 | Hypha 計測とABI | crates/kirin_measure/src/reference_tonal*.rs、crates/kirin_hypha_ffi/src/reference_tonal_ffi.rs、既存ABI/header | 独立FFT、窓receipt、有界snapshot、正確な範囲集計 |
 | Hypha Library | ReferenceLibraryRepository.*、ReferenceRuntimeV2Repository.*、ReferenceRuntimeRepositoryParsing.*、ReferenceRuntimeV2Measurement.* | namespace別reader、新版Preset、producer検証、観測だけの失効、旧版fallback |
 | Hypha Capture | ReferenceComparisonSettings.h、ReferenceACapture{Model,Codec,Store,Session,Restore}.*、PluginProcessorState.cpp、HyphaCaptureStateNotification.h、新ReferenceCaptureTonalArtifact.*、ReferenceCaptureTonalCommit.*、ReferenceCaptureTonalRange.*、ReferenceCaptureTransfer.* | 一組の保存snapshot、pending/sealed/ready、recovery head、追加dirty通知、generation、非破壊区間と持出し |
@@ -585,14 +585,14 @@ OSとHyphaのパスは第2節のReference worktreeを基準とする。
 
 ## 10. 実装順序と受入試験
 
-以下のG0〜G4はTonal工程である。
+以下のG0〜G4はBalance工程である。
 聴取手順はWG0〜WG4とし、共通部分の証跡と統合完了の判定は第12節で束ねる。
 Local PRE/POST BlindはBL0〜BL4とし、詳細な順序と判定は構成文書、三機能群の共存と統合完了は第13節で束ねる。
 
 | 工程 | 作業 | 終了条件 |
 | --- | --- | --- |
 | G0 基点と境界の実証 | 両repoの基点固定、数値と保存とworkerの試作、枠借用とwrapper終了、保存とHistoryの契約モデル、小サイズ画面とU1〜U3の動線試作 | 下記G0-N／E／R／L／M／Uをすべて満たす。実encoder、実worker、停止ackとunloadは実行可能な試作の証跡を必須とし、契約モデルのpassで代替しない |
-| G1 観測分離と互換契約 | A観測、通常試聴との枠共有、待機要求と取消、停止ack、canonical storage、Library、stable ID、producer識別、Historyを実装 | Tonal表示なしの既存A/B/Cと、表示ありで2枠使用中のLIVE→B/C→Aが回帰pass。T1/T2/T7/T9/T10が実装に対してpass |
+| G1 観測分離と互換契約 | A観測、通常試聴との枠共有、待機要求と取消、停止ack、canonical storage、Library、stable ID、producer識別、Historyを実装 | Balance表示なしの既存A/B/Cと、表示ありで2枠使用中のLIVE→B/C→Aが回帰pass。T1/T2/T7/T9/T10が実装に対してpass |
 | G2 数値とCapture保存 | OS観測index、三plane計測、pending/sealed/ready、recovery、区間集計、持出し、dirty通知を実装 | 実OS出力の読取り、T3/T4/T5/T8、既存Captureの最大条件がpass |
 | G3 共通UI | A/C/genre、常設／詳細の区分、保存処理中と失敗の区別、試聴開始待ちと取消、範囲変更、OS設定との往復、全サイズ、Preview、Blind | U1〜U3を実データと初見試行で確認。操作上限を満たし、区間確認でCaptureを置換せず、旧新版の配信範囲、保存状態、持出しを確認できる |
 | G4 全体回帰と実機 | 対象試験後に全体suite、同じ最終版でStudio One／Pro ToolsとWindows | T1〜T10、U1〜U3の確定動線の回帰、RT境界、保存復元、両platform実機がpass。未検証を完成扱いにしない |
@@ -608,7 +608,7 @@ G0の試作は方式を検証するためのものであり、製品への統合
 | ID | 必須の証跡と終了条件 | モデルで代替できない部分／後続工程で残る部分 |
 | --- | --- | --- |
 | G0-N | OSとHyphaの独立計算を実行し、T3の同一起点fixtureで0.05 dB以内、窓列と欠測bitmapの一致、3窓対4窓の条件差を確認 | 計算式の検算だけでは不可。実製品の観測入口からのT3全件はG2で確認 |
-| G0-E | 新しいTonal要素を含む実encoderの試作へ最大Capture、最大聴取手順要素、最大既存設定を同時投入し、実plugin stateが1 MiB未満、Tonal増分16 KiB以内、聴取手順増分4 KiB以内、欠落なしの読戻しを確認。最大時系列も実ファイルへ保存し、recovery記録込みで16 MiB以内を確認 | structの見積りやモデルの文字列長では不可。DAW保存通知とT5／T8の全終了境界はG2とG4で確認 |
+| G0-E | 新しいBalance要素を含む実encoderの試作へ最大Capture、最大聴取手順要素、最大既存設定を同時投入し、実plugin stateが1 MiB未満、Balance増分16 KiB以内、聴取手順増分4 KiB以内、欠落なしの読戻しを確認。最大時系列も実ファイルへ保存し、recovery記録込みで16 MiB以内を確認 | structの見積りやモデルの文字列長では不可。DAW保存通知とT5／T8の全終了境界はG2とG4で確認 |
 | G0-R | 実FFT、正確なpercentile、保存I/Oを含むworkerを実行し、第8節のrate別CPU基準、32 MiBの追加RAMと合算peak、2 MiBのqueue上限を確認。2枠使用、範囲連打、draining残存を含める | sleep等で代用したworker負荷では不可。試作でもcallbackの追加alloc／lock／I/Oは0。DAWでの追加dropout 0と30分連続動作はG4で再検証 |
 | G0-L | 実leaseと停止ackを使い、2枠使用中のLIVE／Capture→B/C→A、借用中のclose、取消、processor再作成を実行する。対象wrapperをmacOSとWindowsの隔離した検証ホストでload／unloadし、終了後の実行中コードとcallbackが残らないことを確認 | 状態モデル、generation更新、threadを持たない模擬unloadでは不可。FFTとI/Oの停止遅延を含め、停止未確認を枠の空きとしない。停止できないI/Oを残してunloadする方式は不合格。Studio One／Pro Toolsでの最終統合はG4で確認 |
 | G0-M | T7／T8／T10の保存、復元、履歴識別を契約モデルで検査し、実writerへ入れる障害注入点と期待結果を確定する | モデルpassとして記録できるが、実filesystemの耐障害性やDAW通知の実証とは呼ばない。T7／T10はG1、T8はG2の実装で確認 |
@@ -623,13 +623,13 @@ G0-N／E／R／Lをモデルpassで埋めたり、G0-Uの操作上限を未定�
 | ID | 対応する指摘 | 入力と操作 | 合格条件 |
 | --- | --- | --- | --- |
 | T1 | A観測の独立化と通常試聴との引継ぎ | B未選択、別曲C、alignmentなし、参照波形なし、C decode失敗、OS停止、C未選択、LIVE→Capture→保持→再open。2枠使用中の同じreceiverでLIVE→B/C→A、Capture中のB/C往復、試聴中の観測開始 | 有効なAは単独観測可能。C失敗はCだけ欠測。借用による枠の二重取得なし。連続入力の通常往復でLIVE epochとCapture起点を変更せず、試聴consumer生存中の枠返却なし。既存Bの位置合わせ結果は不変 |
-| T2 | 旧新版の配信未定義 | 凍結したB-881 readerと新版readerを別プロセスで同時使用。初回起動、両起動順、未知binding、片側公開中断、新版専用Preset、旧OSへ戻す、再接続 | 旧readerは旧一覧とVersionsを読め、新readerは新Tonalを読む。各headは完全。旧defaultが有効。stale新版を現在配信と誤認しない。受信だけで音声切替なし |
+| T2 | 旧新版の配信未定義 | 凍結したB-881 readerと新版readerを別プロセスで同時使用。初回起動、両起動順、未知binding、片側公開中断、新版専用Preset、旧OSへ戻す、再接続 | 旧readerは旧一覧とVersionsを読め、新readerは新Balanceを読む。各headは完全。旧defaultが有効。stale新版を現在配信と誤認しない。受信だけで音声切替なし |
 | T3 | 窓起点の欠落 | 同一PCMと同一起点、0.03〜3.03秒の反例、開始1 sample差、window/hop境界、任意途中開始、seek/loop、全域／部分範囲 | 同条件では値0.05 dB以内かつ窓列、窓数、欠測bitmapが一致。3窓対4窓は条件差として検出し、値の一致を偽装しない |
 | T4 | 区間再Captureによる置換 | 全曲Capture→サビ選択→別範囲→全域→保存再open。停止中とOS不在で同じ操作。範囲連打、別PCへの書出し／読込み、artifact欠損 | 再生も再Captureも不要。Capture ID、全域要約、波形、索引、receipt、保持データhashが不変。正常な移送後は区間値も一致。欠損時は区間値だけ利用不可 |
-| T5 | 保存予算の衝突 | 2時間、最大binsと索引、最大receipt、最大Tonal、最大聴取手順要素、最大既存設定を同時保存。全rate/channel、encode境界、ディスク不足、破損と途中終了 | 実plugin stateが1 MiB未満、Tonal増分16 KiB以内、聴取手順増分4 KiB以内、artifact 16 MiB以内。既存項目の欠落0。読戻し一致。Tonal失敗が音声と既存Captureへ波及しない |
+| T5 | 保存予算の衝突 | 2時間、最大binsと索引、最大receipt、最大Balance、最大聴取手順要素、最大既存設定を同時保存。全rate/channel、encode境界、ディスク不足、破損と途中終了 | 実plugin stateが1 MiB未満、Balance増分16 KiB以内、聴取手順増分4 KiB以内、artifact 16 MiB以内。既存項目の欠落0。読戻し一致。Balance失敗が音声と既存Captureへ波及しない |
 | T6 | OS基点の不一致 | 両exact commitを記録し、OS側の対応実装のFactory、genre、Library、Versions、History、初回Workless利用とOS再起動を通す | 新旧namespaceの両方で独立B VersionsとCの意味を保持。別worktreeのpassを対象基点の証跡へ転用しない |
 | T7 | 再レビュー1：OS内部保存の旧新版混在 | 旧形式2件を持つ保存領域から新版Preset、default、draftを保存。旧OSへ戻って起動、編集、削除し、再び新版へ。各書込み境界で終了、移行再試行、同時起動 | 新版形式の保存、移行、default、draft操作で旧保存物のhash不変。旧形式の明示編集は既存writerで保存できる。新旧の並行編集を喪失せず、削除を復活させない。新版headは一覧と設定が同じsnapshot |
-| T8 | 再レビュー2：Tonal確定前のDAW保存 | base確定前、pending公開後、sealed前後、ready記録後、dirty通知前後に保存→即終了→再open。restore直後再保存、Editorなし、旧job完了前の新Capture、破損、別PC | 各境界で第7節の復元表どおり。sealed以後は再取得なしで復元。sealed前は未完了を明示しbaseを保持。snapshot混在0、追加dirty通知の欠落0、破棄済みcallback 0 |
+| T8 | 再レビュー2：Balance確定前のDAW保存 | base確定前、pending公開後、sealed前後、ready記録後、dirty通知前後に保存→即終了→再open。restore直後再保存、Editorなし、旧job完了前の新Capture、破損、別PC | 各境界で第7節の復元表どおり。sealed以後は再取得なしで復元。sealed前は未完了を明示しbaseを保持。snapshot混在0、追加dirty通知の欠落0、破棄済みcallback 0 |
 | T9 | 生存jobより早い枠返却と試聴待機の取消漏れ | 2枠使用中に一方のFFT/I/Oを停止点で保持し、同じreceiverでB/Cを1回要求。待機中にA、取消、曲／Cue／Check／Preset変更、transport停止／不連続、rate変更、bypass、offline、Blind、close、restore、processor再作成を個別に行う。3番目の要求、遅延ack、混在wrapper、unloadも確認 | running ownerでは借用でき、draining ownerには新規登録しない。停止ackまで枠を保持。条件不変なら枠と試聴許可の取得後に再クリックなしで1回だけ開始。取消済み要求の開始0、待機だけの試聴履歴0。A復帰は即時に要求可能。running+drainingは2枠以内、二重解放0、RT/UIのjoin待ち0 |
 | T10 | 再レビュー4：Historyのrevision衝突 | 旧新版で同じrevision番号とruntime/event ID、別manifest hashを用意。start後に新版公開、旧OSへ復帰、遅延completion、note改訂、archive欠損、hash改ざん | namespace別に正しいarchiveを解決。比較中publication_refは不変。誤ったstart/completion結合0。新版eventは旧journalへ混入せず、異常eventだけ保留 |
 
@@ -644,9 +644,9 @@ G0では設計者が試作を操作して経路と上限を確定し、G3では�
 
 | ID | 開始条件と課題 | 操作と理解の合格条件 |
 | --- | --- | --- |
-| U1 全体から帯域を確認して聴く | Libraryに登録済みの比較曲を使い、Tonal CheckでCとCueを選ぶ。全体の分布から指定帯域を確認し、Cを聴いてAへ戻る | 帯域の詳細を開く操作と概要へ戻る操作は各1回以内。詳細確認のための曲／Cue／Presetの再選択0。準備済みのCへの試聴要求とAへの復帰は各1操作、枠待ちによる再クリック0。現在鳴っている音と、LIVE一窓対Cue集計という条件差を回答できる |
+| U1 全体から帯域を確認して聴く | Libraryに登録済みの比較曲を使い、Balance CheckでCとCueを選ぶ。全体の分布から指定帯域を確認し、Cを聴いてAへ戻る | 帯域の詳細を開く操作と概要へ戻る操作は各1回以内。詳細確認のための曲／Cue／Presetの再選択0。準備済みのCへの試聴要求とAへの復帰は各1操作、枠待ちによる再クリック0。現在鳴っている音と、LIVE一窓対Cue集計という条件差を回答できる |
 | U2 Captureからサビを確認する | 保存済みの全域Captureを開き、サビ範囲、別範囲、全域の順に確認する。DAW停止中とOS不在でも行う | 再生開始と再Captureは0。全域へ戻る操作は1回以内。範囲変更前後で第5節の保持データが不変。どの範囲を表示中か、保存済み値か集計待ちかを回答できる。欠測時は理由と全域へ戻る出口を見つけられる |
-| U3 ジャンルを設定して比較へ戻る | HyphaのTonal CheckからOSの同じCheckを開き、ジャンルを選んで明示保存し、元のreceiverへ戻る。取消とOS不在も確認する | Checkを開く接続動線と戻る動線は各1操作。ジャンル選択と保存は別に数え、Checkの検索と曲／Cue／Presetの再選択は0。C、固定gain、Captureの表示範囲は不変。ジャンル設定だけによる音声commandは0。曲内変動の帯とジャンル分布の帯を区別できる |
+| U3 ジャンルを設定して比較へ戻る | HyphaのBalance CheckからOSの同じCheckを開き、ジャンルを選んで明示保存し、元のreceiverへ戻る。取消とOS不在も確認する | Checkを開く接続動線と戻る動線は各1操作。ジャンル選択と保存は別に数え、Checkの検索と曲／Cue／Presetの再選択は0。C、固定gain、Captureの表示範囲は不変。ジャンル設定だけによる音声commandは0。曲内変動の帯とジャンル分布の帯を区別できる |
 
 操作数はメニューを開くクリック、選択、確定、戻る操作をそれぞれ数え、アプリ切替、スクロール、文字入力、範囲指定drag、キーボード操作も別欄へ残す。
 既存の安全上必要な確認を消して操作数を達成せず、確認が必要な試行は理由と操作数を分けて記録する。
@@ -668,12 +668,12 @@ G0-Uで初回選択を含む課題ごとの最短経路と総操作上限を固�
 - 利用許諾済み実音源で疎な編成、低域中心、明るい曲、長い無音を含め、hashと観測範囲を記録する。Referenceへの近さを音質評価の正解にしない。
 - source移動／置換／削除、古いjob完了、bundle差替え、未知version、path逸脱、symlink、非finite artifact、超過長、部分ファイル、OS停止を検証する。
 - Capture書出し／読込みは正常往復、欠損、改ざん、別Capture ID、展開先逸脱、過大bundle、他POSTでの復元を含める。
-- 旧readerで新DAW状態のACaptureが読めること、旧版再保存でTonal追加情報が失われても元の保存データから復元できること、不一致な追加情報でbase Captureが失われないことを確認する。
+- 旧readerで新DAW状態のACaptureが読めること、旧版再保存でBalance追加情報が失われても元の保存データから復元できること、不一致な追加情報でbase Captureが失われないことを確認する。
 
 ### 全体回帰と実機
 
 A/B/Cの100回切替、Cue連打、seek/loop、bypass、offline、画面close/open、rate変更、2枠占有中の追加要求を確認する。
-Tonal表示中の2枠使用から同じreceiverのB/Cを聴く往復と、停止ack前に取り消した要求が後から再生されないことも最終版で確認する。
+Balance表示中の2枠使用から同じreceiverのB/Cを聴く往復と、停止ack前に取り消した要求が後から再生されないことも最終版で確認する。
 RT allocation/lock/I/O追加0、通常Aのbit identity、報告latency 0 samples、queue飽和とworker停止でも音声継続を要求する。
 最終版でRust workspace testとowned warningなしのclippyを実行する。
 FFI変更時はignored parity／pairingの一覧件数を実測して全件実行する。
@@ -687,7 +687,7 @@ Hyphaの固定UIは既存の英語を維持し、OS側の英日表示とPreview�
 
 ## 11. 既存作業との依存と改訂の検証
 
-Tonal第3版の改訂時のHypha ReferenceはB-882で、B-881からのBlindと表示の変更が統合されていた。
+Balance第3版の改訂時のHypha ReferenceはB-882で、B-881からのBlindと表示の変更が統合されていた。
 その時点でCapture保存、History transport、AnalysisLeaseの基盤に差分がないことを確認したが、後続commitやその他のB-882変更の完成証拠へは流用しない。
 最初の統合改訂は本書と聴取手順の詳細文書だけを変更し、他worktreeの製品コードを変更しなかった。
 第4版の開始時もHypha ReferenceのHEADはB-882、OS ReferenceはW-3080だった。
@@ -703,7 +703,7 @@ HyphaのJUCE submodule、HyphaObservatoryView.h、ui_render_contract_test.cppに
 直前の聴取手順レビュー4点を詳細文書へ反映し、第12節に選択・保存・配信・工程の統合条件を追加した。
 聴取手順レビュー時のW-3080対象8 test fileの47件passは既存実装の記録であり、WG0、R1〜R12や共存試験の実証ではない。
 統合改訂でも同じW-3080の8 test fileを再実行し、47件pass、0 fail、0 skipだった。
-文書の表、節番号、試験ID、共通容量、参照先の実在と、Tonal第5節・第6節を維持したことを確認した。
+文書の表、節番号、試験ID、共通容量、参照先の実在と、Balance第5節・第6節を維持したことを確認した。
 これらは文書と既存実装の確認であり、新しい保存snapshot、遷移、writer、実寸画面を動かした結果ではない。
 統合改訂でも計画置き場のmainでRust workspace testとclippyを起動したが、全体の完了前に中断した（終了コード130）。
 既存3 suiteの110件passは得られたが、workspace全体とclippyは未完了であり、B-884や新機能の検証証拠にはしない。
@@ -711,7 +711,7 @@ HyphaのJUCE submodule、HyphaObservatoryView.h、ui_render_contract_test.cppに
 第2統合改訂時はHypha ReferenceがB-887、OS ReferenceがW-3080で、両worktreeは確認時にcleanだった。
 B-886〜B-887の39ファイル、1,239行追加、228行削除の差分とB-887実装記録を読み、Capture操作の直列化、ReferenceAnalysisOwner、入力配信、表示投影が実装済みであることを計画へ反映した。
 B-887の対象native試験、全体baseline、実寸検証は既存実装の証拠として扱うが、同じcommitで未実施のDAW実機、Windows、両Blindとの共存をBL工程やCS試験のpassへ転用しない。
-Local Blindの試験IDはTonalのU1〜U3および聴取手順のV1〜V3と衝突しないよう、BL-V01〜BL-V12とBL-U1〜BL-U3へ固定した。
+Local Blindの試験IDはBalanceのU1〜U3および聴取手順のV1〜V3と衝突しないよう、BL-V01〜BL-V12とBL-U1〜BL-U3へ固定した。
 今回の変更は本書、Local Blind詳細文書、共通安全契約の整合に限定し、製品コード、他worktree、既存WAVを変更しない。
 第2統合改訂の文書検証では、構成4文書のローカル参照57件、表55件、Local Blind試験ID 15件、統合見出し3件を検査し、参照切れ、列ずれ、ID定義の重複がないことを確認した。
 
@@ -750,10 +750,10 @@ T7のうち旧readerについては、実際のW-3080 readerとencoderへメモ�
 | 今日の確認 | OSの不変な定義と、Hyphaのattempt別条件snapshot・実行journal | Presetの順序と通常B選択を変えず、本人の確認状態と試聴receiptを区別する |
 | 比較しおり | OS原本と、Hyphaが先に永続化する条件・メモ・outbox | 過去Aの音声再現を約束せず、現在Aへのgainと位置対応を再検証する |
 
-### 比較状態、戻り先、Tonal表示
+### 比較状態、戻り先、Balance表示
 
 通常比較、今日の確認、しおり比較はreceiver内で排他的な選択状態とする。
-Tonal表示はこれらと直交する表示要求であり、第四の音声選択状態を作らない。
+Balance表示はこれらと直交する表示要求であり、第四の音声選択状態を作らない。
 通常のB/C選択を戻り先の正本として保持し、一時比較のIDを通常選択へ保存しない。
 詳細文書第5節の遷移表を全入口に適用し、今日の確認から同じCheckの別Cueを持つしおりを開いても、項目の条件改訂として扱わない。
 その確認回を一時中断して項目、条件revision、確認状態を保持し、しおりを閉じると再検証して同じ項目へ戻れるようにする。
@@ -771,7 +771,7 @@ Blind終了だけで保留された開始やしおり適用を実行せず、新
 帯域、分布の表示切替、Captureの範囲変更は音声選択や本人の確認状態を変えない。
 今日の確認やしおりから第4節のジャンル編集へ進む場合、元Presetへの明示保存と、その場の表示設定を分ける。
 保存結果は要求IDに対応したreceiverの表示上書きとして保持し、凍結したPreset snapshot、項目の条件revision、しおり原本、比較開始contextを差し替えない。
-表示上書きはTonal要素の予算内に保存し、表示の根拠となるrevision/hashを残す。
+表示上書きはBalance要素の予算内に保存し、表示の根拠となるrevision/hashを残す。
 比較への復帰時もその表示要求のscopeを照合し、別の項目やPOSTへ流用しない。
 
 ### 保存確定と共通DAW snapshot
@@ -781,8 +781,8 @@ Blind終了だけで保留された開始やしおり適用を実行せず、新
 詳細文書第7節の復元表を適用し、ローカルcommit前の強制終了に未保存入力の復元を保証しない。
 動作中の保存失敗では入力と再試行の出口を保ち、OS未反映とローカル未保存を区別する。
 
-非RTの保存snapshot組立て責務を一つ設け、通常のReferenceChoices、base CaptureとTonalの一組、workflow追加要素を一回の公開で読めるようにする。
-Tonalのready確定とworkflowのcheckpoint確定は、それぞれのCapture ID／取得hashまたはattempt ID／連番／hashとgenerationを照合して、自分の領域だけを更新する。
+非RTの保存snapshot組立て責務を一つ設け、通常のReferenceChoices、base CaptureとBalanceの一組、workflow追加要素を一回の公開で読めるようにする。
+Balanceのready確定とworkflowのcheckpoint確定は、それぞれのCapture ID／取得hashまたはattempt ID／連番／hashとgenerationを照合して、自分の領域だけを更新する。
 古いsnapshot全体を後から公開して他方の新しい状態を巻き戻さず、他方のI/O完了待ちも加えない。
 別restoreは全領域の古い公開要求を失効させるが、一つのworkflow操作だけで進行中のCapture確定を取り消さない。
 現行のsavedSettingsが直接現在のCheck選択を保存する責務は分離し、ReferenceChoicesには通常選択だけを投影する。
@@ -803,16 +803,16 @@ workflow eventの保存先namespaceと、音源条件の由来を示すpublicati
 
 ### 共通実証と実装順序
 
-TonalはG0〜G4、聴取手順はWG0〜WG4で管理し、聴取手順内の順序は再利用 → 今日の確認 → しおりを保つ。
+BalanceはG0〜G4、聴取手順はWG0〜WG4で管理し、聴取手順内の順序は再利用 → 今日の確認 → しおりを保つ。
 先行する機能群は、他方の製品実装を待たず、自分の実行可能な試作と相手領域の最大形式fixtureで共通契約を実証できる。
 未実装側のfixtureを、その機能の実装passや実機passとして数えない。
 両機能が実装された時点ではfixtureを実データに置き換え、下記の共存試験を同じ最終ソースで行う。
 
 | 共通責務 | 先行実証の対応 | 共存時の必須試験 |
 | --- | --- | --- |
-| encoderと一組のsnapshot | G0-E／WG0-E | T5／T8とR10／R11。Tonal readyとworkflow commitの完了順を反転し、他方の巻戻しと欠落0 |
+| encoderと一組のsnapshot | G0-E／WG0-E | T5／T8とR10／R11。Balance readyとworkflow commitの完了順を反転し、他方の巻戻しと欠落0 |
 | 選択と戻り先 | G0-L／WG0-C | T1／T9とR4／R5／R6／R8。2枠使用中の確認 → しおり → 保存 → 再open → 確認へ復帰、旧試聴待ちの再生0 |
-| 永続化、終了、資源 | G0-R／G0-LとWG0-F／WG0-L | R9／R10／R11。条件artifact欠損とTonal保存失敗を互いに波及させず、共存peakと実wrapper unloadを確認 |
+| 永続化、終了、資源 | G0-R／G0-LとWG0-F／WG0-L | R9／R10／R11。条件artifact欠損とBalance保存失敗を互いに波及させず、共存peakと実wrapper unloadを確認 |
 | 履歴と表示 | G0-M／G0-UとWG0-M／WG0-U | T10、R9／R12、U1〜U3、V1〜V3。三つの保存先の同名IDを区別し、小サイズでも現在条件と保存状態を誤認させない |
 
 実encoder、実filesystem、実際の一時比較入口、実保存ownerとwrapper終了は実行可能な試作で確認する。
@@ -835,30 +835,30 @@ GainMatchは内部の実機比較対象として同文書に記載し、外部�
 
 Local Blindは既存の固定4秒Capture、固定Gain、両Sourceの完全聴取、回答、Reveal、明示Returnを維持する。
 改善対象は、同じprocessorとexact pairでの比較用Context再利用、準備完了後の取り直し、型付き診断、比較条件の表示、Pauseを含む中断、実機での復帰確認である。
-Reference A/B/C、Tonalの測定と保存、聴きどころ、今日の確認、比較しおり、Kirin OSのschemaをLocal Blindのために変更しない。
-Local Blindの開始にKirin OS、Work接続、Tonal artifact、workflow snapshotを要求しない。
+Reference A/B/C、Balanceの測定と保存、聴きどころ、今日の確認、比較しおり、Kirin OSのschemaをLocal Blindのために変更しない。
+Local Blindの開始にKirin OS、Work接続、Balance artifact、workflow snapshotを要求しない。
 
 ### 状態と所有権の共有境界
 
 | 境界 | 統合後の契約 |
 | --- | --- |
 | 開始予約 | B-887のReference controllerによる予約と既存の比較排他を正本にし、Reference Capture、通常B/C、Reference Blind、Local Blindの入口ごとに別の開始可否を作らない |
-| 解析枠 | Reference側はReferenceAnalysisOwner、Local Blindは既存Blind admissionを維持する。両者を一つのownerへ混ぜず、物理2枠には合算し、Local Blind用の3枠目、常駐thread、入力queueを追加しない。固定4秒PCMとTonal時系列は別の入力として維持する |
+| 解析枠 | Reference側はReferenceAnalysisOwner、Local Blindは既存Blind admissionを維持する。両者を一つのownerへ混ぜず、物理2枠には合算し、Local Blind用の3枠目、常駐thread、入力queueを追加しない。固定4秒PCMとBalance時系列は別の入力として維持する |
 | 準備済みの取り直し | `ready → preparedDiscardPending → RT退役ack → PCM publication退役 → scope解放 → preflight`を一つの世代で進める。Startと取り直しは片方だけを受理する |
 | 試聴開始後の復帰 | StopまたはEndとReturnを維持し、実適用済み減衰と比較コピーの停止を別に確認する。保存、decode、OS配信の完了を音声復帰条件にしない |
 | Referenceの通常選択 | Local Blind開始前のVersion、Preset、Check、Candidate、Cueを上書きしない。Return後の可聴音はAとし、保持したB/C選択を自動再生しない |
 | 比較用Context | 同じprocessor、exact pair、通常Contextに限る非永続情報とする。Editor close/openでは再表示できるが、project restore、state restore、processor再生成、pair変更で失効させる |
-| 保存と履歴 | Context、PCM、Gain承認、Source、回答、再生許可をDAW state、Work、ReferenceChoices、workflowへ追加しない。既存のBlind履歴がある場合もTonalやworkflowのjournalへ二重記録しない |
+| 保存と履歴 | Context、PCM、Gain承認、Source、回答、再生許可をDAW state、Work、ReferenceChoices、workflowへ追加しない。既存のBlind履歴がある場合もBalanceやworkflowのjournalへ二重記録しない |
 | 中断 | Pause、停止、seek、loop変更、clock/PDC変更、offline、bypass、Editor closeを同じ失効へ丸めない。出力と再開条件はLocal Blind詳細文書第6.4節を正本とする |
 
 一時Contextと診断は1 POST当たり4 KiB以内に収め、DAW保存の1 MiB予算へ加算しない。
-ただし、processor、準備済みtrial、退役待ちがTonal workerやworkflow保存と同時に生存する場合は、全体のpeak RSSから除外しない。
+ただし、processor、準備済みtrial、退役待ちがBalance workerやworkflow保存と同時に生存する場合は、全体のpeak RSSから除外しない。
 Local Blindの一時操作はparameter gestureとdirty通知を発行せず、保存するReference選択と非同期commitの通知は止めない。
 通知の分類と回数は共通安全契約第4節を正本とする。
 
 ### 三機能群の共存試験
 
-TonalはG0〜G4、聴取手順はWG0〜WG4、Local BlindはBL0〜BL4で進める。
+BalanceはG0〜G4、聴取手順はWG0〜WG4、Local BlindはBL0〜BL4で進める。
 各機能群は独立して着手できるが、共有sourceを変更した工程は下表の影響先を同じ確定sourceで再検証する。
 BL0で閉じるhost matrixはG4、WG4、CS1〜CS8にも使い、製品名、版、OS build、formatが異なる結果を寄せ集めない。
 
@@ -866,19 +866,19 @@ BL0で閉じるhost matrixはG4、WG4、CS1〜CS8にも使い、製品名、版�
 | --- | --- | --- |
 | 開始予約と解析owner | G1のT1／T9、BL1／BL3のBL-V07／BL-V11、CS8 | 2枠使用中の通常B/C待機、Reference Capture、両Blindの同時要求を直列化する。旧要求の再生、二重取得、停止ack前の解放を0にする |
 | 音声出力と中断 | G4、WG4のR5、BL3／BL4のBL-V01／BL-V04／BL-V06、CS4／CS5／CS7 | Pause、offline、bypass、seek、clock/PDC変化から比較コピーを自動再開せず、実適用済み減衰の復帰待ちを失わない。通常Aのbit identityと0 samplesを維持する |
-| 保存snapshotとhost通知 | G2のT5／T8、WG2〜WG4のR9〜R11、BL4のBL-V09／BL-V10、CS2／CS3／CS6 | Local Blindの一時操作は保存内容を変えず、Tonal readyとworkflow commitの必要な通知を落とさない。restoreで旧再生許可を復活させない |
+| 保存snapshotとhost通知 | G2のT5／T8、WG2〜WG4のR9〜R11、BL4のBL-V09／BL-V10、CS2／CS3／CS6 | Local Blindの一時操作は保存内容を変えず、Balance readyとworkflow commitの必要な通知を落とさない。restoreで旧再生許可を復活させない |
 | 表示と秘匿 | G3のU1〜U3、WG4のR12／V1〜V3、BL2／BL4のBL-V08／BL-V12とBL-U1〜BL-U3 | 全5サイズで現在音、固定コピー、保存済み条件、復帰待ちを取り違えない。Blind中の音源割当を描画、tooltip、keyboard、accessibilityから漏らさない |
-| 負荷と終了 | G0-R／G0-L、WG0-F／WG0-L、BL3のBL-V11、CS8 | Tonal処理、workflow I/O、Local Blindの準備と退役が重なるpeakを測る。追加RT alloc／lock／I/O、3枠目、破棄済みcallback、unload後の実行中コードを0にする |
+| 負荷と終了 | G0-R／G0-L、WG0-F／WG0-L、BL3のBL-V11、CS8 | Balance処理、workflow I/O、Local Blindの準備と退役が重なるpeakを測る。追加RT alloc／lock／I/O、3枠目、破棄済みcallback、unload後の実行中コードを0にする |
 
 Local BlindのBL-V試験はReferenceのT試験や聴取手順のR試験を代用せず、逆方向も同様とする。
 B-887のnativeと全体baselineは共有土台の確認に使えるが、未実施の実DAW、Windows、両Blindの共存、BL-U初見試行をpassにしない。
-GainMatchとの比較はLocal Blindの操作と実測を評価するものであり、Tonalや聴取手順の完成証拠には使わない。
+GainMatchとの比較はLocal Blindの操作と実測を評価するものであり、Balanceや聴取手順の完成証拠には使わない。
 
 ### 統合完了の判定
 
 個別機能の完了は、それぞれG4、WG4、BL4で判定する。
 統合計画全体は、三工程の完了に加え、第12節と本節の共存試験、CS1〜CS8、同じ閉じたhost matrixでの実機確認が完了した場合だけ完成とする。
-Tonalまたは聴取手順の先行実装をLocal Blind待ちとして止めない一方、先行した個別完了を統合完了や公開リリース完了と表示しない。
+Balanceまたは聴取手順の先行実装をLocal Blind待ちとして止めない一方、先行した個別完了を統合完了や公開リリース完了と表示しない。
 初見協力者は未確定であり、U1〜U3、V1〜V3、BL-U1〜BL-U3の理解と操作数は未実証として残す。
 
 ## 14. 参照
@@ -913,4 +913,3 @@ Tonalまたは聴取手順の先行実装をLocal Blind待ちとして止めな�
 
 外部の表示例として、iZotopeの公式資料で四広帯域と全域詳細、単曲と曲集合の参照という構成を確認した。
 Hyphaの測定方式は上記Kirin OS契約に従い、この資料から非公開の計算法を推定しない。
-参照: [Tonal Balance Control 2公式「Target Curves and Views」](https://s3.amazonaws.com/izotopedownloads/docs/tbc2/en/targets-and-views/index.html)。
