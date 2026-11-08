@@ -6,6 +6,7 @@
 #include <future>
 #include <limits>
 #include <map>
+#include <memory>
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
@@ -342,7 +343,9 @@ namespace hypha::reference_audition
         std::atomic<bool> normalPageWaiting { false };
         std::atomic<float> normalFadeStep { 1.0f / 240.0f };
         std::array<std::array<float, 8192>, 2> normalLiveA {};
-        std::array<std::array<float, 8192>, 2> normalOutgoing {}; // Audio-thread owned: the previous song during a switch.
+        // Audio-thread owned: the previous song during a switch. Allocated with the controller, off the
+        // Audio Thread, so the controller stays small enough to be built on a Windows thread's stack.
+        std::unique_ptr<std::array<std::array<float, 8192>, 2>> normalOutgoing = std::make_unique<std::array<std::array<float, 8192>, 2>>();
         std::uint64_t rtNormalEpoch = 0;
         float rtNormalBlend = 0.0f; // Audio-thread owned.
         NormalPath rtPath, rtOutgoing; // Audio-thread owned.

@@ -44,7 +44,7 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Controller::renderOutgoingSong (std::int64_t hostPosition, int channels, int frames) noexcept
     {
-        float* const channelData[2] { normalOutgoing[0].data(), normalOutgoing[1].data() };
+        float* const channelData[2] { (*normalOutgoing)[0].data(), (*normalOutgoing)[1].data() };
         juce::AudioBuffer<float> outgoing (channelData, channels, frames);
         auto position = rtOutgoing.position (hostPosition, versionComparison);
         const bool restart = rtOutgoing.restarts (versionComparison);
@@ -239,7 +239,7 @@ namespace hypha::reference_audition
                 auto b = buffer.getSample (c, f) * gain;
                 if (rtSwitchBlending)
                 {
-                    const auto previous = normalOutgoing[static_cast<size_t> (c)][static_cast<size_t> (f)];
+                    const auto previous = (*normalOutgoing)[static_cast<size_t> (c)][static_cast<size_t> (f)];
                     b = previous + (b - previous) * rtSwitchBlend;
                 }
                 buffer.setSample (c, f, rtNormalBlend == 0.0f ? a : rtNormalBlend == 1.0f ? b : a + (b - a) * rtNormalBlend);
