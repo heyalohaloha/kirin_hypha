@@ -9,9 +9,26 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <utility>
+#include <vector>
 
 using namespace hypha::local_blind;
-static void require (bool value) { if (! value) std::abort(); }
+#define require(expression) do { if (! (expression)) { \
+    std::cerr << __FILE__ << ':' << __LINE__ << ": requirement failed: " << #expression << '\n'; \
+    diagnostics(); std::cerr.flush(); std::abort(); \
+} } while (false)
+
+static void printState (const char* name, const LocalBlindCaptureService& service)
+{
+    const auto state = service.view();
+    constexpr const char* phases[] { "idle", "awaitingPeer", "capturing", "complete", "retired", "paired", "failed" };
+    const auto phase = static_cast<unsigned int> (state.phase);
+    std::cerr << name << ": running=" << service.running()
+              << " phase=" << (phase < std::size (phases) ? phases[phase] : "unknown") << '(' << phase << ')'
+              << " failure=" << static_cast<unsigned int> (state.failure)
+              << " captureFailure=" << static_cast<unsigned int> (state.captureFailure)
+              << " pairReady=" << service.capturePairReady() << '\n';
+}
 
 static CaptureClockObservation clockAt (std::int64_t position, int frames)
 {
@@ -150,6 +167,15 @@ int main()
                   return false; // Debug evidence remains owned by the capture service.
               } });
 
+    std::vector<std::pair<const char*, const LocalBlindCaptureService*>> services { { "PRE", &pre }, { "POST", &post } };
+    const auto diagnostics = [&]
+    {
+        for (const auto& [name, service] : services) printState (name, *service);
+        std::cerr << "acknowledged=" << preAcknowledged.load()
+                  << " consumed=" << transport.consumed.load() << " retiredHook=" << transport.retired.load()
+                  << " deliveredPairs=" << deliveredPairs.load() << " pairGeneration=" << pairGeneration.load()
+                  << " requestAvailable=" << preRequestAvailable.load() << " requestContended=" << preRequestContended.load() << '\n';
+    };
     pre.start (48000, 1);
     post.start (48000, 1);
     require (waitUntil ([&] { return preAcknowledged.load(); }));
@@ -182,7 +208,9 @@ int main()
              && comparison.start == request.nativeStart
              && comparison.frames == request.frames);
 #endif
-    require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::retired; }));
+    // The owner publishes retired before the scheduler calls the transport retirement hook.
+    require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::retired
+                                && transport.consumed.load() && transport.retired.load(); }));
     require (transport.consumed.load() && transport.retired.load());
     {
         std::lock_guard<std::mutex> guard (transport.lock);
@@ -257,6 +285,7 @@ int main()
                   return true;
               },
           {}, {}, {} });
+    services.emplace_back ("rejecting POST", &rejectingPost);
     rejectingPost.start (48000, 1);
     require (rejectingPost.reservePostRequest());
     require (rejectingPost.commitPostRequest (rejectedRequest));
@@ -289,6 +318,7 @@ int main()
           [&] (ExactPairBinding& out) { out = absentPreRequest.pair; return true; },
           {}, {}, {}, {}, {}, {}, {}, {} },
         250);
+    services.emplace_back ("absent PRE POST", &absentPrePost);
     absentPrePost.start (48000, 1);
     require (absentPrePost.reservePostRequest());
     require (absentPrePost.commitPostRequest (absentPreRequest));
@@ -324,6 +354,7 @@ int main()
                   return true;
               },
           {}, {}, {}, {}, {}, {} });
+    services.emplace_back ("failing PRE", &failingPre);
     failingPre.start (48000, 1);
     require (waitUntil ([&] { return failingPre.view().phase == CaptureOwnerPhase::capturing; }));
     require (failingPre.process (prePointers, 1, clockAt (0, 6), 48000));
@@ -348,6 +379,7 @@ int main()
                   return true;
               },
           {}, {}, {}, {} });
+    services.emplace_back ("observing POST", &observingPost);
     observingPost.start (48000, 1);
     require (observingPost.reservePostRequest());
     require (observingPost.commitPostRequest (failedRequest));
@@ -384,6 +416,7 @@ int main()
                   return expected;
               },
           {}, {}, {}, {}, {}, {} });
+    services.emplace_back ("unpublishable PRE", &unpublishablePre);
     unpublishablePre.start (48000, 1);
     require (waitUntil ([&]
     {

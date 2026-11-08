@@ -71,6 +71,7 @@ void testTargetResetBoundary()
         ring.enqueue (210, 0.8f); // One second and a half-tick, with a peak outside the new window.
         if (! queued) ring.drain();
         ring.observation.resetAWindow();
+        // Even an empty queue must cross the worker's next RESET check before publication.
         const auto reset = ring.drain();
         require (! reset->aKirin && reset->aTicks && reset->aTicks->size() == 10,
                  "RESET preserves the old range bins while clearing the displayed spectrum");

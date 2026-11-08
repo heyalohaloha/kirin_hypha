@@ -114,6 +114,8 @@ public:
     // 走らせて受け口を空にし、測った物が publish されるまで待って止める。
     std::shared_ptr<const ref::VisualTimeline> drain()
     {
+        // binding で止まった周の RESET 確認は済んでいる。次の周の確認まで進めてから publish を待つ。
+        advance (1);
         release();
         hypha::tests::reference_control::await ([this] { return ! observation.pendingInput(); }, "the ring test must drain its queue");
         // 窓を替えると必ず publish されるので、これを待てば受け口を読み終えた後の値が見える。
