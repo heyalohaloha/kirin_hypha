@@ -13,7 +13,7 @@ A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
 <p align="center">
-<a href="#download"><b>Download 1.1.54</b></a> &nbsp;·&nbsp;
+<a href="#download"><b>Download 1.1.55</b></a> &nbsp;·&nbsp;
 <a href="#start-in-under-a-minute"><b>Start in a minute</b></a> &nbsp;·&nbsp;
 <a href="#what-you-can-do"><b>What you can do</b></a> &nbsp;·&nbsp;
 <a href="#building-from-source"><b>Build from source</b></a>
@@ -143,16 +143,16 @@ library, and Keep / Record saves a playback's measurements with the song. See [M
 
 ## Download
 
-**Hypha 1.1.54 is available for macOS and Windows.** Both installers include PRE and POST.
+**Hypha 1.1.55 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
-| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.54/Kirin-Hypha-1.1.54-macOS-Universal.pkg) | AU · VST3 · AAX Native |
-| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.54/Kirin-Hypha-1.1.54-Windows-x64-Setup.exe) | VST3 · AAX Native |
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.55/Kirin-Hypha-1.1.55-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.55/Kirin-Hypha-1.1.55-Windows-x64-Setup.exe) | VST3 · AAX Native |
 
 The macOS installer and plug-ins are signed and notarized. The Windows installer and plug-ins are
 Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
-[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.54).
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.55).
 
 <details>
 <summary>Download verification and release provenance</summary>
@@ -932,7 +932,16 @@ Switching views retires the previous view's missing-latency flag. Format support
 prove PRE/POST timing alignment.
 
 <a id="optional-update-information"></a>
-### Update information in 1.1.54
+### Update information in 1.1.55
+
+In 1.1.55 you can compare hardware and a plug-in on the same track. Place PRE1 → A → PRE2 → B →
+POST, press A/B on POST and choose PRE2; LISTEN, MATCH, AUTO and BLIND then compare A and B at
+matched level. The top row has TRACK, 2MIX and REFERENCE, and keyboard shortcuts work in the Hypha
+window (press F for the list). Reference keeps the current song playing while the next one gets
+ready, and REF measures a dropped audio file as a target. FREQ adds a LOW view for 20–300 Hz. When
+PRE arrives early, LISTEN lines it up and shows by how much. In Pro Tools, LISTEN and BLIND work with
+a hardware insert between PRE and POST. The
+[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.55) list every change.
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or
 Japanese official download link to get a newer version. Hypha does not install updates automatically.
