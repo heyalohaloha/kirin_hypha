@@ -81,7 +81,7 @@ Correlation は runtime 上は R だが、それは `StereoMeter` の親ガー�
 | Absolute timeline | **R** | COMPOSITE / dependent | LUFS / TP / Sharpness の各契約確定後に判断 |
 | SPACE decay | **R** | **broadband（全 ch 合算）** | 計算は既に総称。ガードは入力検証のみ |
 | Reference visual | **R** | COMPARABILITY-UNDEFINED | A/B layout 比較条件を先に定義 |
-| Reference tonal | **R** | COMPARABILITY-UNDEFINED | 同上 |
+| Reference Balance | **R** | COMPARABILITY-UNDEFINED | 同上 |
 | Reference capture index | **R** | **STORAGE-CONTRACT DEPENDENT** | 64 byte 保存契約を独立に扱う |
 | Reference gain | **R** | COMPARABILITY-UNDEFINED | stereo Reference と Nch input の比較条件を先に定義 |
 | Local blind capture | **R** | metadata のみ（PCM 非依存） | request 妥当性の ch 範囲を広げるだけで足りる可能性 |
@@ -331,7 +331,7 @@ AGENTS.md:59 / 77-83 のとおり、**Reference B は登録済みのファイル
 |---|---|
 | Reference gain | **直接依存。** `channels` 引数の形そのものを変える |
 | Reference visual | 直接依存 |
-| Reference tonal | 直接依存 |
+| Reference Balance | 直接依存 |
 | Reference capture index | **依存しない。** digest は PCM 同一性であって layout 同一性ではない（capacity §6）。ただし 64 byte 保存契約は別途 |
 
 ### 10.6 downmix 係数 — 「規格名」ではなく「どの renderer のどの downmix」で固定する [B]

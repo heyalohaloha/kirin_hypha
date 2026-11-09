@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <cmath>
 
-// B（REF）の画面の右の Balance（「Tonal Balance」とは呼ばない）。A（金）に、選んでいる
+// B（REF）の画面の右の Balance。A（金）に、選んでいる
 // B の曲（水色）と、REFERENCE SET の曲全体の分布（p10〜p90 の薄い帯）を重ねる。曲の値は Kirin OS が残した
 // 既定の Cue の 64 帯域のスペクトル（ranges の中央値）。既製のジャンル曲線は出さない。
 // A は同じ定義で測った、選んだ窓の中央値（ReferenceKirinSpectrum。FREQ の画面のスペクトルとは

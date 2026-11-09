@@ -28,7 +28,7 @@ struct ReferenceComparisonSettings
     VisualViewChoice visualView;
     AWindowChoices aWindows;                    // B・C の図の A の線の窓
     int viewedSlot = 2;
-    // 2026-10-04：A の取り込み（ACapture）と Tonal の表示（ReferenceTonal）は書かず、古い版が残したものは読み飛ばす。
+    // 2026-10-04：A の取り込み（ACapture）と以前の Balance の表示は書かず、古い版が残したものは読み飛ばす。
     void write (juce::XmlElement& parent) const
     {
         targets.write (parent);

@@ -186,7 +186,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
     // 2026-10-04：A の取り込みはやめた（見比べは生の表示だけ）。古い版が DAW の曲に保存した取り込みと
-    // Tonal の表示の状態は読まない（ReferenceComparisonSettings が読み飛ばす）。次の保存で消える。
+    // 以前の Balance の表示の状態は読まない（ReferenceComparisonSettings が読み飛ばす）。次の保存で消える。
     if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); reference.restoreChoice (value.reference); }
 }
 
@@ -222,7 +222,7 @@ Snapshot ReferenceComparisonController::snapshot()
     if (viewedMap.hidden || (result.visualTimeline && result.visualTimeline->binding.key != viewedMap.key))
     {
         // 見ている役の図（V の時間軸）は外し、A の値（C・B の画面のスペクトルと範囲の帯、V の AUTO の指紋）は残す。
-        // 2026-10-04 までは Tonal の計測があるか（tonalAvailable、A が鳴っていれば真）で決めていた。
+        // 2026-10-04 までは Balance の計測があるか（A が鳴っていれば真）で決めていた。
         if (result.visualTimeline && result.visualTimeline->hasAData())
         {
             auto aOnly = std::make_shared<VisualTimeline> (*result.visualTimeline);

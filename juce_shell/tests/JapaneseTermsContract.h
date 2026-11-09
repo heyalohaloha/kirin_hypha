@@ -81,8 +81,40 @@ inline void verifyJapaneseTerms()
         }
 }
 
+// Balance の英語の旧名は綴りを持たず hash で照らす（HyphaReferenceDisplayText.h）。照らし方は試験用の名前で確かめる。
+inline void verifyRenamedByHash()
+{
+    const auto fail = [] (const juce::String& what)
+    {
+        std::cerr << "Renamed by hash: " << what << '\n';
+        std::exit (EXIT_FAILURE);
+    };
+    // FNV-1a 64-bit の既知の値。大文字小文字は同じ hash。
+    if (reference_ui::lowerNameHash ({}) != 0xcbf29ce484222325ULL || reference_ui::lowerNameHash ("a") != 0xaf63dc4c8601ec8cULL
+        || reference_ui::lowerNameHash ("A") != reference_ui::lowerNameHash ("a"))
+        fail ("hash");
+    const auto hash = reference_ui::lowerNameHash ("old check name");
+    const char* const cases[][2] {
+        { "old check name", "Balance" }, { "Old Check Name", "Balance" }, { "  OLD CHECK NAME ", "Balance" },
+        { "Old check name   1 / 3", "Balance   1 / 3" }, { "Old check name  /  Audio", "Balance  /  Audio" },
+        { "Old check names", "Old check names" }, { "Old check", "Old check" }, { "My old check name", "My old check name" },
+    };
+    for (const auto& row : cases)
+        if (reference_ui::renamedByHash (row[0], hash, "Balance").value_or (row[0]) != juce::String (row[1])) fail (row[0]);
+    // 旧名の hash は表のどの名前とも違い、表の名前・Balance・自作の名前はそのまま通る。
+    for (const auto& pair : reference_ui::standardDisplayNames)
+        for (const auto* name : pair)
+            if (reference_ui::lowerNameHash (juce::String::fromUTF8 (name).trim()) == reference_ui::retiredBalanceNameHash)
+                fail (juce::String::fromUTF8 (name));
+    for (const auto* name : { "Balance", "Balance   1 / 3", "Bright balance", "Vocal balance" })
+        if (reference_ui::renamedByHash (name, reference_ui::retiredBalanceNameHash, "Balance").has_value()
+            || reference_ui::standardDisplayName (name) != juce::String (name))
+            fail (name);
+}
+
 inline void verifyBuiltInTermAliases()
 {
+    verifyRenamedByHash();
     const char* const names[][3] {
         { u8"コンプレッション", "Compression", "Compression" },
         { u8"トランジェント", "Transient", "Transient" },

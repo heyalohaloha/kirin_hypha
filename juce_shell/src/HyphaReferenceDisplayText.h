@@ -3,6 +3,9 @@
 #include "HyphaLanguage.h"
 #include "HyphaReferenceComponent.h"
 
+#include <cstdint>
+#include <optional>
+
 namespace hypha::reference_ui
 {
 // Kirin OS の組み込みの名前（CHECK セット・Check）の日本語と英語（Kirin OS の ja.json と同じ）。組み込みの ID の項目
@@ -42,7 +45,6 @@ inline constexpr const char* standardDisplayNames[][2] {
     { u8"音を減らす判断", "Subtraction" },
     { u8"キックとベース", "Kick and bass" },
     { u8"音色のバランス", "Balance" },
-    { u8"Tonal balance", "Balance" },
     { u8"Stereo と位相", "Stereo and phase" },
     { u8"ステレオと位相", "Stereo and phase" },
     { u8"音源との距離", "Distance" },
@@ -76,6 +78,34 @@ inline constexpr const char* standardDisplayNames[][2] {
     { u8"幅", "Width" },
 };
 
+// 名前の hash（小文字にした UTF-8 の FNV-1a 64-bit）。
+inline std::uint64_t lowerNameHash (const juce::String& name)
+{
+    const auto lower = name.toLowerCase();
+    std::uint64_t hash = 0xcbf29ce484222325ULL;
+    for (auto* byte = lower.toRawUTF8(); *byte != 0; ++byte)
+    {
+        hash ^= static_cast<unsigned char> (*byte);
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+// 名前（小文字・前後の空白を除く）の hash が当たれば shown に替える。表と同じく、そのものか、後ろに空白で区切って
+// 何かが付いた形（曲名・準備中・順位）で、付いた部分は残す。名前の途中では当てない。
+inline std::optional<juce::String> renamedByHash (const juce::String& input, std::uint64_t hash, const juce::String& shown)
+{
+    const auto name = input.trimStart();
+    if (lowerNameHash (name.trimEnd()) == hash) return shown;
+    for (auto space = name.indexOfChar (' '); space > 0; space = name.indexOfChar (space + 1, ' '))
+        if (lowerNameHash (name.substring (0, space).trimEnd()) == hash) return shown + name.substring (space);
+    return std::nullopt;
+}
+
+// Kirin OS の 2026-09 より前の preset が Balance の Check に付けた英語の旧名。画面に出さない名前なので綴りを持たず、
+// hash で照らして Balance と出す（日本語の「音色のバランス」は上の表のまま）。
+inline constexpr std::uint64_t retiredBalanceNameHash = 0xd58a18471f6c91efULL;
+
 inline juce::String standardDisplayName (const juce::String& input)
 {
     for (const auto& pair : standardDisplayNames)
@@ -87,6 +117,8 @@ inline juce::String standardDisplayName (const juce::String& input)
         if (input.startsWith (original) && input.length() > original.length() && input[original.length()] == ' ')
             return english + input.substring (original.length());
     }
+    // 表のどの名前も旧名の頭に当たらないので、表の後に照らしても表の中に置いたときと同じ結果になる。
+    if (const auto renamed = renamedByHash (input, retiredBalanceNameHash, "Balance")) return *renamed;
     return input;
 }
 

@@ -76,9 +76,9 @@ Display evidence is verified on the existing non-RT worker before SRC approval. 
 visual binding carries the immutable source and exact Cue bounds, but never `ready` or an aligned
 audio mapping; no new decoder, analysis thread, queue or RT work is added. Sound still requires
 explicit conversion approval and a separate audition click (which may be a queued B/C). Spectrum labels live A versus the
-whole-track C distribution; the existing Tonal curve retains its own Cue aggregation contract.
+whole-track C distribution; the existing Balance curve retains its own Cue aggregation contract.
 The visual binding's Cue bounds are explicitly **source-rate samples**, independent of the
-host-rate playback mapping. Both live and captured-A tonal readers consume that same source range,
+host-rate playback mapping. Both live and captured-A Balance readers consume that same source range,
 including before SRC consent and after conversion. A transport-only output revocation does not
 erase the verified display identity; invalid or replaced publications do.
 
