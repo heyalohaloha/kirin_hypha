@@ -1444,9 +1444,11 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
   two seconds of settled playback Hypha also compares the audio itself. Initial alignment and
   a changed clock mapping are checked every 100 ms using fresh, validated audio windows;
-  **Aligning PRE** shows that this check is incomplete. Initial silence or a held tone cannot
-  confirm a read position: POST plays until content confirms PRE. If this persists, Hypha asks
-  for another section and resumes automatically when it can confirm the timing. When PRE is early, as with a
+  **Aligning PRE** shows that this check is incomplete. Initial silence, a held tone, a limiter or
+  outboard between PRE and POST may not confirm a read position: POST plays for at most one second
+  of proven playback, then PRE plays where the clocks put it, as with alignment off. A later
+  confirmed early PRE is still aligned through the usual fades; a confirmed late PRE returns to
+  POST while strong estimates keep showing it. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
   follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
@@ -1456,7 +1458,8 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
 - During a BLIND trial a new alignment waits until you switch to POST and the fade finishes.
   A seek, stop or timing interruption alone does not move it under the same selected source.
   When the clock mapping changes, an unverified correction uses POST until fresh content
-  confirms the new read position, including when the previous correction was zero. A publication
+  confirms the new read position, including when the previous correction was zero, for at most
+  one second of proven playback; then PRE plays at its clock position. A publication
   collision alone keeps the trial's fixed read position. Recheck guidance is the same for both
   anonymous sources; neither source earns a listening receipt from substitute POST.
   PRE then returns with the same selection and approved gain;
@@ -1465,7 +1468,10 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   POST while preserving the comparison. A confirmed late PRE during a changed clock mapping
   shows the measured delay and asks to check chain delay and DAW compensation. Two fresh estimates back at the
   original baseline clear the hold automatically; stopping and restarting also resets it. Weak
-  peaks caused by processing do not create a hold.
+  peaks caused by processing do not create a hold, and do not keep one: after one second of
+  playback without a strong estimate that still shows the change, PRE returns. A late PRE under
+  0.25 ms is not treated as a delay and plays as it is. A bass-heavy window that the chain has
+  changed is skipped rather than counted as doubt.
 - While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume
   automatically. A brief interruption is quiet; a condition lasting three seconds gets guidance.
 - If the chosen PRE is one channel of a multi-mono plug-in in Pro Tools, LISTEN does not start

@@ -405,6 +405,8 @@ public:
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }
     void reportAlignLate (std::uint64_t measured) noexcept { alignment.readiness.late (measured); }
+    // Message thread: a confident late PRE found after the bounded wait asks for a fresh check.
+    void recheckAlign() noexcept { alignment.readiness.recheck(); }
     void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignment.readiness.ambiguous (measured); }
     AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignment.requestFor (context); }
     std::int64_t alignFrames (AlignContext context) const noexcept { return alignment.displayed (context); }

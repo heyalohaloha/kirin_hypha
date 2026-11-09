@@ -47,6 +47,17 @@ void verifyOffsetConfidence (Require require)
         require (monitor.observe (e, false).jumped, "two fresh strong reports still catch the delay");
         ++cases;
     }
+    // A narrow window between two strong agreeing windows is not judged; any other weak one is.
+    for (const bool narrow : { true, false })
+    {
+        OffsetMonitor monitor;
+        auto between = at (48000, 0); between.determined = false; between.peak = 0.0; between.narrow = narrow;
+        monitor.observe (at (48000, 0), false);
+        monitor.observe (between, false);
+        require (monitor.observe (at (48000, 0), false).settled == narrow,
+                 "a narrow window keeps consecutive votes; an ambiguous one breaks them");
+        ++cases;
+    }
     OffsetMonitor changedRate;
     changedRate.observe (at (48000, 0), false); changedRate.observe (at (48000, 0), false);
     require (! changedRate.observe (at (96000, 96), false).jumped

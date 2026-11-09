@@ -130,7 +130,13 @@ public:
     float postScale = 0.5f;
     hypha::tests::ProductTestClock wallClock;
     int channels, bufferFrames, exact = 0, withheld = 0;
-    bool requireContentPosition = false, tonal = false, quiet = false, oppositePolarity = false;
+    bool requireContentPosition = false, tonal = false, oppositePolarity = false;
+    bool chord = false, limited = false; // music-like PRE; POST through EQ, a limiter and dither
+    bool bass = false; // a strong bass line under swelling noise: two thirds of the windows are narrow
+    // Content changes by content clock, so PRE's one chunk written ahead already holds them.
+    std::int64_t quietUntil = std::numeric_limits<std::int64_t>::min();
+    std::int64_t chordFrom = std::numeric_limits<std::int64_t>::max(), chordUntil = std::numeric_limits<std::int64_t>::max();
+    std::int64_t unwritten() const noexcept { return engine + 4 * chunkFrames; } // neither side has reached it
     bool swappedChannels = false;
     bool unrelatedPost = false;
     int silentChannel = -1;
@@ -151,14 +157,38 @@ private:
     }
     float signal (std::int64_t clock, int channel) const
     {
-        if (quiet || channel == silentChannel) return 0.0f;
+        if (clock < quietUntil || channel == silentChannel) return 0.0f;
         if (oppositePolarity) return channel == 0 ? noise (clock, 0) : -noise (clock, 0);
         if (tonal) return static_cast<float> (0.1 * std::sin (static_cast<double> (clock % 48) * (2.0 * 3.14159265358979323846 / 48.0) + channel));
+        if (bass)
+        {
+            const double t = static_cast<double> (clock) / 48000.0, pi = 3.14159265358979323846;
+            const double swell = std::max (0.0, std::sin (2.0 * pi * 0.4 * t));
+            return static_cast<float> (0.2 * (std::sin (2.0 * pi * 55.0 * t + channel) + 0.5 * std::sin (2.0 * pi * 110.0 * t))
+                                       + 6.0 * swell * swell * noise (clock, channel));
+        }
+        if (chord || (clock >= chordFrom && clock < chordUntil))
+        {
+            // A swelling chord: as in music, most of the spectrum holds almost nothing.
+            const double t = static_cast<double> (clock) / 48000.0, pi = 3.14159265358979323846;
+            double sum = 0.0; int partial = 0;
+            for (const double hz : { 110.0, 164.81, 220.0, 277.18, 329.63, 440.0 })
+                sum += std::sin (2.0 * pi * hz * t + partial++ + channel);
+            return static_cast<float> (0.05 * sum * (0.75 + 0.25 * std::sin (2.0 * pi * 1.3 * t)));
+        }
         return noise (clock, channel);
     }
     float source (std::int64_t clock, int channel) const { return signal (clock, channel) * (clock >= loudFrom ? 64.0f : 1.0f); }
-    float input (std::int64_t clock, int channel) const { return postScale * signal (clock - contentK
-        + (unrelatedPost ? 123457 : 0) - (channel == 1 ? rightContentShift : 0), swappedChannels ? 1 - channel : channel); }
+    float input (std::int64_t clock, int channel) const
+    {
+        const auto at = clock - contentK + (unrelatedPost ? 123457 : 0) - (channel == 1 ? rightContentShift : 0);
+        const int from = swappedChannels ? 1 - channel : channel;
+        if (! limited) return postScale * signal (at, from);
+        // A gentle high cut, a saturating limiter's gain reduction and -100 dBFS dither: the noise
+        // fills the empty part of the spectrum, so the content check finds no position.
+        const double eq = 0.6 * signal (at, from) + 0.4 * signal (at - 1, from);
+        return static_cast<float> (postScale * std::tanh (4.0 * eq) / 4.0 + 1.0e-5 * noise (at + 7777777, from));
+    }
 
     std::int64_t wrapped (std::int64_t position) const noexcept
     { return loopFrames > 0 && position >= loopFrames ? position - loopFrames : position; }

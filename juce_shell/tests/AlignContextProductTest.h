@@ -74,14 +74,28 @@ inline void zeroAlignmentRechecksAmbiguousAudio (int channels)
                  "zero correction is confirmed by content");
     require (post.liveCompareAlignFrames() == 0, "initial content position needs zero correction");
     chain.unrelatedPost = true;
+    chain.requireContentPosition = false;
     chain.setDelay (-512);
-    chain.run (190);
+    for (int i = 0; i < 40; ++i) chain.chunk(); // under one second of proven playback
     require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected && post.liveCompareAlignPending(),
-             "ambiguous content after K changes cannot authorize the old zero correction");
+             "ambiguous content after K changes first waits for fresh evidence");
+    chain.run (150);
+    require (post.liveCompareStatus().preAudible && !post.liveCompareStatus().prolongedWait && !post.liveCompareAlignPending()
+             && post.liveCompareAlignFrames() == 0, "after the bounded wait PRE sounds at the new clock position");
+    // A confident late PRE found after the wait is a delay to fix: POST again while it lasts.
     chain.unrelatedPost = false;
+    chain.contentK = -1024;
+    chain.until (90, [&] { return !post.liveCompareStatus().preAudible
+                                  && post.liveCompareStatus().observation == RecoveryReason::preLate; },
+                 "a confident late PRE found after the wait returns LISTEN to POST");
+    chain.run (100);
+    require (!post.liveCompareStatus().preAudible && post.liveCompareAlignPending()
+             && post.liveContentTimingObservation().lagFrames == 512,
+             "while strong windows keep showing the delay, late PRE never sounds");
+    chain.contentK = 512;
     chain.until (90, [&] { return post.liveCompareAlignFrames() == 1024 && post.liveCompareStatus().preAudible; },
-                 "fresh strong evidence automatically resumes the selected PRE");
-    chain.clean ("zero-correction recheck never sounds the wrong content position");
+                 "fresh strong evidence moves the selected PRE through the usual fades");
+    chain.clean ("the recheck sounds only proven clock positions and the confirmed correction");
 }
 
 inline void blindRecheckDoesNotRevealAssignment (int channels)
@@ -102,14 +116,14 @@ inline void blindRecheckDoesNotRevealAssignment (int channels)
         require (post.liveBlindStatus().trial.played == 1, "only the first source earned an audio receipt");
         chain.unrelatedPost = true;
         chain.setDelay (512);
-        chain.run (190);
+        chain.until (90, [&] { return post.liveCompareAlignPending(); }, "the new clock mapping starts a content recheck");
         require (post.selectLiveBlind (2), "select the unheard source during the recheck");
         chain.run (4);
         require (post.liveBlindStatus().trial.played == 1 && !post.revealLiveBlind(),
                  "neither assignment earns the second receipt from substitute POST");
         const auto state = post.liveBlindStatus();
-        require (state.stage == BlindStage::active && state.prolongedWait && post.liveCompareAlignPending(),
-                 "real changed K and ambiguous content prolong the anonymous recheck");
+        require (state.stage == BlindStage::active && !state.prolongedWait && post.liveCompareAlignPending(),
+                 "real changed K and ambiguous content start a short anonymous recheck");
         auto invalidated = state;
         invalidated.stage = BlindStage::invalidated;
         invalidated.reason = RecoveryReason::pairChanged;
@@ -117,17 +131,17 @@ inline void blindRecheckDoesNotRevealAssignment (int channels)
         invalidated.trial.invalidated = true;
         require (hypha::live_compare_ui::blindRecovery (invalidated, true).reason == RecoveryReason::pairChanged,
                  "an old timing observation cannot mask the lost-pair remedy");
-        screens[assignment] = hypha::live_blind_ui::screenFor (state, true, post.liveCompareStatus().postActual);
-        require (screens[assignment].guidanceShown && screens[assignment].cause == "Audio timing is ambiguous"
-                 && screens[assignment].recovery.contains ("Position unconfirmed"),
-                 "both assignments report the same current timing check");
         require (!post.liveCompareStatus().preAudible, "rechecking plays only exact POST");
         chain.clean ("anonymous rechecking never reads an unverified address");
         const auto gain = post.liveCompareStatus().gain;
-        chain.unrelatedPost = false;
         chain.until (90, [&] { return !post.liveCompareAlignPending() && post.liveCompareAlignFrames() == 0
                                      && post.liveCompareStatus().preAudible == (assignment == 0); },
-                     "fresh strong evidence resumes either anonymous source automatically");
+                     "the bounded wait resumes either anonymous source at its clock position");
+        const auto resumed = post.liveBlindStatus();
+        screens[assignment] = hypha::live_blind_ui::screenFor (resumed, true, post.liveCompareStatus().postActual);
+        require (!resumed.prolongedWait && !screens[assignment].guidanceShown && !screens[assignment].alignOffShown,
+                 "both assignments resume without a timing notice");
+        chain.unrelatedPost = false;
         require (post.liveBlindStatus().trial.epoch == state.trial.epoch && post.liveBlindStatus().trial.selected == 2
                  && std::abs (post.liveCompareStatus().gain - gain) < 1.0e-9f,
                  "rechecking keeps the same anonymous assignment, selection and approved gain");
@@ -147,26 +161,27 @@ inline void initialAlignmentWaitsForEvidence (int channels)
     {
         ChunkedPost chain (channels);
         chain.requireContentPosition = true;
-        chain.quiet = quiet;
+        if (quiet) chain.quietUntil = std::numeric_limits<std::int64_t>::max();
         chain.tonal = !quiet;
         if (loop) { chain.seek (5000); chain.enterLoop (48000); }
         auto& post = *chain.post;
         chain.until (200, [&] { return post.setPairCandidate (chain.pre->instanceId(), {}); }, "select ambiguous initial PRE");
         require (post.startLiveCompare() == StartResult::started, "ambiguous initial LISTEN starts");
         post.selectLiveComparePre (true);
+        chain.requireContentPosition = false;
         chain.run (190);
         const auto waiting = post.liveCompareStatus();
-        require (waiting.preSelected && !waiting.preAudible && post.liveCompareAlignPending(),
-                 "initial silence cannot authorize an unconfirmed address");
-        require (waiting.observation == RecoveryReason::contentAmbiguous && waiting.prolongedWait,
-                 "a validated ambiguous window is distinct from initial preparation");
-        const auto guidance = hypha::live_compare_ui::namedPresentation (waiting);
-        require (juce::String (guidance.instruction).contains ("Position unconfirmed"),
-                 "unconfirmed content uses a short factual notice without an endless wait instruction");
-        chain.clean ("all initial ambiguous samples stay exact POST");
-        chain.quiet = chain.unrelatedPost = false;
+        require (waiting.preSelected && waiting.preAudible && !post.liveCompareAlignPending()
+                 && post.liveCompareAlignFrames() == 0, "initial silence plays PRE at its clock position after the bounded wait");
+        require (waiting.observation != RecoveryReason::contentAmbiguous && !waiting.prolongedWait,
+                 "a validated ambiguous window leaves no wait behind");
+        require (*hypha::live_compare_ui::namedPresentation (waiting).instruction == 0,
+                 "unconfirmed content shows no notice once PRE plays");
+        chain.clean ("initial ambiguous samples use only the proven clock position");
+        chain.quietUntil = chain.unwritten(); // PRE sounds at K: its ring already holds the next chunk
+        chain.unrelatedPost = false;
         chain.until (90, [&] { return post.liveCompareAlignFrames() == 1024 && post.liveCompareStatus().preAudible; },
-                     "a usable section resumes the same PRE without another selection");
+                     "a usable section aligns the same PRE without another selection");
         require (post.liveCompareStatus().preSelected, "automatic initial recovery keeps the choice");
         chain.clean ("every sample through the first confirmation uses the correct source position");
     }
@@ -199,6 +214,20 @@ inline void disabledAlignmentStillMonitorsContent (int channels)
     chain.chunk (false); // the first real callback after the non-RT monitor publishes the hold
     require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
              "the first callback after a confirmed content jump uses POST while preserving the choice");
+    // INV-LC10: only confident windows keep a hold. While strong windows keep showing the jump,
+    // shifted PRE never sounds; a limiter-like chain gives none, so PRE returns a second later.
+    chain.run (100);
+    require (post.liveCompareStatus().contentHeld && !post.liveCompareStatus().preAudible,
+             "a confident jump that persists keeps POST past the bounded wait");
+    chain.chordFrom = chain.unwritten();
+    chain.limited = true;
+    chain.until (200, [&] { return !post.liveCompareStatus().contentHeld && post.liveCompareStatus().preAudible; },
+                 "windows that confirm nothing release the hold after one second");
+    require (post.liveCompareAlignFrames() == 0 && post.liveCompareStatus().preSelected,
+             "released PRE plays at its clock position with the same selection");
+    chain.chordUntil = chain.unwritten();
+    chain.limited = false;
+    chain.until (300, [&] { return post.liveCompareStatus().contentHeld; }, "the same confident jump holds again");
     chain.contentK = 512;
     chain.until (300, [&] { return !post.liveCompareStatus().contentHeld && post.liveCompareStatus().preAudible; },
                  "OFF monitoring returns automatically when the content baseline returns");
@@ -252,8 +281,8 @@ inline void alignmentRejectsChangingFormat (int channels)
     post.selectLiveComparePre (true);
     chain.postScale = 0.0f;
     chain.run (220);
-    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
-             "undetermined new content cannot authorize the new format's address");
+    require (post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected && post.liveCompareAlignFrames() == 0,
+             "undetermined new content plays PRE only at the new format's clock position");
     chain.clean ("format interleave never emits a stale address");
 }
 
@@ -281,8 +310,8 @@ inline void alignmentBelongsToPreOwner (int channels)
     LiveTimingFixtureAccess::publishMeasuredAlign (post, old); // a delayed old publication
     chain.postScale = 0.0f;
     chain.run (220);
-    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
-             "new PRE with ambiguous content cannot authorize the new owner's address");
+    require (post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected && post.liveCompareAlignFrames() == 0,
+             "new PRE with ambiguous content plays at its clock position, never the old owner's correction");
     chain.postScale = 0.5f;
     chain.contentK = 1536;
     chain.until (400, [&] { return post.liveCompareAlignFrames() == 2048; }, "new owner measures its own correction");
@@ -311,9 +340,11 @@ inline void stereoAlignmentPreservesChannelEvidence (int channels)
         post.selectLiveComparePre (true);
         if (mode == 3)
         {
+            chain.requireContentPosition = false;
             chain.run (190);
-            require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected
-                     && post.liveCompareAlignPending(), "disagreeing channel positions cannot authorize PRE");
+            require (post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected
+                     && !post.liveCompareAlignPending() && post.liveCompareAlignFrames() == 0,
+                     "disagreeing channel positions move nothing; PRE plays at its clock position");
             chain.rightContentShift = 0;
         }
         chain.until (90, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024; },

@@ -155,7 +155,9 @@ struct ProcessorState
     OffsetMonitor::Step contentStep;
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
-    std::uint64_t candidateConfirmStart = 0;      // message thread: A/B's short wait for content
+    std::uint64_t alignConfirmStart = 0;          // message thread: the short wait for content (INV-LC28)
+    std::uint64_t alignLateAt = 0;                // message thread: the last confident late PRE (INV-LC28)
+    std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a hold (INV-LC10)
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
     OffsetWindow contentWindow;
     ContentHold contentHold;      // INV-LC10: the content offset jumped
