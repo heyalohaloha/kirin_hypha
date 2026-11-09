@@ -167,7 +167,14 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     for (std::size_t k = 0; k <= energy.size() / 100; ++k)
         top += energy[k];
     if (total <= 0.0) return estimate;
-    if (top > 0.8 * total) return scaledCopyOffset (post, pre, maxLag);
+    if (top > 0.8 * total)
+    {
+        // After EQ or a limiter a bass-heavy window is no scaled copy and has no usable phase in
+        // its few strong bins. It says nothing about the position, so it is not ambiguity either.
+        auto copy = scaledCopyOffset (post, pre, maxLag);
+        copy.narrow = ! copy.determined;
+        return copy;
+    }
     double meanMagnitude = 0.0;
     for (std::size_t k = 0; k < size; ++k)
     {

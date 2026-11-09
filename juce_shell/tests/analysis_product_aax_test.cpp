@@ -183,12 +183,15 @@ try
         {
             publicationKeepsConfirmedAudio (layout == "mono" ? 1 : 2);
             repeatedAudioKeepsComparisonMoving (layout == "mono" ? 1 : 2);
+            narrowBassBlindPlaysPre (layout == "mono" ? 1 : 2);
         }
         if (scenario == "alignment_recovery")
         {
             newMappingStartsWithOneVote (layout == "mono" ? 1 : 2);
             waitingBlindCanDisableAlignment (layout == "mono" ? 1 : 2);
+            waitingBlindResumesAtItsClock (layout == "mono" ? 1 : 2);
             heardSourcesCanRevealDuringRecheck (layout == "mono" ? 1 : 2);
+            unconfirmableChainPlaysPreAtItsClock (layout == "mono" ? 1 : 2);
         }
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;

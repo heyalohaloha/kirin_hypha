@@ -204,6 +204,34 @@ void verifyLiveCompareOffset()
     const auto elapsed = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - started).count();
     std::printf ("offset: product window -> lag %lld in %.1f ms\n", static_cast<long long> (full.lagFrames), elapsed);
     require (full.determined && full.lagFrames == -4096, "the product window finds 85 ms at 48 kHz");
+
+    // EQ, a saturating limiter and -100 dBFS dither between PRE and POST (Pro Tools EQ and Maxim,
+    // or outboard): music leaves most bins nearly empty and the chain's noise fills them, so no
+    // window votes. INV-LC28 bounds the wait for this instead of holding POST.
+    const auto chord = [] (std::int64_t n) {
+        const double t = static_cast<double> (n) / 48000.0, pi = 3.14159265358979323846;
+        double sum = 0.0; int partial = 0;
+        for (const double hz : { 110.0, 164.81, 220.0, 277.18, 329.63, 440.0 })
+            sum += std::sin (2.0 * pi * hz * t + partial++);
+        return static_cast<float> (0.05 * sum * (0.75 + 0.25 * std::sin (2.0 * pi * 1.3 * t)));
+    };
+    for (const bool limited : { false, true })
+        for (std::int64_t start = 1068544; start < 1068544 + 4 * 48000; start += 48000)
+        {
+            for (std::int64_t n = 0; n < offsetWindowFrames; ++n)
+            {
+                const auto at = start + n;
+                const double eq = 0.6 * chord (at) + 0.4 * chord (at - 1);
+                longPost[static_cast<std::size_t> (n)] = limited
+                    ? static_cast<float> (std::tanh (4.0 * eq) / 4.0 + 1.0e-5 * noise (at + 7777777)) : 0.5f * chord (at);
+            }
+            for (std::int64_t i = 0; i < offsetWindowFrames + 2 * offsetSearchFrames; ++i)
+                longPre[static_cast<std::size_t> (i)] = chord (start + i - offsetSearchFrames);
+            auto e = estimateOffset (longPost, longPre, offsetSearchFrames); e.sampleRate = 48000;
+            require (limited ? !offsetCanVote (e) : offsetCanVote (e) && e.lagFrames == 0,
+                     "a limiter chain confirms no position; the same music unprocessed is found");
+            require (e.narrow == limited, "the chord after the chain is a narrow window, not ambiguity");
+        }
     std::printf ("live compare offset: all checks passed\n");
 }
 }

@@ -41,6 +41,7 @@ struct OffsetEstimate
     std::uint64_t alignRevision = 0;
     OffsetWindow window; // identity of the actual copied history, never a separate pre-copy sample
     bool windowReady = false; // copies validated, even if the content has no distinct peak
+    bool narrow = false; // a narrow spectrum (strong bass) without a scaled copy: no evidence, no doubt
     double sampleRate = 0.0; // the rate lagFrames counts in: the rate the ring is stamped with
 };
 
@@ -84,7 +85,8 @@ public:
     Step observe (const OffsetEstimate& estimate, bool alreadyHeld) noexcept
     {
         Step step;
-        if (! offsetCanVote (estimate)) { candidateCount = 0; return step; }
+        // A narrow window is not judged at all: it neither votes nor breaks consecutive votes.
+        if (! offsetCanVote (estimate)) { if (! estimate.narrow) candidateCount = 0; return step; }
         if (std::abs (rate - estimate.sampleRate) > 0.0) { *this = {}; rate = estimate.sampleRate; }
         const auto distance = [] (std::int64_t a, std::int64_t b)
         { return std::abs (static_cast<long double> (a) - static_cast<long double> (b)); };
