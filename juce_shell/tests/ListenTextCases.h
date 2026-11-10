@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include "../src/HyphaLiveBlindComponent.h"
+#include "../src/HyphaQueuedStartText.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAuditionRecoveryText.h"
 #include "../src/HyphaLiveCompareActionResult.h"
@@ -71,6 +72,12 @@ inline std::vector<Notice> notices()
         "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
         "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
+    // A press waiting for its start (HyphaQueuedStartText.h), for every start and wait.
+    for (auto start : { live_compare_ui::QueuedStart::listen, live_compare_ui::QueuedStart::blind,
+                        live_compare_ui::QueuedStart::candidate })
+        for (auto wait : { live_compare_ui::QueuedWait::returning, live_compare_ui::QueuedWait::tail,
+                           live_compare_ui::QueuedWait::stopped, live_compare_ui::QueuedWait::other })
+            add (live_compare_ui::queuedStartNotice (start, wait));
     // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
     for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
         "Finish Keep / Record before PRE / POST Blind", "Select LR, MID, or SIDE to view Delta",

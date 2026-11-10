@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaQueuedStartText.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
@@ -309,6 +310,15 @@ bool KirinHyphaEditor::refreshLiveCompare()
     followLiveCompare (status, now);
     if (liveCompareWarning.isEmpty() && liveCompareAuto.on)
         liveCompareWarning = juce::String (hypha::live_compare_ui::autoLimitNotice (liveCompareAuto.limit, liveCompareAuto.shortDb, processorRef.candidateCompareActive()));
+    // A press waiting for its start says what it waits for, every refresh until it starts or drops.
+    if (liveCompareWarning.isEmpty() && liveCompareStartAfterReturnUntil > 0.0)
+    {
+        using hypha::live_compare_ui::QueuedStart;
+        const auto start = liveCompareStartAfterReturnCandidate.isNotEmpty() ? QueuedStart::candidate
+                         : liveCompareStartAfterReturnBlind ? QueuedStart::blind : QueuedStart::listen;
+        liveCompareWarning = hypha::live_compare_ui::queuedStartNotice (start, hypha::live_compare_ui::queuedWait (
+            processorRef.isPlaying(), status.finishing, processorRef.candidateReturning()));
+    }
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));

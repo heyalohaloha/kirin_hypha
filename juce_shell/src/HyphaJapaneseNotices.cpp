@@ -133,6 +133,17 @@ const Entry entries[] = {
     { "Press RETURN first", u8"先にRETURNを押してください" },
     { "Returning POST to normal, then LISTEN", u8"POSTを通常に戻してからLISTENします" },
     { "Returning POST to normal, then BLIND", u8"POSTを通常に戻してからBLINDします" },
+    // A press waiting for its start, all the time it waits (HyphaQueuedStartText.h).
+    { "Returning POST to normal, then A/B", u8"POSTを通常に戻してからA/Bします" },
+    { "Clearing the A/B tail, then LISTEN", u8"A/Bの残りの音が消えてからLISTENします" },
+    { "Clearing the A/B tail, then BLIND", u8"A/Bの残りの音が消えてからBLINDします" },
+    { "Clearing the A/B tail, then A/B", u8"A/Bの残りの音が消えてからA/Bします" },
+    { "Play to continue, then LISTEN", u8"再生すると続き、そのあとLISTENします" },
+    { "Play to continue, then BLIND", u8"再生すると続き、そのあとBLINDします" },
+    { "Play to continue, then A/B", u8"再生すると続き、そのあとA/Bします" },
+    { "Waiting to start LISTEN", u8"LISTENの開始を待っています" },
+    { "Waiting to start BLIND", u8"BLINDの開始を待っています" },
+    { "Waiting to start A/B", u8"A/Bの開始を待っています" },
     { "MATCH waits until A has played the Cue length (up to 30 s).", u8"Aがたまり次第MATCHします（最長30秒）" },
     // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
     { "LISTEN is restoring; try again in a moment", u8"LISTENを戻しています。少し待ってください" },

@@ -3,6 +3,9 @@
 #include "../src/OutputOwnership.h"
 #include "../src/live_compare/LiveCompareAuthority.h"
 #include "../src/HyphaLiveStartAfterReturn.h"
+#include "../src/HyphaQueuedStartText.h"
+#include <set>
+#include <string>
 #include "../src/HyphaKeepPreWait.h"
 
 #include <cstdlib>
@@ -125,6 +128,20 @@ void decisionsCombineStates()
                  && entryAdmission (false, true, false, false, false, 0.5f, 0.5f) == StartResult::returnRequired,
              "only LIVE BLIND carries its session's attenuation");
     // INV-LC14（2026-10-31）：下げているあいだに押した LISTEN は断らずに RETURN し、戻り終えたら同じ押しで始める。
+    {
+        // A waiting press names what it waits for: stopped first, then the return, then the A/B tail.
+        using namespace hypha::live_compare_ui;
+        require (queuedWait (false, true, true) == QueuedWait::stopped
+                     && queuedWait (true, true, true) == QueuedWait::returning
+                     && queuedWait (true, false, true) == QueuedWait::tail
+                     && queuedWait (true, false, false) == QueuedWait::other,
+                 "a waiting press names the one thing it waits for");
+        std::set<std::string> texts;
+        for (auto start : { QueuedStart::listen, QueuedStart::blind, QueuedStart::candidate })
+            for (auto wait : { QueuedWait::returning, QueuedWait::tail, QueuedWait::stopped, QueuedWait::other })
+                texts.insert (queuedStartNotice (start, wait));
+        require (texts.size() == 12, "every start and wait has its own sentence");
+    }
     using hypha::live_compare_ui::StartAfterReturn;
     using hypha::live_compare_ui::onStartPressed;
     using hypha::live_compare_ui::whileReturning;
