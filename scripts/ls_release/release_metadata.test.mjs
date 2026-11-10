@@ -16,6 +16,7 @@ import {
 } from './build_kirin_hypha_windows_vst3_zip.mjs';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 import { verifyReadmeMedia } from './readme_media_contract.mjs';
+import { anchorsOf, manualLinkProblems, publicManualFiles } from './readme_manual_contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -171,6 +172,74 @@ test('README opens with current analysis, exact pairing, and supported Windows f
   assert.doesNotMatch(readme, /Windows validation candidate/);
   assert.doesNotMatch(readme, /External validation is pending/);
   assert.doesNotMatch(readme, /Pairing is by \*\*name\*\*/);
+});
+
+test('README states the product facts first and links every manual page', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const glance = readme.indexOf('\n## At a glance\n');
+  assert.ok(glance > 0 && glance < readme.indexOf('\n## Start in under a minute\n'), 'facts precede the guides');
+  assert.ok(readme.slice(0, glance).split('\n').length < 30, 'facts start within the first lines');
+  const facts = readme.slice(glance, readme.indexOf('\n<table>', glance));
+  for (const row of [
+    /\| Price \| Free \|/,
+    /\| License \| GPLv3 /,
+    /\| Latest version \| \d+\.\d+\.\d+ /,
+    /\| macOS \| macOS 12 or later, Universal \(Apple Silicon and Intel\): AU, VST3 and AAX Native/,
+    /\| Windows \| Windows 10 or 11, x64: VST3 and AAX Native/,
+    /\| DAWs \| /,
+    /\| Kirin OS \| Not required\./,
+  ]) assert.match(facts, row);
+  assert.match(facts, /PRE Kirin Hypha {2}→ {2}your processors {2}→ {2}POST Kirin Hypha/);
+
+  const pages = publicManualFiles(repoRoot).slice(1);
+  assert.ok(pages.length > 0, 'docs/manual has pages');
+  for (const { relative, text } of pages) {
+    assert.ok(readme.includes(`](${relative})`), `README links ${relative}`);
+    const [title, blank, summary] = text.split('\n');
+    assert.match(title, /^# \S/, `${relative} starts with its title`);
+    assert.equal(blank, '', `${relative} title spacing`);
+    assert.match(summary, /^[^#\s]/, `${relative} opens with a summary`);
+  }
+});
+
+test('README keeps the anchors other pages may link, including moved sections', () => {
+  const anchors = anchorsOf(fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8'));
+  for (const anchor of [
+    'download', 'optional-update-information', 'requirements', 'license', 'acknowledgements',
+    'start-in-under-a-minute', 'what-you-can-do', 'modes', 'design', 'the-full-manual',
+    'building-from-source', 'screen-language', 'keys', 'channel-scope', 'observation-domains',
+    'what-it-measures', 'installation', 'sandbox--privacy-audio-unit', 'pairing-pre-and-post',
+    'reference-from-kirin-os', 'live-prepost-compare', 'reaper-listen-timing',
+    'ab-hardware-and-plug-in-comparison', 'local-prepost-blind-compare', 'watch-mode',
+    'record-mode-kirin-os-required', 'kirin-os-ecosystem', 'maintainer-release-packaging',
+  ]) assert.ok(anchors.has(anchor), `README anchor #${anchor}`);
+});
+
+test('README and docs/manual links and anchors resolve', () => {
+  assert.deepEqual(manualLinkProblems(repoRoot), []);
+  const broken = [{
+    relative: 'README.md',
+    text: '[a](#nowhere) [b](docs/manual/missing.md) [c](docs/manual/design.md#nowhere)\n```\n[d](#code)\n```\n',
+  }, { relative: 'docs/manual/design.md', text: '# Design and channel scope\n' }];
+  assert.deepEqual(manualLinkProblems(repoRoot, broken), [
+    'README.md:1 #nowhere: missing anchor',
+    'README.md:1 docs/manual/missing.md: missing file',
+    'README.md:1 docs/manual/design.md#nowhere: missing anchor',
+  ]);
+});
+
+test('README names one release version wherever it states the current release', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const found = [
+    /Download (\d+\.\d+\.\d+)<\/b>/g,
+    /\| Latest version \| (\d+\.\d+\.\d+) /g,
+    /Hypha (\d+\.\d+\.\d+) is available/g,
+    /releases\/(?:download|tag)\/v(\d+\.\d+\.\d+)/g,
+    /Kirin-Hypha-(\d+\.\d+\.\d+)-(?:macOS|Windows)/g,
+    /Update information in (\d+\.\d+\.\d+)/g,
+  ].map((pattern) => [...readme.matchAll(pattern)].map((match) => match[1]));
+  for (const versions of found) assert.ok(versions.length > 0, 'each release statement is present');
+  assert.equal(new Set(found.flat()).size, 1, `one version: ${[...new Set(found.flat())].join(', ')}`);
 });
 
 test('published release commit rewrites retain verifiable immutable provenance', () => {

@@ -3,12 +3,18 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { publicManualFiles, referencedPaths } from './readme_manual_contract.mjs';
+
 function sha256File(filePath) {
   return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 export function verifyReadmeMedia(repoRoot) {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  // README and docs/manual/ are one public manual; an image counts as shown when a page links it.
+  const pages = publicManualFiles(repoRoot);
+  const published = pages.map(({ text }) => text).join('\n');
+  const shownPaths = referencedPaths(pages);
   // Captures of the released plug-in playing music (the Reference views with Kirin OS reference songs),
   // scaled to 1800 x 1200. SPACE uses the current editor renderer with synthetic stereo samples;
   // the DRUM BAND example below stays a labelled synthetic figure.
@@ -40,8 +46,8 @@ export function verifyReadmeMedia(repoRoot) {
     const assetPath = path.join(repoRoot, relativePath);
     const signature = signatures[path.extname(name)];
     const shown = replacements[name] ?? relativePath;
-    assert.match(readme, new RegExp(shown.replaceAll('.', '\\.')));
-    if (replacements[name]) assert.ok(!readme.includes(relativePath), `${relativePath} is superseded`);
+    assert.ok(shownPaths.has(shown), `${shown} must be shown in README or docs/manual`);
+    if (replacements[name]) assert.ok(!shownPaths.has(relativePath), `${relativePath} is superseded`);
     assert.ok(fs.statSync(assetPath).size > 10_000, `${relativePath} must not be empty`);
     assert.equal(sha256File(assetPath), digest, `${relativePath} digest`);
     assert.deepEqual(fs.readFileSync(assetPath).subarray(0, signature.length), signature, `${relativePath} signature`);
@@ -54,12 +60,12 @@ export function verifyReadmeMedia(repoRoot) {
 
   for (const [relativePath, digest] of currentPng) {
     const file = path.join(repoRoot, relativePath), bytes = fs.readFileSync(file);
-    assert.ok(readme.includes(relativePath), `${relativePath} must be visible`);
+    assert.ok(shownPaths.has(relativePath), `${relativePath} must be visible`);
     assert.ok(bytes.length > 10_000, `${relativePath} must not be empty`);
     assert.equal(sha256File(file), digest, `${relativePath} digest`);
     assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    assert.match(readme, /The BAND example uses synthetic measurements/);
-    assert.doesNotMatch(readme, /\bG[234]\b/);
+    assert.match(published, /The BAND example uses synthetic measurements/);
+    assert.doesNotMatch(published, /\bG[234]\b/);
   }
 
   for (const retired of [
@@ -74,6 +80,7 @@ export function verifyReadmeMedia(repoRoot) {
     'docs/media/kirin-hypha-record-keep-demo.mp4',
   ]) {
     assert.equal(fs.existsSync(path.join(repoRoot, retired)), false, `${retired} must stay retired`);
-    assert.doesNotMatch(readme, new RegExp(retired.replaceAll('.', '\\.')));
+    assert.ok(!shownPaths.has(retired), `${retired} must not be shown`);
+    assert.doesNotMatch(published, new RegExp(retired.replaceAll('.', '\\.')));
   }
 }

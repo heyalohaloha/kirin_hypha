@@ -13,6 +13,7 @@ import {
   renderAllowlist,
   unreachableSemverTags,
 } from './check_public_history.mjs';
+import { publicManualFiles } from './ls_release/readme_manual_contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sha = (digit) => digit.repeat(40);
@@ -116,7 +117,9 @@ test('public measurement claims retain the audited scope and neutral standard la
     'utf8',
   );
   assert.match(readme, /docs\/hypha_bs1770_5_r128_v5_audit_20260831\.md/);
-  assert.doesNotMatch(readme, /ITU-R BS\.1770-4/);
+  for (const { relative, text } of publicManualFiles(repoRoot)) {
+    assert.doesNotMatch(text, /ITU-R BS\.1770-4/, relative);
+  }
   assert.match(audit, /9cc500b4df83f7c21855c74dce795ef5209a752bf884253ae57d0ce512efb062/);
   assert.match(audit, /94d78c8e5399291e1c69440c5096b7925f211c93/);
   assert.match(audit, /公式test set全70素材の実測は完了した/);
