@@ -30,6 +30,8 @@ const Entry entries[] = {
     { "A/B: timing unavailable; check PRE1 and PRE2", u8"A/B：時刻を確認できません。PRE1・PRE2を確認" },
     { "END restores normal level and the A to B chain", u8"終了すると通常の音量とA→Bの接続に戻ります" },
     { "END returns +%1 dB and restores the A to B chain", u8"終了すると音量が%1 dB上がり、A→Bの接続に戻ります" },
+    { "Lowered %1 dB to avoid clipping; END restores it and the A to B chain",
+      u8"割れを避けて%1 dB下げました。終了すると音量とA→Bの接続が戻ります" },
     { "Lower %1 dB; END returns the same amount and restores the A to B chain", u8"%1 dB下げます。終了時に同じ量だけ上がり、A→Bの接続に戻ります" },
     { "PRE1: %1 / PRE2: %2", u8"PRE1：%1／PRE2：%2" },
     { "MATCH: %1 s remaining", u8"MATCH：残り%1秒" },

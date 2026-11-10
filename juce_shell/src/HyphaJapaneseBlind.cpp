@@ -125,6 +125,8 @@ const Entry entries[] = {
     { "PREFER SOURCE 2", u8"2が好み" },
     { "END restores normal level", u8"終了すると通常の音量に戻ります" },
     { "END returns +%1 dB", u8"終了すると音量が%1 dB上がります" },
+    // BLIND matched on the quieter side so the raised source stays under the ceiling.
+    { "Lowered %1 dB to avoid clipping; END restores it", u8"割れを避けて%1 dB下げました。終了すると戻ります" },
     // VERSION BLIND（REF）を同じ画面で出す文（HyphaVersionBlindScreen.cpp）。A は Kirin OS と同じ役の名前。
     { "END returns to A", u8"終了するとAに戻ります" },
     { "Blind stopped; A plays", u8"Blindを中止しました。Aが鳴っています" },
