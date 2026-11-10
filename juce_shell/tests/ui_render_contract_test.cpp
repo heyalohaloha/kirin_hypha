@@ -56,8 +56,8 @@ static_assert (alignof (KirinMidSideSpectrumView) == 8);
 static_assert (offsetof (KirinMidSideSpectrumView, mid_dbfs) == 16);
 static_assert (offsetof (KirinMidSideSpectrumView, side_dbfs) == 1'040);
 static_assert (offsetof (KirinMidSideSpectrumView, presentation_end_samples) == 2'064);
-static_assert (sizeof (KirinMeterSession) == 1'840u, "Meter Session ABI size must remain exact");
-static_assert (sizeof (KirinObservatoryFrame) == 2'104u, "Observatory frame ABI size must remain exact");
+static_assert (sizeof (KirinMeterSession) == 1'848u, "Meter Session ABI size must remain exact");
+static_assert (sizeof (KirinObservatoryFrame) == 2'112u, "Observatory frame ABI size must remain exact");
 static_assert (sizeof (KirinMeterHistoryEntry) == 248u, "Meter history ABI size must remain exact");
 namespace
 {

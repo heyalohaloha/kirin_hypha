@@ -190,7 +190,7 @@ mod tests {
             80
         );
         assert_eq!(size_of::<super::super::KirinAbiContract>(), 112);
-        assert_eq!(super::super::KIRIN_ABI_REVISION, 7);
+        assert_eq!(super::super::KIRIN_ABI_REVISION, 8);
         assert_eq!(
             common_offsets(),
             [16, 24, 28, 32, 64, 72, 16, 32, 40, 96, 40, 104]

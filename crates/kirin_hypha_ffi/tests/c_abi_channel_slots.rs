@@ -89,7 +89,8 @@ fn the_declared_offsets_are_where_the_fields_actually_are() {
     assert_eq!(contract.meter_session_channels_offset, 88);
     assert_eq!(contract.meter_session_sample_peak_offset, 112);
     assert_eq!(contract.max_channels, 16);
-    assert_eq!(contract.meter_session_size, 1_840);
+    // 1_840 までに measurement_epoch、ABI 8 で末尾に song_psr（double）を足して 1_848。
+    assert_eq!(contract.meter_session_size, 1_848);
 }
 
 #[test]

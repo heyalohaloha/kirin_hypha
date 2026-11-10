@@ -128,6 +128,8 @@ const Entry entries[] = {
       u8"CREST：Peak − RMS（瞬間のダイナミクス）。PREとPOSTで比べるとTransientの減り方が分かります。" },
     { "Peak to short-term loudness (PSR) in the current window: the dynamics heard now. Compare PRE and POST to see how much they were reduced.",
       u8"Peak − Short-term（PSR）：今の区間の、聴こえるダイナミクス。PREとPOSTで比べると詰めた量が分かります。" },
+    // LEVEL's PSR cell adds the song's figure under the PSR of now.
+    { "SONG is the whole song's PSR, read at its loudest part.", u8"SONGは曲全体のPSRで、一番大きい所で読みます。" },
     // TIME HISTORY's own helps (the legend and the PSR row share LEVEL's above).
     { "PSR over time: the 400 ms peak minus the 3 s loudness. It falls where the song is held down; compare verse and chorus.",
       u8"PSRの推移：400 msのPeak − 3秒の音量。曲を詰めた所で下がるので、Aメロとサビなどを比べます。" },

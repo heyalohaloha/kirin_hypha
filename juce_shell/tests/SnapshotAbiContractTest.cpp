@@ -189,12 +189,12 @@ int main()
     static_assert (offsetof (KirinAttackNavigationV2, pair_kind) == 19344);
     static_assert (offsetof (KirinAttackNavigationV2, post) == 19584);
     static_assert (offsetof (KirinAttackNavigationV2, pre) == 43592);
-    static_assert (sizeof (KirinMeterSessionV2) == 1872);
+    static_assert (sizeof (KirinMeterSessionV2) == 1880);
     static_assert (alignof (KirinMeterSessionV2) == 8);
     static_assert (offsetof (KirinMeterSessionV2, session) == 8);
-    static_assert (offsetof (KirinMeterSessionV2, processed_frames) == 1848);
-    static_assert (offsetof (KirinMeterSessionV2, pending_frames) == 1856);
-    static_assert (offsetof (KirinMeterSessionV2, summary_status) == 1864);
+    static_assert (offsetof (KirinMeterSessionV2, processed_frames) == 1856);
+    static_assert (offsetof (KirinMeterSessionV2, pending_frames) == 1864);
+    static_assert (offsetof (KirinMeterSessionV2, summary_status) == 1872);
 
     static_assert (sizeof (KirinAttackSingleSnapshotV2) == 4560);
     static_assert (sizeof (KirinAttackSingleV2Request) == 96);

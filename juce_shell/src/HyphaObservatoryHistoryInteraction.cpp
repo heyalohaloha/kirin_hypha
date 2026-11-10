@@ -228,6 +228,8 @@ juce::String View::metricHelpAt (juce::Point<int> point) const
         if (! difference && experienceFamily() == ExperienceFamily::compactMeter && compactShowsMaximum
             && (region.metric == level_metrics::Metric::shortTerm || region.metric == level_metrics::Metric::crest))
             help += " Showing its maximum since the last Meter Session reset.";
+        if (! difference && region.metric == level_metrics::Metric::psr)
+            help += " SONG is the whole song's PSR, read at its loudest part.";
         return help;
     }
     if (fullCockpit() && levelHistoryArea.contains (point))

@@ -30,6 +30,7 @@ fn snapshot_layout_and_mapping_are_stable() {
             layout: None,
         },
         plr: Some(14.2),
+        song_psr: Some(6.4),
         stereo: kirin_measure::StereoMeterSnapshot {
             channels: 2,
             sample_peak_dbfs: std::array::from_fn(|slot| {

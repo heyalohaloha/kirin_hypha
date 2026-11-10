@@ -29,6 +29,7 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             layout: None,
         },
         plr: Some(13.0),
+        song_psr: None,
         stereo: kirin_measure::StereoMeterSnapshot {
             channels: 2,
             sample_peak_dbfs: [None; MAX_ABI_CHANNELS],
@@ -151,6 +152,7 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
         layout_id: 0,
         layout_reserved: [0; 7],
         measurement_epoch: 0,
+        song_psr: 0.0,
     };
     assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
     let mut history_count = 41_u32;

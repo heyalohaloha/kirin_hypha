@@ -8,15 +8,15 @@ use super::*;
 
 /// 隔離された参照値。製品の定数を読まない。
 const EXPECTED: KirinAbiContract = KirinAbiContract {
-    revision: 7,
-    observatory_frame_version: 6,
+    revision: 8,
+    observatory_frame_version: 7,
     max_channels: 16,
     mono_sum_band_count: 32,
     stereo_field_bins: 625,
     reserved: 0,
-    meter_session_size: 1840,
+    meter_session_size: 1848,
     meter_session_align: 8,
-    observatory_frame_size: 2104,
+    observatory_frame_size: 2112,
     measure_result_size: 416,
     delta_size: 224,
     meter_history_entry_size: 248,
@@ -85,7 +85,7 @@ fn the_meter_session_fields_sit_where_the_header_says() {
     // B-958 widened the input-channel arrays from [2] to [16], so every offset from
     // `channel_clip_latched` onwards moved. The same numbers are asserted in C++
     // (HyphaObservationEquality.h) and handed to callers by `kirin_hypha_abi_contract`.
-    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 1840);
+    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 1848);
     assert_eq!(std::mem::align_of::<KirinMeterSession>(), 8);
     assert_eq!(std::mem::offset_of!(KirinMeterSession, channels), 88);
     assert_eq!(
@@ -125,6 +125,8 @@ fn the_meter_session_fields_sit_where_the_header_says() {
         std::mem::offset_of!(KirinMeterSession, measurement_epoch),
         1832
     );
+    // ABI 8 appended the song's PSR after the epoch.
+    assert_eq!(std::mem::offset_of!(KirinMeterSession, song_psr), 1840);
     assert_eq!(KIRIN_MONO_SUM_BAND_COUNT, 32);
     assert_eq!(MAX_ABI_CHANNELS, 16);
 }

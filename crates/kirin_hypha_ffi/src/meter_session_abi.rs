@@ -72,4 +72,7 @@ pub struct KirinMeterSession {
     pub layout_reserved: [u8; 7],
     /// 測定区間。engine が別の layout / sample rate で作られるたびに進む識別子であり、時刻ではない。
     pub measurement_epoch: u64,
+    /// 曲の PSR：reset からの最大の 400 ms sample peak − 最大の S。曲全体で 1 つ、一番大きい所で読む。
+    /// 値なしは NaN。末尾への追加（ABI 8）。
+    pub song_psr: f64,
 }

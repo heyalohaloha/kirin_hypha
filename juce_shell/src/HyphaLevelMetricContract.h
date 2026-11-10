@@ -34,8 +34,8 @@ constexpr Layout layoutFor (bool trackStem) noexcept
           }
         : Layout {
             { Metric::momentary, Metric::shortTerm, Metric::integrated },
-            { Metric::truePeak, Metric::maximumTruePeak, Metric::loudnessRange,
-              Metric::plr, Metric::crest }
+            { Metric::psr, Metric::truePeak, Metric::maximumTruePeak,
+              Metric::plr, Metric::loudnessRange }
           };
 }
 

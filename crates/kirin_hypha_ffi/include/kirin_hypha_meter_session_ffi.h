@@ -72,6 +72,8 @@ typedef struct {
   /* 測定区間。engine が別の layout / sample rate で作られるたびに進む。
    * 区間をまたいだ値を同じ測定として並べないための識別子であり、時刻ではない。 */
   uint64_t measurement_epoch;
+  /* 曲の PSR：reset からの最大の 400 ms sample peak − 最大の S。値なしは NaN（ABI 8 で末尾に追加）。 */
+  double song_psr;
 } KirinMeterSession;
 
 #endif
