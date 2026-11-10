@@ -54,8 +54,19 @@ public:
             && owner.compare_exchange_strong (revision, revision + 1, std::memory_order_acq_rel);
         if (acquired) std::atomic_thread_fence (std::memory_order_release);
     }
+    // Only on the revision the caller read: a writer that landed since is never overwritten.
+    GainUpdate (std::atomic<std::uint64_t>& ownerIn, std::uint64_t expected) noexcept : owner (ownerIn)
+    {
+        revision = expected;
+        acquired = (expected & 1u) == 0
+            && owner.compare_exchange_strong (revision, expected + 1, std::memory_order_acq_rel);
+        if (! acquired) revision = 0;
+        if (acquired) std::atomic_thread_fence (std::memory_order_release);
+    }
     ~GainUpdate() { if (acquired) owner.store (revision + 2, std::memory_order_release); }
     explicit operator bool() const noexcept { return acquired; }
+    // The revision readers see once this update ends.
+    std::uint64_t published() const noexcept { return revision + 2; }
     GainUpdate (const GainUpdate&) = delete;
     GainUpdate& operator= (const GainUpdate&) = delete;
 private:
@@ -109,5 +120,19 @@ bool currentBlindReceipt (const State& state) noexcept
         && ticket == state.authority.ticket() && state.authority.permitted()
         && gains.revision == state.gainRevision.load (std::memory_order_acquire)
         && state.sessionActive.load (std::memory_order_acquire);
+}
+// The trial's own tuple, committed by the audio thread at the ceiling, while its ramps settle: not
+// yet a receipt for SOURCE or REVEAL, and not an invalidation either.
+template <typename State>
+bool pendingBlindReceipt (const State& state) noexcept
+{
+    const auto gains = readGainSnapshot (state);
+    const auto ticket = state.authority.ticket();
+    return state.authority.permitted() && state.sessionActive.load (std::memory_order_acquire)
+        && gains.coherent && gains.retained && !gains.limited
+        && gains.identity.authority == ticket
+        && state.blindGainRevision.load (std::memory_order_acquire) == gains.revision
+        && state.gainReceipt.load (std::memory_order_acquire) != gains.revision
+        && gains.revision == state.gainRevision.load (std::memory_order_acquire);
 }
 }

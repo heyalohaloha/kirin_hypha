@@ -40,9 +40,10 @@ private:
 };
 
 // POST's audible level while a session runs or an approved attenuation is held (INV-LC14). It
-// follows its target linearly in gain, down over 50 ms and up over 500 ms for the full range, so
-// that applying an approved attenuation never clicks and returning to normal never jumps. The
-// steps are atomics because the message thread configures them for the prepared sample rate.
+// follows its target linearly in gain, down over 50 ms and up over 2 s for the full range, so that
+// applying an approved attenuation never clicks and returning to normal (END, RETURN) rises slowly
+// enough to react to. The steps are atomics because the message thread configures them for the
+// prepared sample rate.
 class PostLevel
 {
 public:
@@ -51,7 +52,7 @@ public:
         const auto frames = [sampleRate] (double seconds)
         { return static_cast<float> (std::max (1.0, sampleRate * seconds)); };
         downStep.store (1.0f / frames (0.05), std::memory_order_relaxed);
-        upStep.store (1.0f / frames (0.5), std::memory_order_relaxed);
+        upStep.store (1.0f / frames (2.0), std::memory_order_relaxed);
     }
 
     // Audio Thread: the gain for the next frame on the way to target (at most 1).
@@ -77,12 +78,14 @@ public:
     }
 
     void bypass() noexcept { reapplyFromUnity = true; }
+    // Audio Thread: only while POST is inaudible (PRE fully faded in), so nothing hears the move.
+    void jump (float target) noexcept { current = std::min (1.0f, target); reapplyFromUnity = false; }
     float value() const noexcept { return current; }
 
 private:
     bool reapplyFromUnity = false; // Audio Thread only; END retains its slow upward ramp.
     float current = 1.0f; // Audio Thread only
-    std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 24000.0f };
+    std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 96000.0f };
 };
 
 struct RenderReport
@@ -95,6 +98,9 @@ struct RenderReport
     bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
     bool alignWaiting = false; // both anonymous sources lack current content confirmation
     bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
+    // BLIND only: below 1 when a raised PRE would have peaked above the ceiling. From this block the
+    // trial matches on the quieter side: PRE back at unity, POST lowered by the same ratio.
+    float levelShift = 1.0f;
     bool stableSource = false; // every frame used one direct, exact source path
     bool gainSettled = false;  // every frame used the command's PRE and POST gain targets
     bool timelineChanged = false;
@@ -213,10 +219,12 @@ public:
                          float ceilingLinear, bool blind = false,
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
-                         std::uint64_t candidateToken = 0, bool candidateReceiver = false) noexcept
+                         std::uint64_t candidateToken = 0, bool candidateReceiver = false,
+                         bool lowerOnCeiling = false) noexcept
     {
         auto report = renderBlock (ring, pairKey, sampleRate, block, io, channels, preSelected,
-            preGain, post, postTarget, ceilingLinear, blind, timingBlock, diagnosticDecision, align, candidateToken);
+            preGain, post, postTarget, ceilingLinear, blind, timingBlock, diagnosticDecision, align, candidateToken,
+            lowerOnCeiling);
         if (candidateToken != 0 || candidateReceiver)
         {
             if (candidateTransition.apply (io, channels, block.frames, fadeFrames,
@@ -238,7 +246,7 @@ public:
                          float ceilingLinear, bool blind = false,
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
-                         std::uint64_t candidateToken = 0) noexcept
+                         std::uint64_t candidateToken = 0, bool lowerOnCeiling = false) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -339,6 +347,23 @@ public:
         report.reason = ! finitePost || ! validGain ? RecoveryReason::nonFinite
             : (blind || preSelected || weight > 0.0f)
                 ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
+        if (report.reason == RecoveryReason::ceiling && lowerOnCeiling && preGain > 1.0f)
+        {
+            // A BLIND trial never lets POST stand in for a raised PRE: it matches on the quieter
+            // side instead. PRE returns to unity before its first sample over the ceiling (a step
+            // only when that sample opens the block), and POST takes the same attenuation, so the
+            // two sources stay level-matched. The trial keeps this for its remaining blocks.
+            const auto first = firstOverCeiling (block.frames, preLevel.peak (preGain), ceilingLinear);
+            report.levelShift = 1.0f / preGain;
+            postTarget *= report.levelShift;
+            preGain = 1.0f;
+            if (weight > 0.0f) preLevel.lowerWithin (preGain, first);
+            else preLevel.settle (preGain);
+            // A silent POST takes its new level at once, so a switch right after stays matched.
+            if (weight >= 1.0f) post.jump (postTarget);
+            report.reason = guardFailure (block.frames, preGain, ceilingLinear); // at unity: finite samples only
+        }
+        if (lowerOnCeiling) guardRecovery.releaseCeiling();
         report.reason = guardRecovery.observe (report.reason, block.frames);
         if (report.reason != RecoveryReason::none)
         {
@@ -432,14 +457,7 @@ private:
     RecoveryReason guardFailure (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
     {
         if (! std::isfinite (preGain) || preGain <= 0.0f) return RecoveryReason::nonFinite;
-        float limit = std::numeric_limits<float>::infinity();
-        if (preGain > 1.0f)
-        {
-            const double exact = static_cast<double> (ceilingLinear) / static_cast<double> (preGain);
-            limit = static_cast<float> (exact);
-            // A rounded-up threshold can admit a sample whose gained value exceeds even FLT_MAX.
-            if (static_cast<double> (limit) > exact) limit = std::nextafter (limit, 0.0f);
-        }
+        const float limit = ceilingSampleLimit (preGain, ceilingLinear);
         for (const float* channel : { left.get(), right.get() })
             for (std::int32_t i = 0; i < frames; ++i)
             {
@@ -447,6 +465,15 @@ private:
                 if (std::fabs (channel[i]) > limit) return RecoveryReason::ceiling;
             }
         return RecoveryReason::none;
+    }
+
+    // The first frame guardFailure would reject for a raised gain; frames when none is.
+    std::int32_t firstOverCeiling (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
+    {
+        const float limit = ceilingSampleLimit (preGain, ceilingLinear);
+        for (std::int32_t i = 0; i < frames; ++i)
+            if (! (std::fabs (left[i]) <= limit) || ! (std::fabs (right[i]) <= limit)) return i;
+        return frames;
     }
 
 #include "LiveCompareRendererHistory.h"

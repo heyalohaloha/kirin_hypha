@@ -302,7 +302,8 @@ inline void chunkedPost (int channels)
     chain.until (200, [&] { post.serviceLiveBlind(); const auto s = post.liveCompareStatus(); return ! s.active && ! s.finishing; },
                  "BLIND closes");
 
-    // Through the real renderer and processor: ceiling fallback must reach REVEAL as a ceiling.
+    // Through the real renderer and processor: a raised PRE that meets the ceiling moves the trial to
+    // the quieter side (PRE at unity, POST lowered as much), and REVEAL has no fallback to disclose.
     chain.postScale = 2.0f;
     require (post.beginLiveBlind() == hypha::live_compare::StartResult::started, "a fresh BLIND starts");
     chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND MATCH completes");
@@ -314,16 +315,24 @@ inline void chunkedPost (int channels)
     chain.run (4);
     require (post.selectLiveBlind (preSource), "hear PRE before the guard");
     chain.settled (20, "PRE earns its real played receipt");
+    chain.clean ("the raised PRE played exactly before the loud passage");
+    const auto raised = post.liveCompareStatus().gain;
+    chain.auditOutput = false;
     chain.loudFrom = chain.engine + ChunkedPost::chunkFrames;
     chain.run (12);
-    require (post.liveCompareStatus().observation == hypha::live_compare::RecoveryReason::ceiling,
-             "real PRE samples trip the ceiling");
-    require (post.revealLiveBlind(), "REVEAL remains available after both real sources played");
+    const auto quieter = post.liveCompareStatus();
+    const bool movedToQuieter = quieter.observation != hypha::live_compare::RecoveryReason::ceiling && quieter.gain == 1.0f
+        && std::abs (quieter.postTarget * raised - 1.0f) < 1.0e-5f && quieter.postActual < 1.0f;
+    if (! movedToQuieter)
+        std::cerr << "quieter side: observation=" << static_cast<int> (quieter.observation) << " gain=" << quieter.gain
+                  << " raised=" << raised << " postTarget=" << quieter.postTarget << " postActual=" << quieter.postActual
+                  << " blind=" << static_cast<int> (post.liveBlindStatus().stage) << '\n';
+    require (movedToQuieter, "real PRE samples over the ceiling move the trial to the quieter side");
+    chain.until (40, [&] { return post.revealLiveBlind(); }, "REVEAL is available once the quieter side settles");
     const auto result = post.liveBlindStatus();
-    require (result.trial.usedPostFallback && result.trial.fallbackForCeiling && ! result.trial.fallbackForTiming
-             && hypha::live_blind_ui::screenFor (result, true, 1.0f).instruction == "POST played where PRE went over the ceiling",
-             "ceiling alone never claims unavailable timing");
-    chain.clean ("the ceiling fallback played exact POST");
+    require (result.stage == BlindStage::active && ! result.trial.usedPostFallback && ! result.trial.fallbackForCeiling
+             && hypha::live_blind_ui::screenFor (result, true, quieter.postActual).instruction == "Sources revealed; keep comparing",
+             "the ceiling never plays POST for PRE, so REVEAL has nothing to disclose");
     post.closeLiveBlind();
     chain.until (200, [&] { post.serviceLiveBlind(); const auto s = post.liveCompareStatus(); return ! s.active && ! s.finishing; },
                  "the ceiling trial closes");

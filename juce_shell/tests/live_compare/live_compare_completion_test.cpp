@@ -23,17 +23,18 @@ int main()
     finish.observe (request, true, true, 1.0f);
     require (finish.pending(), "PRE must be completely gone");
     int frames = 0;
-    while (level.value() < 1.0f && frames < 25000)
+    while (level.value() < 1.0f && frames < 100000)
     {
         const float previous = level.value();
         level.next (1.0f);
-        require (level.value() >= previous && level.value() - previous < 0.00005f,
-                 "POST rises monotonically at the existing half-second full-range slope");
+        require (level.value() >= previous && level.value() - previous < 0.000015f,
+                 "POST rises monotonically at the two-second full-range slope");
         finish.observe (request, true, false, level.value());
         if (level.value() < 1.0f) require (finish.pending(), "no early success");
         ++frames;
     }
-    require (! finish.pending() && frames >= 11900 && frames <= 12100, "-6 dB reaches unity in about 12000 frames");
+    // Float steps accumulate about 0.2 % short of the exact 48000 frames.
+    require (! finish.pending() && frames >= 47700 && frames <= 48100, "-6 dB reaches unity in about 48000 frames (1 s)");
     const auto second = finish.request();
     finish.observe (request, true, false, 1.0f);
     require (finish.pending(), "an old completion cannot finish a new END");

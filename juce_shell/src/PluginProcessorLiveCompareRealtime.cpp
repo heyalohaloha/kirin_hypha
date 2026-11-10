@@ -211,6 +211,21 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const float heldTarget = postTarget;
     if (finishing) postTarget = 1.0f;
     if (! coherent) postTarget = liveCompare.postLevel.value();
+    // A BLIND trial whose raised PRE met the ceiling matches on the quieter side. This thread commits
+    // that tuple after this block's checks; until it lands the same ratio applies here, also while
+    // END fades PRE out. If another writer lands first, POST is never raised above the lowered level.
+    auto& level = liveCompare.blindLevel;
+    if (level.pending() && (level.epoch != blindCommand.epoch()
+        || (finishing && coherent && level.revision != revision)))
+        level = {}; // a new trial, or END's own return
+    const bool levelSame = coherent && level.pending() && level.revision == revision;
+    const bool levelHeld = coherent && level.pending() && level.revision != revision;
+    // Values for this whole block: the commit below may clear `level` before the hold path reads them.
+    const float levelShift = level.shift, levelCap = level.post;
+    const auto levelPost = [=] (float target)
+    { return levelSame ? target * levelShift : levelHeld ? std::min (target, levelCap) : target; };
+    const float levelGain = levelSame ? 1.0f : gain; // the ratio is 1/gain: PRE exactly at unity
+    const bool blindLive = blindCommand.active() && ! blindRejected && ! finishing;
     bool rendered = false;
     bool preRemaining = false;
     liveCompare.ring.withRealtime ([&] (SharedRingMapping& mapping)
@@ -315,21 +330,25 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (permitted && liveCompare.preparation.initialRequested.load (std::memory_order_acquire)
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
+        const float renderGain = levelGain, renderPost = levelPost (postTarget);
         auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
                                                    buffer.getArrayOfWritePointers(), channels,
                                                    blindCommand.active() ? blindCommand.pre() : preSelected,
-                                                   gain,
-                                                   liveCompare.postLevel, postTarget,
+                                                   renderGain,
+                                                   liveCompare.postLevel, renderPost,
                                                    ceiling, blindCommand.active() && ! blindRejected,
                                                    cycleUnverified ? Reason::cycleUnverified : Reason::none,
                                                    trace != nullptr ? &trace->decision : nullptr,
                                                    { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff, true },
                                                    // END releases proof authority while the audio return still needs its fade.
-                                                   candidateReturning ? 0 : candidateToken, candidateToken != 0);
+                                                   candidateReturning ? 0 : candidateToken, candidateToken != 0,
+                                                   blindLive);
+        if (blindLive && coherent && report.levelShift < 1.0f)
+            level = { blindCommand.epoch(), revision, report.levelShift, gains.post * report.levelShift };
         if (trace != nullptr)
         {
             trace->render = report; trace->renderSeen = true;
-            trace->preGain = gain; trace->postGain = postTarget;
+            trace->preGain = renderGain; trace->postGain = renderPost;
         }
         if (report.reason == Reason::loopUnproven
             || (hypha::live_compare::cubaseCycleClock (block) && report.reason == Reason::loopWaiting
@@ -401,11 +420,31 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (preHeldBack)
             liveCompare.preWaitSeen.store (true, std::memory_order_release);
     });
+    // One bounded CAS on the revision this block read, as RT END: the quieter-side tuple becomes the
+    // approved gains (and the trial's, when it still runs on them), so END, a restore or a return to
+    // LISTEN keep it instead of raising PRE or POST again. Its receipt follows once the ramps settle.
+    // A writer that landed first keeps its tuple with POST no higher than the lowered level.
+    if (level.pending() && coherent && ! finishing)
+    {
+        hypha::live_compare::GainUpdate update (liveCompare.gainRevision, revision);
+        if (update)
+        {
+            if (level.revision == revision)
+            {
+                liveCompare.gain.store (1.0f, std::memory_order_release); // shift is 1/gain: exactly unity
+                liveCompare.postTarget.store (level.post, std::memory_order_release);
+                if (liveCompare.blindGainRevision.load (std::memory_order_acquire) == revision)
+                    liveCompare.blindGainRevision.store (update.published(), std::memory_order_release);
+            }
+            else liveCompare.postTarget.store (std::min (gains.post, level.post), std::memory_order_release);
+            level = {};
+        }
+    }
     // Out of a session POST keeps an approved attenuation until the explicit RETURN (INV-LC14).
     // Offline render, bypass and another audition's output are never touched.
     if (! rendered && usable && ! outputTaken)
     {
-        liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, postTarget);
+        liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, levelPost (postTarget));
         if (blindCommand.active())
         {
             liveCompare.blind.invalidate (blindCommand, Reason::preUnavailable);

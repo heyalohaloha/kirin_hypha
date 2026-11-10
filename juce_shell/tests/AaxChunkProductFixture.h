@@ -57,7 +57,7 @@ public:
             for (int ch = 0; ch < channels; ++ch)
                 for (int i = 0; i < bufferFrames; ++i) audio.setSample (ch, i, input (postClock.engine + i, ch));
             post->processBlock (audio, midi);
-            audit (audio, postClock.engine);
+            if (auditOutput) audit (audio, postClock.engine);
         }
         engine += chunkFrames;
         transport = ahead;
@@ -142,6 +142,9 @@ public:
     int silentChannel = -1;
     std::int64_t rightContentShift = 0;
     std::int64_t wrongFrames = 0;
+    // The frame oracle models unity POST; a BLIND trial that moved to the quieter side lowers POST, so
+    // that stretch is checked by its product state instead (the renderer test checks its samples).
+    bool auditOutput = true;
     std::int64_t engine = 1068544, transport = -1764, k = -512, loopFrames = 0;
     Clock preClock, postClock;
     std::unique_ptr<Processor> pre, post;

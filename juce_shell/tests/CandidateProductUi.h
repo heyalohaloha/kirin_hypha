@@ -307,8 +307,9 @@ template<class Require> void verifyCandidateSurfaces (Require require)
             status.candidate = true; status.stage = live_compare::BlindStage::active;
             status.trial.firstPre = firstA; status.trial.played = 3;
             const auto anonymous = live_blind_ui::screenFor (status, true, 1.0f);
-            require (anonymous.detail.contains ("A to B chain") && anonymous.endTitle == "End A/B and restore the chain",
-                     "candidate BLIND explains the restored connection");
+            require (anonymous.detail == "END restores normal level and the A to B chain"
+                         && anonymous.endTitle == "End A/B and restore the chain",
+                     "candidate BLIND explains the restored level and connection in one sentence");
             require (anonymous.sourceOne == "SOURCE 1" && anonymous.sourceTwo == "SOURCE 2",
                      "neither assignment leaks into anonymous source labels");
             status.trial.revealed = true;

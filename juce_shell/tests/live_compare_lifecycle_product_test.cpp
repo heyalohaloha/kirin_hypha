@@ -131,7 +131,8 @@ private:
         post->finishLiveCompare();
         require (! post->liveCompareStatus().active, "END immediately closes the logical session");
         // Do not pump messages: audio receipt must not revive the old session before retirement.
-        waitWithoutMessageService ([this] { return ! post->liveCompareStatus().finishing; }, 1500);
+        // PRE fades out first, then POST rises over up to 2 s, in host-sized callbacks.
+        waitWithoutMessageService ([this] { return ! post->liveCompareStatus().finishing; }, 3500);
         require (! post->liveCompareStatus().active, "audio receipt cannot reopen the closed session");
         post->selectLiveComparePre (true);
         require (! post->liveCompareStatus().preSelected, "stale PRE selection rejected before message cleanup");
@@ -281,7 +282,10 @@ private:
                 const auto status = post->liveBlindStatus();
                 if (mode == "restore-approval")
                 {
-                    if (status.stage != BlindStage::approval) break;
+                    // A limited master: BLIND lowers POST at once (no approval stage) and a restore
+                    // then holds that attenuation like any other.
+                    require (status.stage != BlindStage::approval, "BLIND never waits for a POST-lowering approval");
+                    if (post->liveCompareStatus().postActual >= 1.0f) break;
                     restore(); stage = 6; break;
                 }
                 if (mode == "out-of-range")
