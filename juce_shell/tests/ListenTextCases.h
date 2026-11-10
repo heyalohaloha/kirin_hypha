@@ -78,6 +78,9 @@ inline std::vector<Notice> notices()
         for (auto wait : { live_compare_ui::QueuedWait::returning, live_compare_ui::QueuedWait::tail,
                            live_compare_ui::QueuedWait::stopped, live_compare_ui::QueuedWait::other })
             add (live_compare_ui::queuedStartNotice (start, wait));
+    for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
+                         live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
+        for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));
     // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
     for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
         "Finish Keep / Record before PRE / POST Blind", "Select LR, MID, or SIDE to view Delta",

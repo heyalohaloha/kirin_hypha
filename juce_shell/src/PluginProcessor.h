@@ -178,7 +178,7 @@ public:
     bool localBlindPreCaptureWasConsumed (
         const hypha::local_blind::ExactCaptureRequest&, const std::string& pcmSha256) const;
     void retireLocalBlindPreCapture (const hypha::local_blind::ExactCaptureRequest&) const;
-    bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
+    bool keepPair (std::optional<std::uint64_t> ticket = {}); // kirin_hypha_keep (Os + unique PRE); a stale ticket starts nothing
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
     juce::String drainKeepActionNotice();               // one-shot user action feedback; never persistent
@@ -308,7 +308,7 @@ public:
         juce::String pairedPreInstanceId;
         bool hasPairedPreInstanceId = false;
     };
-    bool keepAll();                                       // FFI kirin_hypha_keep_all (broadcast + self keep)
+    bool keepAll (std::optional<std::uint64_t> ticket = {}); // FFI kirin_hypha_keep_all; a stale ticket starts nothing
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
     hypha::pair_preview::Ticket createPairPreview() const;
     bool pairPreviewMatches (const KirinPairPreview*) const;

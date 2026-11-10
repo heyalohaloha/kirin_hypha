@@ -15,6 +15,23 @@ constexpr QueuedWait queuedWait (bool playing, bool returning, bool tailClearing
          : tailClearing ? QueuedWait::tail : QueuedWait::other;
 }
 
+// V, C, B or Keep pressed while B plays out the A/B tail after END: it starts once the tail has cleared.
+enum class AfterTail : unsigned char { none, referenceV, referenceC, referenceB, keepPair, keepAll };
+
+constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
+{
+    switch (action)
+    {
+        case AfterTail::referenceV: return playing ? "Clearing the A/B tail, then V" : "Play to continue, then V";
+        case AfterTail::referenceC: return playing ? "Clearing the A/B tail, then C" : "Play to continue, then C";
+        case AfterTail::referenceB: return playing ? "Clearing the A/B tail, then B" : "Play to continue, then B";
+        case AfterTail::keepPair:
+        case AfterTail::keepAll:    return playing ? "Clearing the A/B tail, then Keep" : "Play to continue, then Keep";
+        case AfterTail::none:       break;
+    }
+    return "";
+}
+
 constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noexcept
 {
     switch (wait)

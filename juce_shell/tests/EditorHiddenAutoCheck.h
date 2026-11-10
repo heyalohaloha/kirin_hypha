@@ -56,6 +56,8 @@ struct WaitListenKey { using Type = juce::String KirinHyphaEditor::*; friend Typ
 template struct PrivateAccess<WaitListenKey, &KirinHyphaEditor::liveCompareStartAfterReturnKey>;
 struct WaitMatchUntil { using Type = double KirinHyphaEditor::*; friend Type privateMember (WaitMatchUntil); };
 template struct PrivateAccess<WaitMatchUntil, &KirinHyphaEditor::referenceRematchUntil>;
+struct WaitAfterTail { using Type = live_compare_ui::AfterTailWait KirinHyphaEditor::*; friend Type privateMember (WaitAfterTail); };
+template struct PrivateAccess<WaitAfterTail, &KirinHyphaEditor::afterTail>;
 struct WaitMatchNext { using Type = double KirinHyphaEditor::*; friend Type privateMember (WaitMatchNext); };
 template struct PrivateAccess<WaitMatchNext, &KirinHyphaEditor::referenceRematchNextAt>;
 struct WaitMatchKey { using Type = juce::String KirinHyphaEditor::*; friend Type privateMember (WaitMatchKey); };
@@ -123,6 +125,14 @@ inline void verifyWaitingRequests()
     require (static_cast<bool> (view.onStop), "the screen Stop exists");
     view.onStop();
     require (e->*privateMember (WaitKeepSince {}) <= 0.0, "the screen Stop drops a waiting Keep");
+    // V, C, B or Keep waiting for the A/B tail: another pair drops it without starting anything.
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        waiting.action = live_compare_ui::AfterTail::referenceC; waiting.pairKey = "another PRE|"; tick();
+        require ((e->*privateMember (WaitAfterTail {})).action == live_compare_ui::AfterTail::none
+                     && ! processor.referenceAuditionSnapshot().bSelected,
+                 "a press waiting for the A/B tail is dropped when the pair changes");
+    }
     // LISTEN after RETURN and C MATCH: another target drops the press without starting or matching.
     e->*privateMember (HiddenToast {}) = {};
     e->*privateMember (WaitListenUntil {}) = now() + 5.0; e->*privateMember (WaitListenKey {}) = "another PRE|";
@@ -140,9 +150,12 @@ inline void verifyWaitingRequests()
     // Hiding the window drops every press that has not started.
     e->*privateMember (WaitKeepSince {}) = now(); e->*privateMember (WaitListenUntil {}) = now() + 5.0;
     e->*privateMember (WaitMatchUntil {}) = now() + 5.0;
+    (e->*privateMember (WaitAfterTail {})).action = live_compare_ui::AfterTail::keepPair;
     e->setVisible (false); tick();
     require (e->*privateMember (WaitKeepSince {}) <= 0.0 && e->*privateMember (WaitListenUntil {}) <= 0.0
-                 && e->*privateMember (WaitMatchUntil {}) <= 0.0, "a hidden window drops every waiting press");
+                 && e->*privateMember (WaitMatchUntil {}) <= 0.0
+                 && (e->*privateMember (WaitAfterTail {})).action == live_compare_ui::AfterTail::none,
+             "a hidden window drops every waiting press");
     processor.editorBeingDeleted (owner.get());
     owner.reset();
     processor.releaseResources();

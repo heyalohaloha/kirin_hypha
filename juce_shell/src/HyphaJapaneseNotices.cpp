@@ -144,6 +144,15 @@ const Entry entries[] = {
     { "Waiting to start LISTEN", u8"LISTENの開始を待っています" },
     { "Waiting to start BLIND", u8"BLINDの開始を待っています" },
     { "Waiting to start A/B", u8"A/Bの開始を待っています" },
+    // V, C, B or Keep pressed while the A/B tail clears (PluginEditorAfterTail.cpp).
+    { "Clearing the A/B tail, then V", u8"A/Bの残りの音が消えてからVを鳴らします" },
+    { "Clearing the A/B tail, then C", u8"A/Bの残りの音が消えてからCを鳴らします" },
+    { "Clearing the A/B tail, then B", u8"A/Bの残りの音が消えてからBを鳴らします" },
+    { "Clearing the A/B tail, then Keep", u8"A/Bの残りの音が消えてからKeepを始めます" },
+    { "Play to continue, then V", u8"再生すると続き、そのあとVを鳴らします" },
+    { "Play to continue, then C", u8"再生すると続き、そのあとCを鳴らします" },
+    { "Play to continue, then B", u8"再生すると続き、そのあとBを鳴らします" },
+    { "Play to continue, then Keep", u8"再生すると続き、そのあとKeepを始めます" },
     { "MATCH waits until A has played the Cue length (up to 30 s).", u8"Aがたまり次第MATCHします（最長30秒）" },
     // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
     { "LISTEN is restoring; try again in a moment", u8"LISTENを戻しています。少し待ってください" },

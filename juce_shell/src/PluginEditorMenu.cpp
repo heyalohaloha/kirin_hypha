@@ -264,18 +264,15 @@ void KirinHyphaEditor::handleCandidateMenu (
         showCandidateMenu();
         return;
     }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if ((result == 1 || result == 4)
+        && waitsForAbTail (hypha::output_owner::Activity::recordKeep, result == 1 ? hypha::live_compare_ui::AfterTail::keepAll
+                                                                                 : hypha::live_compare_ui::AfterTail::keepPair))
+        return;
+   #endif
     if ((result == 1 || result == 4) && outputRefused (hypha::output_owner::Activity::recordKeep)) return;
     if (result == 1)
-    {
-        if (! processorRef.keepAll())
-        {
-            const juce::String notice = processorRef.drainKeepActionNotice();
-            if (notice.isNotEmpty()) { showToast (notice); return; }
-            const juce::String err = processorRef.recordErrorMessage();
-            if (err.isNotEmpty()) { showToast (err); return; }
-            showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
-        }
-    }
+        requestKeepAll ({});
     else if (result == 2)
     {
         dropWaitingRequests();

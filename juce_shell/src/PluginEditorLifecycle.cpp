@@ -95,7 +95,7 @@ void KirinHyphaEditor::timerCallback()
     refreshObservatory();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const bool liveFault = isPost && refreshLiveCompare();
-    if (isPost) { serviceLiveCompareStartAfterReturn(); serviceReferenceRematch(); requestKeepPair (true); }
+    if (isPost) { serviceLiveCompareStartAfterReturn(); serviceAfterTailPress(); serviceReferenceRematch(); requestKeepPair (true); }
    #endif
     refreshPairPreview (false);
     updateHelpLine();

@@ -141,6 +141,12 @@ void decisionsCombineStates()
             for (auto wait : { QueuedWait::returning, QueuedWait::tail, QueuedWait::stopped, QueuedWait::other })
                 texts.insert (queuedStartNotice (start, wait));
         require (texts.size() == 12, "every start and wait has its own sentence");
+        std::set<std::string> afterTail;
+        for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
+            for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));
+        require (afterTail.size() == 8 && std::string (afterTailNotice (AfterTail::keepAll, true))
+                     == afterTailNotice (AfterTail::keepPair, true) && std::string (afterTailNotice (AfterTail::none, true)).empty(),
+                 "V, C, B and Keep each say what waits for the A/B tail, playing or stopped");
     }
     using hypha::live_compare_ui::StartAfterReturn;
     using hypha::live_compare_ui::onStartPressed;

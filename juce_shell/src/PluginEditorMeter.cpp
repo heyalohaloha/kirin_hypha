@@ -144,7 +144,18 @@ void KirinHyphaEditor::updatePost()
 
 // Keep（2026-10-31）：組んだ PRE がまだ応答しない（project を開いた直後・PRE の準備中）だけなら、押した Keep を
 // 待たせて 0.5 秒ごとに確かめ、応答したら始める。上限まで応答しない時だけ「選び直して」と言う。retry は timer から。
-void KirinHyphaEditor::requestKeepPair (bool retry)
+void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket)
+{
+    if (processorRef.keepAll (ticket)) return;
+    if (ticket && *ticket != processorRef.restoreOrPairTicket()) return;  // restored or re-paired: dropped, not refused
+    const juce::String notice = processorRef.drainKeepActionNotice();
+    if (notice.isNotEmpty()) { showToast (notice); return; }
+    const juce::String err = processorRef.recordErrorMessage();
+    if (err.isNotEmpty()) { showToast (err); return; }
+    showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
+}
+
+void KirinHyphaEditor::requestKeepPair (bool retry, std::optional<std::uint64_t> ticket)
 {
     const auto now = nowSecs();
     if (retry && (keepPreWaitSince <= 0.0 || now < keepPreWaitNextAt)) return;
@@ -156,8 +167,10 @@ void KirinHyphaEditor::requestKeepPair (bool retry)
                                  hypha::keep_ui::preUnavailableNotice.size()));
         return;
     }
-    if (! retry) { keepPreWaitSince = 0.0; keepPreWaitPair = waitingPairKey(); }
-    const bool started = processorRef.keepPair();
+    if (! retry) { keepPreWaitSince = 0.0; keepPreWaitPair = waitingPairKey(); keepPreWaitTicket = ticket; }
+    const bool started = processorRef.keepPair (keepPreWaitTicket);
+    if (! started && keepPreWaitTicket && *keepPreWaitTicket != processorRef.restoreOrPairTicket())
+    { keepPreWaitSince = 0.0; return; }  // restored or re-paired since the press: dropped, not refused
     const juce::String notice = started ? juce::String() : processorRef.drainKeepActionNotice();
     const auto waited = keepPreWaitSince > 0.0 ? now - keepPreWaitSince : 0.0;
     using hypha::keep_ui::KeepWait;
@@ -189,6 +202,7 @@ void KirinHyphaEditor::dropWaitingRequests()
     keepPreWaitSince = 0.0;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     liveCompareStartAfterReturnUntil = 0.0;
+    afterTail = {};
     referenceRematchUntil = 0.0;
     referenceOpenedSlot = 0;  // the page-opened notice of a C or V press
    #endif

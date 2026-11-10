@@ -7,6 +7,7 @@ void KirinHyphaEditor::showCandidateCompareMenu()
     { showToast ("A/B: finish Record / Keep first"); return; }
     liveCompareStartAfterReturnCandidate.clear();
     liveCompareStartAfterReturnUntil = 0.0;
+    afterTail = {};  // a new A/B replaces V, C, B or Keep waiting for the old one's tail
     const auto original = processorRef.pairedPreInstanceId();
     if (original.isEmpty()) { showToast ("Choose the PRE first"); showCandidateMenu(); return; }
     juce::PopupMenu menu;
@@ -62,7 +63,7 @@ void KirinHyphaEditor::startCandidateConfirmed (const juce::String& pre2, std::u
         || result == hypha::live_compare::StartResult::returnPending))
     {
         observatoryView.onLiveCompareReturn();
-        liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
+        liveCompareStartAfterReturnUntil = nowSecs() + 10.0; afterTail = {};  // one waiting press at a time
         liveCompareStartAfterReturnKey = waitingPairKey();
         liveCompareStartAfterReturnTicket = ticket;
         liveCompareStartAfterReturnBlind = false;

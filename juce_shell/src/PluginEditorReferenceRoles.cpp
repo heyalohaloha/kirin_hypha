@@ -24,8 +24,10 @@ void KirinHyphaEditor::wireReferenceRoles()
     };
     referenceView.onSelectRef = [this]
     {
-        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
-        if (outputRefused (hypha::output_owner::Activity::audition)) return;
+        if (waitsForAbTail (hypha::output_owner::Activity::audition, hypha::live_compare_ui::AfterTail::referenceB)) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;  // a refused press keeps the waiting ones
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;  // 別の役は待たせた C の MATCH・LISTEN を捨てる
+        afterTail = {};
         processorRef.selectReferenceVisualSlot (3);
         if (processorRef.selectReferenceRef()) return;
         const auto latest = processorRef.referenceAuditionSnapshot();
@@ -254,8 +256,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     {
         referenceVersionIdentity = processorRef.identifyReferenceVersion();
         referenceIdentifyAtMs = nowMs + 3000.0;
+        // A V press waiting for the A/B tail is a V that waits: AUTO keeps its Version (as above).
         if (const auto next = referenceAutoChooser.next (referenceVersionIdentity, runtime.selectedVersionId, runtime.versionAuto);
-            next.isNotEmpty())
+            next.isNotEmpty() && afterTail.action != hypha::live_compare_ui::AfterTail::referenceV)
             processorRef.selectReferenceVersion (next, true);
         if (const auto next = referenceAutoMark.next (referenceVersionIdentity, referenceAutoMarkId, true); next.isNotEmpty())
             referenceAutoMarkId = next;
