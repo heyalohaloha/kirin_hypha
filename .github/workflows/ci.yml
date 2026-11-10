@@ -160,38 +160,11 @@ jobs:
         with:
           key: release-source-${{ matrix.phase }}
 
-      # The four native shards compile the same graph. A compiler cache restores the objects a
-      # previous run of this pull request (or main) built; the tests themselves always run.
-      - name: Restore native compiler cache
-        if: env.RUN_PHASE == 'true' && startsWith(matrix.phase, 'native')
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/ccache
-          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: native-ccache-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Use the compiler cache
-        if: env.RUN_PHASE == 'true' && startsWith(matrix.phase, 'native')
-        env:
-          CACHE_DIR: ${{ runner.temp }}/ccache
-        run: bash scripts/ci_use_ccache.sh "$CACHE_DIR"
-
       - name: Test shipping source contract
         if: env.RUN_PHASE == 'true'
         env:
           RELEASE_SOURCE_PHASE: ${{ matrix.phase }}
         run: bash scripts/test_release_source.sh --phase "$RELEASE_SOURCE_PHASE"
-
-      - name: Report compiler cache use
-        if: ${{ !cancelled() && env.RUN_PHASE == 'true' && startsWith(matrix.phase, 'native') }}
-        run: ccache --show-stats
-
-      - name: Save native compiler cache
-        if: ${{ !cancelled() && env.RUN_PHASE == 'true' && matrix.phase == 'native1' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/ccache
-          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
 
   test:
     # Preserve the protected check name and release provenance consumer. A skipped,
@@ -234,18 +207,6 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
-      - name: Restore AU build compiler cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/ccache
-          key: auval-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: auval-ccache-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Use the compiler cache
-        env:
-          CACHE_DIR: ${{ runner.temp }}/ccache
-        run: bash scripts/ci_use_ccache.sh "$CACHE_DIR"
-
       # The JUCE submodule is pinned pristine; local patches are applied at build time only.
       # Keep CI and scripts/build_juce_universal.sh on the same patch flags.
       - name: Apply tracked JUCE patch stack
@@ -258,13 +219,6 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
           cmake --build juce_shell/build-arm64 --config Release
-
-      - name: Save AU build compiler cache
-        if: ${{ !cancelled() }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/ccache
-          key: auval-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
 
       - name: Validate Kirin OS Reference preview renderer (arm64)
         run: ctest --test-dir juce_shell/build-arm64 -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'

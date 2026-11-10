@@ -69,6 +69,9 @@ function verifyPublicWorkflow(source) {
     if (action) {
       assert.match(action[1], /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/,
         'every external Action must use a full commit SHA');
+      // The repository's Actions policy allows only these; any other Action stops the whole run at startup.
+      assert.match(action[1], /^(?:actions\/checkout|actions\/upload-artifact|Swatinem\/rust-cache|dtolnay\/rust-toolchain|heyalohaloha\/[\w.-]+)@/,
+        'Action is not allowed by the repository Actions policy');
       const indent = line.match(/^ */)[0].length;
       const options = [];
       for (let j = i + 1; j < lines.length; j += 1) {
@@ -143,6 +146,8 @@ test('same-repository and manual SDK work cannot regain a public self-hosted rou
 test('mutable Action refs and persistent checkout tokens are rejected', () => {
   assert.throws(() => verifyPublicWorkflow(ci.replace(/actions\/checkout@[a-f0-9]{40}/,
     'actions/checkout@v6')), /full commit SHA/);
+  assert.throws(() => verifyPublicWorkflow(ci.replace(/actions\/checkout@([a-f0-9]{40})/, 'actions/cache/restore@$1')),
+    /repository Actions policy/);
   assert.throws(() => verifyPublicWorkflow(ci.replace('persist-credentials: false',
     'persist-credentials: true')), /must not persist/);
 });
