@@ -164,6 +164,14 @@ export function verifyWindowsAaxRecord(record, version, options = {}) {
     throw new Error(`${record.role} AAX Authenticode signer is not the Kirin publisher`);
   }
   if (!timestampSubject) throw new Error(`${record.role} AAX Authenticode timestamp is missing`);
+  // The signing run verified PACE with the iLok and recorded each binary's hash (signed provenance).
+  // A byte-identical binary carries that signature, so staging an installer needs no iLok.
+  if (options.paceVerifiedSha256) {
+    if (options.paceVerifiedSha256[inspected.role] !== inspected.binarySha256) {
+      throw new Error(`${record.role} AAX differs from the PACE-verified signing record`);
+    }
+    return inspected;
+  }
   run(
     options.wraptool || resolveWraptool(options.env),
     ['verify', '--localonly', '--in', inspected.binary],

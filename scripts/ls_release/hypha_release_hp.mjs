@@ -190,8 +190,16 @@ export async function publishHp(state, run, save, fetcher = fetch) {
     }
     const beforePush = (await run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root, capture: true })).split(/\s/)[0];
     if (beforePush !== state.inputs.hpBaseCommit) throw new Error('HP remote advanced during tests');
+    // A fresh HP clone has no identity of its own; commit as the release checkout's author
+    // instead of letting git invent one from the machine name.
+    const identity = {};
+    for (const key of ['user.name', 'user.email']) {
+      identity[key] = (await run('git', ['config', key], { cwd: state.root, capture: true }).catch(() => '')).trim();
+      if (!identity[key]) throw new Checkpoint(`Set git ${key} in the release checkout before publishing HP`);
+    }
     await run('git', ['add', '--', ...HP_FILES], { cwd: root });
-    await run('git', ['commit', '-m', `Publish Hypha ${state.candidate.version} (${state.candidate.id})`], { cwd: root });
+    await run('git', ['-c', `user.name=${identity['user.name']}`, '-c', `user.email=${identity['user.email']}`,
+      'commit', '-m', `Publish Hypha ${state.candidate.version} (${state.candidate.id})`], { cwd: root });
     state.hpCommit = (await run('git', ['rev-parse', 'HEAD'], { cwd: root, capture: true })).trim();
     state.hpPreview = { ...preview, hpCommit: state.hpCommit, sourceFacts: state.hpPlanned }; save();
   }

@@ -11,6 +11,8 @@ import { bindOwnerOverrides } from './ls_release/hypha_release_override.mjs';
 export { bindOwnerOverrides };
 export { checkBoundOwnerOverrides } from './ls_release/hypha_release_contract.mjs';
 import { requireCleanReleaseSource } from './ls_release/release_source_identity.mjs';
+import { timingScope, requiredHostTestsFor } from './ls_release/release_scope.mjs';
+import { notePromises } from './ls_release/hypha_release_criteria.mjs';
 import { SCHEMA, HOST_TESTS, SAFETY_EXPECTED, DISTRIBUTION_TESTS, POST_TESTS, assertState, safeStatePath,
   atomicJson, assertIndependentDeliveryTree, digest, checkFacts, fileFact, treeFact, readJson, resolveInput, validateReport,
   reportTemplate, authorization, Checkpoint, ownerOverride, acceptanceCriteria, fixRows, hostTestIds } from './ls_release/hypha_release_contract.mjs';
@@ -135,7 +137,7 @@ export function parseReleaseArgs(argv) {
   return options;
 }
 
-export function makeState(root, options, snapshot = sourceSnapshot) {
+export function makeState(root, options, snapshot = sourceSnapshot, scopeOf = timingScope) {
   const source = snapshot(root);
   const updatePublicKey = validatePublicKey(options.updatePublicKey || '');
   const keySuffix = updatePublicKey ? `-update-${updateBinding(updatePublicKey).publicKeySha256.slice(0, 12)}` : '';
@@ -162,9 +164,11 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
   }
   const ownerOverrides = [options.ownerOverride].flat().filter(Boolean).map(file => ownerOverride(inputPath(file), candidate));
   if (new Set(ownerOverrides.map(o => o.testId)).size !== ownerOverrides.length) throw new Error('Owner override names a row twice');
-  const fixes = options.fixRows ? fixRows(inputPath(options.fixRows), candidate) : undefined;
+  const fixes = options.fixRows ? fixRows(inputPath(options.fixRows), candidate, undefined, inputs.notes) : undefined;
+  if (!fixes && notePromises(inputs.notes)?.length) throw new Error('Release-note promises need --fix-rows that prove each one');
+  const scope = scopeOf(root, candidate.commit), requiredHostTests = requiredHostTestsFor(HOST_TESTS, scope);
   return { schema: SCHEMA, ...(fixes ? { fixRows: fixes } : {}), root: fs.realpathSync(root), candidate, source, inputs,
-    requiredHostTests: [...HOST_TESTS], expected: Object.fromEntries(HOST_TESTS.map(id => [id,
+    timingScope: scope, requiredHostTests, expected: Object.fromEntries(requiredHostTests.map(id => [id,
       SAFETY_EXPECTED[id] || { passed: true }]).concat((fixes?.rows || []).map(row => [row.id, row.expected]))), ...(ownerOverrides.length ? { ownerOverrides } : {}),
     stages: {}, releaseState: 'DIAGNOSTIC' };
 }
@@ -247,7 +251,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
     provenance: async () => verifyReleaseProvenance(state),
     distribution: async () => {
       checkFacts(state.freeze.payloads);
-      await verifyMac(state, run); await verifyMac(state, run, true);
+      await verifyMac(state, run); await verifyMac(state, run, true, { signedAaxReceipt: true });
       await verifyWindows(state, run);
       checkFacts(state.stages.packages.facts);
       await prepareLs(state, run);

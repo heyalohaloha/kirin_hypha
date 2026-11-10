@@ -19,7 +19,7 @@ function fixture(t) {
   atomicJson(statePath, state);
   const decision = path.join(root, 'decision.json');
   const write = changes => fs.writeFileSync(decision, JSON.stringify({ schema: 'hypha-owner-acceptance-override-v1',
-    release: '1.2.3', candidateId: state.candidate.id, excludedRequiredTest: 'Exact-4-S-samples',
+    release: '1.2.3', candidateId: state.candidate.id, excludedRequiredTest: 'high-rate-192k',
     excludedResultMustBe: 'NOT_REQUIRED_OWNER_OVERRIDE', ...changes }));
   write({});
   const bind = () => release.bindOwnerOverrides(statePath, [decision], snapshot);
@@ -29,7 +29,7 @@ function fixture(t) {
 test('explicit pre-freeze override binding preserves manufactured receipts', t => {
   const f = fixture(t); const result = f.bind();
   assert.equal(result.ownerOverrides[0].candidateId, f.state.candidate.id);
-  assert.equal(result.ownerOverrides[0].testId, 'Exact-4-S-samples');
+  assert.equal(result.ownerOverrides[0].testId, 'high-rate-192k');
   assert.deepEqual(result.stages, f.state.stages);
 });
 

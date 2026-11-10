@@ -74,6 +74,25 @@ try {
   $script:passed += 1
 
   Reject "non-zero PACE exit" { Assert-AaxPayload $installed $source $paceFail } "PACE verification failed for installed PRE AAX binary \(exit 3\)"
+
+  # The signing run's PACE record replaces the iLok check only for byte-identical binaries.
+  $sampleHash = Get-Sha256 $sample
+  $paceRecordPath = Join-Path $root "signed-provenance.json"
+  $writePaceRecord = { param($preHash, $verified)
+    [ordered]@{ signing = @{ pace_verified = $verified }; bundles = @(
+      @{ role = "PRE"; sha256 = $preHash; pace_verified = $true },
+      @{ role = "POST"; sha256 = $sampleHash; pace_verified = $true }) } |
+      ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $paceRecordPath -Encoding utf8 }
+  & $writePaceRecord $sampleHash $true
+  $byRecord = @(Assert-AaxPayload $installed $source $paceFail (Get-HyphaPaceRecord $paceRecordPath (Get-Sha256 $paceRecordPath)))
+  if ($byRecord.Count -ne 2) { throw "a PACE-verified record must replace the iLok check for identical binaries" }
+  $script:passed += 1
+  & $writePaceRecord ("0" * 64) $true
+  Reject "binary differs from the PACE record" { Assert-AaxPayload $installed $source $paceOk (Get-HyphaPaceRecord $paceRecordPath (Get-Sha256 $paceRecordPath)) } "installed PRE AAX binary differs from the PACE-verified signing record"
+  Reject "record the manifest does not name" { Get-HyphaPaceRecord $paceRecordPath ("0" * 64) } "is not the signed AAX provenance"
+  Reject "record without a manifest hash" { Get-HyphaPaceRecord $paceRecordPath "" } "is not the signed AAX provenance"
+  & $writePaceRecord $sampleHash $false
+  Reject "record without PACE verification" { Get-HyphaPaceRecord $paceRecordPath (Get-Sha256 $paceRecordPath) } "PACE signing record does not record PACE verification"
   $post = Join-Path $installed "Kirin Hypha POST.aaxplugin"
   Rename-Item -LiteralPath $post -NewName "Kirin Hypha POST.moved"
   Reject "missing POST role" { Assert-AaxPayload $installed $source $paceOk } "Missing installed POST AAX binary"

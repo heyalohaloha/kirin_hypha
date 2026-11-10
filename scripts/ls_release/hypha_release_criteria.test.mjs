@@ -6,9 +6,9 @@ import test from 'node:test';
 import { makeState, parseReleaseArgs, realActions, executeRelease, STAGES } from '../release_hypha.mjs';
 import { SCHEMA, HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, assertState, digest, fileFact, reportTemplate,
   validateReport, acceptanceCriteria, atomicJson, Checkpoint } from './hypha_release_contract.mjs';
-import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES,
+import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES, notePromises,
   hostTestIds, bindOwnerDecisions, checkOwnerDecisions, checkFixRows, ciFixRows } from './hypha_release_criteria.mjs';
-import { verifyCi } from './hypha_release_local.mjs';
+import { verifyCi, RELEASE_SOURCE_PHASES } from './hypha_release_local.mjs';
 import { updateBinding } from '../updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1', fingerprint: 'b'.repeat(64) };
@@ -23,13 +23,15 @@ function fixture(t, { delivery = false } = {}) {
   };
   fs.mkdirSync(path.join(root, 'crates/hypha_pre'), { recursive: true });
   fs.writeFileSync(path.join(root, 'crates/hypha_pre/Cargo.toml'), 'version = "1.2.3"\n');
-  const row = { id: 'fixed-clock', kind: 'host', hosts: ['macOS/x86_64/AU'], depth: 'deep',
-    oracle: 'independent callback capture', expected: { lostFrames: 0 } };
+  const notes = path.join(root, 'notes.md');
+  fs.writeFileSync(notes, '## Fixes in 1.2.3\n\n- The clock keeps every frame.\n- Pairs recover.\n\nmacOS: AU.\n\n---\n\n## 1.2.3 の修正\n\n- 時計\n');
+  const row = { id: 'fixed-clock', kind: 'host', promise: 'The clock keeps every frame.', hosts: ['macOS/x86_64/AU'],
+    daw: 'Logic Pro', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
   const spec = { schema: FIX_ROWS_SCHEMA, release: '1.2.3', rows: [row,
-    { ...row, id: 'fixed-ci', kind: 'ci', hosts: [], oracle: 'pair-recovery-parity', expected: { passed: true } }] };
+    { ...row, id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], oracle: 'pair-recovery-parity', expected: { passed: true } }] };
   const fixes = write('fixes.json', spec);
   const statePath = path.join(root, 'release_state/profile.json');
-  let state = makeState(root, { state: statePath, fixRows: fixes,
+  let state = makeState(root, { state: statePath, fixRows: fixes, notes,
     ...(delivery ? { windowsFactoryRepository: 'fixture/factory', windowsFactoryCommit: 'c'.repeat(40) } : {}) }, () => SOURCE);
   if (delivery) {
     const archive = write('delivery.zip', 'fixture archive');
@@ -45,7 +47,7 @@ function fixture(t, { delivery = false } = {}) {
   const decision = ids => write('decision.json', { schema: OWNER_DECISION_SCHEMA, release: '1.2.3', candidateId: state.candidate.id,
     rows: ids.map(id => ({ id, reason: 'Host test unavailable', resumeCondition: 'Validate with the next candidate',
       releaseNote: 'This host check is deferred for this release.' })) });
-  return { root, write, spec, fixes, state, statePath, freeze, decision };
+  return { root, write, spec, fixes, notes, state, statePath, freeze, decision };
 }
 
 test('versioned fix rows bind host and CI expectations without requesting a host PASS for CI', t => {
@@ -71,17 +73,61 @@ test('versioned fix rows bind host and CI expectations without requesting a host
 
 test('fix rows refuse duplicate or reserved ids, missing kinds and unknown CI oracles', t => {
   const f = fixture(t);
-  for (const patch of [{ id: HOST_TESTS[0] }, { kind: undefined }, { kind: 'other' },
+  for (const patch of [{ id: HOST_TESTS[0] }, { id: 'high-rate-192k' }, { kind: undefined }, { kind: 'other' },
     { hosts: [] }, { expected: {} }, { depth: 'shallow' }, { oracle: '' }, { expected: null },
-    { kind: 'ci', oracle: 'missing' }]) {
+    { kind: 'ci', oracle: 'missing' }, { daw: '' }, { chain: undefined }, { promise: 'Not in the notes.' }]) {
     f.write('fixes.json', { ...f.spec, rows: [{ ...f.spec.rows[0], ...patch }] });
-    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE));
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   }
   f.write('fixes.json', { ...f.spec, rows: [f.spec.rows[0], f.spec.rows[0]] });
-  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE));
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   assert.throws(() => parseReleaseArgs(['--state', 'x', '--fix-rows', f.fixes]));
   assert.throws(() => parseReleaseArgs(['--state', 'x', '--owner-decision', 'decision.json']));
   assert.deepEqual(parseReleaseArgs(['--state', 'x', '--execute', '--owner-decision', 'a', '--owner-decision', 'b']).ownerDecision, ['a', 'b']);
+});
+
+test('every release-note promise needs a proving row, and promises without rows stop --init', t => {
+  const f = fixture(t);
+  f.write('fixes.json', { ...f.spec, rows: [f.spec.rows[0]] });
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Pairs recover/);
+  assert.throws(() => makeState(f.root, { state: f.statePath, notes: f.notes }, () => SOURCE), /need --fix-rows/);
+  f.write('fixes.json', f.spec);
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE), /release notes/);
+  // The Japanese section mirrors the English promises and is not matched twice.
+  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 2);
+  fs.appendFileSync(f.notes, '\n- A late promise.\n');
+  assert.ok(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+  fs.writeFileSync(f.notes, fs.readFileSync(f.notes, 'utf8').replace('- Pairs recover.', '- Pairs recover.\n- Another promise.'));
+  assert.throws(() => assertState(f.state), /changed|Another promise/);
+});
+
+test('promises are every English list item, whatever its marker, with continuation lines joined', t => {
+  const f = fixture(t);
+  fs.writeFileSync(f.notes, '## Fixes\n\n* First promise\n  continues here.\n+ Second\nwithout an indent.\n#123 is not a heading.\n#\u00a0nor this.\n1. Third.\n   - Nested fourth.\n\nPlatforms line.\n## Next\n- Fifth.\n\n***\n\n- 日本語\n');
+  assert.deepEqual(notePromises(f.notes), ['First promise continues here.', 'Second without an indent. #123 is not a heading. #\u00a0nor this.', 'Third.', 'Nested fourth.', 'Fifth.']);
+  assert.equal(notePromises(path.join(f.root, 'missing.md')), null);
+});
+
+test('promises added after --init without proving rows stop every later stage', t => {
+  const f = fixture(t);
+  const bare = makeState(f.root, { state: f.statePath, notes: path.join(f.root, 'plain.md') }, () => SOURCE);
+  fs.writeFileSync(path.join(f.root, 'plain.md'), 'No list here.\n');
+  assertState(bare);
+  fs.writeFileSync(path.join(f.root, 'plain.md'), '- A new promise.\n');
+  assert.throws(() => assertState(bare), /A new promise/);
+});
+
+test('timing rows run only when the tool finds unchanged timing code, and cannot be dropped otherwise', t => {
+  const f = fixture(t);
+  const unchanged = makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE,
+    () => ({ previous: 'v1.2.2', timingChanged: false, paths: [] }));
+  assert.deepEqual(unchanged.requiredHostTests, HOST_TESTS.concat('fixed-clock').filter(id => HOST_TESTS.includes(id)));
+  assertState(unchanged);
+  assert.ok(f.state.requiredHostTests.includes('high-rate-192k') && f.state.requiredHostTests.includes('pair/combinations'));
+  const dropped = structuredClone(f.state); dropped.requiredHostTests = [...HOST_TESTS];
+  assert.throws(() => assertState(dropped), /cannot be reduced/);
+  dropped.timingScope = { previous: 'v1.2.2', timingChanged: false, paths: [] };
+  assertState(dropped);
 });
 
 for (const [gate, ids] of [['distribution', DISTRIBUTION_TESTS], ['postrelease', POST_TESTS]]) {
@@ -90,7 +136,7 @@ for (const [gate, ids] of [['distribution', DISTRIBUTION_TESTS], ['postrelease',
     for (const id of ids) {
       const row = { ...f.spec.rows[0], id, expected: { signatureFailures: 1 } };
       f.write('fixes.json', { ...f.spec, rows: [row] });
-      assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE));
+      assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
       const bound = { ...f.state, fixRows: { rows: [row], decision: fileFact(f.fixes) },
         expected: { ...f.state.expected, [id]: row.expected } };
       assert.throws(() => checkFixRows(bound));
@@ -147,13 +193,13 @@ test('hosts execution persists the decision before checking the report and resum
   actions.hosts = real.hosts;
   const deps = { statePath: f.statePath, snapshot: () => SOURCE, clean: () => {}, actions, log: () => {} };
   bindOwnerDecisions(f.state, [decision]); // The CI-only row has a deliberate deferred decision.
-  await executeRelease(f.state, { execute: true, until: 'packages' }, deps);
-  assert.equal(f.state.stages.hosts.status, 'FAIL'); assert.equal(f.state.stages.packages, undefined);
+  await executeRelease(f.state, { execute: true, until: 'ls' }, deps);
+  assert.equal(f.state.stages.hosts.status, 'FAIL'); assert.equal(f.state.stages.provenance, undefined);
   const failedReport = fileFact(reportPath);
   report.tests.find(row => row.id === 'fixed-clock').result = OWNER_DEFERRED;
   f.write(reportPath, report);
-  await executeRelease(f.state, { execute: true, until: 'packages', ownerDecision: [decision] }, deps);
-  assert.equal(f.state.stages.hosts.status, 'PASS'); assert.equal(f.state.stages.packages.status, 'PASS');
+  await executeRelease(f.state, { execute: true, until: 'ls', ownerDecision: [decision] }, deps);
+  assert.equal(f.state.stages.hosts.status, 'PASS'); assert.equal(f.state.stages.provenance.status, 'PASS');
   assert.ok(f.state.stages.hosts.previous?.some(attempt => attempt.status === 'FAIL'
     && attempt.facts.some(fact => fact.sha256 === failedReport.sha256
       && fs.realpathSync(fact.path) === fs.realpathSync(failedReport.path))),
@@ -172,16 +218,16 @@ test('invalid owner decision input checkpoints without recording a host failure 
   const deps = { statePath: f.statePath, snapshot: () => SOURCE, clean: () => {}, actions, log: () => {} };
   for (const invalid of [{ ...valid, schema: 'unsupported' }, { ...valid, rows: [{ ...valid.rows[0], reason: '' }] }, null]) {
     if (invalid) f.write('decision.json', invalid); else fs.writeFileSync(decision, '{');
-    await executeRelease(f.state, { execute: true, until: 'packages', ownerDecision: [decision] }, deps);
+    await executeRelease(f.state, { execute: true, until: 'ls', ownerDecision: [decision] }, deps);
     assert.equal(f.state.blocker.stage, 'hosts');
     assert.notEqual(f.state.stages.hosts?.status, 'FAIL');
-    assert.equal(hostRuns, 0); assert.equal(f.state.stages.packages, undefined);
+    assert.equal(hostRuns, 0); assert.equal(f.state.stages.provenance, undefined);
     assert.equal(f.state.ownerDecisions, undefined);
     assert.equal(fs.existsSync(`${f.statePath}.lock`), false);
   }
   f.write('decision.json', valid);
-  await executeRelease(f.state, { execute: true, until: 'packages', ownerDecision: [decision] }, deps);
-  assert.equal(hostRuns, 1); assert.equal(f.state.stages.packages.status, 'PASS');
+  await executeRelease(f.state, { execute: true, until: 'ls', ownerDecision: [decision] }, deps);
+  assert.equal(hostRuns, 1); assert.equal(f.state.stages.provenance.status, 'PASS');
 });
 
 test('CI oracle names describe their evidence and every job and step exists in the workflow', () => {
@@ -220,6 +266,12 @@ function greenJobs() {
     let job = jobs.find(job => job.name === check.job);
     if (!job) { job = { id: jobs.length + 1, name: check.job, status: 'completed', conclusion: 'success', steps: [] }; jobs.push(job); }
     if (!job.steps.some(step => step.name === check.step)) job.steps.push({ name: check.step, status: 'completed', conclusion: 'success' });
+  }
+  for (const phase of RELEASE_SOURCE_PHASES) {
+    const name = `release source ${phase} (macos)`;
+    let job = jobs.find(job => job.name === name);
+    if (!job) { job = { id: jobs.length + 1, name, status: 'completed', conclusion: 'success', steps: [] }; jobs.push(job); }
+    if (!job.steps.some(step => step.name === 'Test shipping source contract')) job.steps.push({ name: 'Test shipping source contract', status: 'completed', conclusion: 'success' });
   }
   return jobs.map(job => ({ ...job, run_id: 123, head_sha: SOURCE.commit, run_attempt: 1 }));
 }

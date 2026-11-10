@@ -133,7 +133,28 @@ function Assert-Payload([string]$InstalledRoot, [string]$SourceRoot, [string]$Si
   return $records
 }
 
-function Assert-AaxPayload([string]$InstalledRoot, [string]$SourceRoot, [string]$Wraptool) {
+# The AAX signing run verified PACE with the iLok and recorded each signed binary's hash in its
+# signed provenance. A byte-identical binary carries that signature, so later checks need no iLok.
+# The record must be the one the installer manifest names by hash (distribution.aax_identity).
+function Get-HyphaPaceRecord([string]$PathValue, [string]$ExpectedSha256) {
+  $recordPath = Resolve-RequiredFile $PathValue "PACE signing record"
+  if ($ExpectedSha256 -cnotmatch '^[0-9a-f]{64}$' -or (Get-Sha256 $recordPath) -cne $ExpectedSha256) {
+    throw "PACE signing record is not the signed AAX provenance the installer manifest names"
+  }
+  $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+  if ($record.signing.pace_verified -ne $true) { throw "PACE signing record does not record PACE verification" }
+  $hashes = @{}
+  foreach ($role in @("PRE", "POST")) {
+    $match = @($record.bundles | Where-Object { $_.role -ceq $role -and $_.pace_verified -eq $true })
+    if ($match.Count -ne 1 -or [string]$match[0].sha256 -cnotmatch '^[0-9a-f]{64}$') {
+      throw "PACE signing record has no verified $role binary"
+    }
+    $hashes[$role] = [string]$match[0].sha256
+  }
+  return $hashes
+}
+
+function Assert-AaxPayload([string]$InstalledRoot, [string]$SourceRoot, [string]$Wraptool, [hashtable]$PaceVerified = $null) {
   $records = @()
   foreach ($role in @("PRE", "POST")) {
     $bundleName = "Kirin Hypha ${role}.aaxplugin"
@@ -146,7 +167,13 @@ function Assert-AaxPayload([string]$InstalledRoot, [string]$SourceRoot, [string]
       throw "$role installed AAX hash mismatch: $installedHash != $sourceHash"
     }
     $records += Get-SignatureRecord "installed $role AAX binary" $installedBinary "signed"
-    Invoke-HyphaPaceVerification $Wraptool $role $installedBinary
+    if ($null -ne $PaceVerified) {
+      if ($PaceVerified[$role] -cne $installedHash) {
+        throw "installed $role AAX binary differs from the PACE-verified signing record"
+      }
+    } else {
+      Invoke-HyphaPaceVerification $Wraptool $role $installedBinary
+    }
   }
   return $records
 }

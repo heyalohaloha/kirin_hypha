@@ -192,6 +192,11 @@ if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
   fi
   if [[ "$DRY_RUN" == 0 ]]; then
     [[ -x "$WRAPTOOL" ]] || fail "wraptool is not executable; set KIRIN_AAX_WRAPTOOL"
+    # PACE signs at the end of a long build and needs the iLok then. Stop before building when
+    # no iLok is attached; KIRIN_AAX_ILOK_CLOUD=1 names an iLok Cloud session that holds the license.
+    if [[ "${KIRIN_AAX_ILOK_CLOUD:-0}" != 1 ]] && ! /usr/sbin/ioreg -p IOUSB -w0 -l 2>/dev/null | grep -qi 'ilok'; then
+      fail "no iLok is attached to this Mac; connect the iLok with the PACE signing license before building (or set KIRIN_AAX_ILOK_CLOUD=1)"
+    fi
   fi
 fi
 

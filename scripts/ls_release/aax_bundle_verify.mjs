@@ -145,6 +145,31 @@ function symlinkInventory(bundlePath) {
   return out.sort();
 }
 
+export const AAX_PACE_RECEIPT_ENV = 'KIRIN_HYPHA_AAX_PACE_RECEIPT';
+export const AAX_PACE_RECEIPT_SHA256_ENV = 'KIRIN_HYPHA_AAX_PACE_RECEIPT_SHA256';
+
+// The macOS AAX stage signs with the iLok, verifies with PACE and records each bundle's whole
+// tree (paths, modes, sizes, bytes, symlinks) in its receipt. Packaging and distribution compare
+// a bundle with that recorded tree instead of asking PACE again, so the iLok is needed only while
+// signing: identical bytes carry the identical PACE signature. Returns null when not selected.
+export function paceFromSigningReceipt(bundlePath, treeManifestSha256, env = process.env) {
+  const receiptPath = env[AAX_PACE_RECEIPT_ENV];
+  if (!receiptPath) return null;
+  const expected = env[AAX_PACE_RECEIPT_SHA256_ENV] || '';
+  if (!/^[0-9a-f]{64}$/.test(expected)) throw new Error('AAX signing receipt needs the sha256 its stage recorded');
+  const bytes = fs.readFileSync(receiptPath);
+  if (sha256Buffer(bytes) !== expected) throw new Error('AAX signing receipt changed after the signing stage');
+  const name = path.basename(bundlePath);
+  const entry = JSON.parse(bytes.toString('utf8')).bundles?.find((bundle) => bundle?.bundle === name);
+  if (!entry || entry.bundle_manifest_sha256 !== treeManifestSha256) {
+    throw new Error(`AAX bundle differs from the PACE-verified signing receipt: ${name}`);
+  }
+  if (!entry.pace_signer || !entry.pace_signer_guid || !entry.pace_publisher_id) {
+    throw new Error(`AAX signing receipt lacks the PACE signer: ${name}`);
+  }
+  return { signerName: entry.pace_signer, signerGuid: entry.pace_signer_guid, publisherId: entry.pace_publisher_id };
+}
+
 export function verifyAaxBundle({
   bundlePath,
   executableName,
@@ -156,6 +181,7 @@ export function verifyAaxBundle({
   requireDistribution = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
+  paceEnv = process.env,
 }) {
   if (!fs.statSync(bundlePath, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error(`AAX bundle missing: ${bundlePath}`);
@@ -207,15 +233,19 @@ export function verifyAaxBundle({
   if (!links.some((entry) => entry.startsWith(`${PACE_DSIG_LINK}\t`))) {
     throw new Error(`AAX PACE compatibility signature link missing: ${PACE_DSIG_LINK}`);
   }
-  const paceResult = run(resolveWraptool(), ['verify', '--in', bundlePath], 'AAX PACE signature verification');
-  const pace = parseAaxPaceSignature(`${paceResult.stdout}\n${paceResult.stderr}`);
   const treeManifest = buildTreeManifest(bundlePath, path.basename(bundlePath));
+  const treeManifestSha256 = sha256Buffer(manifestBytes(treeManifest));
+  let pace = paceFromSigningReceipt(bundlePath, treeManifestSha256, paceEnv);
+  if (!pace) {
+    const paceResult = run(resolveWraptool(), ['verify', '--in', bundlePath], 'AAX PACE signature verification');
+    pace = parseAaxPaceSignature(`${paceResult.stdout}\n${paceResult.stderr}`);
+  }
   return {
     binary,
     binarySha256: sha256(binary),
     symlinks: links,
     treeManifest,
-    treeManifestSha256: sha256Buffer(manifestBytes(treeManifest)),
+    treeManifestSha256,
     apple,
     pace,
   };

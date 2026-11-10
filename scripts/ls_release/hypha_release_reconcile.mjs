@@ -53,7 +53,7 @@ async function verifyRetained(state, stage, { run, fetcher = fetch }) {
   if (stage === 'provenance') return verifyReleaseProvenance(state);
   if (stage === 'distribution') {
     if (!run || !state.freeze) throw new Error('Frozen candidate and read-only runner required');
-    const facts = [...await verifyMac(state, run), ...await verifyMac(state, run, true), ...await verifyWindows(state, run)];
+    const facts = [...await verifyMac(state, run), ...await verifyMac(state, run, true, { signedAaxReceipt: true }), ...await verifyWindows(state, run)];
     facts.push(await verifyPreparedLs(state, run));
     facts.push(...validateReport(state, state.inputs.distributionReport, 'A5', digest(state.stages.packages.facts), DISTRIBUTION_TESTS));
     return { facts };

@@ -13,6 +13,7 @@ import {
   renderAllowlist,
   unreachableSemverTags,
 } from './check_public_history.mjs';
+import { publicManualFiles } from './ls_release/readme_manual_contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sha = (digit) => digit.repeat(40);
@@ -83,15 +84,16 @@ test('only strict public SemVer tags must reach candidate main', () => {
 test('CI runs the public history contract without an event condition', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
   const start = workflow.indexOf('  public-history:\n');
-  const end = workflow.indexOf('\n  release-source:\n', start);
-  assert.ok(start >= 0 && end > start, 'public-history job must precede the release-source job');
+  const end = workflow.indexOf('\n  scope:\n', start);
+  assert.ok(start >= 0 && end > start, 'public-history job must precede the scope and release-source jobs');
   const job = workflow.slice(start, end);
   assert.match(job, /name: public history identity/);
   assert.match(job, /fetch-depth: 0/);
   assert.match(job, /bash scripts\/test_lightweight_contract\.sh/);
   assert.match(job, /node --test scripts\/public_history\.test\.mjs/);
   assert.match(job, /node scripts\/check_public_history\.mjs --tip HEAD/);
-  assert.doesNotMatch(job, /^\s+if:/m);
+  // The only condition marks whether the tested tree is the head's tree; no step depends on the event.
+  assert.doesNotMatch(job.replace(/\n {8}if: steps\.tree\.outputs\.same == 'true'\n/, '\n'), /^\s+if:/m);
 });
 
 test('the public history policy names the protected main checks and merge method', () => {
@@ -115,7 +117,9 @@ test('public measurement claims retain the audited scope and neutral standard la
     'utf8',
   );
   assert.match(readme, /docs\/hypha_bs1770_5_r128_v5_audit_20260831\.md/);
-  assert.doesNotMatch(readme, /ITU-R BS\.1770-4/);
+  for (const { relative, text } of publicManualFiles(repoRoot)) {
+    assert.doesNotMatch(text, /ITU-R BS\.1770-4/, relative);
+  }
   assert.match(audit, /9cc500b4df83f7c21855c74dce795ef5209a752bf884253ae57d0ce512efb062/);
   assert.match(audit, /94d78c8e5399291e1c69440c5096b7925f211c93/);
   assert.match(audit, /公式test set全70素材の実測は完了した/);

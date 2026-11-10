@@ -75,7 +75,7 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 - nih-plug: 旧VST3 identityとstate互換性を検証するlegacy経路。出荷GUIの選定待ちではない
 - 全formatの統合入口: 本書冒頭の「最初に確認するビルド・HPアップ入口」。詳細は`docs/hypha_build_entry.md` / `docs/hypha_release_entry.md`を正本とする
 - AAX不要のmacOS通常build: `scripts/build_juce_universal.sh`。署名は`docs/aax_build_signing_entry.md`、Windows配布は対応手順書を正本とする
-- 対象DAWと受入状況: `README.md`と各hostの検証記録を参照し、formatの生成成功をhost対応完了としない
+- 対象DAWと受入状況: `README.md`、`docs/manual/`と各hostの検証記録を参照し、formatの生成成功をhost対応完了としない
 
 ## 絶対原則
 
@@ -204,7 +204,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 ### 現行製品面の正本
 
 固定した項目数、画面寸法、テスト件数をこのファイルへ複製しない。
-現行の利用者向け機能は`README.md`、不変条件は`docs/hypha_invariants.md`、表示契約は
+現行の利用者向け機能は`README.md`（冒頭の事実と入口）と`docs/manual/`（話題ごとの説明書）、不変条件は`docs/hypha_invariants.md`、表示契約は
 `docs/hypha_meter_product_contract_20260831.md`と各実装計画を正本とする。
 
 - 上位domainはLEVEL / TIME / FREQ / SPACE。TIMEにはHISTORY / ATTACK / SHARP / LIVEがある。

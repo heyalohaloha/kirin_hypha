@@ -23,7 +23,7 @@ run node scripts/check_typography_source.mjs
 run node --test scripts/check_screen_text.test.mjs
 run node scripts/check_screen_text.mjs
 run node --test scripts/check_native_test_inventory.test.mjs
-run node --test scripts/ci_build_structure.test.mjs scripts/check_native_shards.test.mjs
+run node --test scripts/ci_build_structure.test.mjs scripts/check_native_shards.test.mjs scripts/ci_scope.test.mjs
 run node --test scripts/native_test_libraries.test.mjs
 run node --test scripts/analyze_chain_trace.test.mjs
 run node --test scripts/listen_text_inventory.test.mjs
@@ -35,9 +35,10 @@ run node --test scripts/ls_release/pkg_staple.test.mjs scripts/ls_release/pkg_co
 run node --test scripts/acceptance/aax_swap_preflight.test.mjs scripts/acceptance/aax_swap_hash_interop.test.mjs
 run node --test scripts/acceptance/aax_swap_shell.test.mjs scripts/acceptance/aax_swap_session.test.mjs scripts/acceptance/aax_swap_command.test.mjs scripts/acceptance/aax_swap_transport.test.mjs scripts/acceptance/aax_swap.test.mjs
 run env PYTHONDONTWRITEBYTECODE=1 python3 scripts/acceptance/aax_swap_source_test.py
+run node --test scripts/acceptance/chain_trace_window.test.mjs scripts/acceptance/host_preflight.test.mjs
 run node --test scripts/acceptance/acceptance_tools.test.mjs scripts/acceptance/reaper_run.test.mjs scripts/acceptance/reaper_operation_log.test.mjs scripts/acceptance/reaper_record_quality.test.mjs scripts/acceptance/reaper_capture_binding.test.mjs scripts/acceptance/reaper_policy.test.mjs scripts/acceptance/reaper_private_acl.test.mjs scripts/acceptance/reaper_audit_regression.test.mjs
 run node --test scripts/ls_release/ls_api_readback.test.mjs scripts/ls_release/hypha_release_ls.test.mjs scripts/ls_release/release_preflight.test.mjs
-run node --test scripts/ls_release/hypha_release_criteria.test.mjs
+run node --test scripts/ls_release/hypha_release_criteria.test.mjs scripts/ls_release/aax_pace_receipt.test.mjs scripts/ls_release/release_scope.test.mjs
 run node --test scripts/release_hypha.test.mjs scripts/ls_release/release_stage_order.test.mjs scripts/ls_release/publication_input.test.mjs scripts/release_juce_init.test.mjs scripts/ls_release/hypha_release_hp.test.mjs scripts/ls_release/hypha_hp_preview.test.mjs scripts/ls_release/hypha_release_github.test.mjs
 run node --test scripts/provenance/*.test.mjs
 run node --test scripts/ls_release/release_source_identity.test.mjs
