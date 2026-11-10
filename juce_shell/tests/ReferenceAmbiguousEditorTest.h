@@ -6,11 +6,13 @@
 namespace hypha::tests::editor_product
 {
 inline juce::File editorOpenSource, editorOpenSaved;
-inline std::atomic<bool> editorOpenFailed { false };
+inline std::atomic<bool> editorOpenClaimed { false }, editorOpenFailed { false };
+// The flag is raised only after the move, so the test never restores a file the hook has not moved yet.
 inline void failEditorSourceOpen (const ref::RuntimeSource& source)
 {
-    if (source.absolutePath != editorOpenSource.getFullPathName() || editorOpenFailed.exchange (true)) return;
+    if (source.absolutePath != editorOpenSource.getFullPathName() || editorOpenClaimed.exchange (true)) return;
     require (editorOpenSource.moveFileTo (editorOpenSaved), "make only the real fixture open unavailable after verification");
+    editorOpenFailed.store (true);
 }
 // B keeps its registered file so another role cannot consume C's injected open failure.
 inline juce::File writeInitialCheckSource (const juce::File& root, const OneSongLibrary& song)
@@ -58,7 +60,7 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
         } } reset;
         if (failure >= 2)
         {
-            editorOpenSource = file; editorOpenSaved = saved; editorOpenFailed.store (false);
+            editorOpenSource = file; editorOpenSaved = saved; editorOpenClaimed.store (false); editorOpenFailed.store (false);
             if (failure == 2) ref::revision_detail::sourceReaderOpenHookForTest.store (&failEditorSourceOpen);
             else if (failure == 3) ref::revision_detail::sourcePageOpenHookForTest.store (&failEditorSourceOpen);
             else ref::revision_detail::sourceInitialFormatOpenHookForTest.store (&failEditorSourceOpen);
@@ -83,8 +85,11 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
         require (wait ([&] {
             const auto state = r.post->referenceAuditionSnapshot();
             if (failure >= 2 && !editorOpenFailed.load()) return false;
-            return failure == 1 ? state.checkReady : state.checkSelection
-                && state.checkSelection->rejectionCode == (failure == 0 ? "reference_source_read_failed" : "reference_source_revalidating");
+            // A failed open first reads as revalidating and then as read_failed once the retry finds no file;
+            // the held press treats both alike, so a slow host may stop at either.
+            const auto code = state.checkSelection ? state.checkSelection->rejectionCode : juce::String();
+            return failure == 1 ? state.checkReady
+                : code == "reference_source_read_failed" || (failure >= 2 && code == "reference_source_revalidating");
         }) || [&] {
             // Say where it stopped: the hook, the C selection and its code.
             const auto state = r.post->referenceAuditionSnapshot();

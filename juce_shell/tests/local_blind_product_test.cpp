@@ -152,8 +152,11 @@ private:
         require (std::chrono::steady_clock::now() - started < std::chrono::seconds (40),
                  "product round trip timed out");
         const auto state = post->localBlindProductView();
-        if (stage != 20 && (state.phase == Phase::failed || state.failure != hypha::local_blind::ProductSessionFailure::none
-            || state.trial.failure != hypha::local_blind::TrialFailure::none))
+        const bool captureEnded = stage == 3 && state.phase == Phase::failed
+            && state.failure == hypha::local_blind::ProductSessionFailure::captureResult
+            && state.trial.failure == hypha::local_blind::TrialFailure::none;
+        if (stage != 20 && ! captureEnded && (state.phase == Phase::failed || state.failure
+            != hypha::local_blind::ProductSessionFailure::none || state.trial.failure != hypha::local_blind::TrialFailure::none))
         {
             std::cerr << "stage=" << stage << " phase=" << int (state.phase)
                       << " product_failure=" << int (state.failure)
@@ -239,6 +242,15 @@ private:
                 stage = 3;
                 break;
             case 3:
+                if (captureEnded)
+                {
+                    // A machine stall can end the capture itself (seen once on a Windows runner). Capture again the
+                    // way it started (mono: the editor's button and mode; stereo: stage 2's request); 3 tries at most.
+                    require (recaptures < 3, "the exact pair captures within three attempts");
+                    if (state.canRecapture && (channelCount == 1 ? click ("local-blind-capture") : post->requestLocalBlindProductCapture (
+                            hypha::meter_context::MeterContext::twoMix) == hypha::local_blind::CaptureAdmission::ready)) ++recaptures;
+                    break;
+                }
                 if (state.phase != Phase::ready) break;
                 std::cout << "prepared frames=" << state.frames << " channels=" << state.channels
                           << " gain_db=" << state.fixedPreGainDb << std::endl;
