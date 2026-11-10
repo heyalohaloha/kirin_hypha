@@ -25,22 +25,33 @@ public:
             start = current;
             target = wanted;
             position = 0;
+            length = rampFrames;
         }
-        if (position < rampFrames)
+        if (position < length)
         {
             ++position;
-            current = position >= rampFrames
+            current = position >= length
                 ? target
-                : start + (target - start) * (static_cast<float> (position) / static_cast<float> (rampFrames));
+                : start + (target - start) * (static_cast<float> (position) / static_cast<float> (length));
         }
         return current;
+    }
+
+    // Audio Thread: a downward move that must be complete within `frames` (at least one) frames,
+    // shorter than the usual ramp when a sample later in the block must already have the new gain.
+    void lowerWithin (float wanted, int frames) noexcept
+    {
+        start = current;
+        target = wanted;
+        position = 0;
+        length = std::max (1, std::min (frames, rampFrames));
     }
 
     // Audio Thread: PRE is silent, nothing hears the gain move.
     void settle (float wanted) noexcept
     {
         start = current = target = wanted;
-        position = rampFrames;
+        position = length = rampFrames;
     }
 
     // The largest gain the next block reaches: a rising ramp is checked at its end.
@@ -48,13 +59,13 @@ public:
 
     bool settledAt (float wanted) const noexcept
     {
-        return position >= rampFrames && current >= wanted && current <= wanted
+        return position >= length && current >= wanted && current <= wanted
             && target >= wanted && target <= wanted;
     }
 
 private:
     float start = 1.0f, current = 1.0f, target = 1.0f; // Audio Thread only
-    int rampFrames = 2400, position = 2400;
+    int rampFrames = 2400, position = 2400, length = 2400;
 };
 
 }

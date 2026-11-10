@@ -96,6 +96,16 @@ struct ProcessorState
     GainApproval gainApproval; // all fields covered by gainRevision
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
     std::atomic<std::uint64_t> blindGainRevision { 0 }; // trial's approved tuple, not a UI inference
+    // Audio Thread only: the ratio a BLIND trial (epoch) took on the gain revision it met the ceiling
+    // with (PRE back at unity, POST lowered as much), until the audio thread commits it as a new
+    // revision. `post` is that lowered POST target: a gain writer landing first never raises POST.
+    struct BlindLevel
+    {
+        std::uint32_t epoch = 0;
+        std::uint64_t revision = 0;
+        float shift = 1.0f, post = 1.0f;
+        bool pending() const noexcept { return shift < 1.0f; }
+    } blindLevel;
     std::atomic<std::uint64_t> blindTimingRequest { 0 }, blindTimingAuthority { 0 };
     std::atomic<std::uint64_t> blindTimingReceipt { 0 };
     std::uint64_t blindTimingSeen = 0; // Audio Thread only

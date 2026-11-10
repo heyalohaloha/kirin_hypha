@@ -118,7 +118,8 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
    press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
    would still peak above the ceiling later in the song, that block plays POST. PRE returns
-   automatically when it is safe at the approved gain. A new gain while PRE plays glides over 50 ms instead of jumping.
+   automatically when it is safe at the approved gain. BLIND does not play POST there: it matches
+   on the quieter side for the rest of the trial ([BLIND](blind.md)). A new gain while PRE plays glides over 50 ms instead of jumping.
 4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
@@ -131,7 +132,7 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
-   then restores normal POST level with the existing slow ramp (500 ms for the full gain range).
+   then restores normal POST level with a slow ramp (two seconds for the full gain range).
    Completion waits for actual audio output at unity; without callbacks it stays pending.
 6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running.
    A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.

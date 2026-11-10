@@ -220,11 +220,13 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         stopLiveCompare();
         liveCompare.blindStage = BlindStage::failed;
     }
-    else if (liveCompare.blindPlan.needsApproval)
-        liveCompare.blindStage = BlindStage::approval;
     else
     {
-        const auto applied = applyLiveCompareMatch (liveCompare.blindPlan, MatchChoice::basis);
+        // A raise that would peak over the ceiling already here matches on the quieter side at once:
+        // PRE stays at unity and POST is lowered, the same choice a trial makes when a later passage
+        // reaches the ceiling. END returns POST gradually.
+        const auto applied = applyLiveCompareMatch (liveCompare.blindPlan,
+            liveCompare.blindPlan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis);
         liveCompare.blindWaiting = applied.failure;
         if (applied) liveCompare.blindStage = BlindStage::settling;
         else if (applied.failure != MatchFailure::stale && ! returnBlindToCandidateListen())
@@ -310,7 +312,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
         status.reason = status.trial.reason;
     }
     else if (status.stage == BlindStage::active
-        && gains.coherent && !receipt
+        && gains.coherent && !receipt && ! pendingBlindReceipt (liveCompare)
         && gains.revision == liveCompare.gainRevision.load (std::memory_order_acquire))
     {
         status.trial = {};

@@ -52,6 +52,7 @@ struct Pair
     PostRenderer renderer;
     PostLevel level;
     float postTarget = 1.0f, ceiling = 1.0f;
+    bool lowerOnCeiling = false; int spikeAt = -1; float spikeValue = 0.0f; // BLIND at the ceiling; one PRE frame
     std::vector<float> pre[2], post[2];
     std::int64_t clock = 0, projectShift = 0;
 
@@ -81,6 +82,7 @@ struct Pair
                 pre[c][size_t (i)] = samples != nullptr ? samples[0] : preValue (clock + i, c);
                 post[c][size_t (i)] = samples != nullptr ? samples[1] : postValue;
             }
+        if (spikeAt >= 0 && spikeAt < frames) for (int c = 0; c < 2; ++c) pre[c][size_t (spikeAt)] = spikeValue;
         if (poison)
             pre[0][5] = std::nanf ("");
         const float* in[] = { pre[0].data(), pre[1].data() };
@@ -89,7 +91,7 @@ struct Pair
         float* io[] = { post[0].data(), post[1].data() };
         if (poisonPost) post[0][7] = std::nanf ("");
         const auto report = renderer.render (*ring, key, 48000, b, io, channels, preSelected, gain, level,
-                                             postTarget, ceiling, blind);
+                                             postTarget, ceiling, blind, RecoveryReason::none, nullptr, AlignPlayback(), 0, false, lowerOnCeiling);
         inRt = false;
         clock += frames;
         return report;
@@ -215,7 +217,7 @@ static void postLevelRampsDownFastAndUpSlowly()
     while (level.next (1.0f) < 1.0f) ++up;
     std::printf ("post level: down to -6 dB in %d frames, back up in %d frames\n", down, up);
     require (down >= 1190 && down <= 1201, "halfway down takes 25 ms");
-    require (up >= 11990 && up <= 12001, "halfway up takes 250 ms");
+    require (up >= 47800 && up <= 48001, "halfway up takes about 1 s (float steps run ~0.2 % short): END and RETURN rise over 2 s");
     float samples[] = { 0.3f, -0.2f, 0.1f };
     float* io[] = { samples };
     level.apply (io, 1, 3, 1.0f);
@@ -487,7 +489,7 @@ int main (int argc, char** argv)
     aaxGroupsTellAMonoTrackFromAMultiMonoSet();
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
-    guardRecoveryEpisode<Pair>();
+    guardRecoveryEpisode<Pair>(); blindMatchesOnTheQuieterSideAtTheCeiling<Pair> (postValue, frames);
     guardKeepsPreUnderTheCeiling();
     finiteGainAndCeilingBoundaries();
     preGainRampsOverFiftyMilliseconds();

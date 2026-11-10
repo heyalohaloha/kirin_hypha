@@ -30,7 +30,7 @@ void initialiseBlindProductHostApplication();
 
 // One-pass Blind end to end (disposable fixture): real PRE/POST processors, Rust C ABI, pair
 // discovery, shared live ring and product editor. Default POST is phase-inverted at -6.02 dB;
-// the approval mode clips a boosted input. Direct and reused MATCH entries use one playback,
+// the approval mode clips a boosted input, so BLIND lowers POST at once (nothing to approve). Direct and reused MATCH entries use one playback,
 // without PIN/capture, and the revealed mapping must agree with actual output PCM.
 namespace
 {
@@ -190,12 +190,11 @@ private:
                 ++stage;
                 break;
             case 3:
-                if (approval && post->liveBlindStatus().stage == hypha::live_compare::BlindStage::approval)
-                {
-                    require (post->liveCompareStatus().postTarget >= 1.0f, "automatic MATCH does not lower POST without approval");
-                    require (! post->approveLiveBlindMatch (post->liveBlindStatus().generation - 1), "stale approval is refused");
-                    if (! click ("live-blind-approve")) break;
-                    approved = true;
+                if (approval)
+                {   // PRE at unity, POST lowered: the quieter side, without asking
+                    require (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::approval
+                             && ! post->approveLiveBlindMatch (post->liveBlindStatus().generation), "a raise over the ceiling lowers POST");
+                    approved = approved || (post->liveCompareStatus().postTarget < 1.0f && post->liveCompareStatus().gain == 1.0f);
                 }
                 if (reuse && ! reused)
                 {
@@ -237,7 +236,7 @@ private:
                     if (! click ("observatory-local-blind")) break; // editor observes the RT receipt on its own tick
                 }
                 if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::active) break;
-                require (! approval || approved, "limited-master fixture required explicit approval");
+                require (! approval || approved, "limited-master fixture matches on the quieter side without a question");
                 require (! post->liveCompareStatus().finishing, "trial is not returning");
                 if (reuse) require (std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f, "existing MATCH is reused exactly");
                 require (! post->revealLiveBlind(), "both source receipts are required before reveal");

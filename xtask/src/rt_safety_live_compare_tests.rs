@@ -282,7 +282,9 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
         .find("if (! rendered && usable && ! outputTaken)")
         .unwrap();
     assert!(ring_section < held);
-    assert!(rt.contains("liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, postTarget);"));
+    // Held POST never rises above a pending BLIND quieter-side match, committed on the read revision.
+    assert!(rt.contains("liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, levelPost (postTarget));"));
+    assert!(rt.contains("GainUpdate update (liveCompare.gainRevision, revision);"));
     assert!(rt.contains("|| report.guardTripped"));
     assert!(
         rt.contains("liveCompare.blind.fallback (blindCommand, frames, preparedFormat.sampleRate)")

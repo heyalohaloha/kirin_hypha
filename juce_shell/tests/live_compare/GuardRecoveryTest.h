@@ -1,5 +1,6 @@
 #pragma once
 #include "../../src/live_compare/LiveCompareWaitNotice.h"
+#include "BlindCeilingTest.h"
 
 // The actual renderer, with alternating safe/unsafe PRE, for longer than the notice delay.
 // A sparse safe callback must neither restart PRE nor erase the continuing fault episode.

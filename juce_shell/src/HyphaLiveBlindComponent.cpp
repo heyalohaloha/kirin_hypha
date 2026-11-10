@@ -63,7 +63,8 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     if (current.candidate)
         explanation += explanation == normalLevel ? " and the A to B chain" : " and restores the A to B chain";
     screen.detail = explanation;
-    if (live && !revealed && repeatingAudio) screen.detail = "Repeated audio: checked per block";
+    // The rise on END is named before anything else (INV-LC14).
+    if (live && !revealed && repeatingAudio && ! (returnDb > 0.05)) screen.detail = "Repeated audio: checked per block";
     const char* firstA = current.candidate ? "1: A" : "1: PRE";
     const char* firstB = current.candidate ? "1: B" : "1: POST";
     const char* secondA = current.candidate ? "2: A" : "2: PRE";
