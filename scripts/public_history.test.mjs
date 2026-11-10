@@ -83,15 +83,16 @@ test('only strict public SemVer tags must reach candidate main', () => {
 test('CI runs the public history contract without an event condition', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
   const start = workflow.indexOf('  public-history:\n');
-  const end = workflow.indexOf('\n  release-source:\n', start);
-  assert.ok(start >= 0 && end > start, 'public-history job must precede the release-source job');
+  const end = workflow.indexOf('\n  scope:\n', start);
+  assert.ok(start >= 0 && end > start, 'public-history job must precede the scope and release-source jobs');
   const job = workflow.slice(start, end);
   assert.match(job, /name: public history identity/);
   assert.match(job, /fetch-depth: 0/);
   assert.match(job, /bash scripts\/test_lightweight_contract\.sh/);
   assert.match(job, /node --test scripts\/public_history\.test\.mjs/);
   assert.match(job, /node scripts\/check_public_history\.mjs --tip HEAD/);
-  assert.doesNotMatch(job, /^\s+if:/m);
+  // The only condition marks whether the tested tree is the head's tree; no step depends on the event.
+  assert.doesNotMatch(job.replace(/\n {8}if: steps\.tree\.outputs\.same == 'true'\n/, '\n'), /^\s+if:/m);
 });
 
 test('the public history policy names the protected main checks and merge method', () => {

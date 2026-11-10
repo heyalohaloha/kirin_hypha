@@ -355,10 +355,11 @@ export function submitMacAaxForNotarization({
 } = {}) {
   if (process.platform !== 'darwin') throw new Error('macOS AAX notarization requires macOS');
   if (!keychainProfile) throw new Error('AAX notarization requires a notarytool keychain profile');
+  // This stage makes the receipt that later stages trust, so it always asks PACE itself.
   const context = releaseIdentityContext({
     root,
     artifactDir,
-    bundleVerifier,
+    bundleVerifier: (options) => bundleVerifier({ ...options, paceEnv: {} }),
     bundleCopyVerifier,
     sourceVerifier,
   });

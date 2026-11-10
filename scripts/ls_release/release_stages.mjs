@@ -2,7 +2,9 @@
 export const STAGE_DEPENDENCIES = Object.freeze({
   'provenance-inputs': [], ci: ['provenance-inputs'], 'source-delivery': ['ci'],
   'macos-au-vst3': ['source-delivery'], 'macos-aax': ['macos-au-vst3'], windows: ['macos-aax'],
-  freeze: ['windows'], hosts: ['freeze'], packages: ['hosts'], provenance: ['packages'],
+  // The PKG is built before host acceptance: one administrator install of that PKG serves the
+  // host tests and the clean-install check, and every host test runs the bytes users receive.
+  freeze: ['windows'], packages: ['freeze'], hosts: ['packages'], provenance: ['hosts'],
   distribution: ['provenance'], github: ['distribution'], hp: ['github'],
   postrelease: ['hp'], ls: ['distribution'],
 });

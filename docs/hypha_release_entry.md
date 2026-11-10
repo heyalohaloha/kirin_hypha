@@ -38,8 +38,8 @@ node scripts/build_hypha.mjs --release --help
 
 1. 同一候補のMac 6本とWindows署名済みinstallerを確認する。
 2. A3のsource/JUCE/SDK/toolchain/payloadと、受入matrix・期待値を固定する。
-3. exact signed candidateのA4実host受入を確認する。
-4. 既存release-set producerでLS / HP通常導線のPKGと、公開Releaseに必須の復旧用ZIPを作り、Windows EXEと合わせてA5を確認する。
+3. 既存release-set producerでLS / HP通常導線のPKGと、公開Releaseに必須の復旧用ZIPを作る。
+4. そのPKGを管理者の認証1回で入れ、exact signed candidateのA4実host受入を確認する。同じ導入をA5のmacOS clean installに使い、Windows EXEと合わせてA5を確認する。
 5. LSの全対象への配送はA5後に独立して確認でき、通常は公開後の確認の後に行う。
 6. exact commitへGitHub Releaseを作り、全配布物をdownloadしてhash照合後にdraftを公開する。
 7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、`data/news.json`へその版の標準のお知らせを1件足す。英日templateと対応formatは書き換えずに照合し、HPの試験は中央の記録から版・日付・お知らせを読む。
@@ -121,7 +121,7 @@ windowsとdistributionで両artifactを再照合し、A5待ちからの再開も
 期限の関門は[配布gate](provenance/distribution_gate.md)の4段に従う。
 順序は、公開CI → 同じ審査済みfactory commitでbuild_onlyとWindows AAX署名
 （PACE＋eSigner。最初の有料署名。2つの順は問わない）→ candidate署名（eSigner）→
-Windows実機検証 → promotionを後結び → windows → A3 freeze → A4 → A5。
+Windows実機検証 → promotionを後結び → windows → A3 freeze → packages → A4 → A5。
 Macの署名・公証・PACEはWindows実機検証と並行できる。Windows実機検証をA3と呼ばない。
 署名前には[未署名の通し](release/presign_smoke.md)を手で一度行う。
 Mac製造の並列数は同時に動く処理を考慮して`CMAKE_BUILD_PARALLEL_LEVEL`で明示する。
@@ -134,7 +134,7 @@ Mac製造の並列数は同時に動く処理を考慮して`CMAKE_BUILD_PARALLE
    各uploadから3日以内（余裕を引く）に置けない、またはA5をcandidate署名＋有効保存期間
    （余裕を引く）より前に置けないなら署名しない。未生成のartifact IDや実期限は要求しない。
 2. candidate署名の前: 両入力artifactのrun/artifact ID・digest・expires_at・commitをGETし、
-   未失効、同じfactory commit、job時間を含む余裕を確かめる。保存期間設定、共有concurrency
+   未失効、同じfactory commit、job時間を含む余裕を確かめる。保存期間設定、署名のconcurrency
    groupの空き、candidateの予算も再確認する。未署名VST3だけが切れた場合はbuild_onlyを
    やり直す。signed AAXが切れた場合は自動で再署名せず資格判断を取る。
    candidateのupload直後に実run/artifact IDとexpires_atを記録する。
@@ -145,8 +145,9 @@ Mac製造の並列数は同時に動く処理を考慮して`CMAKE_BUILD_PARALLE
 4. A4開始前とA5再開前: 両artifactの期限をGETし直す。A5に間に合わなければA4に進まない。
 
 署名済みAAXと未署名VST3は各3日、同run内の未署名AAXは1日で保持する。
-candidateとsigned-fullはupload時のrepo設定を使う。両workflowは同じconcurrency groupなので、
-前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
+candidateとsigned-fullはupload時のrepo設定を使う。build_onlyは未署名buildだけのgroup、AAX署名・candidate署名・
+requalify・promotionは署名のgroupで直列に動く。build_onlyとAAX署名は同時にdispatchしてよい（runnerが1台なら空きを待つ）。
+署名のgroupでは前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
 
 Mac両producerとWindowsの全formatを同じ鍵へ揃える。ただし現在の正式なWindows経路は、
 鍵が空の候補だけを作る。factoryの未署名producerは鍵を空に固定し、Hypha側の取込も空以外を
@@ -174,8 +175,9 @@ AUはApple専用。Windows x64を「Universal Binary」とは呼ばない。
 ## 自動化する部分と、人による確認
 
 署名・公証・配布・GitHub・HPのコマンド接続はscriptが行うが、実DAWの聴取試験を自動PASSにしない。
-`provenance-inputs`、`ci`、`source-delivery`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
+`provenance-inputs`、`ci`、`source-delivery`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`packages`、`hosts`、
 `provenance`、`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
+PKGをA4の前に作るので、A4は利用者が受け取るbytesを試し、PKGの導入（管理者の認証）は1回で済む。
 
 確認待ちは`CHECKPOINT`／exit 2。後段へは進まない。担当者は表示されたgateを確認し、
 profileで指定されたreportへ実測と証跡を記録する。接続や資料の不足を、利用者の手動編集で補わない。
@@ -184,10 +186,16 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
   external validation・Native-only provenanceが必要。旧runは代用できない。
 - **性能予算**: CIの両probeは`scripts/perf_budget.tsv`の中央値比上限で検査する。上限はgreenなCIの実測最大値に10%の余裕を加えて固定し、手元のMacの実測とは混ぜない。手元のrelease-mode Mac試験は絶対CPU 18%未満で判定し、較正比は診断値として記録する（CIの比上限は適用しない）。
 - **Source / NOTICE**: `source-delivery`はcleanな採用source・承認済みJUCE bytes・依存sourceを検査し、対応source ZIPとlicense/NOTICEを準備する。Windows private factoryの未署名producerが作ったZIPを`--source-archive`で取り込み、Macでも全entryを照合して同じbytes/hashを使う。PKGの`Library/Application Support/Kirin Hypha/Legal`、ZIPの`Legal`、Windowsのインストール先`Kirin Mastering/Kirin Hypha/Legal`に同じsource配送情報を入れる。署名済みbundleは変更しない。source準備の成功はactual extraction/linkage reviewを代用しない。
-- **A4**: Intel macOSのAU / VST3 / AAX、Windows x64のVST3 / AAXで普通の通し
-  （導入、path/hash、pair、通常音声、Keep、保存、再起動）を確認する。共通の流れは代表hostへ寄せ、
-  host固有の時計・ループ・PDC、OSごとのpair組合せと192 kHz、Windowsの更新・uninstallを確認する。
-  通常透明性・LISTEN・Blind・Exact 4 Sの定量的安全条件は維持する。
+- **A4**: PKGで入れたbytesで、Intel macOSのAU / VST3 / AAX、Windows x64のVST3 / AAXの普通の通しを
+  形式ごとに1本（導入、path/hash、pair、通常音声、Keep、保存、再起動）確認する。共通の流れは代表hostへ寄せる。
+  通常透明性・LISTEN・Blindの定量的安全条件は維持する。公開ノートの約束（英語の箇条）ごとに、
+  DAW・形式・チェインを名指しした行（fix rows）で直した所を深く確かめる。
+  OSごとのpair組合せと192 kHzの行は、前の公開版から時計・rate・pairの符号が変わった時だけ
+  道具が`--init`で加える（`scripts/ls_release/release_scope.mjs`、判断は凍結される）。
+  Windowsのinstall・同版再install・旧版からのupgrade・uninstallはCIのlifecycleとA5のclean installで確かめ、A4で繰り返さない。
+  始める前に`node scripts/acceptance/host_preflight.mjs --root <採用checkout>`（2分）で、入ったbundleが候補と同じbytesか、
+  利用者の場所に同じ名前の写しが無いか、DAWが動いていないか、traceの空きを確かめる。traceの判定は
+  `scripts/acceptance/chain_trace_window.mjs`（PREとPOSTの入出力を窓ごとに読む。大きなtraceも全部は読み込まない）を使う。
   rate/layoutの既存計測・pair試験、editor操作と到達性、installer lifecycleは契約のCI oracleへ結び、
   jobとstepの成功を確認する。新しい全組合せのnative試験が済んだことは意味しない。
   macOS Universal両sliceとARM64の自動CIを維持する。
@@ -195,34 +203,38 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 - **A5**: packaging前後のpayload連続性、両OSのclean install、全署名、Rollback準備の証跡が必要。
 - **LS**: 現行Runbookのauthenticated uploadはoperator工程。scriptはPKG/stateを揃え、各商品の
   ダウンロード控えのhashとAPIの配送metadataを確認する。LS uploadを自動実装済みとは扱わない。
-- **A7**: 公開導線のdownload検証に加え、公開物をinstallしてscan、pair、通常音声、session reopenを確認する。
+- **A7**: 公開導線のdownloadが同じhashであることとinstallを確かめ、OSごとに1つのDAWでscan、pair、通常音声、
+  session reopenを1本通す（全形式はA4が同じbytesで確かめている）。
 
 `hosts.json`、`distribution.json`、`ls.json`、`postrelease.json`のtemplateは必要gateで自動生成する。
 reportはcandidateとpayload/containerのSHAへ結び、各rowの`expected`、`measured`、`oracle`、
 実ファイルのpath/hashを要求する。SKIPやPENDINGをPASSで相殺しない。
 通常透明性のsample不一致・latency・non-finite、誤Source、未確認PRE出力、安全でないgain復帰、
-Blind漏洩、Exact 4 Sのframe誤差は0を要求する。最低期待値を緩めない。
+Blind漏洩は0を要求する。最低期待値を緩めない。
 宣言host範囲と追加の数値閾値はA0で担当者が照合し、A3前にmatrix／期待値へ含める。
 reportで事後に期待値を変更して通すことはできない。
 
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
-`--init --fix-rows FILE`で版ごとの深い検証を結ぶ。入力例は次の形。ファイルのhashと全行・期待値を
-受入条件へ凍結する。`kind: host`だけをhosts.jsonへ要求し、`kind: ci`は名前付きCI oracleへ結ぶ。
+`--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の
+箇条が約束で、どの約束にも証明する行が要り、どの行も`promise`に約束の文をそのまま書く。漏れがあると`--init`が止まる。
+host行は`daw`と`chain`も名指しする。ファイルと公開ノートのhash、全行・期待値を受入条件へ凍結する。
+`kind: host`だけをhosts.jsonへ要求し、`kind: ci`は名前付きCI oracleへ結ぶ。
 CIの標準の期待は`{ "passed": true }`。追加の数値条件には実測oracleの証拠が必要で、無ければ確認待ちにする。
 
 ```json
-{ "schema": "hypha-release-fix-rows-v1", "release": "X.Y.Z", "rows": [
-  { "id": "clock-recovery", "kind": "host", "hosts": ["macOS/x86_64/AU"],
+{ "schema": "hypha-release-fix-rows-v2", "release": "X.Y.Z", "rows": [
+  { "id": "clock-recovery", "kind": "host", "promise": "LISTEN stays on PRE through a loop.",
+    "hosts": ["macOS/x86_64/AU"], "daw": "Logic Pro", "chain": "PRE -> limiter -> POST",
     "depth": "deep", "oracle": "independent callback capture", "expected": { "lostFrames": 0 } },
-  { "id": "pair-recovery", "kind": "ci", "hosts": [], "depth": "deep",
-    "oracle": "pair-recovery-parity", "expected": { "passed": true } }
+  { "id": "pair-recovery", "kind": "ci", "promise": "PRE and POST pair again after a restart.", "hosts": [],
+    "depth": "deep", "oracle": "pair-recovery-parity", "expected": { "passed": true } }
 ] }
 ```
 
 凍結後の本人判断は、hosts段の`--execute --owner-decision FILE`で結ぶ（複数ファイル可）。
 判断ファイルは`schema: hypha-owner-acceptance-decision-v1`、`release`、exact `candidateId`、
 `rows[]`の各行に`id`、`reason`、`resumeCondition`、`releaseNote`を必須とする。
-通常のhost行、追加のhost/CI行を複数まとめられる。4件の定量的安全条件は対象外。
+通常のhost行、追加のhost/CI行を複数まとめられる。3件の定量的安全条件は対象外。
 受入条件とfreezeは変えず、判断の内容・hash・freezeとの結びをprofileへ保存する。
 hosts.jsonでは該当行だけ`OWNER_DEFERRED`を受け付ける。CI行はhosts段の証跡へ残る。
 延期はPASSとは区別し、理由・再開条件・公開ノートに使う文を保持する。判断ファイルの変更は後段も拒否する。
@@ -240,7 +252,11 @@ A7の確認済みFAILを、単なる検証待ちの`RELEASED`へ読み替えな�
 各PASSの実file/tree hashを再確認して再利用する。source、JUCE実bytes、resources、permissions、
 symlinks、package/installer/sidecarを確認し、receiptがあるだけでは再利用しない。
 CIは指定したgreen runを検証して再利用する。job一覧は`filter=latest`でページを最後まで読み、
-同じrun・commitの各必須jobとstepの成功、jobごとのattempt番号を証跡へ残す。落ちたjobだけの
+同じrun・commitの各必須jobとstepの成功、jobごとのattempt番号を証跡へ残す。
+候補をmainへ取り込んだPRのrunはそのまま候補のCIにできる（同じ中身を公開用に流し直さない）。
+受け付けるのは、そのrunの`Tested tree equals head`が成功し、PRのheadと候補commitの木のhashが一致し、
+全phaseの`Test shipping source contract`が実行されて成功したrunだけ。文書だけのPRで重いjobを
+飛ばしたrunは候補にできない。落ちたjobだけの
 再実行では、成功を維持したjobとattemptが異なってよい。新規dispatch、rerun、予算変更、artifact削除は自動で行わない。
 必要CIが無い場合は、共通予算ルールと既存runを確認して正規CI／factoryを実行する必要が残る。
 これを省略や恒久停止に読み替えない。
@@ -257,6 +273,9 @@ CIは指定したgreen runを検証して再利用する。job一覧は`filter=l
 - 公開途中の重大FAILは`RELEASE_INCIDENT`。担当者が影響と公開状況を確認するまで自動retryしない。
   Rollbackの外部操作も別途承認が必要。Rollback成功を新版のRelease Completeにしない。
 - iLokの抜き差し、Cloud移動、driver/機器再起動はscriptが行わない。物理authorizationが必要なのは署名時だけ。
+  署名の後の段（packages、distribution、Windowsのinstaller作成と候補の確かめ）は、署名の段がPACEで確かめて
+  記録したbundleの木のhash（macOSはAAXの受領書、WindowsはAAXの署名済みprovenance）との一致で確かめ、iLokを使わない。
+  macOSのAAX署名buildは、iLokが挿さっていなければbuildの前に止まる（iLok Cloudで署名する時は`KIRIN_AAX_ILOK_CLOUD=1`）。
 
 ## 状態と検証
 

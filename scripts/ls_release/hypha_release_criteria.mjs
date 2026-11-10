@@ -1,7 +1,9 @@
 // Release-specific rows and owner decisions; frozen expectations remain unchanged.
+import fs from 'node:fs';
 import { HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, readJson, fileFact, checkFacts, digest, Checkpoint } from './hypha_release_contract.mjs';
+import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
 
-export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v1';
+export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v2';
 export const OWNER_DECISION_SCHEMA = 'hypha-owner-acceptance-decision-v1';
 export const OWNER_DEFERRED = 'OWNER_DEFERRED';
 const shippingStep = 'Test shipping source contract';
@@ -28,31 +30,61 @@ const text = value => typeof value === 'string' && value.trim().length > 0;
 export const hostTestIds = state => [...state.requiredHostTests,
   ...(state.fixRows?.rows || []).filter(row => row.kind === 'host').map(row => row.id)];
 
-export function fixRows(file, candidate, reserved = HOST_TESTS) {
+// The promises of a release are the list items of the English release notes (before the first
+// `---`): `-`, `*`, `+` or numbered, at any indent, with continuation lines joined.
+export function notePromises(file) {
+  if (!file || !fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return null;
+  const english = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').split(/^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/m)[0];
+  const promises = [];
+  let open = false;
+  for (const line of english.split(/\r?\n/)) {
+    const item = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.+?)\s*$/);
+    if (item) { promises.push(item[1]); open = true; }
+    // Markdown continues an item on any following non-blank line (indented or not) until a blank line or heading.
+    else if (open && /\S/.test(line) && !/^ {0,3}#{1,6}([ \t]|$)/.test(line)) promises[promises.length - 1] += ` ${line.trim()}`;
+    else open = false;
+  }
+  return promises;
+}
+
+// Every promise needs a row that proves it, and every row names the promise it proves. A host
+// row names the DAW, the format(s) and the chain it runs. Checked at --init and on every stage.
+export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const spec = readJson(file);
   if (spec.schema !== FIX_ROWS_SCHEMA || spec.release !== candidate.version || !Array.isArray(spec.rows)) {
     throw new Error('Fix rows must name this release with the supported schema');
   }
-  const seen = new Set([...HOST_TESTS, ...DISTRIBUTION_TESTS, ...POST_TESTS, ...reserved]);
+  const promises = notePromises(notes);
+  if (!promises) throw new Error('Fix rows need the release notes whose promises they prove');
+  const seen = new Set([...HOST_TESTS, ...CONDITIONAL_HOST_TESTS, ...DISTRIBUTION_TESTS, ...POST_TESTS, ...reserved]);
   for (const row of spec.rows) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,95}$/.test(row.id || '') || seen.has(row.id)
         || !['host', 'ci'].includes(row.kind) || row.depth !== 'deep'
         || !Array.isArray(row.hosts) || row.hosts.some(host => !text(host))
-        || (row.kind === 'host' && !row.hosts.length) || !text(row.oracle)
+        || (row.kind === 'host' && (!row.hosts.length || !text(row.daw) || !text(row.chain))) || !text(row.oracle)
         || (row.kind === 'ci' && !Object.hasOwn(CI_ORACLES, row.oracle))
         || !row.expected || typeof row.expected !== 'object' || Array.isArray(row.expected)
         || Object.keys(row.expected).length === 0) {
-      throw new Error('Fix row needs a unique id, kind, hosts, deep oracle and expected values');
+      throw new Error('Fix row needs a unique id, kind, hosts, DAW and chain (host), deep oracle and expected values');
     }
+    if (!promises.includes(row.promise)) throw new Error(`Fix row ${row.id} names no promise of the release notes`);
     seen.add(row.id);
   }
+  const unproved = promises.find(promise => !spec.rows.some(row => row.promise === promise));
+  if (unproved) throw new Error(`Release-note promise has no acceptance row: ${unproved}`);
   return { rows: spec.rows, decision: fileFact(file) };
 }
 
+// Re-read on every stage and on --bind-publication: the current notes may not promise anything
+// the bound rows do not prove (changing a promise needs new rows from --init).
 export function checkFixRows(state) {
-  if (!state.fixRows) return;
+  if (!state.fixRows) {
+    const promised = notePromises(state.inputs?.notes);
+    if (promised?.length) throw new Error(`Release-note promise has no acceptance row: ${promised[0]}`);
+    return;
+  }
   checkFacts([state.fixRows.decision]);
-  const actual = fixRows(state.fixRows.decision.path, state.candidate, state.requiredHostTests);
+  const actual = fixRows(state.fixRows.decision.path, state.candidate, state.requiredHostTests, state.inputs?.notes);
   if (digest(actual) !== digest(state.fixRows)) throw new Error('Bound fix rows changed');
   for (const row of actual.rows) {
     if (digest(state.expected[row.id]) !== digest(row.expected)) throw new Error('Fix row expected values changed');

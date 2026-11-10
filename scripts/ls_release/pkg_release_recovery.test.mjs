@@ -47,6 +47,10 @@ function fixture(t) {
   fs.writeFileSync(path.join(legal, 'legal-delivery.json'), JSON.stringify({ schema: 'hypha-legal-delivery-v1', commit: source.commit, sourceSha256: sourceSha, sourceDownload: url,
     files: legalNames.map(name => ({ path: name, sha256: hash(fs.readFileSync(path.join(legal, name))) })) }));
   state.stages['source-delivery'] = { status: 'PASS', evidence: { legalDir: legal }, facts: [fileFact(path.join(legal, 'LICENSE'))] };
+  // Packaging checks AAX bundles against the macOS AAX stage's PACE-verified receipt (no iLok).
+  const receipt = path.join(root, 'build-aax-universal/kirin-hypha-macos-aax-notarization.json');
+  fs.mkdirSync(path.dirname(receipt), { recursive: true }); fs.writeFileSync(receipt, '{"bundles":[]}');
+  state.stages['macos-aax'] = { status: 'PASS', facts: [fileFact(receipt)] };
   const calls = [];
   const run = async (tool, args, options) => {
     calls.push([tool, ...args]);
@@ -54,6 +58,8 @@ function fixture(t) {
       assert.ok(args.includes('--resume-staple'));
       assert.equal(options.env.KIRIN_PKG_STAPLE_STATE, context.statePath);
       assert.equal(options.env.KIRIN_PKG_STAPLE_BINDING, context.binding);
+      assert.equal(options.env.KIRIN_HYPHA_AAX_PACE_RECEIPT, fs.realpathSync(receipt));
+      assert.equal(options.env.KIRIN_HYPHA_AAX_PACE_RECEIPT_SHA256, fileFact(receipt).sha256);
       finishPkgStaple(context, { wait: () => {}, resume: true, verifyLocal: () => mac, run: (tool, a) => {
         assert.equal(a[0], 'stapler');
         if (a[1] === 'staple') { const ticket = Buffer.from('74386c720100010000000000000000007338636874386c72010002000400000000000000', 'hex'); fs.appendFileSync(packagePath, ticket); }

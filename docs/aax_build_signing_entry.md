@@ -125,8 +125,8 @@ A3 freeze → A4 → A5）。Windows実機検証をA3と呼ばない。
 4. A4開始前とA5再開前: 両artifactの期限をGETし直す。A5に間に合わなければA4に進まない。
 
 署名済みAAXと未署名VST3は各3日、同run内の未署名AAXは1日で保持する。
-candidateとsigned-fullはupload時のrepo設定を使う。両workflowは同じconcurrency groupなので、
-前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
+candidateとsigned-fullはupload時のrepo設定を使う。build_onlyは未署名buildだけのgroupでAAX署名と並べてよい。
+AAX署名・candidate署名・requalify・promotionは署名のgroupで直列なので、前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
 
 private workflowのソース確認は、現在のGitHub Secret登録やjob成功の確認ではない。
 CI dispatch、artifactの外部受渡し、機器設定、配置、公開に新しい権限が必要なら、その前に確認する。

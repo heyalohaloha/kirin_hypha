@@ -85,6 +85,8 @@ test('real coordinator checkpoints before starting Windows, so delivery can bind
   for (const stage of release.STAGES.slice(0, release.STAGES.indexOf('windows')))
     f.state.stages[stage] = { status: 'PASS', facts: [fileFact(f.options.windowsArtifactArchive)] };
   const checks = Object.values(CI_ORACLES).flatMap(row => row.checks);
+  const { RELEASE_SOURCE_PHASES } = await import('./hypha_release_local.mjs');
+  checks.push(...RELEASE_SOURCE_PHASES.map(phase => ({ job: `release source ${phase} (macos)`, step: 'Test shipping source contract' })));
   const names = new Set(['public history identity', 'release source contract (macos)',
     'auval arm64 (AU validation)', 'windows VST3 preflight', ...checks.map(c => c.job)]);
   const jobs = [...names].map((name, index) => ({ id: index + 1, name, run_id: 71,

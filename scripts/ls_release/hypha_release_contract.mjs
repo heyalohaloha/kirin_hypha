@@ -5,25 +5,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { buildTreeManifest } from './aax_submission_archive.mjs';
+import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
 import { checkFixRows, checkOwnerDecisions, deferredRow, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
 export { CI_ORACLES, FIX_ROWS_SCHEMA, fixRows, hostTestIds, OWNER_DECISION_SCHEMA, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
 
 export const SCHEMA = 'kirin-hypha-release-pipeline-v2';
+// Every release: one ordinary pass per format on the bytes users receive, and the safety rows.
+// Timing rows (release_scope.mjs) join only when timing code changed. Each release-note promise
+// adds its own DAW x chain rows (fix rows). Windows install, reinstall, upgrade and uninstall are
+// proved by the CI lifecycle and the A5 clean install, not repeated here.
 export const HOST_TESTS = [
   ...['AU', 'VST3', 'AAX'].map(f => `macOS/x86_64/${f}`),
   'Windows/x64/VST3', 'Windows/x64/AAX',
-  'normal-bit-identical', 'LISTEN-clock-PDC', 'Live-Blind-anonymity', 'Exact-4-S-samples',
-  'pair/combinations', 'high-rate-192k', 'Windows/x64/install-update',
+  'normal-bit-identical', 'LISTEN-clock-PDC', 'Live-Blind-anonymity',
 ];
 export const DISTRIBUTION_TESTS = ['A4-to-A5-payload-continuity', 'macOS-clean-install',
   'Windows-clean-install', 'all-signatures', 'rollback-preparation'];
-export const POST_TESTS = ['user-download-install', 'macOS-AU-VST3-AAX-scan',
-  'Windows-VST3-AAX-scan', 'Pro-Tools-insert-pair-normal-audio', 'session-reopen'];
+// After publication: the public downloads match and install; one DAW pass per OS on them
+// (A4 already ran every format on the same bytes).
+export const POST_TESTS = ['user-download-install', 'macOS-public-pass', 'Windows-public-pass'];
 export const SAFETY_EXPECTED = {
   'normal-bit-identical': { mismatchedSamples: 0, latencySamples: 0, nonFiniteSamples: 0 },
   'LISTEN-clock-PDC': { wrongSourceFrames: 0, unverifiedFramesOutputAsPRE: 0, unsafeGainRestores: 0 },
   'Live-Blind-anonymity': { substitutionsCountedAsRequestedSource: 0, identityLeaks: 0 },
-  'Exact-4-S-samples': { frameLengthError: 0, unexpectedRestores: 0 },
 };
 export const OWNER_OVERRIDE_SCHEMA = 'hypha-owner-acceptance-override-v1';
 export const OWNER_OVERRIDE_RESULT = 'NOT_REQUIRED_OWNER_OVERRIDE';
@@ -37,7 +41,7 @@ export const resolveInput = (state, value) => path.resolve(state.root, value || 
 export function ownerOverride(file, candidate) {
   const decision = readJson(file);
   if (decision.schema !== OWNER_OVERRIDE_SCHEMA || decision.release !== candidate.version
-      || !HOST_TESTS.includes(decision.excludedRequiredTest)
+      || ![...HOST_TESTS, ...CONDITIONAL_HOST_TESTS].includes(decision.excludedRequiredTest)
       || decision.excludedResultMustBe !== OWNER_OVERRIDE_RESULT
       || (decision.candidateId != null && decision.candidateId !== candidate.id)) {
     throw new Error('Owner override must name one required host row of this release and candidate');
@@ -285,13 +289,15 @@ export function assertState(state) {
   if (state.source.commit !== state.candidate.commit || state.source.bNumber !== state.candidate.bNumber) {
     throw new Error('Candidate identity differs from the retained source identity');
   }
-  for (const id of HOST_TESTS) if (!state.requiredHostTests?.includes(id)) {
+  // The timing rows may be left out only by the tool's recorded finding that timing code is unchanged.
+  const required = [...HOST_TESTS, ...(state.timingScope?.timingChanged === false ? [] : CONDITIONAL_HOST_TESTS)];
+  for (const id of required) if (!state.requiredHostTests?.includes(id)) {
     throw new Error('Required host matrix cannot be reduced');
   }
   checkFixRows(state);
   checkOwnerDecisions(state);
   for (const override of state.ownerOverrides || []) {
-    if (!HOST_TESTS.includes(override.testId) || override.candidateId !== state.candidate.id) {
+    if (!state.requiredHostTests?.includes(override.testId) || override.candidateId !== state.candidate.id) {
       throw new Error('Owner override is not bound to this candidate');
     }
   }

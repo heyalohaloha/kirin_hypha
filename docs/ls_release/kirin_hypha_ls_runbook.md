@@ -61,8 +61,10 @@ pending-report resumes. Follow the four operator gates in the
 
 Public CI precedes build_only and Windows AAX signing; candidate signing, Windows external validation
 and promotion precede the coordinator. Windows external validation is not A3: A3 is freeze after
-windows and before A4. The workflows share one concurrency group; wait for each run to finish
-before dispatching the next. Expiry never authorizes automatic re-signing.
+windows and before A4. build_only has its own concurrency group and may run beside Windows AAX
+signing; AAX signing, candidate signing, requalification and promotion share the signing group,
+so wait for each of those runs to finish before dispatching the next. Expiry never authorizes
+automatic re-signing.
 
 ## Files
 

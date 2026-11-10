@@ -7,7 +7,8 @@ import test from 'node:test';
 import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions, nativeRunner } from './release_hypha.mjs';
 import { HOST_TESTS, CI_ORACLES, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint, acceptanceCriteria, atomicJson } from './ls_release/hypha_release_contract.mjs';
-import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE } from './ls_release/hypha_release_local.mjs';
+import { CONDITIONAL_HOST_TESTS } from './ls_release/release_scope.mjs';
+import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE, RELEASE_SOURCE_PHASES } from './ls_release/hypha_release_local.mjs';
 import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
@@ -97,7 +98,9 @@ test('successful resume verifies retained bytes and never rebuilds/signs/uploads
 test('missing human report stops downstream stages and resumes only the missing stage', async t => {
   const f = fixture(t, { delivery: true }); f.actions.hosts = async () => { throw new Checkpoint('host report missing'); };
   await executeRelease(f.state, options, f.dependencies);
-  assert.equal(f.state.stages.hosts.status, 'PENDING'); assert.equal(f.state.stages.packages, undefined);
+  // The PKG is built before host acceptance; nothing after the hosts stage runs.
+  assert.equal(f.state.stages.hosts.status, 'PENDING'); assert.equal(f.state.stages.packages.status, 'PASS');
+  assert.equal(f.state.stages.provenance, undefined);
   f.actions.hosts = async () => ({ facts: [fileFact(f.evidence)] });
   await executeRelease(f.state, options, f.dependencies);
   assert.equal(f.calls.filter(s => s === 'macos-aax').length, 1);
@@ -184,7 +187,7 @@ test('reports bind candidate and exact artifact set; SKIP/missing evidence/old c
 });
 
 const OWNER_DECISION = { schema: 'hypha-owner-acceptance-override-v1', release: '1.2.3', candidateId: null,
-  excludedRequiredTest: 'Exact-4-S-samples', excludedResultMustBe: 'NOT_REQUIRED_OWNER_OVERRIDE' };
+  excludedRequiredTest: 'high-rate-192k', excludedResultMustBe: 'NOT_REQUIRED_OWNER_OVERRIDE' };
 
 test('an owner decision lifts only its named row, bound to this candidate and frozen with the criteria', t => {
   const f = fixture(t); const decisionFile = path.join(f.root, 'owner-decision.json');
@@ -192,12 +195,12 @@ test('an owner decision lifts only its named row, bound to this candidate and fr
   const state = makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: decisionFile }, () => SOURCE);
   state.freeze = { criteriaSha256: digest(acceptanceCriteria(state)) };
   assertState(state);
-  assert.deepEqual(state.requiredHostTests, HOST_TESTS);
-  assert.deepEqual(state.ownerOverrides.map(o => [o.testId, o.candidateId]), [['Exact-4-S-samples', state.candidate.id]]);
+  assert.deepEqual(state.requiredHostTests, [...HOST_TESTS, ...CONDITIONAL_HOST_TESTS]);
+  assert.deepEqual(state.ownerOverrides.map(o => [o.testId, o.candidateId]), [['high-rate-192k', state.candidate.id]]);
   assert.notEqual(digest(acceptanceCriteria(state)), digest(acceptanceCriteria(f.state)));
   assert.equal(digest(acceptanceCriteria(f.state)), digest({ tests: f.state.requiredHostTests, expected: f.state.expected,
     evidenceMethods: Object.fromEntries(f.state.requiredHostTests.map(id => [id, 'manual'])) }));
-  const file = path.join(f.root, 'override-report.json'), ids = ['Exact-4-S-samples', 'pair/combinations'];
+  const file = path.join(f.root, 'override-report.json'), ids = ['high-rate-192k', 'pair/combinations'];
   const report = reportTemplate(state, 'A4', 'd'.repeat(64), ids);
   report.tests[0].result = 'NOT_REQUIRED_OWNER_OVERRIDE';
   report.tests[1] = { id: 'pair/combinations', result: 'PASS', expected: { passed: true }, measured: { passed: true },
@@ -212,12 +215,12 @@ test('an owner decision lifts only its named row, bound to this candidate and fr
     /not bound to this candidate/);
   const notes = path.join(f.root, 'notes.md'); fs.writeFileSync(notes, 'not an owner decision');
   const handWritten = { ...state, ownerOverrides: [{ testId: 'pair/combinations', candidateId: state.candidate.id,
-    decision: fileFact(notes) }, { testId: 'Exact-4-S-samples', candidateId: state.candidate.id, decision: fileFact(notes) }] };
+    decision: fileFact(notes) }, { testId: 'high-rate-192k', candidateId: state.candidate.id, decision: fileFact(notes) }] };
   assert.throws(() => assertState(handWritten));
   for (const row of report.tests) row.result = 'NOT_REQUIRED_OWNER_OVERRIDE';
   write(); assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ids));
   const otherRow = path.join(f.root, 'other-row.json');
-  fs.writeFileSync(otherRow, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'Exact-4-S-samples' }));
+  fs.writeFileSync(otherRow, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'high-rate-192k' }));
   handWritten.ownerOverrides = [{ testId: 'pair/combinations', candidateId: state.candidate.id, decision: fileFact(otherRow) }];
   assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ['pair/combinations']), /decision changed/);
   fs.writeFileSync(decisionFile, JSON.stringify({ ...OWNER_DECISION, ownerAnswer: 'changed' }));
@@ -256,8 +259,8 @@ test('an owner decision for another release, candidate or row is refused, and bi
   fs.writeFileSync(second, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'pair/combinations' }));
   const parsed = parseReleaseArgs(['--state', f.statePath, '--init', '--owner-override', file, '--owner-override', second]);
   const state = makeState(f.root, { ...parsed, date: '2026-10-01' }, () => SOURCE);
-  assert.deepEqual(state.ownerOverrides.map(o => o.testId), ['Exact-4-S-samples', 'pair/combinations']);
-  assert.deepEqual(state.requiredHostTests, HOST_TESTS);
+  assert.deepEqual(state.ownerOverrides.map(o => o.testId), ['high-rate-192k', 'pair/combinations']);
+  assert.deepEqual(state.requiredHostTests, [...HOST_TESTS, ...CONDITIONAL_HOST_TESTS]);
   assert.throws(() => makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: [file, file] }, () => SOURCE),
     /names a row twice/);
 });
@@ -297,27 +300,68 @@ test('bundle facts include resources, permissions and symlink targets, not only 
   checkFacts([fact]); fs.writeFileSync(path.join(dir, 'resource'), 'changed'); assert.throws(() => checkFacts([fact]), /changed/);
 });
 
-test('CI exact commit, complete matrix and workflow must agree; no dispatch route exists', async t => {
+function ciFixture(t) {
   const f = fixture(t); f.state.inputs.ciRun = '123';
-  let commit = SOURCE.commit, event = 'push', repository = 'heyalohaloha/kirin_hypha';
-  const jobs = ['public history identity', 'release source contract (macos)', 'auval arm64 (AU validation)', 'windows VST3 preflight']
-    .map(name => ({ name, status: 'completed', conclusion: 'success', steps: [] }));
+  const ci = { commit: SOURCE.commit, event: 'push', repository: 'heyalohaloha/kirin_hypha', trees: {} };
+  const step = name => ({ name, status: 'completed', conclusion: 'success' });
+  ci.jobs = ['public history identity', 'release source contract (macos)', 'auval arm64 (AU validation)', 'windows VST3 preflight',
+    ...RELEASE_SOURCE_PHASES.map(phase => `release source ${phase} (macos)`)]
+    .map(name => ({ name, status: 'completed', conclusion: 'success', steps: name.startsWith('release source') && !name.includes('contract')
+      ? [step('Test shipping source contract')] : [] }));
+  ci.jobs[0].steps.push(step('Tested tree equals head'));
   for (const check of Object.values(CI_ORACLES).flatMap(oracle => oracle.checks)) {
-    let job = jobs.find(job => job.name === check.job);
-    if (!job) { job = { name: check.job, status: 'completed', conclusion: 'success', steps: [] }; jobs.push(job); }
-    if (!job.steps.some(step => step.name === check.step)) job.steps.push({ name: check.step, status: 'completed', conclusion: 'success' });
+    const job = ci.jobs.find(job => job.name === check.job);
+    if (!job.steps.some(step => step.name === check.step)) job.steps.push(step(check.step));
   }
-  for (const [index, job] of jobs.entries()) Object.assign(job, { id: index + 1, run_id: 123, head_sha: SOURCE.commit, run_attempt: 1 });
-  const run = async (tool, args) => { assert.equal(tool, 'gh'); assert.equal(args[0], 'api');
-    return JSON.stringify(args[1].includes('/jobs?') ? { total_count: jobs.length, jobs } :
-      { head_sha: commit, run_attempt: 1, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml', name: 'CI', event, head_repository: { full_name: repository } }); };
-  await verifyCi(f.state, run); commit = 'f'.repeat(40);
-  await assert.rejects(verifyCi(f.state, run), Checkpoint); commit = SOURCE.commit;
-  for (event of ['pull_request', 'pull_request_target', undefined]) await assert.rejects(verifyCi(f.state, run), Checkpoint);
-  event = 'push'; repository = 'fixture/fork'; await assert.rejects(verifyCi(f.state, run), Checkpoint);
-  repository = 'heyalohaloha/kirin_hypha';
-  jobs.push(jobs[0]); await assert.rejects(verifyCi(f.state, run), /not green/); jobs.pop();
-  jobs[1].conclusion = 'skipped'; await assert.rejects(verifyCi(f.state, run), /not green/);
+  const setHead = sha => { ci.commit = sha; for (const [index, job] of ci.jobs.entries()) Object.assign(job, { id: index + 1, run_id: 123, head_sha: sha, run_attempt: 1 }); };
+  setHead(SOURCE.commit);
+  ci.setHead = setHead;
+  ci.run = async (tool, args) => { assert.equal(tool, 'gh'); assert.equal(args[0], 'api');
+    const commit = args[1].match(/\/git\/commits\/([0-9a-f]{40})$/)?.[1];
+    if (commit) return JSON.stringify({ sha: commit, tree: { sha: ci.trees[commit] } });
+    return JSON.stringify(args[1].includes('/jobs?') ? { total_count: ci.jobs.length, jobs: ci.jobs } :
+      { head_sha: ci.commit, run_attempt: 1, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml', name: 'CI', event: ci.event, head_repository: { full_name: ci.repository } }); };
+  return { f, ci };
+}
+
+test('CI exact commit, complete matrix and workflow must agree; no dispatch route exists', async t => {
+  const { f, ci } = ciFixture(t);
+  await verifyCi(f.state, ci.run); ci.commit = 'f'.repeat(40);
+  await assert.rejects(verifyCi(f.state, ci.run), Checkpoint); ci.commit = SOURCE.commit;
+  for (ci.event of ['pull_request_target', 'workflow_run', undefined]) await assert.rejects(verifyCi(f.state, ci.run), Checkpoint);
+  ci.event = 'push'; ci.repository = 'fixture/fork'; await assert.rejects(verifyCi(f.state, ci.run), Checkpoint);
+  ci.repository = 'heyalohaloha/kirin_hypha';
+  ci.jobs.push(ci.jobs[0]); await assert.rejects(verifyCi(f.state, ci.run), /not green/); ci.jobs.pop();
+  ci.jobs[1].conclusion = 'skipped'; await assert.rejects(verifyCi(f.state, ci.run), /not green/);
+});
+
+test('a documentation-only run cannot become a candidate CI', async t => {
+  for (const phase of RELEASE_SOURCE_PHASES) {
+    const { f, ci } = ciFixture(t);
+    const job = ci.jobs.find(job => job.name === `release source ${phase} (macos)`);
+    job.steps.find(step => step.name === 'Test shipping source contract').conclusion = 'skipped';
+    await assert.rejects(verifyCi(f.state, ci.run), /did not run green|not green/, phase);
+  }
+});
+
+test('the pull request run is the candidate CI only when it tested the candidate tree', async t => {
+  const { f, ci } = ciFixture(t);
+  const head = 'e'.repeat(40);
+  ci.event = 'pull_request'; ci.setHead(head);
+  ci.trees = { [head]: '1'.repeat(40), [SOURCE.commit]: '1'.repeat(40) };
+  const evidence = await verifyCi(f.state, ci.run);
+  assert.equal(evidence.headSha, head);
+  ci.trees[SOURCE.commit] = '2'.repeat(40);
+  await assert.rejects(verifyCi(f.state, ci.run), /did not test the candidate tree/);
+  ci.trees = { [head]: undefined, [SOURCE.commit]: undefined };
+  await assert.rejects(verifyCi(f.state, ci.run), /did not test the candidate tree/);
+  ci.trees = { [head]: '1'.repeat(40), [SOURCE.commit]: '1'.repeat(40) };
+  const proof = ci.jobs[0].steps.find(step => step.name === 'Tested tree equals head');
+  proof.conclusion = 'skipped'; await assert.rejects(verifyCi(f.state, ci.run), /Tested tree equals head/);
+  proof.conclusion = 'success'; ci.jobs[2].head_sha = SOURCE.commit;
+  await assert.rejects(verifyCi(f.state, ci.run), /foreign attempt metadata/);
+  ci.jobs[2].head_sha = head; ci.repository = 'fixture/fork';
+  await assert.rejects(verifyCi(f.state, ci.run), Checkpoint);
 });
 
 test('packaging validates actual existing sidecar schemas and all ten upload assets', t => {

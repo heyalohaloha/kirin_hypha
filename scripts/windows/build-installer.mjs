@@ -377,6 +377,8 @@ export async function buildInstaller(opts) {
     fs.cpSync(source.bundle, path.join(payloadDir, source.name), { recursive: true });
   }
   const aaxPayloadRecords = [];
+  const paceVerifiedSha256 = aaxProvenance && Object.fromEntries(aaxProvenance.manifest.bundles
+    .filter((bundle) => bundle.pace_verified === true).map((bundle) => [bundle.role, bundle.sha256]));
   for (const source of aaxSourceRecords) {
     const destination = path.join(payloadDir, source.name);
     fs.cpSync(source.bundle, destination, { recursive: true });
@@ -384,6 +386,7 @@ export async function buildInstaller(opts) {
       source,
       recordAtBundle(source, destination),
       VERSION,
+      { paceVerifiedSha256 },
     ));
   }
   if (aaxProvenance) fs.copyFileSync(aaxProvenance.manifestPath, aaxManifestCopy);

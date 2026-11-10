@@ -14,6 +14,9 @@ param(
 
   [string]$AaxWraptool = "",
 
+  # Signed AAX provenance from the signing run; when given, PACE is checked by hash (no iLok).
+  [string]$AaxPaceRecord = "",
+
   # Directory produced by download_previous_installers.ps1; required for signed candidates.
   [string]$PreviousInstallerDir = "",
 
@@ -75,7 +78,10 @@ $preBundle = Join-Path $vst3Root "Kirin Hypha PRE.vst3"
 $postBundle = Join-Path $vst3Root "Kirin Hypha POST.vst3"
 $preAaxBundle = Join-Path $aaxRoot "Kirin Hypha PRE.aaxplugin"
 $postAaxBundle = Join-Path $aaxRoot "Kirin Hypha POST.aaxplugin"
-$resolvedWraptool = if ($withAax) { Resolve-AaxWraptool $AaxWraptool } else { "" }
+$paceVerified = if ($withAax -and ![string]::IsNullOrWhiteSpace($AaxPaceRecord)) {
+  Get-HyphaPaceRecord $AaxPaceRecord ([string]$manifestData.distribution.aax_identity.signed_manifest_sha256)
+} else { $null }
+$resolvedWraptool = if ($withAax -and $null -eq $paceVerified) { Resolve-AaxWraptool $AaxWraptool } else { "" }
 $payloadHashes = Get-HyphaPayloadHashes $payloadPath $withAax
 
 Assert-HyphaInstallerEnvironment | Out-Null
@@ -109,7 +115,7 @@ try {
     if ($withAax) {
       Wait-PathState $preAaxBundle $true "installed PRE AAX bundle"
       Wait-PathState $postAaxBundle $true "installed POST AAX bundle"
-      $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool)
+      $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool $paceVerified)
     }
     Assert-HyphaResolvedPayload $payloadHashes $cleanScope "Fresh install pass $installPass" | Out-Null
     Assert-HyphaRegistration $cleanScope $version "Fresh install pass $installPass" | Out-Null

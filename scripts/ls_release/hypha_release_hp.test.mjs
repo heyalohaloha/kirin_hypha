@@ -323,11 +323,22 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
     if (args[0] === 'status') return f.state.hpPlanned && head === f.state.inputs.hpBaseCommit ? ' M hypha.html' : '';
     if (args[0] === 'diff') return args.includes('--cached') ? '' : HP_FILES.join('\n');
     if (args[0] === 'ls-files') return '';
-    if (args[0] === 'commit') head = 'd'.repeat(40);
+    if (args[0] === 'config') { assert.equal(options.cwd, f.state.root); return identity[args[1]] || ''; }
+    if (args.includes('commit')) {
+      assert.deepEqual(args.slice(0, 5), ['-c', 'user.name=Release Author', '-c', 'user.email=release@example.invalid', 'commit']);
+      head = 'd'.repeat(40);
+    }
     if (args[0] === 'push') { assert.ok(!args.includes('--force')); remote = head; }
     return '';
   };
+  // Without an identity in the release checkout the commit stops before anything is staged.
+  const identity = {};
   const fetcher=publicHpFetcher(f.state,root,{deployed:()=>deployed,head:()=>head});
+  failTests = false; auditBlocked = false;
+  await assert.rejects(publishHp(f.state, run, () => {}, fetcher), /Set git user.name/);
+  assert.ok(!calls.some(([tool, args]) => tool === 'git' && (args[0] === 'add' || args.includes('commit'))));
+  Object.assign(identity, { 'user.name': 'Release Author', 'user.email': 'release@example.invalid' });
+  failTests = true; auditBlocked = true; calls.length = 0;
   await assert.rejects(publishHp(f.state, run, () => {}, fetcher), /tests failed/);
   assert.ok(f.state.hpPlanned); assert.equal(f.state.hpCommit, undefined);
   failTests = false;
@@ -357,7 +368,7 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
   await assert.rejects(publishHp(f.state,run,()=>{},fetcher),/deployment evidence/i);
   f.state.hpDeployment=(await import('./hypha_hp_preview.mjs')).deploymentReceipt(f.state,`Staged production deployment: https://fixture.vercel.app\nProduction deploy verified: https://kirinmastering.com (https://fixture.vercel.app, ${head})\n`);
   assert.equal((await publishHp(f.state,run,()=>{},fetcher)).reused,true);
-  assert.equal(calls.filter(([tool, args]) => tool === 'git' && args[0] === 'commit').length, 1);
+  assert.equal(calls.filter(([tool, args]) => tool === 'git' && args.includes('commit')).length, 1);
   assert.equal(calls.filter(([tool]) => tool === 'bash').length, 1);
   assert.equal(calls.filter(([tool, args]) => tool === 'git' && args[0] === 'push').length, 1);
 });

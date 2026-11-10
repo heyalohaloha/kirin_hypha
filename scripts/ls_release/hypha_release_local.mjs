@@ -4,7 +4,7 @@ import path from 'node:path';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
-import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
+import { AAX_APPLE_AUTHORITY, AAX_PACE_RECEIPT_ENV, AAX_PACE_RECEIPT_SHA256_ENV } from './aax_bundle_verify.mjs';
 import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson, CI_ORACLES, checkFacts, assertIndependentDeliveryTree } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
@@ -12,12 +12,28 @@ import { verifyPkgResume } from './pkg_staple.mjs';
 import { pkgRecoveryContext, requirePkgRecovery } from './pkg_release_recovery.mjs';
 import { verifyFactoryDelivery, requireFactoryDelivery } from '../provenance/factory_artifact.mjs';
 
+// The CI matrix phases (scripts/test_release_source.sh --list-phases).
+export const RELEASE_SOURCE_PHASES = ['checks', 'rust', 'ffi', 'native1', 'native2', 'native3', 'native4'];
+
 export function macBundles(state, aax = false) {
   return (aax ? loadMacAaxBundleManifest({ root: state.root })
     : loadMacShipBundleManifest({ root: state.root })).bundles;
 }
 
-export async function verifyMac(state, run, aax = false) {
+const AAX_RECEIPT = 'build-aax-universal/kirin-hypha-macos-aax-notarization.json';
+const NO_RECEIPT_ENV = Object.freeze({ [AAX_PACE_RECEIPT_ENV]: '', [AAX_PACE_RECEIPT_SHA256_ENV]: '' });
+
+// After the macOS AAX stage, AAX bundles are checked against that stage's PACE-verified receipt
+// (its hash is a fact of the stage), so packaging and distribution do not need the iLok.
+export function signedAaxReceiptEnv(state) {
+  const receipt = path.resolve(state.root, AAX_RECEIPT);
+  const fact = state.stages?.['macos-aax']?.status === 'PASS'
+    && state.stages['macos-aax'].facts?.find(item => item.path === receipt);
+  if (!fact || !/^[0-9a-f]{64}$/.test(fact.sha256 || '')) throw new Checkpoint('PACE-verified macOS AAX receipt is required');
+  return { [AAX_PACE_RECEIPT_ENV]: receipt, [AAX_PACE_RECEIPT_SHA256_ENV]: fact.sha256 };
+}
+
+export async function verifyMac(state, run, aax = false, { signedAaxReceipt = false } = {}) {
   const bundles = macBundles(state, aax);
   for (const b of bundles) {
     const binary = path.join(b.sourcePath, 'Contents/MacOS', b.executable_name);
@@ -36,10 +52,10 @@ export async function verifyMac(state, run, aax = false) {
       throw new Error('macOS Developer ID/timestamp is invalid');
     }
   }
+  // The signing stage itself always asks PACE: a receipt in the caller's environment is cleared.
   if (aax) await run('node', ['scripts/ls_release/aax_notarization_receipt.mjs', 'verify',
-    '--artifact-dir', 'build-aax-universal']);
-  return [...bundles.map(b => treeFact(b.sourcePath)), ...(aax ?
-    [fileFact(path.join(state.root, 'build-aax-universal/kirin-hypha-macos-aax-notarization.json'))] : [])];
+    '--artifact-dir', 'build-aax-universal'], { env: signedAaxReceipt ? signedAaxReceiptEnv(state) : NO_RECEIPT_ENV });
+  return [...bundles.map(b => treeFact(b.sourcePath)), ...(aax ? [fileFact(path.join(state.root, AAX_RECEIPT))] : [])];
 }
 
 export async function produceMac(state, run, aax = false) {
@@ -53,7 +69,7 @@ export async function produceMac(state, run, aax = false) {
   if (aax) {
     if (!state.inputs.licenseConfirmed || !state.inputs.sdk) throw new Checkpoint('External SDK/license confirmation required');
     await run('bash', ['scripts/build_aax_universal.sh', '--sdk', state.inputs.sdk, '--license-confirmed', '--sign'],
-      { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
+      { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '', ...NO_RECEIPT_ENV } });
   } else {
     await run('bash', ['scripts/build_juce_universal.sh'], { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
     await run('cargo', ['run', '--package', 'xtask', '--', 'notarize'],
@@ -67,11 +83,22 @@ export async function verifyCi(state, run) {
   if (!/^\d+$/.test(id)) throw new Checkpoint('Same-commit complete CI run ID required; no automatic dispatch/retry');
   const base = 'repos/heyalohaloha/kirin_hypha/actions/runs';
   const record = JSON.parse(await run('gh', ['api', `${base}/${id}`], { capture: true }));
-  if (record.head_sha !== state.candidate.commit || record.status !== 'completed'
+  // The pull request's own run is the candidate's CI when it tested the candidate's tree:
+  // its trial merge equalled the head (a CI step proves it) and the candidate has that tree.
+  const pullRequest = record.event === 'pull_request';
+  if ((!pullRequest && record.head_sha !== state.candidate.commit) || record.status !== 'completed'
       || record.conclusion !== 'success' || record.path !== '.github/workflows/ci.yml'
-      || record.name !== 'CI' || !['push', 'workflow_dispatch'].includes(record.event)
+      || record.name !== 'CI' || !['push', 'workflow_dispatch', 'pull_request'].includes(record.event)
+      || !/^[0-9a-f]{40}$/.test(record.head_sha || '')
       || record.head_repository?.full_name !== 'heyalohaloha/kirin_hypha') {
     throw new Checkpoint('CI is not a successful exact-commit ci.yml run');
+  }
+  if (pullRequest) {
+    const tree = async sha => JSON.parse(await run('gh', ['api', `repos/heyalohaloha/kirin_hypha/git/commits/${sha}`], { capture: true })).tree?.sha;
+    const [tested, candidate] = [await tree(record.head_sha), await tree(state.candidate.commit)];
+    if (!/^[0-9a-f]{40}$/.test(tested || '') || tested !== candidate) {
+      throw new Checkpoint('Pull request CI did not test the candidate tree');
+    }
   }
   if (!Number.isSafeInteger(record.run_attempt) || record.run_attempt < 1) throw new Checkpoint('CI run attempt is unavailable');
   // latest retains successful jobs from earlier attempts when only failed jobs were rerun.
@@ -96,7 +123,7 @@ export async function verifyCi(state, run) {
   const requiredJob = name => {
     const matches = jobs.filter(job => job.name === name), job = matches[0];
     if (matches.length !== 1 || job.status !== 'completed' || job.conclusion !== 'success'
-        || !Number.isSafeInteger(job.id) || job.id < 1 || String(job.run_id) !== id || job.head_sha !== state.candidate.commit
+        || !Number.isSafeInteger(job.id) || job.id < 1 || String(job.run_id) !== id || job.head_sha !== record.head_sha
         || !Number.isSafeInteger(job.run_attempt) || job.run_attempt < 1 || job.run_attempt > record.run_attempt) {
       throw new Checkpoint(`Required CI job is not green or has foreign attempt metadata: ${name}`);
     }
@@ -107,6 +134,15 @@ export async function verifyCi(state, run) {
     'auval arm64 (AU validation)', 'windows VST3 preflight']) {
     requiredJob(name);
   }
+  // A documentation-only run skips phases; a candidate's run must have run every one of them.
+  const ranStep = (name, stepName) => {
+    const steps = requiredJob(name).steps?.filter(step => step.name === stepName) || [];
+    if (steps.length !== 1 || steps[0].status !== 'completed' || steps[0].conclusion !== 'success') {
+      throw new Checkpoint(`Required CI step did not run green: ${name}/${stepName}`);
+    }
+  };
+  for (const phase of RELEASE_SOURCE_PHASES) ranStep(`release source ${phase} (macos)`, 'Test shipping source contract');
+  if (pullRequest) ranStep('public history identity', 'Tested tree equals head');
   const oracles = Object.entries(CI_ORACLES).map(([name, oracle]) => ({ name, tests: oracle.tests,
     checks: oracle.checks.map(check => {
       const job = requiredJob(check.job);
@@ -196,7 +232,7 @@ export async function packageAll(state, run, { resumeStaple = false } = {}) {
   verifyLegalDelivery(legalDir, state.candidate.commit);
   const context = pkgRecoveryContext(state);
   const env = { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '', KIRIN_HYPHA_LEGAL_DIR: legalDir,
-    KIRIN_PKG_STAPLE_STATE: context.statePath, KIRIN_PKG_STAPLE_BINDING: context.binding };
+    KIRIN_PKG_STAPLE_STATE: context.statePath, KIRIN_PKG_STAPLE_BINDING: context.binding, ...signedAaxReceiptEnv(state) };
   if (resumeStaple) {
     requirePkgRecovery(state);
     if (artifactPaths(state).slice(1, 6).some(fs.existsSync)) throw new Checkpoint('Partial distribution containers need reconciliation before PKG resume');

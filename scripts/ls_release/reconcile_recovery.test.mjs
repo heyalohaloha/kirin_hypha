@@ -172,10 +172,11 @@ test('host failure is restored only when every frozen report row has valid retai
   const f = fixture(t), state = structuredClone(f.state);
   state.stages.windows = { status: 'PASS', facts: [fileFact(f.signed)] };
   state.stages.freeze = { status: 'PASS', facts: [fileFact(f.signed)] };
+  state.stages.packages = { status: 'PASS', facts: [fileFact(f.signed)] };
   state.freeze = { source: state.source, publicationNotes: fileFact(f.signed), updateCheck: updateBinding(''), inputs: digest(state.inputs),
     criteriaSha256: digest(acceptanceCriteria(state)), payloads: [fileFact(f.signed)] };
   state.freeze.sha256 = digest(state.freeze);
-  const report = reportTemplate(state, 'A4', state.freeze.sha256, HOST_TESTS);
+  const report = reportTemplate(state, 'A4', state.freeze.sha256, state.requiredHostTests);
   report.tests = report.tests.map(row => ({ ...row, result: 'PASS', measured: row.expected, oracle: 'retained report', evidence: [fileFact(f.signed)] }));
   const reportPath = path.join(f.root, state.inputs.hostsReport); fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, JSON.stringify(report));
@@ -311,11 +312,13 @@ test('CI reconciliation reads only the exact successful run and never dispatches
   const workflow = path.join(f.root, '.github/workflows/ci.yml'); fs.mkdirSync(path.dirname(workflow), { recursive: true });
   fs.writeFileSync(workflow, 'fixture workflow'); atomicJson(f.statePath, state);
   const checks = Object.values(CI_ORACLES).flatMap(row => row.checks);
+  const { RELEASE_SOURCE_PHASES } = await import('./hypha_release_local.mjs');
+  const phases = RELEASE_SOURCE_PHASES.map(phase => ({ job: `release source ${phase} (macos)`, step: 'Test shipping source contract' }));
   const names = new Set(['public history identity', 'release source contract (macos)', 'auval arm64 (AU validation)',
-    'windows VST3 preflight', ...checks.map(check => check.job)]);
+    'windows VST3 preflight', ...[...checks, ...phases].map(check => check.job)]);
   const jobs = [...names].map((name, index) => ({ id: index + 1, name, run_id: 71, head_sha: state.candidate.commit,
     run_attempt: 1, status: 'completed', conclusion: 'success',
-    steps: [...new Set(checks.filter(check => check.job === name).map(check => check.step))].map(name => ({ name, status: 'completed', conclusion: 'success' })) }));
+    steps: [...new Set([...checks, ...phases].filter(check => check.job === name).map(check => check.step))].map(name => ({ name, status: 'completed', conclusion: 'success' })) }));
   let reads = 0;
   const deps = { snapshot: f.snapshot, verifyPrerequisites: async () => null, run: async (tool, args) => {
     reads++; assert.equal(tool, 'gh'); assert.equal(args[0], 'api'); assert.ok(!args.includes('--method'));

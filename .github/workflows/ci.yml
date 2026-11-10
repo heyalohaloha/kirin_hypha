@@ -44,6 +44,22 @@ jobs:
         with:
           toolchain: stable
 
+      # A pull request run tests GitHub's trial merge. The release tooling accepts that run as the
+      # candidate's CI only when the step below ran, so a release never runs the same CI twice.
+      - name: Compare tested tree with head
+        id: tree
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          tested="$(git rev-parse 'HEAD^{tree}')"
+          head="$(git rev-parse "${HEAD_SHA}^{tree}")"
+          echo "tested tree $tested; head $HEAD_SHA tree $head"
+          if [[ "$tested" == "$head" ]]; then echo same=true; else echo same=false; fi >> "$GITHUB_OUTPUT"
+
+      - name: Tested tree equals head
+        if: steps.tree.outputs.same == 'true'
+        run: echo "The tested tree is the head commit's tree."
+
       - name: Resolve source line comparison commit
         env:
           SOURCE_LINE_BUDGET_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
@@ -64,10 +80,36 @@ jobs:
           node --test scripts/public_history.test.mjs
           node scripts/check_public_history.mjs --tip HEAD
 
+  scope:
+    # Pull requests that change only documentation skip the native, Rust and host jobs
+    # (scripts/ci_scope.mjs). A skipped job is never a release candidate's CI.
+    name: change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci_scope.mjs >> "$GITHUB_OUTPUT"
+
   release-source:
     name: release source ${{ matrix.phase }} (macos)
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
+    needs: [scope]
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]')) }}
     runs-on: macos-15
+    env:
+      # A failed or missing scope runs every phase.
+      RUN_PHASE: ${{ matrix.phase == 'checks' || needs.scope.outputs.full != 'false' }}
     # Independent jobs; every native shard builds the identical graph before its selection.
     # Hosted macOS measurements: native build 21-22 min; serial tests projected at 80-110
     # min before notification waits. The observed test durations put at most 33% in one
@@ -96,6 +138,7 @@ jobs:
     timeout-minutes: ${{ matrix.minutes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN_PHASE == 'true'
         with:
           persist-credentials: false
           # Release provenance and release_state history guards inspect tags and
@@ -107,18 +150,48 @@ jobs:
           submodules: recursive
 
       - name: Install Rust (stable)
+        if: env.RUN_PHASE == 'true'
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: env.RUN_PHASE == 'true'
         with:
           key: release-source-${{ matrix.phase }}
 
+      # The four native shards compile the same graph. A compiler cache restores the objects a
+      # previous run of this pull request (or main) built; the tests themselves always run.
+      - name: Restore native compiler cache
+        if: env.RUN_PHASE == 'true' && startsWith(matrix.phase, 'native')
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: native-ccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Use the compiler cache
+        if: env.RUN_PHASE == 'true' && startsWith(matrix.phase, 'native')
+        env:
+          CACHE_DIR: ${{ runner.temp }}/ccache
+        run: bash scripts/ci_use_ccache.sh "$CACHE_DIR"
+
       - name: Test shipping source contract
+        if: env.RUN_PHASE == 'true'
         env:
           RELEASE_SOURCE_PHASE: ${{ matrix.phase }}
         run: bash scripts/test_release_source.sh --phase "$RELEASE_SOURCE_PHASE"
+
+      - name: Report compiler cache use
+        if: ${{ !cancelled() && env.RUN_PHASE == 'true' && startsWith(matrix.phase, 'native') }}
+        run: ccache --show-stats
+
+      - name: Save native compiler cache
+        if: ${{ !cancelled() && env.RUN_PHASE == 'true' && matrix.phase == 'native1' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
 
   test:
     # Preserve the protected check name and release provenance consumer. A skipped,
@@ -136,7 +209,8 @@ jobs:
 
   auval-arm64:
     name: auval arm64 (AU validation)
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
+    needs: [scope]
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]')) }}
     # macos-15 is an Apple Silicon (arm64) runner: builds arm64-native and validates the AU on
     # the same arch the ship universal binary's arm64 slice runs on (B-082/B-084). engine
     # (kirin_measure) calculation is unchanged -- this is CI / packaging validation only.
@@ -160,6 +234,18 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
+      - name: Restore AU build compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: auval-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: auval-ccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Use the compiler cache
+        env:
+          CACHE_DIR: ${{ runner.temp }}/ccache
+        run: bash scripts/ci_use_ccache.sh "$CACHE_DIR"
+
       # The JUCE submodule is pinned pristine; local patches are applied at build time only.
       # Keep CI and scripts/build_juce_universal.sh on the same patch flags.
       - name: Apply tracked JUCE patch stack
@@ -172,6 +258,13 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
           cmake --build juce_shell/build-arm64 --config Release
+
+      - name: Save AU build compiler cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: auval-ccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
 
       - name: Validate Kirin OS Reference preview renderer (arm64)
         run: ctest --test-dir juce_shell/build-arm64 -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
@@ -230,7 +323,8 @@ jobs:
 
   windows-vst3-preflight:
     name: windows VST3 preflight
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
+    needs: [scope]
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]')) }}
     runs-on: windows-latest
     env:
       HYPHA_WINDOWS_BUILD_DIR: D:/kh

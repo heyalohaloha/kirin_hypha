@@ -12,7 +12,8 @@ function phaseInventory(workflow) {
   const body = workflow.split('  release-source:\n')[1]?.split('  test:\n')[0];
   assert.ok(body, 'parallel release source job missing');
   assert.match(body, /fail-fast: false/);
-  assert.doesNotMatch(body, /^    needs:/m, 'phases must run independently');
+  // Phases depend only on the change scope, never on each other.
+  assert.deepEqual(body.match(/^    needs:.*$/gm), ['    needs: [scope]'], 'phases must run independently');
   assert.match(body, /RELEASE_SOURCE_PHASE: \$\{\{ matrix\.phase }}/);
   assert.match(body, /bash scripts\/test_release_source\.sh --phase "\$RELEASE_SOURCE_PHASE"/);
   const phases = [...body.matchAll(/^          - phase: (\w+)$/gm)].map(m => m[1]);
@@ -45,6 +46,11 @@ test('CI phases exactly partition the local release gate command inventory', () 
   assert.doesNotMatch(all, /: PASS/);
   assert.equal((plan('--phase', 'native', '--plan').match(/==> ctest /g) ?? []).length, 3);
   assert.doesNotMatch(plan('--phase', 'native', '--plan'), / -I /);
+});
+
+test('release tooling checks every CI phase the local gate defines', async () => {
+  const { RELEASE_SOURCE_PHASES } = await import('./ls_release/hypha_release_local.mjs');
+  assert.deepEqual(RELEASE_SOURCE_PHASES, plan('--list-phases').trim().split('\n'));
 });
 
 test('missing, duplicate and ungated phases fail the partition contract', () => {
