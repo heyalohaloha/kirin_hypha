@@ -7,6 +7,16 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // A greyed menu choice names what is missing (2026-11-11).
+    { "Keep selected pair: Kirin OS required", u8"選択中のペアでKeep：Kirin OSが必要です" },
+    { "Add NOTE: Kirin OS required", u8"NOTEを追加：Kirin OSが必要です" },
+    { "Save measurement image: not on REFERENCE", u8"計測画像を保存：REFERENCEでは使えません" },
+    { "Include OS Guide: Kirin OS required", u8"OS Guideを含める：Kirin OSが必要です" },
+    { "Include OS Guide: no guide shown", u8"OS Guideを含める：表示中のGuideがありません" },
+    { "Include PRE name: no PRE name", u8"PREの名前を含める：PREの名前がありません" },
+    { "Include POST name: no POST name", u8"POSTの名前を含める：POSTの名前がありません" },
+    { "Include project name: the DAW gives none", u8"プロジェクト名を含める：DAWから名前が来ていません" },
+    { "Greyed sizes are larger than this display", u8"灰色の大きさはこの画面に収まりません" },
     { "A/B: finish Record / Keep first", u8"A/B：Record／Keepの終了後" },
     { "A/B: add PRE2 between A and B", u8"A/B：AとBの間にPRE2を追加" },
     { "One track. Hardware in A or B.", u8"同じトラック。実機はA・Bどちらにも。" },

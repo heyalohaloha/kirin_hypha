@@ -24,6 +24,20 @@ const char* hypha::live_compare_ui::startFailure (StartResult result) noexcept
     return "";
 }
 
+// Why LISTEN and A/B (blind: BLIND) cannot open now, or nothing when they can. An unsupported POST
+// offers no footer entry (INV-LC9); MENU and the keys still say why.
+const char* KirinHyphaEditor::liveCompareEntryRefusal (bool blind) const
+{
+    if (! processorRef.stereoWorkflowsSupported()) return "Mono / stereo only";
+    if (processorRef.aaxMultiMonoMember()) return "POST is multi-mono: insert it as stereo";
+    const auto admission = processorRef.liveCompareAdmission (blind);
+    if (hypha::live_compare_ui::entryOffered (admission)) return "";
+    using hypha::output_owner::Activity;
+    const char* owner = hypha::output_owner::refusalText (
+        processorRef.outputDecision (blind ? Activity::liveBlind : Activity::liveCompare).reason);
+    return *owner != 0 ? owner : hypha::live_compare_ui::startFailure (admission);
+}
+
 void KirinHyphaEditor::requestListenStart ()
 {
     liveCompareStartAfterReturnCandidate.clear();

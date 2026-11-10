@@ -81,7 +81,8 @@ inline void verifyVersionBlindScreen()
                 require (screen.instruction == expected[which], "instruction " + juce::String (which));
                 require (screen.title == (which == revealedV || which == revealedA ? "BLIND RESULT" : "VERSION BLIND"),
                          "the title reads like LIVE BLIND");
-                require (screen.detail == (which == lowered || which == stoppedHeld ? juce::String ("END returns +4.2 dB")
+                require (screen.detail == (which == lowered || which == stoppedHeld
+                                               ? juce::String ("Lowered 4.2 dB to avoid clipping; END restores it")
                                                                                       : juce::String ("END returns to A")),
                          "the line under the buttons says what END returns");
                 if (language == i18n::Language::japanese)

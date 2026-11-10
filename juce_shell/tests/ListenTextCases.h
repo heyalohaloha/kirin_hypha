@@ -71,6 +71,23 @@ inline std::vector<Notice> notices()
         "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
         "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
+    // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
+    for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
+        "Finish Keep / Record before PRE / POST Blind", "Select LR, MID, or SIDE to view Delta",
+        "Delta has no M/S; showing one channel", "2MIX has no DRUM; showing METERS", "DRUM: choose TRACK", "Copied",
+        "No TP events yet", "Select POST for TP events", "No earlier TP over -1 dBTP", "No later TP over -1 dBTP",
+        "History is already live", "No history yet", "Select POST to copy", "Click the history to hold a point first",
+        "VU calibration: connecting; try again in a moment", "DAW recording: showing Hybrid VU",
+        "AUTO stopped at the TP limit", "AUTO stopped: press MATCH again", "No OS Guide from Kirin OS yet",
+        "Capture could not be prepared; try again", "Available in POST", "NOTE requires an active Keep",
+        "Stop playback to change connection", "Ended; normal level returns with audio",
+        "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
+        "8 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
+        "Available from 125%", "PRE input measurements", "Local measurements; PRE subtraction does not apply",
+        "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required",
+        "LIVE: POST values on fixed scales, measured every 100 ms.",
+        "RUN: absolute facts grouped by playback run within the selected history",
+        "ATTACK: automatic paired comparison or POST-only events" }) add (text);
     for (const auto* db : { "-24.00", "0.00", "+24.00" })
     {
         add (juce::String ("MATCH: PRE ") + db + " dB");

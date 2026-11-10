@@ -1,0 +1,13 @@
+# Direct setEnabled calls kept in juce_shell/src: file, count, and why the screen already explains it or
+# why the call is not a control the user presses (scripts/check_unavailable_reasons.mjs).
+juce_shell/src/HyphaLocalBlindPresentation.cpp	5	the local Blind screen's step bar and instruction line say what each step waits for
+juce_shell/src/HyphaReferenceAWindowControl.h	1	the label beside SET names the allowed range (SECONDS 3-600 S)
+juce_shell/src/HyphaSpaceLiveDisplay.h	3	not a control: the SPACE live animation source
+juce_shell/src/HyphaSpectrumComponent.h	1	not a control: the spectrum animation frames
+juce_shell/src/HyphaSpectrumPsb.cpp	1	not a control: the spectrum animation frames
+juce_shell/src/PluginEditorInformation.cpp	1	not a control: a stored preference
+juce_shell/src/PluginEditorLifecycle.cpp	3	not a control: the VU live reading
+juce_shell/src/PluginEditorLocalBlind.cpp	2	the controls under the local Blind screen, which covers them while it runs
+juce_shell/src/PluginEditorMenu.cpp	1	not a control: a stored preference
+juce_shell/src/PluginEditorObservatory.cpp	1	not a control: the VU live reading
+juce_shell/src/PluginEditorUpdate.cpp	1	not a control: the update check preference

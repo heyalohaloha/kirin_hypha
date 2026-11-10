@@ -21,13 +21,18 @@ blind_ui::Screen versionBlindScreen (const State& state)
         screen.instruction = "Play within the song; A plays";
     else if (active)
         screen.instruction = bothHeard ? "Reveal the sources when ready" : "Try both sources while playing";
-    // A を下げて始めた Blind は、終了で A が戻る量を言う（PRE/POST Blind の「終了すると音量が上がります」と同じ文）。
+    // A を下げて始めた Blind は、下げた量・理由・終了で戻ることを言う（PRE/POST Blind と同じ文）。
     screen.detail = state.blindRequiredAAttenuationDb > 0.05
-        ? "END returns +" + juce::String (state.blindRequiredAAttenuationDb, 1) + " dB" : juce::String ("END returns to A");
+        ? "Lowered " + juce::String (state.blindRequiredAAttenuationDb, 1) + " dB to avoid clipping; END restores it"
+        : juce::String ("END returns to A");
     const juce::String compared = state.separateComparisons ? "V" : "B";
     screen.sourceOne = revealed ? "1: " + (state.blindOneIsComparison ? compared : juce::String ("A")) : juce::String ("SOURCE 1");
     screen.sourceTwo = revealed ? "2: " + (state.blindOneIsComparison ? juce::String ("A") : compared) : juce::String ("SOURCE 2");
     screen.sourcesShown = active || revealed;
+    // Only while the trial runs; a stopped Blind keeps the generic refusal (a request it kept is not a switch).
+    screen.sourceReason = ! (active || revealed) ? juce::String()
+                        : state.blindPaused ? juce::String ("Play the DAW to continue")
+                        : state.pendingBlindStimulus != 0 ? juce::String ("Switching the source") : juce::String();
     screen.sourceOneEnabled = ! state.blindPaused && state.pendingBlindStimulus != 1;
     screen.sourceTwoEnabled = ! state.blindPaused && state.pendingBlindStimulus != 2;
     screen.audible = state.activeBlindStimulus;

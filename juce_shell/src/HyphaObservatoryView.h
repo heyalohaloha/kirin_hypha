@@ -17,6 +17,7 @@
 #include "HyphaRunSummary.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
+#include "HyphaUnavailableReason.h"
 #include "HyphaVuCalibrationControl.h"
 #include "HyphaVuNeedleAnimator.h"
 #include "HyphaVuLayerCache.h"
@@ -61,6 +62,8 @@ public:
     std::function<void()> onTimeRangeMenu;
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
+    std::function<void (const juce::String&)> onActionNotice; // a short result or reason for the notice line
+    std::function<void (const juce::String&, bool)> onAutomaticNotice; // why the view changed by itself; false withdraws it
     std::function<void (bool)> onHybridVuChange;
     std::function<void()> onVuCalibrationMenu; std::function<hybrid_vu::LiveReading()> onVuLiveReading; // physical needle state; independent of published meter values
     std::function<void()> onClearPeakClipHolds;
@@ -212,7 +215,7 @@ public:
     void setReferenceOwned (bool owned)
     {
         referenceOwned = owned;
-        referenceButton.setEnabled (role == Role::post);
+        unavailable::set (referenceButton, role == Role::post, "Available in POST");
         referenceButton.setTitle (owned ? "Reference" : "Reference - About Kirin OS");
         referenceButton.setDescription (owned ? "Open Reference audition"
                                              : "Open Kirin OS information and connection help");

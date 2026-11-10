@@ -184,7 +184,9 @@ void Component::setState (State next)
     blindButton.setVisible (! blindSession
         && (!current.separateComparisons || current.comparisonSlot == 1)
         && (versionChosen || canStartBlind (current)));
-    blindButton.setEnabled (!current.blindLargeScreen || canStartBlind (current));
+    unavailable::set (blindButton, !current.blindLargeScreen || canStartBlind (current),
+                      current.blindLowerAApprovalRequired ? juce::String ("Press LOWER A & START to begin")
+                                                          : unavailableText (current, true));
     blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
     blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
     syncSelectionControl (presetBox, current.presets, current.presetId);
@@ -192,7 +194,7 @@ void Component::setState (State next)
     syncSelectionControl (checkBox, current.checks, current.checkId);
     syncSelectionControl (candidateBox, current.candidates, current.candidateId);
     syncSelectionControl (cueBox, current.cues, current.cueId);
-    cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
+    if (current.candidatePreparationPending) unavailable::set (cueBox, false, "Preparing the song; try again in a moment");
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
     presetBox.setVisible (!blindSession && !current.presets.empty());
     checkBox.setVisible (! blindSession && ! current.checks.empty());

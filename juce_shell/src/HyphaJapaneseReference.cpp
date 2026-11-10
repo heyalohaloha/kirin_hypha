@@ -9,6 +9,14 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // Why a REF control is greyed (2026-11-11).
+    { "Press LOWER A & START to begin", u8"「Aを下げて開始」を押すと始まります" },
+    { "Nothing to choose yet", u8"選べる物はまだありません" },
+    { "Only one to choose", u8"選べるのは1つだけです" },
+    { "Play A for 3 s to make a target", u8"Aを3秒再生すると目標を作れます" },
+    { "8 targets: remove one first", u8"目標は8つまでです。1つ消すと作れます" },
+    { "Choose a target to remove", u8"消す目標を選ぶと使えます" },
+    { "Preparing the song; try again in a moment", u8"曲を準備中です。少し待つと使えます" },
     { "DATA ONLY", u8"数値のみ" },
     { "FILE UNREADABLE", u8"ファイルを読めません" },
     { "FILE TOO SHORT", u8"音源が短すぎます" },

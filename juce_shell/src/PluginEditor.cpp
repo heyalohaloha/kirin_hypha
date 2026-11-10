@@ -21,6 +21,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
       observatoryView (isPost ? hypha::observatory::Role::post
                               : hypha::observatory::Role::pre)
 {
+    addMouseListener (&unavailableClicks, true);
     analysisOwnerToken = processorRef.beginAnalysisUiSession();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const bool openAttackAtLaunch = isPost
@@ -95,6 +96,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
     observatoryView.onInformation = [this] { showInformationMenu(); };
+    observatoryView.onActionNotice = [this] (const juce::String& text) { showActionNotice (text); };
+    observatoryView.onAutomaticNotice = [this] (const juce::String& text, bool showing) { showAutomaticNotice (text, showing); };
     configureUpdateChecking();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     observatoryView.onRecordBodyOwnershipChange = [this] (bool)
@@ -123,6 +126,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setEnabledTooltip (hypha::pair_labels::choose);
         nameField.setModelName (processorRef.pairDisplayName());
         nameField.onSelect = [this] { selectPairPreview(); };
+        // Locked during playback: the PRE menu opens and says how to change the connection.
+        nameField.onLocked = [this] { showCandidateMenu(); };
         nameField.onPreviewDemand = [this] { refreshPairPreview (true); };
         nameField.setWantsKeyboardFocus (true);
 
@@ -356,6 +361,29 @@ void KirinHyphaEditor::showToast (const juce::String& msg)
     updateFeedback (nowSecs(), false, {});
 }
 
+// A change Hypha made by itself says why, but never over a user's notice or a persistent error, and it
+// is withdrawn when the change is undone (showing false).
+void KirinHyphaEditor::showAutomaticNotice (const juce::String& text, bool showing)
+{
+    if (! showing)
+    {
+        if (toastText == text && text.isNotEmpty())
+        {
+            toastText.clear();
+            toastUntil = 0.0;
+            updateFeedback (nowSecs(), false, {});
+        }
+        return;
+    }
+    // Not before the notice line has been read once (a Record error may be about to show), and not
+    // into a Blind screen, whose line belongs to the trial.
+    if (! feedbackRead) return;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (blindRunning()) return;
+   #endif
+    if (shownNotice.isEmpty() || shownNotice == text) showToast (text);
+}
+
 void KirinHyphaEditor::updateFeedback (
     double now, bool keeping, const juce::String& persistentError)
 {
@@ -381,6 +409,8 @@ void KirinHyphaEditor::updateFeedback (
 
     if (now >= toastUntil)
         toastText.clear();
+    shownNotice = text;
+    feedbackRead = true;
 
     feedbackStrip.setUnpairActionVisible (automaticPairNotice && now < toastUntil && text == toastText);
     observatoryView.setFeedback (text);

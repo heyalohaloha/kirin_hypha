@@ -25,8 +25,11 @@ void KirinHyphaEditor::requestBlindStart()
     // MENU offers BLIND on the same terms.
     const bool keeping = processorRef.isRecording() || keepPreWaitSince > 0.0
         || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
-    if (keeping || ! observatoryView.localBlindEntryAvailable())
-        showActionNotice ("BLIND COMPARE COULD NOT START");
+    if (keeping)
+        showActionNotice ("Finish Keep / Record before PRE / POST Blind");
+    else if (! observatoryView.localBlindEntryAvailable())
+        showActionNotice (processorRef.stereoWorkflowsSupported() ? "BLIND is not available in this plugin format"
+                                                                  : "Mono / stereo only");
     else
         openLiveBlind();
 }
@@ -39,7 +42,9 @@ void KirinHyphaEditor::requestBlindSource (int source)
     }
     else if (auto* screen = activeBlindScreen())
     {
-        if (! screen->requestSource (source)) screen->setActionNotice ("SOURCE COULD NOT BE SELECTED");
+        if (! screen->requestSource (source))
+            screen->setActionNotice (screen->sourceReason().isNotEmpty() ? screen->sourceReason()
+                                                                         : juce::String ("SOURCE COULD NOT BE SELECTED"));
     }
 }
 

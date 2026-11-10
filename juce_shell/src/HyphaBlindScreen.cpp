@@ -1,6 +1,7 @@
 #include "HyphaBlindScreen.h"
 #include "HyphaLanguage.h"
 #include "HyphaComparisonSurfaceMaterial.h"
+#include "HyphaUnavailableReason.h"
 
 #include <tuple>
 
@@ -12,7 +13,7 @@ bool Screen::operator== (const Screen& other) const noexcept
     {
         return std::tie (screen.title, screen.instruction, screen.detail, screen.guidanceShown, screen.cause, screen.recovery,
                          screen.sourcesShown, screen.sourceOneEnabled, screen.sourceTwoEnabled, screen.audible,
-                         screen.sourceOne, screen.sourceTwo, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
+                         screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle);
     };
@@ -122,13 +123,13 @@ void ScreenComponent::apply()
     for (auto [button, enabled] : { std::pair { &one, shown.sourceOneEnabled }, std::pair { &two, shown.sourceTwoEnabled } })
     {
         button->setVisible (shown.sourcesShown);
-        button->setEnabled (shown.sourcesShown && enabled);
+        unavailable::set (*button, shown.sourcesShown && enabled, shown.sourceReason);
         button->setTitle (button->getButtonText());
         button->setDescription (button->getButtonText());
         button->setTooltip (button->getButtonText());
     }
     reveal.setVisible (shown.revealShown && !shown.alignOffShown);
-    reveal.setEnabled (shown.revealShown && shown.revealEnabled);
+    unavailable::set (reveal, shown.revealShown && shown.revealEnabled, "Hear both sources first");
     reveal.setTitle (shown.revealTitle);
     reveal.setDescription (shown.revealTitle);
     reveal.setTooltip (shown.revealTitle);
@@ -140,7 +141,7 @@ void ScreenComponent::apply()
     approve.setButtonText (shown.approveText);
     approve.setTitle (shown.approveTitle);
     approve.setDescription (shown.approveDescription);
-    end.setEnabled (shown.endEnabled);
+    unavailable::set (end, shown.endEnabled, "Returning to normal level");
     end.setTitle (shown.endTitle);
     end.setDescription (shown.endTitle + " / " + shown.detail);
     end.setTooltip (end.getDescription());

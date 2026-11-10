@@ -81,14 +81,16 @@ void KirinHyphaEditor::beginObservatoryCapture()
 #endif
     menu.addSeparator();
     menu.addSectionHeader ("Privacy - private by default");
-    menu.addItem (10, "Include OS Guide", osOwned && guideAvailable,
-                  osOwned && guideAvailable && capturePrivacy.includeGuide);
-    menu.addItem (11, "Include PRE name", metadata.preName.isNotEmpty(),
-                  capturePrivacy.includePreName);
-    menu.addItem (12, "Include POST name", metadata.postName.isNotEmpty(),
-                  capturePrivacy.includePostName);
-    menu.addItem (13, "Include project name", metadata.projectName.isNotEmpty(),
-                  capturePrivacy.includeProjectName);
+    // A greyed choice names what is missing.
+    menu.addItem (10, ! osOwned ? "Include OS Guide: Kirin OS required"
+                      : guideAvailable ? "Include OS Guide" : "Include OS Guide: no guide shown",
+                  osOwned && guideAvailable, osOwned && guideAvailable && capturePrivacy.includeGuide);
+    menu.addItem (11, metadata.preName.isNotEmpty() ? "Include PRE name" : "Include PRE name: no PRE name",
+                  metadata.preName.isNotEmpty(), capturePrivacy.includePreName);
+    menu.addItem (12, metadata.postName.isNotEmpty() ? "Include POST name" : "Include POST name: no POST name",
+                  metadata.postName.isNotEmpty(), capturePrivacy.includePostName);
+    menu.addItem (13, metadata.projectName.isNotEmpty() ? "Include project name" : "Include project name: the DAW gives none",
+                  metadata.projectName.isNotEmpty(), capturePrivacy.includeProjectName);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView)
         .withDeletionCheck (*this)
@@ -240,14 +242,14 @@ void KirinHyphaEditor::attachObservatoryCapture (
     const auto snapshot = freezeObservatoryCapture (width, height);
     if (! snapshot.complete())
     {
-        showToast ("Capture could not be prepared");
+        showToast ("Capture could not be prepared; try again");
         return;
     }
     juce::MemoryBlock pngBytes;
     juce::MemoryOutputStream stream (pngBytes, false);
     if (! juce::PNGImageFormat().writeImageToStream (snapshot.image, stream))
     {
-        showToast ("Capture could not be prepared");
+        showToast ("Capture could not be prepared; try again");
         return;
     }
     hypha::capture::WorkAttachmentDescriptor descriptor;
@@ -274,7 +276,7 @@ void KirinHyphaEditor::attachObservatoryCapture (
         saveFrozenObservatoryCapture (snapshot);
     }
     else
-        showToast ("Capture could not be prepared");
+        showToast ("Capture could not be prepared; try again");
 }
 #endif
 
@@ -287,7 +289,7 @@ void KirinHyphaEditor::saveFrozenObservatoryCapture (hypha::capture::Snapshot sn
 {
     if (! snapshot.complete())
     {
-        showToast ("Capture could not be prepared");
+        showToast ("Capture could not be prepared; try again");
         return;
     }
 

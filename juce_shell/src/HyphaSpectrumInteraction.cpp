@@ -115,10 +115,11 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
                            && onChannelModeChange (requestedMode);
         if (! accepted)
         {
-            modeActionNotice = unavailable
-                ? requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
-                    ? "M/S -- POST STEREO" : "SIDE -- STEREO"
-                : "MODE --";
+            // Says what is missing: M/S needs the POST target, M/S and SIDE need a stereo input.
+            const bool midSide = requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
+            modeActionNotice = ! unavailable ? "MODE --"
+                : inputChannels != 2u ? (midSide ? "M/S: stereo only" : "SIDE: stereo only")
+                : "M/S: select POST";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
             repaint();
             return;

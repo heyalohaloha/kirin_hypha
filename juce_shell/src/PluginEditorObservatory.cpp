@@ -94,7 +94,7 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.onVuCalibrationMenu = [this]
     {
         const auto scope = processorRef.hybridVuCalibrationScope();
-        if (scope.isEmpty()) return;
+        if (scope.isEmpty()) { showActionNotice ("VU calibration: connecting; try again in a moment"); return; }
         juce::PopupMenu menu;
         menu.setLookAndFeel (&textLookAndFeel);
         for (std::size_t index = 0; index < hypha::vu_calibration::choices.size(); ++index)
@@ -302,9 +302,7 @@ void KirinHyphaEditor::refreshObservatory()
     {
         observatoryView.setMeterContext (processorRef.meterContextPreference());
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (analysisPage == AnalysisPage::attack
-            && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
-            setAnalysisPage (AnalysisPage::meters);
+        leaveDrumOutsideTrack();
         updateTimePageNavigation();
        #endif
     }

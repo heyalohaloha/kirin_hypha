@@ -83,7 +83,9 @@ void View::initializeLevelHistoryControls()
                 + " dBTP | delta M " + history_inspection::peakText (chain->delta_m)
                 + " LU delta TP " + history_inspection::peakText (chain->delta_tp)
                 + " dB REL " + history_inspection::peakText (chain->relation) + " dB";
-        if (copy.isNotEmpty()) juce::SystemClipboard::copyTextToClipboard (copy);
+        if (copy.isEmpty()) return;
+        juce::SystemClipboard::copyTextToClipboard (copy);
+        if (onActionNotice) onActionNotice ("Copied");
     };
 }
 
@@ -126,13 +128,17 @@ void View::updateLevelHistoryControls()
     const bool absolute = target() == ObservationTarget::absolute && cumulativeFactsAvailable()
         && ! source.empty() && source.back().measurement_epoch == observatoryFrame.meter.measurement_epoch
         && source.back().generation == observatoryFrame.meter.generation;
-    previousPeakButton.setEnabled (absolute && levelInspection.event (
-        history, observatoryFrame.meter.sample_rate, -1).has_value());
-    nextPeakButton.setEnabled (absolute && levelInspection.event (
-        history, observatoryFrame.meter.sample_rate, 1).has_value());
-    historyLiveButton.setEnabled (levelInspection.held());
+    // Greyed, a click says why (the facts are POST's, or nothing to step to or copy yet).
+    const bool onPost = target() == ObservationTarget::absolute;
+    const juce::String tpReason = onPost ? "No TP events yet" : "Select POST for TP events";
+    unavailable::set (previousPeakButton, absolute && levelInspection.event (
+        history, observatoryFrame.meter.sample_rate, -1).has_value(), absolute ? "No earlier TP over -1 dBTP" : tpReason);
+    unavailable::set (nextPeakButton, absolute && levelInspection.event (
+        history, observatoryFrame.meter.sample_rate, 1).has_value(), absolute ? "No later TP over -1 dBTP" : tpReason);
+    unavailable::set (historyLiveButton, levelInspection.held(), "History is already live");
     historyLiveButton.setToggleState (! levelInspection.held(), juce::dontSendNotification);
-    historyCopyButton.setEnabled (absolute && levelInspection.held());
+    unavailable::set (historyCopyButton, absolute && levelInspection.held(),
+                      ! absolute ? (onPost ? "No history yet" : "Select POST to copy") : "Click the history to hold a point first");
 }
 
 void View::mouseDown (const juce::MouseEvent& event)

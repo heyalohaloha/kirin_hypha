@@ -19,7 +19,7 @@ void KirinHyphaEditor::performShortcut (Command command)
         case Command::showReference:  requestObservatoryDomain (Domain::reference); return;
         case Command::showAbsolute:
         case Command::showDelta:
-            if (! observatoryView.capabilities().targetSelectable) showActionNotice ("Not available on this page");
+            if (! observatoryView.capabilities().targetSelectable) showActionNotice (observatoryView.capabilities().help);
             else requestObservationTarget (command == Command::showDelta ? ObservationTarget::delta : ObservationTarget::absolute);
             return;
         case Command::toggleHybridVu:
@@ -42,7 +42,8 @@ void KirinHyphaEditor::performComparisonShortcut (Command command)
     {
         case Command::startListen:
             if (shortcutContext().listen) showActionNotice ("LISTEN is on");
-            else if (! observatoryView.liveCompareFooter().entryEnabled) showActionNotice ("LISTEN could not start");
+            else if (! observatoryView.liveCompareFooter().entryEnabled)
+                showActionNotice (*liveCompareEntryRefusal (false) != 0 ? liveCompareEntryRefusal (false) : "LISTEN could not start");
             else requestListenStart();
             break;
         case Command::listenPre:     requestListenSelect (true); break;
@@ -89,7 +90,8 @@ void KirinHyphaEditor::performComparisonShortcut (Command command)
             const auto context = shortcutContext();
             if (context.candidateCompareActive) showActionNotice ("A/B is on");
             else if (context.listen) showActionNotice ("End the current comparison first");
-            else if (! observatoryView.liveCompareFooter().entryEnabled) showActionNotice ("A/B could not start");
+            else if (! observatoryView.liveCompareFooter().entryEnabled)
+                showActionNotice (*liveCompareEntryRefusal (false) != 0 ? liveCompareEntryRefusal (false) : "A/B could not start");
             else showCandidateCompareMenu();
             break;
         }

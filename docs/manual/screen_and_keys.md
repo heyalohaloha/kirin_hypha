@@ -18,6 +18,11 @@ except Blind's **REVEAL** and **END**, which read the same in both. Names you gi
 only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
 Kirin OS, and every measurement stay the same.
 
+A control that cannot be used now is greyed. Clicking it, or pressing its key, shows why on the
+notice line and what makes it usable, for example **Choose the PRE first** or **Finish Keep / Record
+before PRE / POST Blind**. A greyed menu item has its reason on the line under it. When Hypha changes
+the view by itself, the notice line says why, for example **2MIX has no DRUM; showing METERS**.
+
 ## Keys
 
 Click the Hypha window and its keys work there. Hover a control to see its key, or press **F**

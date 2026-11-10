@@ -53,12 +53,23 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
     { return processorRef.pollAttackBandEnvelope (sample, out); };
 }
 
+void KirinHyphaEditor::leaveDrumOutsideTrack()
+{
+    if (analysisPage != AnalysisPage::attack
+        || hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference())) return;
+    setAnalysisPage (AnalysisPage::meters);
+    showAutomaticNotice ("2MIX has no DRUM; showing METERS");
+}
+
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
     tooltip.hideTip();
     if (page == AnalysisPage::attack
         && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
+    {
+        if (analysisPage == AnalysisPage::attack) showActionNotice ("2MIX has no DRUM; showing METERS");
         page = AnalysisPage::meters;
+    }
     if (! isPost || analysisPage == page)
         return;
     spectrumView.clearSnapshot();
@@ -150,6 +161,7 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
         const auto single = processorRef.spectrumSingleChannelMode();
         processorRef.setSpectrumDisplaySelection (single, false);
         spectrumView.setDisplaySelection (single);
+        showActionNotice ("Delta has no M/S; showing one channel");
     }
     const bool midSide = ! spectrumView.isPsbObservation() && absolute
         && processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE;

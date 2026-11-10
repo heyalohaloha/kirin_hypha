@@ -8,6 +8,18 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // Why a control or key did nothing, or why the view changed by itself (2026-11-11).
+    { "Copied", u8"コピーしました" },
+    { "Delta has no M/S; showing one channel", u8"DeltaにM/Sは無いため、1chで表示します" },
+    { "2MIX has no DRUM; showing METERS", u8"2MIXにDRUMは無いため、METERSを表示します" },
+    { "DRUM: choose TRACK", u8"DRUMはTRACKで使えます" },
+    { "VU calibration: connecting; try again in a moment", u8"VU基準：接続中です。少し待つと使えます" },
+    { "DAW recording: showing Hybrid VU", u8"DAWの録音中はHybrid VUを表示します" },
+    { "BLIND is not available in this plugin format", u8"このプラグイン形式ではBLINDを使えません" },
+    { "POST is multi-mono: insert it as stereo", u8"POSTがMulti-mono。Stereoで挿すと比べられます" },
+    { "AUTO stopped at the TP limit", u8"TPの上限でAUTOを止めました" },
+    { "AUTO stopped: press MATCH again", u8"AUTOを止めました。MATCHからやり直せます" },
+    { "No OS Guide from Kirin OS yet", u8"Kirin OSからのOS Guideはまだありません" },
     { "Audio timing is ambiguous", u8"音から位置を確認できません" },
     { "Position unconfirmed; POST plays", u8"位置未確認（POST出力）" },
     { "Repeated audio: checked per block", u8"周期的な音：波形を都度確認" },
@@ -15,7 +27,7 @@ const Entry entries[] = {
     { "Check chain delay and DAW compensation; POST plays", u8"チェーンの遅延とDAWの遅延補正を確認（POST）" },
     { "Paired with PRE  %1", u8"PRE  %1 と組みました" },
     { "Unpaired", u8"外しました" },
-    { "Capture could not be prepared", u8"画像を準備できませんでした" },
+    { "Capture could not be prepared; try again", u8"画像を準備できませんでした。もう一度押せます" },
     { "Sending Capture to Work", u8"画像をWorkに送信中" },
     { "Another Work attachment is still in progress", u8"別のWorkへの添付が進行中です" },
     { "Kirin OS is required to attach Capture to Work", u8"Workへの添付にはKirin OSが必要です" },

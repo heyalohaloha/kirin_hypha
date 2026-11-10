@@ -85,8 +85,9 @@ void KirinHyphaEditor::updatePost()
     observatoryView.setNoteAvailability (processorRef.licenseIsOs(), recording);
     observatoryView.setKeepActive (keepActive);
     nameField.setModelName (processorRef.pairDisplayName());
-    nameField.setEditingEnabled (! (processorRef.isPlaying()
-                                    && processorRef.heartbeatLive()));
+    // The same lock as the PRE menu: a connected pair is not changed during playback.
+    nameField.setEditingEnabled (! (processorRef.isPlaying() && processorRef.heartbeatLive()
+                                    && processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED));
 
     const double now = nowSecs();
     if (acknowledged && ! prevAck)

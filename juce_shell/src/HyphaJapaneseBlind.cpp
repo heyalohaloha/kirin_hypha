@@ -8,6 +8,9 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // Why SOURCE 1 / 2 cannot be chosen now (2026-11-11).
+    { "Preparing the sources", u8"音源を準備中です" },
+    { "Switching the source", u8"音源を切り替え中です" },
     { "MATCH waits for more signal", u8"MATCHに必要な信号を待っています" },
     { "Waiting for the first loop pass (POST)", u8"最初のループが一周するのを待っています（POST出力）" },
     { "Loop timing unavailable; turn loop off to compare (POST)", u8"ループのタイミングは未確認。ループをオフにすると比べられます（POST）" },
