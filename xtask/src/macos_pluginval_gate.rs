@@ -6,7 +6,10 @@ const PLUGINVAL_SCRIPT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../scripts/validate_macos_pluginval.sh"
 ));
-const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"));
+const BUILD_GUIDE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../docs/manual/building_from_source.md"
+));
 
 #[test]
 fn macos_ci_runs_pluginval_before_manual_daw_validation() {
@@ -162,21 +165,21 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
 }
 
 #[test]
-fn readme_exposes_the_local_pluginval_gate() {
+fn build_guide_exposes_the_local_pluginval_gate() {
     require(
-        README,
+        BUILD_GUIDE,
         "scripts/validate_macos_pluginval.sh target/hypha-build/macos-universal-no-aax",
-        "README must tell maintainers how to run the local macOS pluginval gate",
+        "the build guide must tell maintainers how to run the local macOS pluginval gate",
     );
     require(
-        README,
+        BUILD_GUIDE,
         "exact role-first installed layout",
-        "README must make clear that pluginval checks the host-visible installed layout",
+        "the build guide must make clear that pluginval checks the host-visible installed layout",
     );
     require(
-        README,
-        "Studio One",
-        "README should frame pluginval as the gate before manual DAW validation",
+        BUILD_GUIDE,
+        "run the VST3 gate before manual DAW validation",
+        "the build guide should frame pluginval as the gate before manual DAW validation",
     );
 }
 

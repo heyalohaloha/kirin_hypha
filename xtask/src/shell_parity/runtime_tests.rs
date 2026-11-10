@@ -292,11 +292,11 @@
         );
     }
     #[test]
-    fn readme_exposes_the_post_spectrum_measurement_boundary() {
-        let spectrum = README
-            .split("\n### ")
+    fn manual_exposes_the_post_spectrum_measurement_boundary() {
+        let spectrum = MANUAL_MEASURES
+            .split("\n## ")
             .find(|section| section.starts_with("FREQ: Spectrum (on demand)\n"))
-            .expect("README FREQ Spectrum section");
+            .expect("manual FREQ Spectrum section");
         let spectrum = spectrum.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "Spectrum runs only while FREQ is open",
@@ -318,14 +318,12 @@
         ] {
             assert!(
                 spectrum.contains(required_fact),
-                "README Spectrum contract missing {required_fact}"
+                "manual Spectrum contract missing {required_fact}"
             );
         }
 
-        let watch = README
-            .split("\n## ")
-            .find(|section| section.starts_with("Watch mode\n"))
-            .expect("README Watch mode section");
+        assert!(MANUAL_WATCH.starts_with("# Watch mode\n"), "manual Watch mode page");
+        let watch = MANUAL_WATCH;
         let watch = watch.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
             watch.contains("Top-level **FREQ** shows signed POST − PRE spectrum")
@@ -333,16 +331,16 @@
                 && watch.contains("Only the visible optional analyzer runs")
                 && watch.contains("two POST instances may own slots")
                 && watch.contains("a third identifies the owners and waits"),
-            "README Watch mode must connect its grid description to the current FREQ/TIME analysis routes"
+            "manual Watch mode must connect its grid description to the current FREQ/TIME analysis routes"
         );
     }
 
     #[test]
-    fn readme_keeps_surround_out_of_this_release() {
-        let scope = README
+    fn manual_keeps_surround_out_of_this_release() {
+        let scope = MANUAL_DESIGN
             .split("\n## ")
             .find(|section| section.starts_with("Channel scope\n"))
-            .expect("README Channel scope section");
+            .expect("manual Channel scope section");
         let scope = scope.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "Surround, including exact 5.1",
@@ -350,20 +348,20 @@
             "does not accept a 5.1 bus",
             "which is not a 5.1 measurement",
         ] {
-            assert!(scope.contains(required_fact), "README surround scope missing {required_fact}");
+            assert!(scope.contains(required_fact), "manual surround scope missing {required_fact}");
         }
         assert!(
             !scope.contains("LEVEL and TIME measurement only"),
-            "README must not offer the held-back 5.1 mode as available"
+            "manual must not offer the held-back 5.1 mode as available"
         );
     }
 
     #[test]
-    fn readme_exposes_the_post_perceptual_delta_measurement_boundary() {
-        let perceptual = README
-            .split("\n### ")
+    fn manual_exposes_the_post_perceptual_delta_measurement_boundary() {
+        let perceptual = MANUAL_MEASURES
+            .split("\n## ")
             .find(|section| section.starts_with("TIME / SHARP: Perceptual Δ (on demand)\n"))
-            .expect("README TIME SHARP Perceptual Delta section");
+            .expect("manual TIME SHARP Perceptual Delta section");
         let perceptual = perceptual.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "signed Sharpness difference",
@@ -387,7 +385,7 @@
         ] {
             assert!(
                 perceptual.contains(required_fact),
-                "README Perceptual Delta contract missing {required_fact}"
+                "manual Perceptual Delta contract missing {required_fact}"
             );
         }
     }

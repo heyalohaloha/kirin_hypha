@@ -107,17 +107,32 @@ fn require_unconditional_public_history_job(body: &str) -> Result<()> {
     )
 }
 
-fn require_exact_job_usage_gate(name: &str, body: &str) -> Result<()> {
-    let expected = if name == "test" {
+// The usage gate a runner job may carry. `test` collects results after its needs whatever they
+// were. A job after the change-scope job still runs when that job fails (any doubt runs the full
+// CI), and a documentation-only scope may skip it; every form keeps the same usage gate.
+fn allowed_job_usage_gates(name: &str, body: &str) -> Vec<String> {
+    let wrapped = |prefix: &str| {
         format!(
             "    {}",
             FULL_CI_JOB_IF
-                .replace("if: ${{ ", "if: ${{ always() && (")
+                .replace("if: ${{ ", &format!("if: ${{{{ {prefix}("))
                 .replace(" }}", ") }}")
         )
-    } else {
-        format!("    {FULL_CI_JOB_IF}")
     };
+    if name == "test" {
+        vec![wrapped("always() && ")]
+    } else if body.contains("\n    needs: [scope]\n") {
+        vec![
+            wrapped("!cancelled() && "),
+            wrapped("!cancelled() && needs.scope.outputs.full != 'false' && "),
+        ]
+    } else {
+        vec![format!("    {FULL_CI_JOB_IF}")]
+    }
+}
+
+fn require_exact_job_usage_gate(name: &str, body: &str) -> Result<()> {
+    let allowed = allowed_job_usage_gates(name, body);
     let if_lines: Vec<_> = body
         .lines()
         .map(str::trim_end)
@@ -125,7 +140,7 @@ fn require_exact_job_usage_gate(name: &str, body: &str) -> Result<()> {
         .collect();
 
     match if_lines.as_slice() {
-        [line] if *line == expected => Ok(()),
+        [line] if allowed.iter().any(|gate| gate == line) => Ok(()),
         [] => bail!("job `{name}` must use exact top-level usage gate `{FULL_CI_JOB_IF}`"),
         [line] => bail!(
             "job `{name}` must use exact top-level usage gate `{FULL_CI_JOB_IF}`; found `{}`",
@@ -284,6 +299,39 @@ mod tests {
             FULL_CI_JOB_IF,
             "if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'push' || contains(github.event.head_commit.message, '[ci full]') }}",
             1,
+        );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("exact top-level usage gate"));
+    }
+
+    #[test]
+    fn guard_rejects_scope_prefixes_on_a_job_that_does_not_need_scope() {
+        let bad = CI_WORKFLOW.replacen(
+            FULL_CI_JOB_IF,
+            &FULL_CI_JOB_IF
+                .replace("if: ${{ ", "if: ${{ !cancelled() && (")
+                .replace(" }}", ") }}"),
+            1,
+        );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("job `scope` must use exact top-level usage gate"));
+    }
+
+    #[test]
+    fn guard_rejects_a_scoped_job_that_drops_the_usage_gate() {
+        let gated = "    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' && (";
+        let start = CI_WORKFLOW
+            .find(gated)
+            .expect("a job gated by the change scope");
+        let end = start + CI_WORKFLOW[start..].find('\n').unwrap();
+        let bad = format!(
+            "{}    if: ${{{{ !cancelled() && needs.scope.outputs.full != 'false' }}}}{}",
+            &CI_WORKFLOW[..start],
+            &CI_WORKFLOW[end..]
         );
         assert!(verify_ci_usage_gate(&bad)
             .unwrap_err()

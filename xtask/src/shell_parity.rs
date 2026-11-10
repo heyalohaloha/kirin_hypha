@@ -2,16 +2,16 @@
 mod tests {
     include!("shell_parity/source_fixtures.rs");
     #[test]
-    fn readme_record_controls_match_shipped_post_ui() {
-        let record_mode = README
+    fn manual_record_controls_match_shipped_post_ui() {
+        let record_mode = MANUAL_RECORD
             .split("\n## ")
             .find(|section| section.starts_with("Record mode (Kirin OS required)\n"))
-            .expect("README Record mode section");
+            .expect("manual Record mode section");
         assert!(record_mode.contains("1. Choose **MENU → Keep → Keep selected pair**"));
         assert!(record_mode.contains("Press **STOP** in the footer"));
         assert!(
             !record_mode.contains("**Mark**"),
-            "README must not advertise a Mark control absent from the shipping UI"
+            "the manual must not advertise a Mark control absent from the shipping UI"
         );
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (4, \"Keep selected pair\""));
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (5, \"Stop selected pair\""));

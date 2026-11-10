@@ -84,6 +84,7 @@ jobs:
     # Pull requests that change only documentation skip the native, Rust and host jobs
     # (scripts/ci_scope.mjs). A skipped job is never a release candidate's CI.
     name: change scope
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

@@ -1,4 +1,11 @@
-    const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"));
+    // The manual pages the README links to; each test reads the page that now holds its section.
+    const MANUAL_MEASURES: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/manual/what_it_measures.md"
+    ));
+    const MANUAL_WATCH: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/manual/watch.md"));
+    const MANUAL_DESIGN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/manual/design.md"));
+    const MANUAL_RECORD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/manual/record.md"));
     const PLUGIN_EDITOR_CPP: &str = concat!(
         include_str!("../../../juce_shell/src/PluginEditor.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMeter.cpp"),
