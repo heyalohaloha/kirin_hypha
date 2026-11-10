@@ -36,7 +36,7 @@ passes through unchanged with zero added latency.
 | macOS | macOS 12 or later, Universal (Apple Silicon and Intel): AU, VST3 and AAX Native, signed and notarized |
 | Windows | Windows 10 or 11, x64: VST3 and AAX Native in an Authenticode-signed installer |
 | DAWs | A VST3 DAW, an Audio Unit DAW on macOS, or Pro Tools for AAX |
-| Hosts with checked PRE/POST timing | Pro Tools (AAX), Logic Pro (AU), Studio One 6–7 / Studio Pro 8 (VST3) and REAPER (VST3); live comparison in Pro Tools uses 12.6 or later ([details](docs/manual/observation_domains.md#freq--where-the-chain-changed)) |
+| Hosts with checked PRE/POST timing | Pro Tools (AAX), Logic Pro (AU), Studio One 6–7 / Studio Pro 8 (VST3), Cubase 16.0.5 on macOS (VST3) and REAPER (VST3); live comparison in Pro Tools uses 12.6 or later ([details](docs/manual/observation_domains.md#freq--where-the-chain-changed)) |
 | Plug-in names | PRE Kirin Hypha and POST Kirin Hypha |
 | Channels | Mono and stereo |
 | Pairs | Up to 12 PRE/POST pairs per project |
