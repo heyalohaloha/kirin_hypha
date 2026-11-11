@@ -35,6 +35,7 @@ void VisualObservation::configure (double sampleRate, int channels)
     accepting.store (false, std::memory_order_release);
     configuredRate = rate; configuredChannels = channels;
     generation.fetch_add (1, std::memory_order_acq_rel);
+    formatChanges.fetch_add (1, std::memory_order_release);  // A FROM START は形式が替わった時に空にする
 }
 void VisualObservation::setPresented (bool value)
 {
@@ -122,7 +123,7 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
     {
         if (! kirinMeter.configure (rate, block.channels, aWindowMaximumBlocks)) return;
         aTickMeter.reset(); targetPeaks->reset();
-        aSongMeter.configure (rate, block.channels);  // 形式が替われば A FROM START も空から
+        aSongMeter.configure (rate, block.channels);
     }
     if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
     if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
@@ -223,6 +224,9 @@ void VisualObservation::run()
             aWindowBoundary = writeIndex.load (std::memory_order_acquire);
             aWindowCatchingUp = aWindowBoundary != readIndex.load (std::memory_order_relaxed);
         }
+        // サンプルレート・ch 数が替わった（戻っても）：A FROM START を空にする（次の塊を待たない）。
+        if (const auto formats = formatChanges.load (std::memory_order_acquire); formats != formatChangesDone)
+        { formatChangesDone = formats; aSongMeter.clear(); dirty = true; }
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)

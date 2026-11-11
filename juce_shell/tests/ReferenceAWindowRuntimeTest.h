@@ -171,7 +171,8 @@ private:
     }
 };
 
-// C の SONG の A を観測スレッドで：DAW の位置ごとに溜め（同じ位置は上書き）、RESET で消え、SONG を見ていなければ出さない。
+// C の SONG の A を観測スレッドで：DAW の位置ごとに溜め（同じ位置は上書き）、RESET と形式の変化（塊が来る前でも）で
+// 消え、SONG を見ていなければ出さない。
 void testASongRing()
 {
     AWindowRing ring;
@@ -196,6 +197,12 @@ void testASongRing()
     holds (0, "RESET A WINDOW empties A from the start");
     ring.enqueue (100, 0.1f);
     holds (5, "A from the start fills again after RESET");
+    // 止めている間に形式が替わって戻った（48 → 96 → 48 kHz、次の塊はまだ無い）：その時に空になる。
+    ring.observation.configure (96'000, 2);
+    ring.observation.configure (48'000, 2);
+    holds (0, "a format change empties A from the start before the next block arrives");
+    ring.enqueue (100, 0.1f);
+    holds (5, "A from the start fills again after the format change");
     ring.setSong (false);
     ring.release();
     hypha::tests::reference_control::await ([&] { const auto state = ring.observation.snapshot(); return state && ! state->aSong; },

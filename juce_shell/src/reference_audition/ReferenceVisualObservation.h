@@ -43,7 +43,8 @@ private:
     std::atomic<size_t> writeIndex { 0 }, readIndex { 0 };
     std::atomic<bool> accepting { false };
     std::atomic<std::uint64_t> generation { 1 };
-    std::atomic<std::uint64_t> aWindowResets { 0 };
+    std::atomic<std::uint64_t> aWindowResets { 0 }, formatChanges { 0 };
+    std::uint64_t formatChangesDone = 0;  // 観測スレッドだけ
     std::uint64_t aWindowResetsDone = 0;  // ここから 3 つは観測スレッドだけ
     size_t aWindowBoundary = 0;           // 読みがここへ届くまでの塊は操作の前の音
     bool aWindowCatchingUp = false;
