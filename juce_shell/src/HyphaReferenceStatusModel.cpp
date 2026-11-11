@@ -91,8 +91,10 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         // 下げた A、PRE の Δ。A を下げるボタンの横では行が狭いので、ボタンが直す差だけを言う。
         if (state.action.kind == ActionKind::lowerAAndPlay && state.peakShortfallDb > 0.05)
             return { StatusKind::ready, juce::String (std::max (state.peakShortfallDb, state.rangeShortfallDb), 1) + " DB UNDER A" };
-        const auto storage = state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
-            || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {};
+        // B の画面は、Kirin OS の新しい公開を読めず前の公開で鳴らしている理由も言い続ける（2026-11-11）。
+        const auto storage = (state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
+            || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {})
+            + (state.comparisonSlot == 3 && state.publicationIssue.isNotEmpty() ? "  /  " + state.publicationIssue : juce::String {});
         // V の Version を替えている間は、前の Version が鳴ったまま新しい Version の位置を合わせる。どちらが鳴っているかを
         // 言う。追従・ピークの上限で届かない差と保存先の知らせはそれより先に言う（入りきらなければ後ろから省く）。
         if (state.audibleComparisonSlot == 1 && state.versionPlaying.isNotEmpty() && state.versionPositioning.isNotEmpty())
@@ -131,7 +133,9 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     const auto step = slot == 1 ? state.versionStep : slot == 3 ? state.referenceStep : state.checkStep;
     const auto letter = juce::String (roleLetter (slot));
     // Kirin OS の公開が鳴っていた区間を変えた・外したので A に戻した（2026-11-11）：理由と、どうすれば聴けるかを言う。
-    if (state.publicationReturn != 0)
+    // 変えた後の区間・Version が鳴らせない（確かめられない・読めない）なら「押せば聴ける」と言わず、下の理由と直し方を出す。
+    if (state.publicationReturn == 2
+        || (state.publicationReturn == 1 && kindOf (step) != StatusKind::unable && state.readiness != Readiness::rejected))
         return { StatusKind::waiting, publicationReturnLine (state.publicationReturn, slot) };
     // B の画面：Kirin OS の新しい公開を読めず前のまま、または曲を外した（名前と直し方）。B は前の公開で鳴らせる。
     if (slot == 3 && state.publicationIssue.isNotEmpty()) return { StatusKind::unable, state.publicationIssue };
@@ -166,10 +170,11 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 StatusLine referenceStatusLine (const State& state, bool returnInFooter)
 {
     auto line = composeStatusLine (state, returnInFooter);
-    // 見ている画面と鳴っている役が違う（2026-11-11）：どの画面で何が鳴っているかを先に言う。読み込み中は A が鳴る。
+    // 見ている画面と鳴っている役が違う（2026-11-11）：どの画面で何が鳴っているかを先に言う。鳴らしている役の音が
+    // 届いていない間（読み込み中・ページの不足）は A が鳴る。文の頭からは推し量らない（保存先の知らせが文を替える）。
     if (state.separateComparisons && state.bSelected && ! isBlindSession (state.blindPhase)
         && state.audibleComparisonSlot >= 1 && state.audibleComparisonSlot != state.comparisonSlot)
-        line.text = pagePlaying (state.comparisonSlot, state.status.startsWith ("LOADING ") ? 0 : state.audibleComparisonSlot)
+        line.text = pagePlaying (state.comparisonSlot, state.audibleHeard ? state.audibleComparisonSlot : 0)
             + "  /  " + line.text;
     if (state.heldAttenuationDb < -0.05 && ! returnInFooter)
         line.text = line.text.replace (pagePlaying (state.comparisonSlot, 0),

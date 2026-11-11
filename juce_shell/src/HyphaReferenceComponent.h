@@ -142,6 +142,7 @@ struct State
     bool originalAudition = false; // Explicit OS mode, not a failed match.
     bool bSelected = false;
     bool auditionBuffered = false;
+    bool audibleHeard = false;  // 選んで鳴らしている役の音が本当に出ている（読み込み中・ページの不足は false で A が鳴る）
     os_access::State osAccess = os_access::State::unowned;
     BlindPhase blindPhase = BlindPhase::unavailable;
     int activeBlindStimulus = 0;

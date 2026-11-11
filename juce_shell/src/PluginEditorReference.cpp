@@ -234,6 +234,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         runtime.state == hypha::reference_audition::RuntimeState::ready);
     state.auditionBuffered = callbackLive && runtime.transportPlaying
         && runtime.transportPositionValid && runtime.auditionBuffered;
+    // 見ている画面ではなく、鳴らしている役の音が届いているか（状態の行の「C PAGE · V PLAYING」の V か A か）。
+    const auto* heardRole = runtime.audibleComparisonSlot == 1 ? runtime.versionSelection.get()
+        : runtime.audibleComparisonSlot == 2 ? runtime.checkSelection.get()
+        : runtime.audibleComparisonSlot == 3 ? runtime.referenceSelection.get() : nullptr;
+    state.audibleHeard = callbackLive && runtime.transportPlaying && runtime.transportPositionValid
+        && heardRole != nullptr && heardRole->bSelected && heardRole->auditionBuffered;
     state.title = runtime.title;
     state.sourceLabel = sourceLabel (runtime.sourceKind);
     state.alignmentLabel = runtime.separateComparisons && runtime.comparisonSlot == 1

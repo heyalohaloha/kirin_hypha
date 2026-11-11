@@ -77,6 +77,7 @@ inline void verifyReferencePageWaitStatus()
             reference_ui::runtime_view::setSourceSteps (ui, runtime);
             ui.referenceStep = reference_ui::runtime_view::referenceStep (runtime, *selected, true);
             ui.status = reference_ui::runtimeStatus (runtime, ui).status;
+            ui.audibleHeard = selected->auditionBuffered;  // 編集画面と同じ：鳴らしている役の音が届いているか
         };
         selected->auditionBuffered = false;
         selected->auditionPages = reference_audition::AuditionPageState::sourceUnavailable;
@@ -171,6 +172,15 @@ inline void verifyReferencePageWaitStatus()
             if (available.kind != reference_ui::StatusKind::ready || !available.text.contains ("MATCHED AND FIXED")
                 || !available.text.contains ("REFERENCE AVAILABLE"))
                 throw std::runtime_error ("storage fallback is information alongside the audible role and match state");
+        }
+        // 保存先の知らせが文を替えても、鳴らしている役の音が届いていない（ページの不足）間は A が鳴っていると言う。
+        if (viewed != slot)
+        {
+            selected->auditionBuffered = false; update();
+            if (! reference_ui::referenceStatusLine (ui).text.startsWith (juce::String (reference_ui::roleLetter (viewed))
+                    + juce::String::fromUTF8 (u8" PAGE \u00b7 A PLAYING")))
+                throw std::runtime_error ("a storage notice does not hide that A plays while the playing role's pages starve");
+            selected->auditionBuffered = true; update();
         }
         selected->sourceStorageNotice.clear();
         selected->pendingSourceFailure.clear(); update();

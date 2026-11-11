@@ -102,12 +102,13 @@ inline void verifyReferenceStatusLine()
     {
         auto other = playing;
         other.comparisonSlot = 2; other.audibleComparisonSlot = 1; other.tracking = Tracking::following; other.originalAudition = false;
+        other.audibleHeard = true;
         const auto line = reference_ui::referenceStatusLine (other).text;
         const auto japanese = i18n::translate (line, i18n::Language::japanese);
         require (line == juce::String::fromUTF8 (u8"C PAGE · V PLAYING  /  V FOLLOWING A (LAST 10 S)") + pre
                      && japanese.contains (juce::String::fromUTF8 (u8"Cの画面")) && japanese.contains (juce::String::fromUTF8 (u8"Vを再生中")),
                  "a page other than the role that sounds says both, in both languages: " + line + " / " + japanese);
-        other.status = "LOADING V AT PLAYHEAD / KEEP PLAYING";
+        other.status = "LOADING V AT PLAYHEAD / KEEP PLAYING"; other.audibleHeard = false;
         const auto starved = reference_ui::referenceStatusLine (other);
         require (starved.kind == StatusKind::waiting
                      && starved.text == juce::String::fromUTF8 (u8"C PAGE · A PLAYING  /  LOADING V AT PLAYHEAD / KEEP PLAYING"),
@@ -137,6 +138,12 @@ inline void verifyReferenceStatusLine()
                  "V says its Version changed");
         returned.publicationReturn = 0;
         require (! reference_ui::referenceStatusLine (returned).text.contains ("KIRIN OS CHANGED"), "nothing returned, nothing said");
+        // 変えた後の音が鳴らせない（開けない）なら「押せば聴ける」と言わず、理由と直し方を言う。
+        returned.comparisonSlot = 3; returned.referenceStep = Step::sourceUnopenable; returned.publicationReturn = 1;
+        line = reference_ui::referenceStatusLine (returned);
+        require (! line.text.contains ("TO HEAR IT") && line.text.contains ("SOURCE COULD NOT BE OPENED"),
+                 "a changed section that cannot play gives the reason, not PRESS B: " + line.text);
+        returned.referenceStep = Step::ready;
     }
     // 2026-11-11：Kirin OS の新しい公開を読めず前のまま、または曲を外したことは、B の画面の状態の行でも言う。
     {
@@ -156,6 +163,12 @@ inline void verifyReferenceStatusLine()
                  "a song dropped from a Reference set is named on the B page: " + line.text);
         issue.comparisonSlot = 2; issue.checkStep = Step::ready;
         require (! reference_ui::referenceStatusLine (issue).text.contains ("Song A"), "the C page does not take B's notice");
+        // B を鳴らしている間も（前の公開で鳴らし続ける）、B の画面は理由を言い続ける。
+        issue.comparisonSlot = issue.audibleComparisonSlot = 3; issue.bSelected = issue.audibleHeard = true;
+        issue.tracking = Tracking::fixed;
+        line = reference_ui::referenceStatusLine (issue);
+        require (line.kind == StatusKind::ready && line.text.contains ("\"Song A\" was not read"),
+                 "the B page keeps the publication notice while B plays: " + line.text);
     }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.comparisonSlot = playing.audibleComparisonSlot = 3;
