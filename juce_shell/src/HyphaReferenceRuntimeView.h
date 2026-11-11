@@ -178,6 +178,30 @@ inline SourceStep referenceStep (const reference_audition::Snapshot& comparison,
          : slotStep (slot, aAvailable);
 }
 
+// V switching Versions keeps the old Version playing while the new one is positioned (the runtime publishes
+// the old one until the new is ready). The names of both while the old V is really heard and they differ; else
+// empty. V selected is not V heard: while its pages starve or are not ready, A plays (auditionBuffered is false)
+// and the loading guidance stays.
+inline void setVersionSwitch (State& state, const reference_audition::Snapshot& comparison)
+{
+    state.versionPlaying = state.versionPositioning = {};
+    if (comparison.audibleComparisonSlot != 1 || comparison.versionSelection == nullptr
+        || comparison.selectedVersionId.isEmpty() || ! comparison.transportPlaying) return;
+    const auto& version = *comparison.versionSelection;
+    if (! version.bSelected || ! version.auditionBuffered) return;
+    const auto playing = version.presetId + "/" + version.checkId + "/" + version.candidateId;
+    if (playing == comparison.selectedVersionId) return;
+    const auto name = [&comparison] (const juce::String& id)
+    {
+        for (const auto& option : comparison.versions)
+            if (option.id == id) return option.label;
+        return juce::String {};
+    };
+    if (name (playing).isEmpty() || name (comparison.selectedVersionId).isEmpty()) return;
+    state.versionPlaying = name (playing);
+    state.versionPositioning = name (comparison.selectedVersionId);
+}
+
 // B and C side by side: B needs a Version registered and chosen, and the chosen one applied.
 inline void setSourceSteps (State& state, const reference_audition::Snapshot& comparison)
 {
@@ -192,6 +216,7 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
     state.checkStep = formatUnreadable (check) ? SourceStep::attention : ! check.libraryReceived ? libraryStep (comparison) : slotStep (check, state.aAvailable);
     state.versionRejectionCode = (version.libraryReceived || formatUnreadable (version)) ? rejectionCodeOf (version) : juce::String {};
     state.checkRejectionCode = (check.libraryReceived || formatUnreadable (check)) ? rejectionCodeOf (check) : juce::String {};
+    setVersionSwitch (state, comparison);
 }
 
 // CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、

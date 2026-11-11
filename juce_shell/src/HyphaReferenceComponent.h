@@ -123,6 +123,7 @@ struct State
     reference_audition::PendingAuditionView pendingAudition;
     juce::String versionId;
     std::vector<SelectionOption> versions;
+    juce::String versionPlaying, versionPositioning;  // V keeps one Version while the next is positioned (names; else empty)
     Readiness readiness = Readiness::disconnected;
     juce::String title;
     juce::String sourceLabel;

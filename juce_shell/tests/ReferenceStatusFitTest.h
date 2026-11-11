@@ -76,6 +76,53 @@ inline void verifyReferenceStatusFits()
         version.bSelected = false;
         cases.push_back ({ "V Blind needs headroom", version });
     }
+    {
+        // 2026-11-11：V の Version を替える間は前の Version が鳴る。どちらが鳴り、どちらの位置を合わせているかを言う。
+        using namespace reference_audition;
+        Snapshot runtime;
+        auto playing = std::make_shared<Snapshot>();
+        playing->presetId = "p"; playing->checkId = "c"; playing->candidateId = "old";
+        playing->bSelected = playing->auditionBuffered = runtime.transportPlaying = true;
+        runtime.versionSelection = playing; runtime.checkSelection = std::make_shared<Snapshot>();
+        runtime.versions = { { "p/c/old", "Mix 3", {}, false }, { "p/c/new", "Mix 4", {}, false } };
+        runtime.selectedVersionId = "p/c/new";
+        auto version = base;
+        version.comparisonSlot = 1;
+        version.bSelected = true;
+        version.tracking = Tracking::following;
+        for (const int audible : { 0, 1 })
+        {
+            runtime.audibleComparisonSlot = version.audibleComparisonSlot = audible;
+            reference_ui::runtime_view::setSourceSteps (version, runtime);
+            require ((reference_ui::referenceStatusLine (version).text == "V plays Mix 3; positioning Mix 4") == (audible == 1),
+                     "while V is heard, the line names the Version that plays and the one being positioned");
+        }
+        require (i18n::translate (reference_ui::referenceStatusLine (version).text, i18n::Language::japanese)
+                     == juce::String::fromUTF8 (u8"VはMix 3を再生中。Mix 4の位置を合わせています"),
+                 "the Version switch line has Japanese with both names");
+        cases.push_back ({ "V plays one Version, positions the next", version });
+        // 足りない差と保存先の知らせが先、替え中の文は後（入りきらなければ後ろから省く）。
+        auto limited = version;
+        limited.rangeShortfallDb = 4.0;
+        limited.status = "LOW DISK SPACE / REFERENCE AVAILABLE";
+        const auto both = reference_ui::referenceStatusLine (limited).text;
+        require (both.startsWith ("V 4.0 DB UNDER A (FOLLOW LIMIT)  /  LOW DISK SPACE") && both.endsWith ("positioning Mix 4"),
+                 "a follow limit and a storage notice stay ahead of the Version switch line: " + both);
+        cases.push_back ({ "V switch with follow limit and storage", limited });
+        limited.rangeShortfallDb = 0.0; limited.peakShortfallDb = 0.8; limited.status = {};
+        require (reference_ui::referenceStatusLine (limited).text.startsWith ("0.8 DB UNDER A (PEAK LIMIT)  /  V plays"),
+                 "a peak limit stays ahead of the Version switch line");
+        // V が選ばれていても、ページが足りず A が鳴っている間は「V が鳴る」と言わない（読み込みの案内のまま）。
+        playing->auditionBuffered = false;
+        reference_ui::runtime_view::setSourceSteps (version, runtime);
+        require (version.versionPlaying.isEmpty() && ! reference_ui::referenceStatusLine (version).text.contains ("V plays"),
+                 "while V's pages starve and A plays, the line does not say V plays");
+        playing->auditionBuffered = true;
+        runtime.selectedVersionId = "p/c/old";
+        reference_ui::runtime_view::setSourceSteps (version, runtime);
+        require (version.versionPlaying.isEmpty() && ! reference_ui::referenceStatusLine (version).text.contains ("positioning"),
+                 "the line says nothing of a switch once the chosen Version plays");
+    }
     for (const int slot : { 1, 3 })
         for (const double residual : { -12.3, 12.3 })
         {

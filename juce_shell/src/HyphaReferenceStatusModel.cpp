@@ -68,6 +68,15 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             return { StatusKind::ready, juce::String (std::max (state.peakShortfallDb, state.rangeShortfallDb), 1) + " DB UNDER A" };
         const auto storage = state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
             || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {};
+        // V の Version を替えている間は、前の Version が鳴ったまま新しい Version の位置を合わせる。どちらが鳴っているかを
+        // 言う。追従・ピークの上限で届かない差と保存先の知らせはそれより先に言う（入りきらなければ後ろから省く）。
+        if (state.audibleComparisonSlot == 1 && state.versionPlaying.isNotEmpty() && state.versionPositioning.isNotEmpty())
+        {
+            const auto positioning = "V plays " + state.versionPlaying + "; positioning " + state.versionPositioning;
+            const auto warnings = (rangeLimited ? "  /  " + range : juce::String {}) + under + storage;
+            return { StatusKind::waiting,
+                     (warnings.isEmpty() ? positioning : warnings.substring (5) + "  /  " + positioning) + lowered };
+        }
         return { StatusKind::ready, how + under + lowered + storage + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (state.kirinOsRequest && state.action.kind != ActionKind::none)

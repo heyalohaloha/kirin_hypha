@@ -90,6 +90,7 @@ const Entry entries[] = {
     { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2 / %3秒）" },
     { "%1 MATCHED AND FIXED", u8"%1はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },
+    { "V plays %1; positioning %2", u8"Vは%1を再生中。%2の位置を合わせています" },  // V の Version を替える間
     { "Open V at 300%", u8"Vを300%で開く" }, { "Open C at 300%", u8"Cを300%で開く" },
     { "%1 opened at 300%. Press %2 to listen.", u8"%1を300%で開きました。%2を押すと試聴します。" },
     { "%1 opened at 300%.", u8"%1を300%で開きました。" },
