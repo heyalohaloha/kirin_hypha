@@ -248,8 +248,37 @@ inline void verifyFullSet()
     }
 }
 
+// The line colours: every number reads on the dark ground (4.5:1), none is orange or A's gold, and the
+// colours given first are far apart (a few lines are the common case).
+inline void verifyPalette()
+{
+    const auto luminance = [] (juce::Colour colour)
+    {
+        const auto channel = [] (float value) { return value <= 0.03928f ? value / 12.92f : std::pow ((value + 0.055f) / 1.055f, 2.4f); };
+        return 0.2126f * channel (colour.getFloatRed()) + 0.7152f * channel (colour.getFloatGreen()) + 0.0722f * channel (colour.getFloatBlue());
+    };
+    const auto ground = luminance (BG);
+    for (int index = 0; index < 32; ++index)
+    {
+        const auto colour = reference_ui::overlayTextColour (index);
+        require ((luminance (colour) + 0.05f) / (ground + 0.05f) >= 4.5f, "every line's number reads on the ground at 4.5:1");
+        const auto hue = colour.getHue() * 360.0f;
+        require (colour.getSaturation() < 0.2f || hue < 12.0f || hue > 65.0f, "no line is orange, yellow or A's gold");
+    }
+    for (int a = 0; a < 8; ++a)
+        for (int b = a + 1; b < 8; ++b)
+        {
+            const auto one = reference_ui::overlayLineColour (a), two = reference_ui::overlayLineColour (b);
+            const auto distance = std::hypot (one.getFloatRed() - two.getFloatRed(), one.getFloatGreen() - two.getFloatGreen(),
+                                              one.getFloatBlue() - two.getFloatBlue());
+            require (distance > 0.12f, "the first eight line colours are far apart");
+        }
+    require (reference_ui::overlayLineColour (16) != reference_ui::overlayLineColour (0), "the seventeenth line is told apart from the first");
+}
+
 inline void verify()
 {
+    verifyPalette();
     verifySwitchAndColours();
     verifyFullSet();
     std::cout << "Reference Balance overlay (ONE / ALL, lines, targets, 16 + 16): PASS\n";
