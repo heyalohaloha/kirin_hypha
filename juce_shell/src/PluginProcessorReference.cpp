@@ -418,16 +418,6 @@ bool KirinHyphaProcessorBase::revealReferenceBlind()
    #endif
 }
 
-bool KirinHyphaProcessorBase::setReferenceOverlay (const hypha::reference_audition::BalanceOverlay& overlay)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return referenceAuditionController != nullptr && referenceAuditionController->setOverlay (overlay);
-   #else
-    juce::ignoreUnused (overlay);
-    return false;
-   #endif
-}
-
 void KirinHyphaProcessorBase::endReferenceBlind()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
