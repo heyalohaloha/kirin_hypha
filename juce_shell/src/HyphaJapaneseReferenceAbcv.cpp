@@ -247,6 +247,7 @@ const Entry entries[] = {
     { "FOLLOW A plays the song at A's position. Move A back into the song, or choose LOOP.",
       u8"FOLLOW AはAの位置で曲を再生します。Aを曲の中へ戻すか、LOOPを選びます。" },
     { "The offset moves the song after A. It starts when A reaches it.", u8"ずらしで曲がAより後ろにあります。Aが届くと始まります。" },
+    { "MEAN %1", u8"平均 %1" },  // 図を指したときの平均の読み（上の「MEAN OF」の後に置く）
 };
 }
 

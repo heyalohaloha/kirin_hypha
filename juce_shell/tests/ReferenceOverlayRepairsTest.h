@@ -61,8 +61,58 @@ inline void verifyFirstUseOnly()
     require (again.state().overlay.lines.empty(), "a saved, emptied selection stays empty after reopening");
 }
 
+// Every number box state (shown or not, ALL SHAPE's dimmed, pointed, held) reads at 4.5:1 over its own fill on
+// the page's ground and on the lightest list glass, and a line's number keeps its line's hue.
+inline void verifyNumberContrast()
+{
+    float lowest = 100.0f;
+    for (int colour = 0; colour < 32; ++colour)
+        for (const bool shown : { false, true })
+            for (const bool dimmed : { false, true })
+                for (const bool highlighted : { false, true })
+                    for (const bool down : { false, true })
+                    {
+                        const auto look = reference_ui::numberLook (colour, shown, dimmed, highlighted, down);
+                        for (const auto ground : reference_ui::numberGrounds())
+                            lowest = juce::jmin (lowest, reference_ui::contrastRatio (look.text, ground.overlaidWith (look.fill)));
+                    }
+    require (lowest >= 4.5f, "every number reads at 4.5:1 over its fill: " + juce::String (lowest, 2));
+    const auto held = reference_ui::numberLook (7, true, false, true, true);
+    require (std::abs (held.text.getHue() - reference_ui::overlayTextColour (7).getHue()) < 0.04f && held.text.getSaturation() > 0.15f,
+             "a held number keeps its line's hue");
+}
+
+// Pointing at the chart in SHAPE reads the mean in the screen's language (平均 -30.0), and the legend's counts
+// keep their own wording (the reading's pattern never takes "MEAN OF 3").
+inline void verifyMeanReading()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const bool japanese = language == i18n::Language::japanese;
+        require (text_style::shownText ("MEAN -30.0") == (japanese ? juce::String::fromUTF8 (u8"平均 -30.0") : juce::String ("MEAN -30.0"))
+                 && text_style::shownText ("MEAN OF 3") == (japanese ? juce::String::fromUTF8 (u8"3曲の平均") : juce::String ("MEAN OF 3"))
+                 && text_style::shownText ("MEAN OF ALL 6") == (japanese ? juce::String::fromUTF8 (u8"全6曲の平均") : juce::String ("MEAN OF ALL 6")),
+                 "the mean reading and the legend's counts read in the screen's language");
+        reference_ui::Component panel; reference_text_repairs::sizePanel (panel, 900, 600);
+        panel.setState (page (4, 0));
+        switchHalf (panel, "reference-overlay-all").onClick();
+        drawingPart (panel, "reference-overlay-shape").onClick();
+        auto* overlay = panel.findChildWithID ("reference-overlay");
+        const juce::Point<float> at { static_cast<float> (overlay->getX() - 80), static_cast<float> (overlay->getBottom() + 120) };
+        panel.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 0.0f, 0.0f, 0.0f,
+                                           0.0f, 0.0f, &panel, &panel, juce::Time(), at, juce::Time(), 0, false));
+        bool read = false;
+        for (const auto& text : a_direction::drawnTexts (panel))
+            read = read || text.startsWith (japanese ? juce::String::fromUTF8 (u8"平均 ") : juce::String ("MEAN "));
+        require (read, "pointing at SHAPE's chart reads the mean in the screen's language");
+    }
+}
+
 inline void verifyRepairs()
 {
+    verifyMeanReading();
+    verifyNumberContrast();
     verifyTargetsWithoutSongs();
     verifyFirstUseOnly();
     std::cout << "Reference Balance overlay repairs: PASS\n";

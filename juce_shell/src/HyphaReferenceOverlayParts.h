@@ -142,6 +142,49 @@ private:
     presentation::Context context = presentation::defaultContext();
 };
 
+// WCAG contrast of two colours (relative luminance), for the number text over its box.
+inline float contrastRatio (juce::Colour one, juce::Colour two)
+{
+    const auto luminance = [] (juce::Colour colour)
+    {
+        const auto channel = [] (float value) { return value <= 0.03928f ? value / 12.92f : std::pow ((value + 0.055f) / 1.055f, 2.4f); };
+        return 0.2126f * channel (colour.getFloatRed()) + 0.7152f * channel (colour.getFloatGreen()) + 0.0722f * channel (colour.getFloatBlue());
+    };
+    const auto a = luminance (one), b = luminance (two);
+    return (juce::jmax (a, b) + 0.05f) / (juce::jmin (a, b) + 0.05f);
+}
+
+// What a number box sits on: the page's ground, and the lightest the list gets (its glass with a selected row).
+inline std::array<juce::Colour, 2> numberGrounds()
+{
+    return { BG, BG.brighter (0.06f).overlaidWith (COL_NORMAL.withAlpha (0.08f)).overlaidWith (COL_SPECTRUM_DELTA.withAlpha (0.08f)) };
+}
+
+// How a number box is drawn in each state. The text keeps its line's colour, lifted toward the brightest text
+// only as far as it takes to read at 4.5:1 over the box's fill on any ground (no opacity on text).
+struct NumberLook
+{
+    juce::Colour fill, frame, text;
+    float thickness = 1.0f;
+};
+
+inline NumberLook numberLook (int lineColour, bool shown, bool dimmed, bool highlighted, bool down)
+{
+    NumberLook look;
+    const auto line = overlayLineColour (lineColour);
+    look.fill = dimmed ? juce::Colours::transparentBlack
+              : shown ? line.withAlpha (down ? 0.20f : 0.13f)
+                      : COL_MUTED.withAlpha (down ? 0.26f : highlighted ? 0.18f : 0.0f);
+    look.frame = dimmed ? (shown ? line.interpolatedWith (BG, 0.55f) : COL_MUTED.withAlpha (0.40f))
+                        : shown ? line : COL_MUTED.withAlpha (highlighted ? 0.95f : 0.62f);
+    look.thickness = shown && ! dimmed ? 1.3f : 1.0f;
+    look.text = shown && ! dimmed ? overlayTextColour (lineColour) : COL_TEXT_SECONDARY;
+    for (const auto ground : numberGrounds())
+        for (int step = 0; step < 24 && contrastRatio (look.text, ground.overlaidWith (look.fill)) < 4.5f; ++step)
+            look.text = look.text.interpolatedWith (COL_NORMAL, 0.12f);
+    return look;
+}
+
 // What a number says in ALL SHAPE, which takes every song and target whatever the numbers say.
 inline constexpr const char* allShapeFixedText = "ALL SHAPE uses every song. Choose SHAPE to pick songs.";
 
@@ -173,18 +216,13 @@ public:
         const key_light::Scope light (*this);
         const auto box = getLocalBounds().toFloat().withSizeKeepingCentre (juce::jmin (22.0f, getWidth() - 2.0f),
                                                                            juce::jmin (22.0f, getHeight() - 4.0f));
-        const bool shown = getToggleState();
-        // Dimmed: the frame keeps a quiet hint of the line's colour; the number stays in the readable text tier.
-        const auto colour = shown && ! dimmed ? overlayTextColour (lineColour) : COL_TEXT_SECONDARY;
-        if (! dimmed)
-        {
-            g.setColour ((shown ? overlayLineColour (lineColour) : COL_MUTED).withAlpha (shown ? (down ? 0.30f : 0.16f) : (highlighted ? 0.18f : 0.0f)));
-            g.fillRoundedRectangle (box, 3.0f);
-        }
-        g.setColour (dimmed ? (shown ? overlayLineColour (lineColour).interpolatedWith (BG, 0.55f) : COL_MUTED.withAlpha (0.40f))
-                            : shown ? overlayLineColour (lineColour) : COL_MUTED.withAlpha (highlighted ? 0.95f : 0.62f));
-        g.drawRoundedRectangle (box.reduced (0.5f), 3.0f, shown && ! dimmed ? 1.3f : 1.0f);
-        g.setColour (colour);
+        // Dimmed (ALL SHAPE): no fill, the frame keeps a quiet hint of the line's colour; the number stays readable.
+        const auto look = numberLook (lineColour, getToggleState(), dimmed, highlighted, down);
+        g.setColour (look.fill);
+        g.fillRoundedRectangle (box, 3.0f);
+        g.setColour (look.frame);
+        g.drawRoundedRectangle (box.reduced (0.5f), 3.0f, look.thickness);
+        g.setColour (look.text);
         g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
         text_style::drawText (g, getName(), box.toNearestInt(), juce::Justification::centred, false);
     }
