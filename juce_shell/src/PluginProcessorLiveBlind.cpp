@@ -288,6 +288,9 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.contentHeld = state.contentHeld;
     status.contentLagFrames = state.contentJumpLagFrames;
     status.contentNoticeMs = liveCompare.blindContentNoticeMs;
+    // A notice standing since before this trial still has its amount for RESULT.
+    if (status.contentNoticeMs == 0.0 && status.contentHeld && liveCompare.contentJumpFacts.sampleRate > 0.0)
+        status.contentNoticeMs = static_cast<double> (status.contentLagFrames) * 1000.0 / liveCompare.contentJumpFacts.sampleRate;
     status.compensationOff = state.compensationOff;
     status.loopBlock = state.loopBlock;
     status.reaperRestriction = state.reaperRestriction;

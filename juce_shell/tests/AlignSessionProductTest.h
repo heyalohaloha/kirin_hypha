@@ -149,12 +149,22 @@ inline void lateBlindSoundsAtItsClock (int channels)
         require (post.liveBlindStatus().trial.played == 3 && post.revealLiveBlind(),
                  "both actual sources and REVEAL without OFF, another section or a restart");
         require (post.liveBlindStatus().trial.firstPre == firstPre, "REVEAL confirms the true anonymous assignment");
+        // REVEAL with the chain unchanged: the notice still stands, and RESULT states its amount after
+        // the short POST that really stood in while the new clock mapping was checked.
+        const auto standing = post.liveBlindStatus();
+        const auto estimate = "Audio estimate: PRE may have been " + juce::String (512.0 * 1000.0 / 48000.0, 2) + " ms off";
+        const auto expected = (standing.trial.usedPostFallback && standing.trial.fallbackForTiming
+                                  && ! standing.trial.fallbackForCeiling
+                              ? juce::String ("POST was used briefly when timing was unavailable / ") : juce::String()) + estimate;
+        const auto atReveal = hypha::live_blind_ui::screenFor (standing, true, post.liveCompareStatus().postActual);
+        require (standing.contentHeld && standing.prolongedWait && !atReveal.guidanceShown && atReveal.instruction == expected,
+                 "RESULT states the measured estimate while the notice is still up");
         chain.setDelay (512); // the chain is fixed: the notice ends and RESULT keeps what was estimated
         chain.until (200, [&] { const auto now = post.liveBlindStatus(); return !now.contentHeld && !now.prolongedWait; },
                      "a correct mapping ends the notice in the revealed trial");
         const auto told = hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, post.liveCompareStatus().postActual);
-        require (told.instruction == "Audio estimate: PRE may have been " + juce::String (512.0 * 1000.0 / 48000.0, 2) + " ms off",
-                 "RESULT tells the estimate instead of claiming POST played");
+        require (told.instruction.endsWith (estimate) && (! standing.trial.usedPostFallback || told.instruction.contains (" / ")),
+                 "RESULT keeps the disclosed substitute and the estimate after the notice ends");
         chain.clean ("a late PRE uses only proven clock addresses or exact POST");
     }
     require (screens[0] == screens[1], "the late-PRE notice reveals no anonymous assignment");

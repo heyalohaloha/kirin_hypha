@@ -285,11 +285,12 @@ inline void chunkedPost (int channels)
     const auto after = post.liveCompareStatus();
     require (after.preAudible && after.gain == gain && after.verdict == Verdict::accepted, "the same source at the same gain");
     require (post.revealLiveBlind() && post.liveBlindStatus().trial.usedPostFallback, "REVEAL says POST stood in");
-    // The result names what actually happened. The content notice in this trial is told as an
-    // estimate in place of the timing substitute (INV-LC10); without one, the substitute is named.
+    // The result names what actually happened: the seek's real POST substitute first, then the
+    // content notice of this trial as an estimate (INV-LC10).
     require (std::abs (post.liveBlindStatus().contentNoticeMs + 2048.0 * 1000.0 / 48000.0) < 1.0e-9
              && hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, 1.0f).instruction
-                == "Audio estimate: PRE may have been 42.67 ms off", "RESULT tells the trial's content estimate");
+                == "POST was used briefly when timing was unavailable / Audio estimate: PRE may have been 42.67 ms off",
+             "RESULT discloses the clock substitute and then the trial's content estimate");
     const auto revealed = [&] (bool timing, bool ceiling)
     {
         auto status = post.liveBlindStatus();

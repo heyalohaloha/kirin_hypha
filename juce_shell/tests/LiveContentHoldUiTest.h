@@ -3,6 +3,7 @@
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaTextStyle.h"
+#include <tuple>
 
 namespace hypha::tests
 {
@@ -90,17 +91,53 @@ void verifyLiveContentHoldUi (Require require)
         LiveBlindStatus revealed;
         revealed.stage = BlindStage::active; revealed.contentNoticeMs = -0.4;
         revealed.trial.active = revealed.trial.revealed = true; revealed.trial.played = 3;
-        const auto result = i18n::tr (live_blind_ui::screenFor (revealed, true, 1.0f).instruction);
-        require (result == (language == i18n::Language::english ? juce::String ("Audio estimate: PRE may have been 0.40 ms off")
-                : juce::String::fromUTF8 (u8"音の推定：PREが0.40 msずれていた可能性")),
+        const bool english = language == i18n::Language::english;
+        const auto estimate = english ? juce::String ("Audio estimate: PRE may have been 0.40 ms off")
+                                      : juce::String::fromUTF8 (u8"音の推定：PREが0.40 msずれていた可能性");
+        const auto resultFor = [&] (const LiveBlindStatus& state) { return live_blind_ui::screenFor (state, true, 1.0f); };
+        require (i18n::tr (resultFor (revealed).instruction) == estimate,
                  "RESULT tells the estimate in both languages, without claiming POST played");
-        revealed.trial.usedPostFallback = revealed.trial.fallbackForTiming = true;
-        require (i18n::tr (live_blind_ui::screenFor (revealed, true, 1.0f).instruction) == result,
-                 "the estimate also explains a short timing substitute");
-        revealed.trial.fallbackForCeiling = true;
-        require (! i18n::tr (live_blind_ui::screenFor (revealed, true, 1.0f).instruction).contains ("0.40"),
-                 "a ceiling substitute is still the first thing RESULT says");
-        cases += 5;
+        // REVEAL while the notice still stands: RESULT states the amount instead of the generic guidance.
+        auto standing = revealed;
+        standing.contentHeld = standing.prolongedWait = true; standing.contentLagFrames = 96;
+        const auto standingScreen = resultFor (standing);
+        require (! standingScreen.guidanceShown && i18n::tr (standingScreen.instruction) == estimate,
+                 "RESULT states the measured estimate while the notice is still up");
+        // POST that really stood in is said first, then the estimate: both facts, both languages.
+        for (const auto& [timing, ceiling, english_first] : { std::tuple { true, false, "POST was used briefly when timing was unavailable" },
+                 std::tuple { false, true, "POST played where PRE went over the ceiling" },
+                 std::tuple { true, true, "POST played for timing and the PRE ceiling" } })
+        {
+            auto both = revealed;
+            both.trial.usedPostFallback = true; both.trial.fallbackForTiming = timing; both.trial.fallbackForCeiling = ceiling;
+            const auto text = resultFor (both).instruction;
+            require (text == juce::String (english_first) + " / Audio estimate: PRE may have been 0.40 ms off"
+                         && i18n::tr (text).startsWith (i18n::tr (english_first)) && i18n::tr (text).endsWith (estimate),
+                     "a real POST substitute is disclosed first, then the estimate");
+            for (int width : { 300, 375, 450, 600, 900 })
+                for (bool candidate : { false, true })
+                {
+                    auto shown = both; shown.candidate = candidate;
+                    live_blind_ui::Component view;
+                    view.setSize (width, width * 2 / 3); view.setState (shown, true, candidate ? 1.0f : 0.0630957f);
+                    for (auto* child : view.getChildren())
+                    {
+                        if (! child->isVisible()) continue;
+                        require (view.getLocalBounds().contains (child->getBounds()) && ! child->getBounds().isEmpty(),
+                                 "RESULT with both facts keeps every control inside the editor at 100 to 300 percent");
+                        if (auto* label = dynamic_cast<juce::Label*> (child))
+                        {
+                            juce::AttributedString attributed;
+                            attributed.append (text_style::shownText (label->getText()), label->getFont(), juce::Colours::white);
+                            juce::TextLayout layout;
+                            const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
+                            layout.createLayout (attributed, static_cast<float> (bounds.getWidth()));
+                            require (layout.getHeight() <= bounds.getHeight(), "both RESULT facts fit without truncation");
+                        }
+                    }
+                }
+        }
+        cases += 35;
     }
     std::cout << "Content timing notice UI: PASS " << cases << " language/size/phase/transport/assignment cases\n";
 }

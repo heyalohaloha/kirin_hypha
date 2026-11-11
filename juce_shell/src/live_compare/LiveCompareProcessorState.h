@@ -169,7 +169,7 @@ struct ProcessorState
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
     std::uint64_t alignConfirmStart = 0;          // message thread: the short wait for content (INV-LC28)
     std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a notice (INV-LC10)
-    double blindContentNoticeMs = 0.0;            // message thread: a notice during this BLIND trial
+    double blindContentNoticeMs = 0.0;            // message thread: the last notice since this BLIND began
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
     OffsetWindow contentWindow;
     ContentHold contentHold;      // INV-LC10: a status-line notice; never changes the output

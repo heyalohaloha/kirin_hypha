@@ -15,7 +15,10 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     const bool finishing = current.stage == Stage::finishing;
     const bool stopped = current.stage == Stage::invalidated || current.trial.invalidated;
     const auto guidance = live_compare_ui::blindRecovery (current, stopped);
-    screen.guidanceShown = stopped || current.prolongedWait;
+    // INV-LC10: after REVEAL a standing content notice gives way to RESULT, which states its amount.
+    const bool noticeOnly = ! stopped && current.contentHeld
+        && juce::String (guidance.instruction) == live_compare_ui::chainDelayNotice();
+    screen.guidanceShown = stopped || (current.prolongedWait && ! (revealed && noticeOnly && current.contentNoticeMs != 0.0));
     screen.cause = screen.guidanceShown && !current.signalWait ? live_compare_ui::cause (guidance.reason) : "";
     screen.recovery = screen.guidanceShown ? guidance.instruction : "";
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
@@ -55,10 +58,11 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             : "POST played for timing and the PRE ceiling";
     if (revealed && current.candidate && current.trial.usedPostFallback)
         instruction = "Chain audio was used briefly";
-    // INV-LC10: PRE kept its clock position; after REVEAL the estimate is told as a possibility. It
-    // explains a short timing substitute too; a ceiling substitute is still said first.
-    if (revealed && ! current.trial.fallbackForCeiling && current.contentNoticeMs != 0.0)
-        instruction = juce::String (current.candidate ? "Audio estimate: A may have been " : "Audio estimate: PRE may have been ")
+    // INV-LC10: PRE kept its clock position; after REVEAL the estimate is told as a possibility, after
+    // any POST that really stood in (both facts, that one first).
+    if (revealed && current.contentNoticeMs != 0.0)
+        instruction = (current.trial.usedPostFallback ? instruction + " / " : juce::String())
+            + (current.candidate ? "Audio estimate: A may have been " : "Audio estimate: PRE may have been ")
             + juce::String (std::fabs (current.contentNoticeMs), 2) + " ms off";
     if (current.candidate && current.stage == Stage::preparing && current.matchSecondsRemaining > 0)
     {

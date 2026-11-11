@@ -57,7 +57,7 @@ bool KirinHyphaProcessorBase::noticeLiveCompareContentTiming (const hypha::live_
     liveCompare.contentJumpFacts = estimate;
     liveCompare.contentJumpLagFrames.store (estimate.lagFrames, std::memory_order_relaxed);
     liveCompare.holdEvidenceAt = hypha::live_compare::callbackWallNanos(); // before the status can see it
-    if (liveCompare.blindStage == hypha::live_compare::BlindStage::active && estimate.sampleRate > 0.0)
+    if (liveCompare.blindStage != hypha::live_compare::BlindStage::idle && estimate.sampleRate > 0.0)
         liveCompare.blindContentNoticeMs = static_cast<double> (estimate.lagFrames) * 1000.0 / estimate.sampleRate;
     liveCompare.contentHold.hold (estimate.stopGeneration);
     return liveCompare.contentHold.held();
