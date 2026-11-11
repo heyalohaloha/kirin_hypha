@@ -96,7 +96,9 @@ struct MeasuredTarget
 };
 struct TargetCollection
 {
-    static constexpr size_t capacity = 8;
+    // 2026-11-11 に 8 から 16（Reference のセットの曲と同じ数）。書く形は version 1 のまま：前の Hypha は
+    // 先頭（入れた順）の 8 個だけを読み、残りは読み飛ばす（落ちない）。
+    static constexpr size_t capacity = 16;
     std::vector<MeasuredTarget> items;
     juce::String selected;
     const MeasuredTarget* find (const juce::String& id) const

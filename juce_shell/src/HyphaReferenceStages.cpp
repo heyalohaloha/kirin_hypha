@@ -29,10 +29,10 @@ const std::array<Stage, stageCount> stages { {
       "AUTO finds it while A plays, or choose it in V / VERSION above. V plays another Version of the song you are playing." },
     // enableCheck
     { K::unable, W::none, "NO CHECK SET FOR C / ADD SONGS TO A CHECK SET IN KIRIN OS", "", "Add songs to a CHECK SET in Kirin OS",
-      "No CHECK SET for C in Kirin OS", "C compares A with a section of a reference song, chosen in a CHECK SET in Kirin OS." },
+      "No CHECK SET for C in Kirin OS", "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none." },
     // chooseSource
     { K::unable, W::none, "NO SOURCE FOR %1 / CHOOSE A SOURCE IN KIRIN OS", "", "Choose a source in Kirin OS",
-      "Choose a source for %1 in Kirin OS", "C compares A with a section of a reference song, chosen in a CHECK SET in Kirin OS." },
+      "Choose a source for %1 in Kirin OS", "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none." },
     // playDaw
     { K::waiting, W::none, "%1 WAITS FOR THE DAW / PLAY A TO AUDITION", "", "Ready when the DAW plays",
       "Play the song in your DAW", "B: Reference song / C: Check source / V: another Version of this song" },
@@ -109,6 +109,11 @@ const std::array<Stage, stageCount> stages { {
     // publicationInvalid：Kirin OS の Reference の公開（Preset・Work・catalog）を読めない。状態の行と同じ直し方
     { K::unable, W::none, "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS", "", "Publication not read",
       "%1's Reference publication was not read", "Publish it again in Kirin OS. A stays live." },
+    // pastSongEnd・beforeSongStart：FOLLOW A で A の位置（＋ずらし）が曲の外。A が鳴る。曲の中へ戻れば押し直さずに戻る。
+    { K::unable, W::none, "%1 PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP", "", "Past the song's end; move A back",
+      "A is past the end of %1's song", "FOLLOW A plays the song at A's position. Move A back into the song, or choose LOOP." },
+    { K::waiting, W::none, "%1 BEFORE SONG START, A PLAYING / KEEP PLAYING", "", "Before the song's start; keep playing",
+      "A is before the start of %1's song", "The offset moves the song after A. It starts when A reaches it." },
     // attention：Hypha に文の無い理由。直し方を推測せず、案内に理由のコードを残す（2026-10-18）
     { K::unable, W::none, "SOURCE NOT USABLE IN HYPHA / SEE THE REASON CODE", "", "Not usable in Hypha",
       "%1's source is not usable in Hypha", "Hypha has no message for this reason. A stays live." },

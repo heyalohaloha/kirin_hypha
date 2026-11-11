@@ -43,6 +43,9 @@ bool ReferenceComparisonController::armResume()
     next.view = { slot, PendingAuditionView::Stage::play };
     const juce::ScopedLock lock (selectionLock);
     if (activePendingIntent.load (std::memory_order_acquire) != 0) return true;
+    if (next.switching && rememberedPress.slot == slot && rememberedPress.generation == switchGeneration)
+    { next.pressLoudness = rememberedPress.loudness; next.pressPeak = rememberedPress.peak; }  // 曲の外で押した時の A
+    rememberedPress = {};
     next.intentId = ++pendingSequence;
     pendingAudition = std::move (next);
     version.setQueuedContentObservationEnabled (slot == 1);

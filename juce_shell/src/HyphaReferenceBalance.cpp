@@ -3,6 +3,7 @@
 #include "HyphaReferenceAWindowControl.h"
 #include "HyphaReferenceChartReading.h"
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceOverlay.h"
 #include "HyphaReferencePreviewGain.h"
 #include "HyphaReferenceLegend.h"
 #include "HyphaReferenceCueSummary.h"
@@ -16,12 +17,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
-// B（REF）の画面の右の Balance。A（金）に、選んでいる
-// B の曲（水色）と、REFERENCE SET の曲全体の分布（p10〜p90 の薄い帯）を重ねる。曲の値は Kirin OS が残した
-// 既定の Cue の 64 帯域のスペクトル（ranges の中央値）。既製のジャンル曲線は出さない。
-// A は同じ定義で測った、選んだ窓の中央値（ReferenceKirinSpectrum。FREQ の画面のスペクトルとは
-// 定義が違うので使わない）。曲は B が鳴る音量にそろえる（A の 10 秒の音量 − その曲の Cue の Integrated）。
+// B（REF）の画面の右の Balance。ONE は A（金）に、選んでいる B の曲（水色）と、REFERENCE SET の曲全体の分布
+// （p10〜p90 の薄い帯）を重ねる。ALL は A に、一覧の番号で出した曲と目標の線を、出した時に決めた色で重ねる
+// （HyphaReferenceOverlay.h）。曲の値は Kirin OS が残した既定の Cue の 64 帯域のスペクトル（ranges の中央値）、
+// 目標は Hypha が同じ定義で測った値。既製のジャンル曲線は出さない。A は同じ定義で測った、選んだ窓の中央値
+// （ReferenceKirinSpectrum。FREQ の画面のスペクトルとは定義が違うので使わない）。曲と目標は B が鳴る音量に
+// そろえる（A の窓の音量 − その曲の Cue の Integrated）。
 namespace hypha::reference_ui
 {
 namespace
@@ -67,7 +70,10 @@ struct BalanceSources
     std::vector<const SongFact*> comparable;  // 同じ帯域の並びの曲
     std::vector<double> centers;
     bool aShown = false;
-    bool rangeShown() const noexcept { return comparable.size() >= 2; }  // 帯は 2 曲から
+    std::vector<OverlayItem> shown;  // ALL：出している線（一覧の順）
+    bool linesOn = false;            // ALL：番号で出した線がある（値がまだ無い線を含む）
+    OverlayShape shape;              // ALL の SHAPE：出した線の平均と範囲
+    bool rangeShown (const State& state) const noexcept { return ! state.overlay.all && comparable.size() >= 2; }  // 帯は 2 曲から
 };
 
 BalanceSources balanceSources (const State& state)
@@ -84,59 +90,286 @@ BalanceSources balanceSources (const State& state)
     if (sources.chosen != nullptr) sources.centers = sources.chosen->centersHz;
     else if (! set.empty()) sources.centers = set.front()->centersHz;
     for (const auto* fact : set) if (fact->centersHz == sources.centers) sources.comparable.push_back (fact);
+    // 曲が無い時は目標の帯域の並びで A を描く（目標だけでも A と比べられる）。
+    if (sources.centers.empty() && state.targetsEnabled && ! state.targets.collection.items.empty())
+        sources.centers = state.targets.collection.items.front().spectrum.centersHz;
     sources.aShown = state.aKirin && state.aKirin->frames >= 30 && ! sources.centers.empty()
         && state.aKirin->centersHz.size() == sources.centers.size()
         && std::abs (state.aKirin->centersHz.back() / sources.centers.back() - 1.0) < 1.0e-3;
+    if (state.overlay.all)
+        for (auto& item : overlayItems (state))
+        {
+            sources.linesOn = sources.linesOn || item.line != nullptr;
+            if (item.line != nullptr && item.drawable()) sources.shown.push_back (std::move (item));
+        }
+    using Drawing = reference_audition::BalanceOverlay::Drawing;
+    if (state.overlay.all && state.overlay.drawing == Drawing::shape) sources.shape = overlayShape (sources.shown);
+    if (state.overlay.all && state.overlay.drawing == Drawing::allShape) sources.shape = overlayShape (overlayItems (state), true);
     return sources;
 }
 
-juce::StringArray balanceLabels (const BalanceSources& sources, const State& state)
+// 凡例の 1 項目：文字・見本の色と太さ・右の余白（A の窓の矢印）。
+struct LegendEntry
 {
+    juce::String text;
+    juce::Colour colour;
+    float thickness = 1.6f;
+    int extra = 0;
+};
+
+std::vector<LegendEntry> legendEntries (const BalanceSources& sources, const State& state)
+{
+    std::vector<LegendEntry> entries { { sources.aShown ? aWindowLegend (state.aKirin->frames) : juce::String ("A WAITING"),
+                                         COL_FLORA_BR, 2.8f, AWindowControl::arrowWidth } };
+    if (state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines)
+    {
+        // SHAPE・ALL SHAPE：平均（水色の線）と範囲（帯）。数は帯に入れた曲と目標の数（ALL SHAPE は「ALL 20」）。
+        if (sources.shape.count > 0)
+        {
+            const auto count = juce::String (state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape ? "ALL " : "")
+                             + juce::String (sources.shape.count);
+            entries.push_back ({ "MEAN OF " + count, COL_SPECTRUM_DELTA, 1.6f });
+            entries.push_back ({ "RANGE OF " + count, COL_SPECTRUM_DELTA.withAlpha (0.40f), 8.0f });
+        }
+        return entries;
+    }
+    if (state.overlay.all)
+    {
+        for (const auto& item : sources.shown)
+            entries.push_back ({ juce::String (item.number) + " " + item.name, overlayLineColour (item.line->colour) });
+        return entries;
+    }
     const auto* chosen = sources.chosen;
-    juce::StringArray labels {
-        sources.aShown ? aWindowLegend (state.aKirin->frames) : juce::String ("A WAITING"),
-        chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true) : juce::String ("B") };
-    if (sources.rangeShown()) labels.add (targetRangeLegend);  // 帯が無いときは言わない
-    return labels;
+    entries.push_back ({ chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true)
+                                           : juce::String ("B"), COL_SPECTRUM_DELTA, 1.6f });
+    if (sources.rangeShown (state)) entries.push_back ({ targetRangeLegend, COL_NORMAL.withAlpha (0.28f), 8.0f });  // 帯が無いときは言わない
+    return entries;
 }
 
 constexpr int legendRowHeight = 18, legendItemExtra = 22;  // 見本 14 と文字のあいだ 4、余白 4
+constexpr int overlayLegendRows = 3;  // ALL の凡例は 3 段まで（残りは「+N」。色と名前は左の一覧の番号にもある）
+
+struct LegendCell
+{
+    juce::String text;
+    juce::Colour colour;
+    float thickness = 1.6f;
+    juce::Rectangle<int> area;
+};
+
+// 文字の長さに合わせて左から並べ、入らなければ次の段へ（均等に割ると B が切れる。2026-10-04）。ALL は 1 項目を
+// 段の 3 分の 1 までにし、3 段に入らない分を最後の「+N」にまとめる。
+std::vector<LegendCell> legendCells (const std::vector<LegendEntry>& entries, const juce::Font& font, juce::Rectangle<int> area, bool overlay)
+{
+    std::vector<LegendCell> cells;
+    const auto cap = overlay ? juce::jmax (80, (area.getWidth() - 20) / 3) : std::numeric_limits<int>::max();
+    int x = area.getX(), y = area.getY(), row = 0;
+    const auto widthOf = [&] (const LegendEntry& entry, size_t index)
+    { return juce::jmin (index == 0 ? std::numeric_limits<int>::max() : cap, legendItemExtra + referenceTextWidth (font, entry.text) + entry.extra); };
+    for (size_t index = 0; index < entries.size(); ++index)
+    {
+        const auto width = widthOf (entries[index], index);
+        if (x > area.getX() && x + width > area.getRight()) { x = area.getX(); y += legendRowHeight; ++row; }
+        if (overlay && row == overlayLegendRows)
+        {
+            // 最後の段の後ろに「+N」が入るまで項目を戻す。
+            const auto more = [&] { return "+" + juce::String (static_cast<int> (entries.size() - index)); };
+            const auto moreWidth = [&] { return referenceTextWidth (font, more()) + 8; };
+            while (cells.size() > 1 && cells.back().area.getRight() + 10 + moreWidth() > area.getRight()) { cells.pop_back(); --index; }
+            const auto& last = cells.back().area;
+            cells.push_back ({ more(), juce::Colours::transparentBlack, 0.0f, { last.getRight() + 10, last.getY(), moreWidth(), legendRowHeight } });
+            return cells;
+        }
+        cells.push_back ({ entries[index].text, entries[index].colour, entries[index].thickness,
+                           { x, y, juce::jmin (width, area.getRight() - x), legendRowHeight } });
+        x += width + 10;
+    }
+    return cells;
+}
+
+int legendRows (const std::vector<LegendCell>& cells)
+{
+    int bottom = 0, top = cells.empty() ? 0 : cells.front().area.getY();
+    for (const auto& cell : cells) bottom = juce::jmax (bottom, cell.area.getBottom());
+    return juce::jmax (1, (bottom - top) / legendRowHeight);
+}
 
 // 本体の領域から、下の凡例の領域を取る。
-juce::Rectangle<int> takeLegend (juce::Rectangle<float>& body, const juce::StringArray& labels, const juce::Font& font)
+juce::Rectangle<int> takeLegend (juce::Rectangle<float>& body, const std::vector<LegendEntry>& entries, const juce::Font& font, bool overlay)
 {
-    const auto rows = referenceLegendRows (font, labels, juce::roundToInt (body.getWidth()) - 18, legendItemExtra, AWindowControl::arrowWidth);
+    const auto width = juce::roundToInt (body.getWidth()) - 18;
+    const auto rows = legendRows (legendCells (entries, font, { 0, 0, width, legendRowHeight }, overlay));
     return body.removeFromBottom (static_cast<float> (legendRowHeight * rows)).reduced (9.0f, 0.0f).toNearestInt();
+}
+
+juce::Path linePath (const std::vector<double>& centers, const std::vector<float>& levels, float gain, juce::Rectangle<float> chart)
+{
+    juce::Path path;
+    for (size_t band = 0; band < centers.size() && band < levels.size(); ++band)
+    {
+        const juce::Point<float> point { xFor (centers[band], chart), yFor (levels[band] + gain, chart) };
+        if (band == 0) path.startNewSubPath (point); else path.lineTo (point);
+    }
+    return path;
+}
+
+// ALL の SHAPE・ALL SHAPE：線を 1 本ずつ描かず、帯域ごとの最小〜最大の帯と平均の線。A は金の線のまま上に。一覧の
+// 行を指している間は、その曲（目標）の線を細く上に重ねる（帯のどこにいるか）。
+void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& state, const BalanceSources& sources,
+                 presentation::Context context, bool& unmatched)
+{
+    const auto& shape = sources.shape;
+    unmatched = unmatched || shape.unmatched;
+    std::vector<ReadCurve> readings;
+    if (shape.count > 0)
+    {
+        juce::Path band;
+        for (size_t index = 0; index < shape.centers.size(); ++index)
+        {
+            const juce::Point<float> top { xFor (shape.centers[index], chart), yFor (shape.high[index], chart) };
+            if (index == 0) band.startNewSubPath (top); else band.lineTo (top);
+        }
+        for (auto index = shape.centers.size(); index-- > 0;)
+            band.lineTo (xFor (shape.centers[index], chart), yFor (shape.low[index], chart));
+        band.closeSubPath();
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.22f));
+        g.fillPath (band);
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
+        g.strokePath (linePath (shape.centers, shape.mean, 0.0f, chart), juce::PathStrokeType (1.6f));
+    }
+    if (sources.aShown)
+    {
+        g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+        readings.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb, 0.0, minimumHz, maximumHz));
+    }
+    if (shape.count > 0)
+        readings.push_back (drawnCurve ("MEAN", COL_SPECTRUM_DELTA, shape.centers, shape.mean, 0.0, minimumHz, maximumHz));
+    juce::String pointedName;
+    if (state.overlayPointed.isNotEmpty())
+        for (const auto& item : overlayItems (state))
+            if (item.id == state.overlayPointed && item.drawable())
+            {
+                const auto colour = item.line != nullptr ? overlayLineColour (item.line->colour) : COL_NORMAL;
+                const auto gain = std::isfinite (item.gainDb) ? item.gainDb : 0.0;
+                g.setColour (colour);
+                g.strokePath (linePath (*item.centers, *item.medians, static_cast<float> (gain), chart),
+                              juce::PathStrokeType (1.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                pointedName = juce::String (item.number);
+                readings.push_back (drawnCurve ("", colour, *item.centers, *item.medians, gain, minimumHz, maximumHz));
+                readings.back().name = pointedName.toRawUTF8();
+            }
+    if (! readings.empty())
+        paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
+                           [chart] (float level) { return yFor (level, chart); }, context);
+    if (shape.count == 0)
+    {
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
+        // ALL SHAPE は番号に関わらず全部：入れる物が無いのは値がまだ届いていない時だけ。
+        const bool every = state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape;
+        text_style::drawEllipsized (g, sources.linesOn || every ? "REFERENCE VALUES ARRIVE FROM KIRIN OS" : shapeEmptyText,
+                                    chart.toNearestInt(), juce::Justification::centred);
+    }
+}
+
+// ALL：A と、出している線。指している線（一覧の行、無ければ図の中の一番近い線）を太く、ほかを薄くする。
+void paintOverlay (juce::Graphics& g, juce::Rectangle<float> chart, const State& state, const BalanceSources& sources,
+                   presentation::Context context, bool& unmatched)
+{
+    std::vector<ReadCurve> curves;
+    for (const auto& item : sources.shown)
+    {
+        unmatched = unmatched || ! std::isfinite (item.gainDb);
+        curves.push_back (drawnCurve ("", overlayLineColour (item.line->colour), *item.centers, *item.medians,
+                                      std::isfinite (item.gainDb) ? item.gainDb : 0.0, minimumHz, maximumHz));
+    }
+    int pointed = -1;
+    for (size_t index = 0; index < sources.shown.size(); ++index)
+        if (sources.shown[index].id == state.overlayPointed) pointed = static_cast<int> (index);
+    if (pointed < 0 && chart.contains (state.chartPointer))
+    {
+        const float hz = static_cast<float> (minimumHz * std::pow (maximumHz / minimumHz, (state.chartPointer.x - chart.getX()) / chart.getWidth()));
+        float nearest = 14.0f;  // 線から 14 px より遠ければ、どれも指していない
+        for (size_t index = 0; index < curves.size(); ++index)
+            if (const auto reading = readAt (curves[index], hz, [chart] (float level) { return yFor (level, chart); }))
+                if (const auto distance = std::abs (reading->y - state.chartPointer.y); distance < nearest)
+                { nearest = distance; pointed = static_cast<int> (index); }
+    }
+    if (sources.aShown)
+    {
+        g.setColour (COL_FLORA_BR.withAlpha (pointed >= 0 ? 0.62f : 0.9f));
+        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+    }
+    const auto stroke = [&] (size_t index, float alpha, float thickness)
+    {
+        juce::Path path;
+        for (size_t band = 0; band < curves[index].hz.size(); ++band)
+        {
+            const juce::Point<float> point { xFor (curves[index].hz[band], chart), yFor (curves[index].level[band], chart) };
+            if (band == 0) path.startNewSubPath (point); else path.lineTo (point);
+        }
+        g.setColour (curves[index].colour.withAlpha (alpha));
+        g.strokePath (path, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    };
+    for (size_t index = 0; index < curves.size(); ++index)
+        if (static_cast<int> (index) != pointed) stroke (index, pointed >= 0 ? 0.30f : 0.92f, 1.4f);
+    if (pointed >= 0) stroke (static_cast<size_t> (pointed), 1.0f, 2.4f);
+    // 指した所の値：A と、指している線だけ（全部の値を並べると図を覆う）。
+    std::vector<ReadCurve> readings;
+    if (sources.aShown)
+        readings.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb, 0.0, minimumHz, maximumHz));
+    const auto pointedName = pointed >= 0 ? juce::String (sources.shown[static_cast<size_t> (pointed)].number) : juce::String();
+    if (pointed >= 0)
+    {
+        readings.push_back (curves[static_cast<size_t> (pointed)]);
+        readings.back().name = pointedName.toRawUTF8();
+        readings.back().colour = overlayTextColour (sources.shown[static_cast<size_t> (pointed)].line->colour);
+    }
+    if (! readings.empty())
+        paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
+                           [chart] (float level) { return yFor (level, chart); }, context);
+    if (sources.shown.empty())
+    {
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
+        text_style::drawEllipsized (g, sources.linesOn ? "REFERENCE VALUES ARRIVE FROM KIRIN OS" : overlayEmptyText,
+                                    chart.toNearestInt(), juce::Justification::centred);
+    }
 }
 }
 
 juce::Rectangle<int> referenceBalanceAWindowArea (juce::Rectangle<float> bounds, const State& state, presentation::Context context)
 {
-    const auto labels = balanceLabels (balanceSources (state), state);
+    const auto entries = legendEntries (balanceSources (state), state);
     const auto font = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
     bounds.removeFromTop (26.0f);
-    const auto legend = takeLegend (bounds, labels, font);
+    const auto legend = takeLegend (bounds, entries, font, state.overlay.all);
     return legend.withHeight (legendRowHeight).withWidth (juce::jmin (legend.getWidth(),
-        legendItemExtra + referenceTextWidth (font, labels[0]) + AWindowControl::arrowWidth));
+        legendItemExtra + referenceTextWidth (font, entries[0].text) + AWindowControl::arrowWidth));
 }
 
 void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                             presentation::Context context)
 {
     surface_material::paintPanel (g, bounds, 0.72f);
-    help::note (bounds, help_text::balance);
+    const bool shaped = state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines;
+    help::note (bounds, ! state.overlay.all ? help_text::balance : shaped ? help_text::balanceShape : help_text::balanceAll);
     auto header = bounds.removeFromTop (26.0f).reduced (9.0f, 2.0f).toNearestInt();
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
-    text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (header.getWidth() / 3), juce::Justification::centredLeft);
+    const auto titleFont = labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization);
+    text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (juce::jmin (header.getWidth() / 3,
+                                referenceTextWidth (titleFont, "BALANCE") + 12)), juce::Justification::centredLeft);
+    header.removeFromRight (OverlaySwitch::widthFor (state.overlay.all, context) + 10);  // 描き方・ONE／ALL（REF が置く部品）
     const auto sources = balanceSources (state);
     const auto* chosen = sources.chosen;
     const auto& centers = sources.centers;
     const auto& comparable = sources.comparable;
     const bool aShown = sources.aShown;
-    const auto labels = balanceLabels (sources, state);
+    const auto entries = legendEntries (sources, state);
     const auto legendFont = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
-    auto legend = takeLegend (bounds, labels, legendFont);
+    auto legend = takeLegend (bounds, entries, legendFont, state.overlay.all);
     auto chart = bounds.reduced (10.0f, 6.0f);
     paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);
     paintBlauertZones (g, chart, minimumHz, maximumHz);
@@ -153,8 +386,10 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         unmatched = true;
         return 0.0;
     };
+    if (shaped) paintShape (g, chart, state, sources, context, unmatched);
+    else if (state.overlay.all) paintOverlay (g, chart, state, sources, context, unmatched);
     std::vector<float> rangeLow, rangeHigh;
-    if (sources.rangeShown())
+    if (sources.rangeShown (state))
     {
         juce::Path band;
         std::vector<juce::Point<float>> lower;
@@ -176,13 +411,13 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     // A（選んだ窓、Kirin OS の Cue と同じ定義）。曲と同じ帯域の並びのときだけ重ねる。A を太く下に、B を細く上に
     // 描く（同じ値でも両方見える。2026-10-04）。
     std::vector<ReadCurve> readings;
-    if (aShown)
+    if (aShown && ! state.overlay.all)
     {
         g.setColour (COL_FLORA_BR.withAlpha (0.9f));
         g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
         readings.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb, 0.0, minimumHz, maximumHz));
     }
-    if (chosen != nullptr)
+    if (chosen != nullptr && ! state.overlay.all)
     {
         std::vector<float> shifted;
         for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen, true)));
@@ -191,43 +426,49 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, chosen->centersHz, shifted, 0.0, minimumHz, maximumHz));
     }
     // 指した所の値（C の図と同じ読み）。図を描いた値をそのまま読む。
-    if (! readings.empty() || sources.rangeShown())
+    if (! readings.empty() || sources.rangeShown (state))
     {
         const ReadRange range { drawnCurve ("", COL_NORMAL, centers, rangeLow, 0.0, minimumHz, maximumHz),
                                 drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz), blauertReadoutHeight };
         paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
                            [chart] (float level) { return yFor (level, chart); }, context, &range);
     }
-    if (chosen != nullptr && aShown)  // 曲の中の帯どうしの差なので、音量をそろえられない曲でも出せる
+    if (chosen != nullptr && aShown && ! state.overlay.all)  // 曲の中の帯どうしの差なので、音量をそろえられない曲でも出せる
         paintBlauertReadout (g, chart, 'B', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
                                                           chosen->centersHz, chosen->medianDb),
                              minimumHz, maximumHz, context);
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
-    text_style::drawEllipsized (g, unmatched ? "LEVEL NOT MATCHED" : "20 Hz - 20 kHz", header, juce::Justification::centredRight);
-    if (chosen == nullptr && comparable.empty())
+    // ALL の描き方の切り替えで見出しに入らない時は、図の右上に（ALL は Blauert の読みを出さないので空いている）。
+    const juce::String rangeText (unmatched ? "LEVEL NOT MATCHED" : "20 Hz - 20 kHz");
+    const bool headerFits = text_style::shownWidth (legendFont, rangeText) <= static_cast<float> (header.getWidth());
+    text_style::drawEllipsized (g, rangeText, headerFits ? header : chart.toNearestInt().removeFromTop (16).reduced (4, 0),
+                                juce::Justification::centredRight);
+    if (chosen == nullptr && comparable.empty() && ! state.overlay.all)
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
-        text_style::drawEllipsized (g, "REFERENCE VALUES ARRIVE FROM KIRIN OS", chart.toNearestInt(), juce::Justification::centred);
+        // 曲が無い時は理由と次の手を 2 行で（1 行に入らない）。
+        auto parts = juce::StringArray::fromTokens (state.songs.empty() ? noSongsText : "REFERENCE VALUES ARRIVE FROM KIRIN OS", "/", "");
+        parts.trim();
+        auto lines = chart.toNearestInt().withSizeKeepingCentre (juce::roundToInt (chart.getWidth()), 20 * parts.size());
+        for (const auto& part : parts)
+            text_style::drawEllipsized (g, part, lines.removeFromTop (20), juce::Justification::centred);
     }
     // 凡例：A の窓（金、右に窓を選ぶ矢印）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・目標の範囲（薄い帯）。
-    // 2026-10-04。文字の長さに合わせて左から並べる（均等に割ると B が切れる）。
+    // ALL は A と、出している線の番号と名前（出した時の色）。
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
-    const auto left = legend.getX(), right = legend.getRight();
-    int x = left, y = legend.getY();
-    const auto item = [&] (const juce::String& text, juce::Colour colour, float thickness, int extra) {
-        const auto width = legendItemExtra + referenceTextWidth (legendFont, text) + extra;
-        if (x > left && x + width > right) { x = left; y += legendRowHeight; }
-        auto cell = juce::Rectangle<int> (x, y, juce::jmin (width, right - x), legendRowHeight);
-        x += width + 10;
-        g.setColour (colour);
-        g.fillRect (cell.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, thickness));
+    for (const auto& cell : legendCells (entries, legendFont, legend, state.overlay.all))
+    {
+        auto area = cell.area;
+        if (cell.thickness > 0.0f)
+        {
+            g.setColour (cell.colour);
+            g.fillRect (area.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, cell.thickness));
+            area.removeFromLeft (4);
+        }
         g.setColour (COL_TEXT_SECONDARY);
-        text_style::drawEllipsized (g, text, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
-    };
-    item (labels[0], COL_FLORA_BR, 2.8f, AWindowControl::arrowWidth);
-    item (labels[1], COL_SPECTRUM_DELTA, 1.6f, 0);
-    if (sources.rangeShown()) item (labels[2], COL_NORMAL.withAlpha (0.28f), 8.0f, 0);
+        text_style::drawEllipsized (g, cell.text, area, juce::Justification::centredLeft);
+    }
 }
 }

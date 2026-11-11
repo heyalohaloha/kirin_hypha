@@ -30,19 +30,36 @@ inline constexpr const char* versionBands = "Four bands: how much more or less A
 inline constexpr const char* integrated = "Integrated loudness of A's recent window and of C, and how A compares with C.";
 inline constexpr const char* truePeak = "Highest true peak of A and of C at the level C plays at, and how A compares.";
 inline constexpr const char* cueBar = "Where C's Cue sits in the song and its loop. The line is C's playing position.";
+inline constexpr const char* cueBarFollow = "FOLLOW A: C plays the whole song from A's position. The line is C's playing position.";
 inline constexpr const char* match = "The gain C plays at: matched to A's recent window, or the gain it plays at now.";
 inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS. A tab changes C's Check and keeps the song.";
 // C は何のためか（2026-11-11：初めての人に C の役目が伝わっていなかった）。C のボタン・CHECK SET の欄と見出し・C の案内。
-inline constexpr const char* checkPurpose = "C compares A with a section of a reference song, chosen in a CHECK SET in Kirin OS.";
+// C の曲は CHECK セットの曲。CHECK セットに曲が無い時は、Kirin OS が 1 位の Reference のセットの曲を渡す。
+inline constexpr const char* checkPurpose = "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none.";
 
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
 inline constexpr const char* versionTabs = "WHOLE shows the whole song; the other tabs compare A and V over the same section.";
 inline constexpr const char* versionMixContext = "V works best with Hypha on the 2Mix.";
 inline constexpr const char* whole = "The whole song: A above V, peak outside and RMS inside. Select a region to compare.";
 inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.";
+// B・C の流し方とずらし（HyphaReferenceRoles.cpp。B と C で 1 つの選択）。
+inline constexpr const char* loop = "LOOP: B and C repeat their Cue, the section chosen in Kirin OS.";
+inline constexpr const char* followA = "FOLLOW A: B and C play the whole song from A's position in the DAW.";
+inline constexpr const char* earlier = "Move the song 0.1 s back against A (Shift: 0.01 s).";
+inline constexpr const char* offset = "How far the song plays ahead of A. Click for 0. A new song or role starts at 0.";
+inline constexpr const char* later = "Move the song 0.1 s ahead of A (Shift: 0.01 s).";
+
+// B の Balance の重ね比べ（HyphaReferenceOverlay.h）：ALL の図、ONE／ALL の切り替え、一覧の番号。
+inline constexpr const char* balanceAll = "Balance: A over the chosen window and the lines you show, each at the level B plays it at.";
+inline constexpr const char* overlay = "ONE: A, the chosen song and the set's range. ALL: A with the lines of the numbers you press.";
+inline constexpr const char* overlayNumber = "Shows or hides this line on Balance. B keeps playing the song you chose.";
+inline constexpr const char* drawing = "LINES: each line you turn on. SHAPE: their mean and range. ALL SHAPE: of every song and target.";
+inline constexpr const char* balanceShape = "Balance: A over the chosen window, with the mean and range of the songs and targets in it.";
 
 // 説明の全部（足したらここにも足す。試験は全部を両言語で確かめる：足元の行に収まる・日本語に英語が残らない）。
 inline constexpr const char* all[] { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
-                                     integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs };
+                                     integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs,
+                                     balanceAll, overlay, overlayNumber, drawing, balanceShape,
+                                     loop, followA, earlier, offset, later, cueBarFollow };
 }

@@ -178,6 +178,8 @@ struct State
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
     reference_audition::AWindowChoices aWindows; // B・C の図の A の線の窓
     reference_audition::AWindowTarget aWindowTarget; // リストの回答を結ぶ役と世代
+    reference_audition::BalanceOverlay overlay;      // B の Balance の ONE／ALL と出した線（見せ方だけ）
+    juce::String overlayPointed;                     // ALL で一覧の指している行（その線を強める）
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     juce::Point<float> chartPointer { -1.0f, -1.0f };  // where the pointer reads a spectrum chart
     std::vector<float> liveSpectrumDbfs;
@@ -211,6 +213,8 @@ struct State
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;      // C の Cue が終わりで頭へ戻る（Kirin OS の印か、A の位置を追わない Cue）
     bool referenceWraps = false;  // B の Cue が同じく繰り返す
+    bool followA = false; double followOffsetSeconds = 0.0, audibleFollowOffsetSeconds = 0.0;  // FOLLOW A と、見ている・鳴っている役のずらし（秒）
+    double wholeSongLoudness = unavailableValue();  // 見ている役（B・C）の曲全体の LUFS-I（FOLLOW A の MATCH の基）
     int publicationReturn = 0;    // 見ている役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻した
     juce::String publicationIssue;  // B の画面で言う：新しい公開を読めなかった・曲を外した（文）
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
@@ -305,7 +309,9 @@ public:
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;
+    std::function<void(const reference_audition::BalanceOverlay&)> onOverlayChange; // 重ね比べ（保存して host に知らせる）
     std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
+    std::function<void(bool)> onSetFollowA; std::function<void(int, double)> onNudgeFollow; std::function<void(int)> onResetFollow;  // B・C の流し方とずらし
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
     // A B or C that cannot be heard yet says why when it is clicked.
@@ -427,10 +433,13 @@ private:
     SideButton refButton { "B" }; // B（REF、B セットの曲）
     juce::ComboBox songSetBox, songBox;
     SongList songList; // B の画面の左の曲の一覧
+    OverlaySwitch overlaySwitch; // B の Balance の ONE／ALL（HyphaReferenceRoles.cpp・HyphaReferenceOverlay.h）
     CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
     SelectionControl checkSongBox; // いまの Check の曲
     SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
+    std::array<SideButton, 5> playbackButtons { SideButton ("LOOP"), SideButton ("FOLLOW A"), SideButton ("-"), SideButton ("0.00 S"), SideButton ("+") };
+    void configurePlayback(); void syncPlayback (bool blindSession); void layoutPlayback (juce::Rectangle<int> row);  // HyphaReferenceRoles.cpp
     SideButton actionButton { "OPEN KIRIN OS" };
     std::array<AWindowControl, 3> aWindowControls; // 図の凡例の A の場所（図ごとに 1 つ）。B の Balance は 1 番目
     juce::Rectangle<int> balanceBounds;            // B の画面の Balance
@@ -448,6 +457,7 @@ private:
     void configureRoles();
     void syncRoles (bool blindSession);
     bool explainReference();
+    void applyOverlay (reference_audition::BalanceOverlay);  // 見せ方だけ（編集画面を閉じても残る所へも書く）
     // C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
     // （HyphaReferenceCheckPage.cpp）。
     bool checkPage() const noexcept;

@@ -7,6 +7,7 @@
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
 #include "ReferenceControllerTestAccess.h"
+#include "ReferenceFollowATest.h"
 #include <thread>
 
 void testReferenceCueRestart (const juce::File&);
@@ -240,8 +241,25 @@ void verifyReferenceCueRestart (const juce::File& sandbox, bool forcePending)
 
 }
 
+namespace hypha::reference_audition
+{
+// 流し方・ずらしを書いている途中（ReferenceRuntimeSongSwitch.cpp）。試験が置いた確かめを一度だけ呼ぶ。
+void observeReferenceFollowWrite (const RuntimeV2Controller* role)
+{
+    if (role == hypha::tests::follow_a::followProbeRole)
+        if (auto probe = std::exchange (hypha::tests::follow_a::followWriteProbe, nullptr)) probe();
+}
+// 流し方を替える時、MATCH を決めた後・書く前（ReferenceRuntimeSongSwitch.cpp）。試験が選んだ役でだけ一度呼ぶ。
+void observeReferenceFollowMatch (const RuntimeV2Controller* role)
+{
+    if (role == hypha::tests::follow_a::followProbeRole)
+        if (auto probe = std::exchange (hypha::tests::follow_a::followMatchProbe, nullptr)) probe();
+}
+}
+
 void testReferenceCueRestart (const juce::File& sandbox)
 {
     verifyReferenceCueRestart (sandbox, false);
     verifyReferenceCueRestart (sandbox, true);
+    testReferenceFollowA (sandbox);  // LOOP（既定）と FOLLOW A
 }

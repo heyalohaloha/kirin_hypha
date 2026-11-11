@@ -14,7 +14,7 @@ const Entry entries[] = {
     { "Nothing to choose yet", u8"選べる物はまだありません" },
     { "Only one to choose", u8"選べるのは1つだけです" },
     { "Play A for 3 s to make a target", u8"Aを3秒再生すると目標を作れます" },
-    { "8 targets: remove one first", u8"目標は8つまでです。1つ消すと作れます" },
+    { "%1 targets: remove one first", u8"目標は%1個までです。1つ消すと作れます" },
     { "Choose a target to remove", u8"消す目標を選ぶと使えます" },
     { "Preparing the song; try again in a moment", u8"曲を準備中です。少し待つと使えます" },
     { "DATA ONLY", u8"数値のみ" },
@@ -23,7 +23,9 @@ const Entry entries[] = {
     { "AUDIO INVALID", u8"音声データ不正" },
     { "FILE CHANGED", u8"ファイル変更" },
     { "SAMPLE RATE", u8"未対応レート" },
-    { "8 TARGETS MAX", u8"目標は8個まで" },
+    // A drop that does not fit (TargetService): how many did not, and how to make room.
+    { "%1 NOT ADDED: %2 TARGETS MAX", u8"%1曲入りません（%2個まで）" },
+    { "REMOVE ONE TO MAKE ROOM", u8"1つ消すと入ります" },
     { "A WINDOW UNAVAILABLE", u8"Aの窓が未確定" },
     { "MEASUREMENT UNAVAILABLE", u8"測定を完了できません" },
     { "TARGET UNAVAILABLE", u8"目標を選べません" },
@@ -89,8 +91,10 @@ const Entry entries[] = {
     // 音量の合わせ方（2026-11-11：B・C の区間を言う行で、区間の追従と読み違えないよう「音量」と言う）。
     { "%1 FOLLOWING A (LAST 10 S)", u8"%1はA直近10秒に追従" },  // 凡例・B の一覧と同じ「A直近10秒」。300% の足元に入る
     { "LEVEL FOLLOWS A (LAST 10 S)", u8"音量はA直近10秒に追従" },
-    { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2 / %3秒）" },
-    { "LEVEL MATCHING A %1 OF %2 S", u8"音量をAに合わせ中（%1 / %2秒）" },
+    // 型は前から順に当てるので、「LEVEL」で始まる型を「%1」で始まる型より前に置く（後ろだと「LEVELはAに合わせ中」に
+    // なっていた）。秒の組は「/」を空けない（空けると足元の行がそこを区切りと見て途中で切った。2026-11-12）。
+    { "LEVEL MATCHING A %1 OF %2 S", u8"音量をAに合わせ中（%1/%2秒）" },
+    { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2/%3秒）" },
     { "%1 MATCHED AND FIXED", u8"%1はMATCH済み・固定" },
     { "LEVEL MATCHED AND FIXED", u8"音量はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },

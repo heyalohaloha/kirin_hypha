@@ -12,6 +12,7 @@
 #include "ReferenceJapaneseScreenTextTest.h"
 #include "ReferenceStageTableTest.h"
 #include "ReferenceRejectionReasonTest.h"
+#include "ReferenceFollowAPageTest.h"
 
 namespace hypha::tests
 {
@@ -27,6 +28,7 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceJapaneseScreenText();
     verifyReferenceStageTable();
     verifyReferenceRejectionReasons();
+    verifyReferenceFollowAPages();
     verifyReferenceSongChoice();
     verifyUnsentCheckSet();
     verifyLongSongTitleKeepsVersion();
@@ -102,8 +104,8 @@ inline void verifyReferenceAbcvRoles()
             };
             visit (panel);
             visit (panel.footerStatusStrip());
-            require (buttons.size() == 7, "the seven REF buttons (A B C V, MATCH, VERSION BLIND, action) are all visited ("
-                                              + juce::String (static_cast<int> (buttons.size())) + ")");
+            require (buttons.size() == 12, "the twelve REF buttons (A B C V, MATCH, VERSION BLIND, action, LOOP, FOLLOW A and "
+                                               "the song offset's three) are all visited (" + juce::String (static_cast<int> (buttons.size())) + ")");
         }
         auto* a = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-a"));
         auto* b = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-ref"));
@@ -133,6 +135,28 @@ inline void verifyReferenceAbcvRoles()
                      && panel.getLocalBounds().contains (set->getBounds()) && panel.getLocalBounds().contains (song->getBounds())
                      && ! set->getBounds().intersects (song->getBounds()),
                  "the B page shows the Reference set and its songs at every size, " + juce::String (size.width));
+        // B・C の流し方（2026-11-11）：B の画面はどの大きさでも FOLLOW A を切り替えられる（曲の欄と重ならず、字が切れない）。
+        // 300% は LOOP と並び、FOLLOW A のときだけ手のずらし。
+        {
+            const bool large = presentation::forEditor (size.width, size.height).density == observatory::Density::inspection;
+            auto* loop = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-loop"));
+            auto* follow = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-follow-a"));
+            auto* offset = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-offset"));
+            const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::action,
+                                         typography::Composition::information);
+            require (loop && follow && offset && follow->isVisible() && loop->isVisible() == large && ! offset->isVisible()
+                         && ! follow->getToggleState() && panel.getLocalBounds().contains (follow->getBounds())
+                         && ! follow->getBounds().intersects (song->getBounds()) && ! follow->getBounds().intersects (set->getBounds())
+                         && text_style::shownWidth (font, "FOLLOW A") <= static_cast<float> (follow->getWidth()),
+                     "B offers FOLLOW A at every size, beside its song: " + juce::String (size.width));
+            auto following = state;
+            following.followA = true;
+            panel.setState (following);
+            require (follow->getToggleState() && offset->isVisible() == large
+                         && (! large || (panel.getLocalBounds().contains (offset->getBounds()) && offset->getButtonText() == "0.00 S")),
+                     "FOLLOW A shows the song's offset on the large B page: " + juce::String (size.width));
+            panel.setState (state);
+        }
         {
             juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
             juce::Graphics graphics (image);

@@ -85,7 +85,7 @@ public:
                 && ! xml->getChildByName ("MeasuredTargets")->toString().contains (input.getFullPathName()),
                 "the product's project state saves measurements without audio or source paths");
             juce::StringArray files;
-            for (int i = 0; i < 10; ++i) files.add (input.getFullPathName());
+            for (int i = 0; i < 20; ++i) files.add (input.getFullPathName());
             panel->filesDropped (files, 0, 0);
             stage = 1; started = std::chrono::steady_clock::now();
             return false;
@@ -118,8 +118,8 @@ public:
             const auto targets = processor.referenceTargetSnapshot();
             require (targets.collection.selected == selected, "file measurement preserves the displayed C target");
             if (targets.measuring) return false;
-            require (targets.collection.items.size() == 8 && targets.issue == "8 TARGETS MAX",
-                     "the real REF drop fills the seven remaining slots and reports excess files");
+            require (targets.collection.items.size() == 16 && targets.issue == "5 NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO MAKE ROOM",
+                     "the real REF drop fills the fifteen remaining slots and says how many files were not added");
             processor.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
             const auto round = processor.referenceTargetSnapshot();
             require (round.collection.items.size() == 1 && round.collection.selected == selected

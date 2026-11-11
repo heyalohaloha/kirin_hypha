@@ -6,6 +6,12 @@ namespace hypha::reference_audition
 namespace
 {
 using Stage = PendingAuditionView::Stage;
+// 位置が音源の外のときの理由のコード。FOLLOW A（B・C）は曲の終わりの後・頭より前を分けて言う。
+juce::String outsideReason (const Snapshot& state)
+{
+    return state.followOutside > 0 ? "reference_follow_past_end"
+         : state.followOutside < 0 ? "reference_follow_before_start" : "reference_position_outside_source";
+}
 }
 
 void ReferenceComparisonController::clearPendingAudition()
@@ -14,6 +20,7 @@ void ReferenceComparisonController::clearPendingAudition()
     const juce::ScopedLock lock (selectionLock);
     version.setQueuedContentObservationEnabled (false);
     pendingAudition = {};
+    rememberedPress = {};
 }
 
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
@@ -43,7 +50,7 @@ void ReferenceComparisonController::appendPendingAudition (
     state.checkArmable = c.source != nullptr && !c.hidden && state.checkSelection->playbackIdentity.isNotEmpty();
 }
 
-bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
+bool ReferenceComparisonController::requestAuditionOnce (int slot, double loudness, double peak)
 {
     if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     if ((slot != 1 && slot != 2 && slot != 3) || outputDecision (output_owner::Activity::audition).refused()) return false;
@@ -54,7 +61,8 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     if (binding.source)
     {
         RuntimeV2SourceRepository verifier (juce::File {});
-        if (verifier.verifySourceRevision (*binding.source).isNotEmpty()) return queueAudition (slot, safety);
+        // 確かめ直しの間の押しも、押した時の A を持って待つ（FOLLOW A の曲の外で押した時、鳴り始める時の A で合わせない）。
+        if (verifier.verifySourceRevision (*binding.source).isNotEmpty()) return queueAudition (slot, safety, loudness, peak);
     }
     // C は A の音量が何も無いときだけ待たせる（A のまま。待ちの上限を超えたら理由を出す）。A の直近が Cue の長さに
     // 足りないあいだは、今ある A で合わせて鳴らし、たまったら合わせ直す（KirinHyphaEditor::serviceReferenceRematch）。
@@ -65,13 +73,13 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     {
         if (slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak))
             return true;
-        return waitWhilePreparing (slot);
+        return waitWhilePreparing (slot, loudness, peak);
     }
-    return queueAudition (slot, safety) || waitWhilePreparing (slot);
+    return queueAudition (slot, safety, loudness, peak) || waitWhilePreparing (slot, loudness, peak);
 }
 
 // 押した役を待たせる（止まっている・A の音量を待つ・A を下げている途中）。再生で、準備でき次第鳴らす。
-bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety)
+bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety, double loudness, double peak)
 {
     const juce::ScopedLock transaction (targetChoiceLock);
     if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
@@ -86,6 +94,8 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
     PendingIntent next;
     next.identity = identity; next.safetyEpoch = safety;
     next.view = { slot, Stage::play };
+    // FOLLOW A で曲の外で押した：押した時の A で合わせる（決めるのは押した時）。
+    if (slotController (slot).snapshot().followOutside != 0) { next.pressLoudness = loudness; next.pressPeak = peak; }
     { const juce::ScopedLock lock (selectionLock);
       next.intentId = ++pendingSequence; pendingAudition = std::move (next);
       version.setQueuedContentObservationEnabled (slot == 1);
@@ -98,17 +108,18 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
 // 待って待ちを立てる）で、準備でき次第新しい MATCH で鳴らす。待ちの上限は画面が見張る。待っても変わらない
 // もの（MATCH の上限超え・音源の音量が無い・Cue の外・失敗）は断って理由を出す（2026-10-03。V の版を替えた
 // 直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
-bool ReferenceComparisonController::waitWhilePreparing (int slot)
+bool ReferenceComparisonController::waitWhilePreparing (int slot, double loudness, double peak)
 {
     if (trialActive()) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned) return false; }
     auto& target = slotController (slot);
     const auto now = target.snapshot();
-    if (now.auditionPages == AuditionPageState::outsideSource)
+    // FOLLOW A で A の位置が曲の外：押したことを覚えて待ち、A の位置が曲に入れば鳴らす（理由は待ちの文が言う）。
+    if (now.auditionPages == AuditionPageState::outsideSource && now.followOutside == 0)
     {
         selectA();
         const juce::ScopedLock lock (selectionLock);
-        pendingAudition.view = { slot, Stage::startFailed, "reference_position_outside_source" };
+        pendingAudition.view = { slot, Stage::startFailed, outsideReason (now) };
         return false;
     }
     const bool settles = now.matchFailure != MatchFailure::sourceLevelUnavailable && ! now.auditionOutsideCue
@@ -123,10 +134,15 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
                     || now.rejectionCode == "reference_source_revalidating"
                     || now.rejectionCode == "reference_source_cache_full"
                     || now.rejectionCode == "reference_source_copy_failed"))
-            || now.matchFailure == MatchFailure::liveLevelUnavailable);
+            || now.matchFailure == MatchFailure::liveLevelUnavailable || now.followOutside != 0);
     if (! settles) return false;
     selectA();
-    { const juce::ScopedLock lock (selectionLock); switchGeneration = target.requestedGeneration(); }
+    {
+        const juce::ScopedLock lock (selectionLock);
+        switchGeneration = target.requestedGeneration();
+        // FOLLOW A で曲の外で押した：押した時の A を覚え、A の位置が曲に入って鳴らす時にそれで合わせる。
+        if (now.followOutside != 0) rememberedPress = { slot, switchGeneration, loudness, peak };
+    }
     switchSlot.store (slot, std::memory_order_release);
     normalOutputSlot.store (slot, std::memory_order_release);
     return true;
@@ -231,12 +247,15 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         // 停止の後に同じ V へ戻る自動の戻し（resume）は、再生位置が版の範囲外でも捨てない。範囲外のあいだは A のまま
         // 待ち（確かめた写像で範囲外の位置は鳴らさない）、範囲内に入れば押し直し無しで戻す（1.1.53 と同じ）。
         // 利用者が押した初回と選択の替えは、確かめた写像の上で範囲外なら今までどおり理由を出して断る。
-        if (intent.resume && state.auditionPages == AuditionPageState::outsideSource)
-        { publish (state.transportPlaying ? Stage::checking : Stage::play, callbackLive); return; }
+        // FOLLOW A の曲の外も同じ：A のまま理由を言って待ち、曲の中へ戻れば押し直し無しで戻す。
+        // 押して待っている FOLLOW A の役も同じ（A・別の役・END・REF を離れると、ほかの待ちと同じく消える）。
+        if ((intent.resume || state.followOutside != 0) && state.auditionPages == AuditionPageState::outsideSource)
+        { publish (state.transportPlaying ? Stage::checking : Stage::play, callbackLive,
+                   state.followOutside != 0 ? outsideReason (state) : juce::String {}); return; }
         if (intent.resume || intent.switching) dropResume();
         publish (state.auditionPages == AuditionPageState::outsideSource ? Stage::startFailed : Stage::sourceChanged,
                  callbackLive, state.auditionPages == AuditionPageState::outsideSource
-                     ? "reference_position_outside_source" : "reference_audio_read_failed");
+                     ? outsideReason (state) : juce::String ("reference_audio_read_failed"));
         return;
     }
     if (!state.transportPlaying) { publish (Stage::play); return; }
@@ -249,6 +268,9 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         else publish (Stage::checking, callbackLive);
         return;
     }
+    // 曲の外で押して覚えた役は、押した時の A で合わせる（読めていなければ鳴らす時の A）。
+    if (std::isfinite (intent.pressLoudness)) loudness = intent.pressLoudness;
+    if (std::isfinite (intent.pressPeak)) peak = intent.pressPeak;
     if (!intent.resume && intent.view.slot != 1 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
         || (state.comparisonMode == "peak_match" && !std::isfinite (peak))))
     { publish (Stage::level, true); return; }

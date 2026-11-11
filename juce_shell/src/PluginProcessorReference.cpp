@@ -76,7 +76,8 @@ hypha::reference_audition::WindowLoudnessCache KirinHyphaProcessorBase::referenc
     {
         const auto blocks = referenceAuditionController != nullptr ? referenceAuditionController->liveWindowBlocks (slot)
                                                                    : hypha::reference_audition::liveWindowBlocks;
-        const auto needed = hypha::reference_audition::matchMinimumBlocks (slot, blocks);
+        const auto needed = referenceAuditionController != nullptr && referenceAuditionController->followA() ? 0  // FOLLOW A は待たない
+            : hypha::reference_audition::matchMinimumBlocks (slot, blocks);
         const auto level = referenceLiveALevel (true, blocks, needed);
         // 読み直しても読めなかったら前の値のまま、次の描画で読み直す（A 0 と出さない）。
         if (level.windowUnread && cache.slot == slot) cache.validUntilMs = now;
@@ -105,7 +106,8 @@ hypha::reference_audition::RematchResult KirinHyphaProcessorBase::rematchReferen
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (referenceAuditionController == nullptr) return hypha::reference_audition::RematchResult::notPlaying;
     const auto blocks = referenceAuditionController->liveWindowBlocks (2);
-    const auto level = referenceLiveALevel (true, blocks, hypha::reference_audition::matchMinimumBlocks (2, blocks));
+    const auto level = referenceLiveALevel (true, blocks, referenceAuditionController->followA()
+                                                              ? 0 : hypha::reference_audition::matchMinimumBlocks (2, blocks));
     return referenceAuditionController->rematch (2, level.loudness, level.peak);
    #else
     return hypha::reference_audition::RematchResult::notPlaying;
@@ -139,6 +141,27 @@ bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
     return false;
    #endif
 }
+
+// B・C の流し方（LOOP／FOLLOW A）と FOLLOW A の手のずらし。鳴らし始めない（R-12）。
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+void KirinHyphaProcessorBase::setReferenceFollowA (bool follow)
+{
+    if (referenceAuditionController == nullptr) return;
+    // 鳴っている B・C は、新しい流し方の窓の A で新しい MATCH を先に決め、写像と一緒に渡す（FOLLOW A は曲全体と ALL）。
+    hypha::reference_audition::LiveALevel level;
+    if (const auto slot = referenceAuditionController->selectedSlot(); slot == 2 || slot == 3)
+        level = referenceLiveALevel (false, referenceAuditionController->windowBlocksFor (slot, follow), 0);
+    referenceAuditionController->setFollowA (follow, level.loudness, level.peak);
+}
+bool KirinHyphaProcessorBase::nudgeReferenceFollow (int slot, double seconds)
+{ return referenceAuditionController != nullptr && referenceAuditionController->nudgeFollowOffset (slot, seconds); }
+bool KirinHyphaProcessorBase::resetReferenceFollow (int slot)
+{ return referenceAuditionController != nullptr && referenceAuditionController->resetFollowOffset (slot); }
+#else
+void KirinHyphaProcessorBase::setReferenceFollowA (bool) {}
+bool KirinHyphaProcessorBase::nudgeReferenceFollow (int, double) { return false; }
+bool KirinHyphaProcessorBase::resetReferenceFollow (int) { return false; }
+#endif
 
 bool KirinHyphaProcessorBase::selectReferenceSongSet (const juce::String& id)
 {

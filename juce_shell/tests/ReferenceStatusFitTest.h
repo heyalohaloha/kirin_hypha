@@ -140,12 +140,34 @@ inline void verifyReferenceStatusFits()
         section.cuePart = reference_audition::CuePart::loudest; section.cueLoops = true;
         section.cueStartSeconds = 593.0; section.cueEndSeconds = 623.0;
         cases.push_back ({ "C plays its looped section", section });
+        // 2026-11-12（300%）：秒の組の「/」を区切りと見て「音量をAに合わせ中（5」で切れていた。
+        for (const double start : { 130.0, 593.0 })
+        {
+            auto matching = section;
+            matching.cuePart = start > 500.0 ? reference_audition::CuePart::loudest : reference_audition::CuePart::chorus;
+            matching.cueStartSeconds = start; matching.cueEndSeconds = start + 26.0;
+            matching.tracking = Tracking::fixed; matching.matchProvisional = true;
+            matching.aWindowBlocks = 180; matching.aWindowNeededBlocks = 250;
+            // 長い区間の名前（最も大きい30秒、10 分の後）では、秒の組は後ろの区切りとして省いてよい（指すと全文）。
+            cases.push_back ({ start > 500.0 ? "C loudest loop past 10 minutes while matching"
+                                             : "C chorus loop while its level is matched", matching });
+        }
         section.comparisonSlot = section.audibleComparisonSlot = 3;
         section.songs = { { "s", "Song" } }; section.songId = "s"; section.referenceWraps = true;
         section.songFacts.resize (1); section.songFacts[0].part = reference_audition::CuePart::chorus;
         section.songFacts[0].partStartSeconds = 173.0; section.songFacts[0].partEndSeconds = 187.0;
         section.rangeShortfallDb = 4.0;
         cases.push_back ({ "B plays its looped section at a follow limit", section });
+        // FOLLOW A：区間の代わりに「B FOLLOW A -12.25 S」。曲の外で待っている戻しは理由と A が鳴っていること。
+        section.followA = true; section.audibleFollowOffsetSeconds = -12.25;
+        section.tracking = Tracking::fixed; section.rangeShortfallDb = 0.0; section.peakShortfallDb = 2.0;
+        cases.push_back ({ "B follows A with an offset and a fixed whole-song match at the peak limit", section });
+        auto waiting = base;
+        waiting.comparisonSlot = 3;
+        waiting.pendingAudition = { 3, reference_audition::PendingAuditionView::Stage::checking, "reference_follow_past_end" };
+        cases.push_back ({ "B waits past the song's end", waiting });
+        waiting.pendingAudition = { 3, reference_audition::PendingAuditionView::Stage::play, "reference_follow_before_start" };
+        cases.push_back ({ "B waits before the song's start", waiting });
     }
     for (const int slot : { 1, 2, 3 })
         for (const int change : { 1, 2 })
@@ -209,6 +231,13 @@ inline void verifyReferenceStatusFits()
                          + tag + "): " + shown);
             require (text_style::shownWidth (readout, layout.text) <= static_cast<float> (layout.textArea.getWidth()),
                      "complete English and Japanese status segments fit the footer before painting (" + tag + "): " + layout.text);
+            const auto count = [&] (const char* marks) { return layout.text.length() - layout.text.removeCharacters (juce::String::fromUTF8 (marks)).length(); };
+            require (count (u8"(（") == count (u8")）"),
+                     "the footer status is never cut inside brackets (" + juce::String (item.name) + ", " + tag + "): " + layout.text);
+            if (juce::String (item.name).endsWith ("level is matched"))
+                require (layout.text.contains (language == i18n::Language::japanese ? juce::String::fromUTF8 (u8"音量をAに合わせ中（18/25秒）")
+                                                                                       : juce::String ("LEVEL MATCHING A 18 OF 25 S")),
+                         "the level match's progress is said whole at 300% (" + juce::String (item.name) + ", " + tag + "): " + layout.text);
             require (! layout.line.text.contains ("A LOWERED"),
                      "the held attenuation is said by RETURN in the footer, not twice (" + juce::String (item.name) + ")");
             if (item.state.actionText.isNotEmpty())
