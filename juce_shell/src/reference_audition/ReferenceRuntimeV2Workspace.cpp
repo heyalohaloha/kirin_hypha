@@ -147,6 +147,13 @@ void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, con
             publish (std::move (next));
             return;
         }
+        {
+            // 新しい公開を断って前の公開のまま使っている（ファイルが一時的に無いだけのときは言わない）。B の画面が言う。
+            const juce::ScopedLock lock (stateLock);
+            retainedPublicationIssue = loaded.state == RuntimeWorkspaceLoadState::retainedPrevious
+                && loaded.rejectionCode != "reference_library_missing" && loaded.rejectionCode != "reference_manifest_missing"
+                ? loaded.rejectionCode : juce::String {};
+        }
         const bool publicationChanged = workspace && workspace->publicationHash != loaded.workspace->publicationHash;
         if (prepareBeforeReturn.load (std::memory_order_acquire) && publicationChanged
             && bSelected.load (std::memory_order_acquire))

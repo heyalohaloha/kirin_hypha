@@ -133,6 +133,8 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     // Kirin OS の公開が鳴っていた区間を変えた・外したので A に戻した（2026-11-11）：理由と、どうすれば聴けるかを言う。
     if (state.publicationReturn != 0)
         return { StatusKind::waiting, publicationReturnLine (state.publicationReturn, slot) };
+    // B の画面：Kirin OS の新しい公開を読めず前のまま、または曲を外した（名前と直し方）。B は前の公開で鳴らせる。
+    if (slot == 3 && state.publicationIssue.isNotEmpty()) return { StatusKind::unable, state.publicationIssue };
     // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
     // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限より先に言う。
     if (preparationFailed (state.rolePreparation) || (step != SourceStep::ready && step != SourceStep::playDaw))

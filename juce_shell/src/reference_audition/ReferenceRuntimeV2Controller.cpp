@@ -111,6 +111,7 @@ namespace hypha::reference_audition
         auto result = currentSnapshot;
         const auto observationBefore = inputObservationGeneration.load (std::memory_order_acquire);
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
+        result.publicationIssue = retainedPublicationIssue;
         result.osOnline = libraryOnline.load (std::memory_order_acquire);
         result.libraryPreparation = libraryPreparation;
         result.adoptedVersions = adoptedVersions;

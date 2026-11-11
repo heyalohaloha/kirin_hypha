@@ -209,6 +209,8 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
         : runtime.songSetsIssue.isNotEmpty() && ! runtime.songSets.empty() ? juce::String ("Some Kirin OS sets were not read. Update Kirin OS and Hypha.")
         : juce::String();
     if (issue.isNotEmpty() && referenceSetsIssueShown != issue) showToast (issue);
+    // B の画面の状態の行でも言い続ける（2026-11-11：知らせは一度だけで、B の画面には何も残らなかった）。
+    state.publicationIssue = slot.publicationIssue.isNotEmpty() ? rejectedStatus (slot.publicationIssue) : skipped;
     referenceSetsIssueShown = issue;
     state.referenceStep = referenceStep (runtime, slot, state.aAvailable);
     state.referenceRejectionCode = runtime.libraryReceived ? rejectionCodeOf (slot) : juce::String {};

@@ -298,6 +298,7 @@ namespace hypha::reference_audition
         CalibrationObservation calibrationObservation;
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
+        juce::String retainedPublicationIssue;  // stateLock：前の公開のまま使っている理由のコード（Snapshot::publicationIssue）
         PreparedNormalSelection preparedNormalSelection;
         struct HeldSelection
         {

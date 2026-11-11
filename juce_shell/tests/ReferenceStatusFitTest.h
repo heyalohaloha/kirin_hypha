@@ -154,6 +154,12 @@ inline void verifyReferenceStatusFits()
             returned.comparisonSlot = slot; returned.publicationReturn = change;
             cases.push_back ({ change == 1 ? "Kirin OS changed what played" : "Kirin OS removed what played", returned });
         }
+    {
+        auto issue = base;  // 2026-11-11：B の画面で、読めなかった公開
+        issue.comparisonSlot = 3;
+        issue.publicationIssue = reference_ui::runtime_view::rejectedStatus ("reference_library_rollback");
+        cases.push_back ({ "Kirin OS publication not read", issue });
+    }
     // 2026-10-06：段階の表の全部の段階 × 全部の役（今までは 5 つの状態だけだった）。
     std::vector<juce::String> stageNames;
     stageNames.reserve (static_cast<size_t> (reference_ui::stageCount) * 3);  // Case は名前の文字を指すので動かさない

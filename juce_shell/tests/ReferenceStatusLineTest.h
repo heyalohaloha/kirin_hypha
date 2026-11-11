@@ -10,6 +10,7 @@
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaReferenceStages.h"
 #include "../src/HyphaReferenceRuntimeStatus.h"
+#include "../src/HyphaReferenceNotices.h"
 
 namespace hypha::tests
 {
@@ -136,6 +137,25 @@ inline void verifyReferenceStatusLine()
                  "V says its Version changed");
         returned.publicationReturn = 0;
         require (! reference_ui::referenceStatusLine (returned).text.contains ("KIRIN OS CHANGED"), "nothing returned, nothing said");
+    }
+    // 2026-11-11：Kirin OS の新しい公開を読めず前のまま、または曲を外したことは、B の画面の状態の行でも言う。
+    {
+        auto issue = named ("ready");
+        issue.separateComparisons = true; issue.comparisonSlot = 3; issue.referenceStep = Step::ready;
+        issue.publicationIssue = reference_ui::runtime_view::rejectedStatus ("reference_library_revision_conflict");
+        auto line = reference_ui::referenceStatusLine (issue);
+        require (line.kind == StatusKind::unable && line.text == "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS"
+                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+                 "a publication Hypha did not read is said on the B page: " + line.text);
+        // 外した曲（manifest・sets.json から。ReferenceRuntimePresetOptions.h が両方を librarySkipped に入れる）。
+        issue.publicationIssue = reference_ui::notice::librarySkipped ({ { "Song A", false } });
+        line = reference_ui::referenceStatusLine (issue);
+        require (line.text == "\"Song A\" was not read. Prepare it again in Kirin OS."
+                     && i18n::translate (line.text, i18n::Language::japanese).contains ("Song A")
+                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+                 "a song dropped from a Reference set is named on the B page: " + line.text);
+        issue.comparisonSlot = 2; issue.checkStep = Step::ready;
+        require (! reference_ui::referenceStatusLine (issue).text.contains ("Song A"), "the C page does not take B's notice");
     }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.comparisonSlot = playing.audibleComparisonSlot = 3;
