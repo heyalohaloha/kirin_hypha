@@ -228,6 +228,8 @@ const Entry entries[] = {
     { "Move the song 0.1 s ahead of A (Shift: 0.01 s).", u8"曲をAより0.1秒先へずらします（Shiftで0.01秒）。" },
     { "Move the song back", u8"曲を後ろへずらす" }, { "Song offset", u8"曲のずらし" }, { "Move the song ahead", u8"曲を先へずらす" },
     { "Choose FOLLOW A to move the song against A", u8"曲をずらすにはFOLLOW Aを選びます" },
+    { "FOLLOW A: C plays the whole song from A's position. The line is C's playing position.",
+      u8"FOLLOW A：CはAの位置から曲全体を再生します。線はCの再生位置。" },
     { "%1 FOLLOW A", u8"%1はAの位置で再生" },
     { "%1 FOLLOW A %2 S", u8"%1はAの位置%2秒で再生" },
     { "%1 PAST SONG END, A PLAYING", u8"%1は曲の終わりを過ぎた・Aを再生中" },

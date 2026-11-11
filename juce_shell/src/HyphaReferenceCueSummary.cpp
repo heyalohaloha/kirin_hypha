@@ -292,12 +292,15 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
     }
 }
 
+// FOLLOW A では C は曲全体を A の位置で鳴らす：Cue の箱を描かず曲全体を帯にし、札は「FOLLOW A（+ずらし） / 長さ」。
 void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
 {
-    help::note (area, help_text::cueBar);
+    const bool follow = state.followA;
+    help::note (area, follow ? help_text::cueBarFollow : help_text::cueBar);
     surface_material::paintPanel (g, area.toFloat(), 0.6f);
     const auto duration = state.sourceDurationSeconds;
-    if (! std::isfinite (duration) || duration <= 0.0 || ! std::isfinite (state.cueStartSeconds) || ! std::isfinite (state.cueEndSeconds))
+    if (! std::isfinite (duration) || duration <= 0.0
+        || (! follow && (! std::isfinite (state.cueStartSeconds) || ! std::isfinite (state.cueEndSeconds))))
         return;
     auto track = area.reduced (8, 5).toFloat();
     const auto x = [&track, duration] (double seconds)
@@ -305,11 +308,11 @@ void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& sta
     g.setColour (COL_MUTED.withAlpha (0.16f));
     for (double tick = 10.0; tick < duration; tick += 10.0)  // 10 秒ごとの目盛り
         g.drawVerticalLine (juce::roundToInt (x (tick)), track.getY() + track.getHeight() * 0.55f, track.getBottom());
-    const auto cue = juce::Rectangle<float>::leftTopRightBottom (x (state.cueStartSeconds), track.getY(),
-                                                                 std::max (x (state.cueEndSeconds), x (state.cueStartSeconds) + 2.0f), track.getBottom());
-    g.setColour (COL_FLORA.withAlpha (0.16f));
+    const auto cue = follow ? track : juce::Rectangle<float>::leftTopRightBottom (x (state.cueStartSeconds), track.getY(),
+                                          std::max (x (state.cueEndSeconds), x (state.cueStartSeconds) + 2.0f), track.getBottom());
+    g.setColour (COL_FLORA.withAlpha (follow ? 0.08f : 0.16f));
     g.fillRoundedRectangle (cue, 2.0f);
-    g.setColour (COL_FLORA_BR.withAlpha (0.8f));
+    g.setColour (COL_FLORA_BR.withAlpha (follow ? 0.4f : 0.8f));
     g.drawRoundedRectangle (cue, 2.0f, 1.0f);
     if (std::isfinite (state.cuePlayheadSeconds))
     {
@@ -321,8 +324,10 @@ void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& sta
     auto labels = area.reduced (12, 0);
     text_style::drawEllipsized (g, "0:00", labels.removeFromLeft (40), juce::Justification::centredLeft);
     g.setColour (COL_FLORA_BR.withAlpha (0.9f));
-    text_style::drawEllipsized (g, "CUE " + clock (state.cueStartSeconds) + "-" + clock (state.cueEndSeconds)
-                                    + (state.cueLoops ? " / LOOP" : "") + " / " + clock (duration),
+    const auto offset = std::abs (state.followOffsetSeconds) < 0.005 ? juce::String() : " " + followOffsetText (state.followOffsetSeconds);
+    text_style::drawEllipsized (g, (follow ? "FOLLOW A" + offset
+                                           : "CUE " + clock (state.cueStartSeconds) + "-" + clock (state.cueEndSeconds)
+                                                 + (state.cueLoops ? " / LOOP" : "")) + " / " + clock (duration),
                                 labels, juce::Justification::centredRight);
 }
 }

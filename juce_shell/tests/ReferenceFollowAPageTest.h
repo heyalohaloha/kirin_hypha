@@ -98,6 +98,19 @@ inline void verifyReferenceFollowAPages()
                  && panel.getLocalBounds().contains (follow->getBounds()) && loop->getRight() < follow->getX()
                  && loop->getBottom() > panel.getHeight() - 60,
              "the C page offers LOOP (on) and FOLLOW A in its Cue row");
+    // 描いた文（言語ごと）。LOOP の Cue の段は Cue の位置とループを言う。
+    const auto shownTexts = [] (reference_ui::Component& page, i18n::Language language)
+    {
+        const i18n::ScopedLanguage scoped (language);
+        juce::Image image (juce::Image::ARGB, page.getWidth(), page.getHeight(), true);
+        juce::Graphics graphics (image);
+        text_style::ShownTextLog log;
+        page.paintEntireComponent (graphics, true);
+        return log.texts();
+    };
+    require (shownTexts (panel, i18n::Language::english).contains ("CUE 1:02-1:32 / LOOP / 4:55")
+                 && helpTextsOf (panel).count (reference_ui::help_text::cueBar) == 1,
+             "in LOOP the Cue bar names the Cue and its loop");
     bool asked = false, wanted = true;
     panel.onSetFollowA = [&] (bool next) { asked = true; wanted = next; };
     follow->onClick();
@@ -130,15 +143,50 @@ inline void verifyReferenceFollowAPages()
     require (slot == 2 && std::abs (nudged + 0.1) < 1.0e-12, "- moves C's song 0.1 s back");
     offset->onClick();
     require (slot == -2, "the offset returns to 0 when pressed");
-    // 時間軸は流し方の右に残る（説明の場所で確かめる）。
+    // 時間軸は流し方の右に残り、FOLLOW A では曲全体と「FOLLOW A +0.50 S」を言う。Cue とループは言わない（日英）。
     const auto texts = helpTextsOf (panel);
-    require (texts.count (reference_ui::help_text::cueBar) == 1 && texts.count (reference_ui::help_text::followA) == 1
-                 && texts.count (reference_ui::help_text::offset) == 1,
-             "the Cue bar stays beside the playback controls");
+    require (texts.count (reference_ui::help_text::cueBarFollow) == 1 && texts.count (reference_ui::help_text::cueBar) == 0
+                 && texts.count (reference_ui::help_text::followA) == 1 && texts.count (reference_ui::help_text::offset) == 1,
+             "the Cue bar stays beside the playback controls and explains FOLLOW A");
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const auto shown = shownTexts (panel, language);
+        const auto joined = shown.joinIntoString ("|");
+        require (joined.contains ("FOLLOW A +0.50 S") && joined.contains ("4:55") && ! joined.contains ("1:02-1:32")
+                     && ! joined.contains (" LOOP") && ! joined.contains ("LOOP ") && ! joined.contains (juce::String::fromUTF8 (u8"繰り返し")),
+                 "in FOLLOW A the Cue bar shows the whole song with its offset, never the Cue or LOOP: " + joined);
+    }
+    check.followOffsetSeconds = 0.0;
+    panel.setState (check);
+    require (shownTexts (panel, i18n::Language::english).contains ("FOLLOW A / 4:55"), "no offset, no amount on the Cue bar");
+    // B の画面（300%）で B が FOLLOW A で鳴っている：状態の行も描いた文も LOOP と言わない（Balance の凡例は値の区間の名前）。
+    {
+        reference_ui::Component bPage;
+        bPage.setVisible (true);
+        bPage.setPresentationContext (presentation::forEditor (900, 600));
+        bPage.setSize (888, 470);
+        auto b = named ("ready");
+        b.separateComparisons = b.libraryReceived = b.osOnline = b.transportPlaying = b.bSelected = true;
+        b.osAccess = os_access::State::ready;
+        b.comparisonSlot = b.audibleComparisonSlot = 3; b.followA = true; b.referenceWraps = true;
+        b.tracking = reference_audition::TrackingState::following;
+        b.songSets = { { "set", "Set   1 / 1" } }; b.songSetId = "set";
+        b.songs = { { "s1", "Song" } }; b.songId = b.audibleSongId = "s1"; b.songFacts.resize (1);
+        b.songFacts[0].part = reference_audition::CuePart::chorus;
+        b.songFacts[0].partStartSeconds = 173.0; b.songFacts[0].partEndSeconds = 187.0;
+        bPage.setState (b);
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const auto joined = shownTexts (bPage, language).joinIntoString ("|");
+            require (! joined.contains (" LOOP") && ! joined.contains (juce::String::fromUTF8 (u8"繰り返し"))
+                         && (joined.contains ("B FOLLOW A") || joined.contains (juce::String::fromUTF8 (u8"BはAの位置で再生"))),
+                     "B playing in FOLLOW A never reads as a loop on its page: " + joined);
+        }
+    }
     verifyReferenceHelpFits ({ reference_ui::help_text::loop, reference_ui::help_text::followA, reference_ui::help_text::earlier,
-                               reference_ui::help_text::offset, reference_ui::help_text::later });
+                               reference_ui::help_text::offset, reference_ui::help_text::later, reference_ui::help_text::cueBarFollow });
     for (const auto* help : { reference_ui::help_text::loop, reference_ui::help_text::followA, reference_ui::help_text::earlier,
-                              reference_ui::help_text::offset, reference_ui::help_text::later })
+                              reference_ui::help_text::offset, reference_ui::help_text::later, reference_ui::help_text::cueBarFollow })
         require (i18n::hasTranslation (help), "every playback help has Japanese: " + juce::String (help));
 }
 }

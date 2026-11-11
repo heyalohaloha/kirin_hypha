@@ -195,7 +195,8 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
-  and the Cue's place in the song with its loop and the playing position. A Check
+  and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
+  FOLLOW A and the offset). A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
   medians on the right, with the difference on A's line — crest (TP/RMS) and loudness movement (LUFS-S around each median,

@@ -30,6 +30,7 @@ inline constexpr const char* versionBands = "Four bands: how much more or less A
 inline constexpr const char* integrated = "Integrated loudness of A's recent window and of C, and how A compares with C.";
 inline constexpr const char* truePeak = "Highest true peak of A and of C at the level C plays at, and how A compares.";
 inline constexpr const char* cueBar = "Where C's Cue sits in the song and its loop. The line is C's playing position.";
+inline constexpr const char* cueBarFollow = "FOLLOW A: C plays the whole song from A's position. The line is C's playing position.";
 inline constexpr const char* match = "The gain C plays at: matched to A's recent window, or the gain it plays at now.";
 inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS. A tab changes C's Check and keeps the song.";
 // C は何のためか（2026-11-11：初めての人に C の役目が伝わっていなかった）。C のボタン・CHECK SET の欄と見出し・C の案内。
@@ -60,5 +61,5 @@ inline constexpr const char* all[] { strips, crest, movement, momentary, width, 
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
                                      integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs,
                                      balanceAll, overlay, overlayNumber, drawing, balanceShape,
-                                     loop, followA, earlier, offset, later };
+                                     loop, followA, earlier, offset, later, cueBarFollow };
 }
