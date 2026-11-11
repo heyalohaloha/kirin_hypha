@@ -248,6 +248,19 @@ const Entry entries[] = {
       u8"FOLLOW AはAの位置で曲を再生します。Aを曲の中へ戻すか、LOOPを選びます。" },
     { "The offset moves the song after A. It starts when A reaches it.", u8"ずらしで曲がAより後ろにあります。Aが届くと始まります。" },
     { "MEAN %1", u8"平均 %1" },  // 図を指したときの平均の読み（上の「MEAN OF」の後に置く）
+    // C の比べる値 CUE／SONG（CUE・SONG は英語のまま）。SONG の凡例・A の窓のリスト・状態の行・説明。
+    { "A FROM START %1", u8"A頭から%1" },
+    { "A FROM START", u8"A頭から" },
+    { "C SONG %1", u8"C曲全体 %1" },
+    { "C SONG", u8"C曲全体" },
+    { "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1", u8"Kirin OS 1.6.1で曲全体の値が出ます" },
+    { "A FROM START HOLDS THE DAW'S FIRST 30 MIN", u8"A頭からはDAWの最初の30分まで" },
+    { "CUE compares C's Cue with A's recent window. SONG compares C's whole song with A from the DAW's start.",
+      u8"CUEはCのCueと直近のAを、SONGはCの曲全体とDAWの頭からのAを比べます。" },
+    { "Spectrum of C's whole song with its range, and A from the DAW's start, at the same loudness.",
+      u8"Cの曲全体とその範囲、DAWの頭からのAのSpectrum。同じ音量にそろえる。" },
+    { "Four bands: how much more or less A from the start has than C's whole song, at the same loudness.",
+      u8"4帯域：同じ音量にそろえたCの曲全体より、頭からのAが各帯域でどれだけ多いか少ないか。" },  // 図を指したときの平均の読み（上の「MEAN OF」の後に置く）
 };
 }
 

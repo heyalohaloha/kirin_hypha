@@ -9,8 +9,8 @@
 #include <algorithm>
 
 // C（CHECK）の画面（300%。300% 未満の C は押すと 300% に広がる）。上から CHECK SET（順位つき）と曲、Check のタブ
-// （CHECK セットの順）、Cue と MATCH（右上に 1 つ）、見比べの窓（Cue 対 A の同じ長さの直近）、4 帯域の
-// 要約、Cue の時間軸。V の選択は V の画面にだけ出す。
+// （CHECK セットの順）、Cue と MATCH（右上に 1 つ）、見比べの窓（Cue 対 A の同じ長さの直近。SONG は C の曲全体対 A の
+// DAW の頭から）、4 帯域の要約、Cue の時間軸と右の端の CUE／SONG。V の選択は V の画面にだけ出す。
 namespace hypha::reference_ui
 {
 namespace
@@ -76,6 +76,10 @@ void Component::configureCheckPage()
     matchButton.setTitle ("Match C to A again");
     matchButton.onClick = [this] { requestCheckMatch(); };
     addChildComponent (matchButton);
+    // CUE／SONG は比べる値だけを替える（音・MATCH は変えない）。役を押した直後の古い画面の押しは捨てる。
+    songSwitch.onChoose = [this] (bool song)
+    { if ((! pageCurrent || pageCurrent (current.comparisonSlot)) && onSetCheckSong) onSetCheckSong (song); };
+    addChildComponent (songSwitch);
 }
 
 void Component::syncCheckPage (bool blindSession)
@@ -111,6 +115,9 @@ void Component::syncCheckPage (bool blindSession)
     matchButton.setTooltip (current.bSelected && current.audibleComparisonSlot == 2
         ? "Match C to the latest A over the Cue's length again, and keep it fixed."
         : "Play C matched to the latest A over the Cue's length.");
+    songSwitch.setChoice (current.song.chosen, SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
+    songSwitch.setVisible (page && ! blindSession && ! current.targetSelected && group != nullptr && ! listeningCheck()
+                           && (std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox)));
     if (page)
     {
         // C の画面では V の選択と、Check と曲を 1 つにした選択欄を出さない（V の画面とタブ・曲で選ぶ）。
@@ -157,8 +164,14 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     }
     checkTabs.setBounds (row);
     cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
-    auto cueRow = cueRowBounds();  // その右に流し方とずらし、残りが時間軸
+    auto cueRow = cueRowBounds();  // その右に流し方とずらし、右の端に CUE／SONG、残りが時間軸
     if (selectionVisible (cueBox) || cueBox.isVisible()) cueRow.removeFromLeft (188);
+    if (songSwitch.isVisible())
+    {
+        const auto width = SongSwitch::widthFor (SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
+        songSwitch.setBounds (cueRow.removeFromRight (width).withSizeKeepingCentre (width, SongSwitch::height));
+        cueRow.removeFromRight (8);
+    }
     layoutPlayback (cueRow);
 }
 
@@ -244,6 +257,7 @@ juce::Rectangle<int> Component::paintCheckFooter (juce::Graphics& g, juce::Recta
         if (selectionVisible (cueBox) || cueBox.isVisible()) row.removeFromLeft (cueBox.getWidth() + 8);  // CUE の選択
         for (const auto& button : playbackButtons)  // 流し方とずらし
             if (button.isVisible()) row.setLeft (juce::jmax (row.getX(), button.getRight() + 8));
+        if (songSwitch.isVisible()) row.setRight (juce::jmin (row.getRight(), songSwitch.getX() - 8));  // CUE／SONG
         if (std::isfinite (current.sourceDurationSeconds)) paintCueBar (g, row, current, presentationContext);
     }
     if (current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size())

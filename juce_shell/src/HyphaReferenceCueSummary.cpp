@@ -11,6 +11,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "reference_audition/ReferenceASong.h"
 
 #include <array>
 #include <cmath>
@@ -51,6 +52,34 @@ double comparisonGainDb (const State& state) noexcept
                                                     : std::numeric_limits<double>::quiet_NaN();
 }
 
+double chartGainDb (const State& state) noexcept
+{
+    if (! state.song.shown) return comparisonGainDb (state);
+    if (state.comparisonMode == "original") return 0.0;
+    return state.comparisonMode == "loudness_match"
+        ? state.song.aLoudness - (state.song.cLoudness + state.cueLoudnessOffsetLu) : std::numeric_limits<double>::quiet_NaN();
+}
+
+void applySongComparison (State& state, const reference_audition::ASongSummary* a,
+                          std::shared_ptr<const reference_audition::KirinSpectrumWindow> c, double cLoudness)
+{
+    auto& song = state.song;
+    song = { song.chosen };
+    if (! song.chosen || state.comparisonSlot != 2 || state.targetSelected) return;
+    if (! c) { song.cMissing = true; return; }
+    song.shown = true;
+    song.cLoudness = cLoudness;
+    if (a != nullptr) { song.aSlots = a->slots; song.aBeyond = a->beyondLimit; song.aLoudness = a->loudness; }
+    state.aKirin = a != nullptr ? a->spectrum : nullptr;
+    state.cueKirin = std::move (c);
+    state.cueSubstitute = CueSubstitute::none;  // 曲全体の範囲で比べている（Cue の値の代わりではない）
+}
+
+juce::String songALegend (int slots)
+{
+    return "A FROM START " + clock (slots / 10.0);
+}
+
 bool kirinComparable (const State& state) noexcept
 {
     if (! state.aKirin || ! state.cueKirin || state.aKirin->centersHz.size() != state.cueKirin->centersHz.size()
@@ -66,9 +95,9 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
 {
     // C の Cue の値があるときだけ。A の窓がまだ足りなければ C だけを描き、A は「集めています」と出す。
     if (! state.separateComparisons || state.comparisonSlot != 2 || ! state.cueKirin) return false;
-    help::note (area, help_text::cueSpectrum);
+    help::note (area, state.song.shown ? help_text::songSpectrum : help_text::cueSpectrum);
     const auto& cue = *state.cueKirin;
-    const auto gain = comparisonGainDb (state);
+    const auto gain = chartGainDb (state);
     const bool matched = std::isfinite (gain);
     const auto shift = matched ? gain : 0.0;
     juce::Path band, median;
@@ -137,11 +166,15 @@ juce::String aWindowLegend (int frames)
 juce::String cueSpectrumLegend (const State& state, bool targetRange)
 {
     const bool aReady = kirinComparable (state) && state.aKirin->frames >= minimumAFrames;
-    const auto a = aReady ? aWindowLegend (state.aKirin->frames) : juce::String ("A WAITING");
+    const auto a = ! aReady ? juce::String ("A WAITING")
+        : state.song.shown ? songALegend (state.song.aSlots) : aWindowLegend (state.aKirin->frames);
     const auto nan = std::numeric_limits<double>::quiet_NaN();
-    return a + " / " + (state.targetSelected ? juce::String ("C TARGET") : cuePartLegend ("C", state.cuePart, nan, nan, false))
-        + (targetRange ? juce::String (" / ") + targetRangeLegend : juce::String())
-        + (std::isfinite (comparisonGainDb (state)) ? "" : " / LEVEL NOT MATCHED");
+    const auto duration = state.sourceDurationSeconds;
+    const auto c = state.targetSelected ? juce::String ("C TARGET")
+        : ! state.song.shown ? cuePartLegend ("C", state.cuePart, nan, nan, false)
+        : std::isfinite (duration) && duration > 0.0 ? "C SONG 0:00-" + clock (duration) : juce::String ("C SONG");
+    return a + " / " + c + (targetRange ? juce::String (" / ") + targetRangeLegend : juce::String())
+        + (std::isfinite (chartGainDb (state)) ? "" : " / LEVEL NOT MATCHED");
 }
 
 juce::String cueChartLegend (juce::Rectangle<float> chart, const juce::String& heading, const State& state, presentation::Context context)
@@ -260,10 +293,10 @@ bool bandSummaryFits (int width, const presentation::Context& context)
 
 void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
 {
-    const auto gain = comparisonGainDb (state);
+    const auto gain = chartGainDb (state);
     const bool ready = kirinComparable (state) && state.aKirin->frames >= minimumAFrames && std::isfinite (gain);
     const auto layout = bandLayout (area.getWidth(), context);
-    help::note (area, help_text::cueBands);
+    help::note (area, state.song.shown ? help_text::songBands : help_text::cueBands);
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
     text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (layout.heading), juce::Justification::centredLeft);
@@ -311,6 +344,13 @@ void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& sta
         g.drawVerticalLine (juce::roundToInt (x (tick)), track.getY() + track.getHeight() * 0.55f, track.getBottom());
     const auto cue = follow ? track : juce::Rectangle<float>::leftTopRightBottom (x (state.cueStartSeconds), track.getY(),
                                           std::max (x (state.cueEndSeconds), x (state.cueStartSeconds) + 2.0f), track.getBottom());
+    if (state.song.shown && ! follow)  // SONG：比べているのは曲全体（Cue の箱は鳴っている所）
+    {
+        g.setColour (COL_FLORA.withAlpha (0.08f));
+        g.fillRoundedRectangle (track, 2.0f);
+        g.setColour (COL_FLORA_BR.withAlpha (0.4f));
+        g.drawRoundedRectangle (track, 2.0f, 1.0f);
+    }
     g.setColour (COL_FLORA.withAlpha (follow ? 0.08f : 0.16f));
     g.fillRoundedRectangle (cue, 2.0f);
     g.setColour (COL_FLORA_BR.withAlpha (follow ? 0.4f : 0.8f));

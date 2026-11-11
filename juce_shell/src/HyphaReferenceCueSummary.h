@@ -5,6 +5,10 @@
 #include "HyphaPresentationContext.h"
 #include "reference_audition/ReferenceCuePart.h"
 
+#include <memory>
+
+namespace hypha::reference_audition { struct ASongSummary; struct KirinSpectrumWindow; }
+
 // C の画面の下段。同じ区間・同じ音量で比べる値。
 //  - 比べる gain：C が鳴っていればその gain、鳴っていなければ「A の窓 − Cue の Integrated」（選べば
 //    この gain で鳴る）。Kirin OS で「元の音量」にした Check は 0（聴こえるとおりに比べる）。
@@ -16,6 +20,15 @@ namespace hypha::reference_ui
 struct State;
 
 double comparisonGainDb (const State&) noexcept;
+// 図と 4 帯域が C に足す gain。CUE は comparisonGainDb（鳴らす・鳴らしている gain）。SONG は両方の曲全体の音量を
+// そろえる gain（A FROM START の LUFS-I −（C の曲全体の LUFS-I + 鳴らす音が大きく測れる量））で、MATCH の gain ではない。
+double chartGainDb (const State&) noexcept;
+// SONG を選んでいれば、C の画面の比べる値を A FROM START（a）と C の曲全体（c と その LUFS-I）にする（aKirin・cueKirin を
+// 替える）。C の曲全体の値が無ければ CUE の値のまま、state.song.cMissing（状態の行が理由を言う）。
+void applySongComparison (State&, const reference_audition::ASongSummary* a,
+                          std::shared_ptr<const reference_audition::KirinSpectrumWindow> c, double cLoudness);
+// 「A FROM START 2:41」。`slots` は値のある 100 ms の区切りの数。
+juce::String songALegend (int slots);
 // A と C の値が同じ帯域の並びで揃っているか（64 帯域、中心が 0.1% 以内）。
 bool kirinComparable (const State&) noexcept;
 void paintBandSummary (juce::Graphics&, juce::Rectangle<int>, const State&, presentation::Context);

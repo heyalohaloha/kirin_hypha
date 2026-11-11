@@ -2,7 +2,6 @@
 
 #include <map>
 #include <set>
-
 #include <array>
 #include <cmath>
 #include <functional>
@@ -27,6 +26,7 @@
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceSongList.h"
 #include "HyphaReferenceCheckTabs.h"
+#include "HyphaReferenceSongSwitch.h"
 #include "reference_audition/ReferenceCuePart.h"
 #include "reference_audition/ReferenceKirinSpectrum.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
@@ -146,10 +146,8 @@ struct State
     os_access::State osAccess = os_access::State::unowned;
     BlindPhase blindPhase = BlindPhase::unavailable;
     int activeBlindStimulus = 0;
-    int pendingBlindStimulus = 0;
-    int answeredBlindStimulus = 0;
-    bool blindStimulusOneHeard = false;
-    bool blindStimulusTwoHeard = false;
+    int pendingBlindStimulus = 0, answeredBlindStimulus = 0;
+    bool blindStimulusOneHeard = false, blindStimulusTwoHeard = false;
     bool blindPaused = false, blindOutsideSong = false;
     bool blindLowerAApprovalRequired = false;
     double blindRequiredAAttenuationDb = 0.0;
@@ -183,8 +181,7 @@ struct State
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     juce::Point<float> chartPointer { -1.0f, -1.0f };  // where the pointer reads a spectrum chart
     std::vector<float> liveSpectrumDbfs;
-    float liveSpectrumMinimumHz = 0.0f;
-    float liveSpectrumMaximumHz = 0.0f;
+    float liveSpectrumMinimumHz = 0.0f, liveSpectrumMaximumHz = 0.0f;
     std::int64_t sourceSampleRateHz = 0;
     std::int64_t hostSampleRateHz = 0;
     bool candidatePreparationPending = false;
@@ -220,6 +217,7 @@ struct State
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
     reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
     CueSubstitute cueSubstitute = CueSubstitute::none;          // C の Cue の値が無いときの代わり（状態の行が言う）
+    SongComparison song;  // C の CUE／SONG。SONG で比べる間は aKirin・cueKirin が A FROM START と C の曲全体（applySongComparison）
 };
 
 // 画面が読む gain：比べる側に掛かる gain（下げる前の A の基準）に、承認して下げた A の量を足す。読みはすべてここを
@@ -311,7 +309,7 @@ public:
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;
     std::function<void(const reference_audition::BalanceOverlay&)> onOverlayChange; // 重ね比べ（保存して host に知らせる）
     std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
-    std::function<void(bool)> onSetFollowA; std::function<void(int, double)> onNudgeFollow; std::function<void(int)> onResetFollow;  // B・C の流し方とずらし
+    std::function<void(bool)> onSetFollowA, onSetCheckSong; std::function<void(int, double)> onNudgeFollow; std::function<void(int)> onResetFollow;  // B・C の流し方とずらし
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
     // A B or C that cannot be heard yet says why when it is clicked.
@@ -437,6 +435,7 @@ private:
     CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
     SelectionControl checkSongBox; // いまの Check の曲
     SideButton matchButton { "MATCH" };
+    SongSwitch songSwitch; // C の比べる値 CUE／SONG（Cue の段の右。HyphaReferenceCheckPage.cpp）
     SideButton blindButton { "VERSION BLIND" };
     std::array<SideButton, 5> playbackButtons { SideButton ("LOOP"), SideButton ("FOLLOW A"), SideButton ("-"), SideButton ("0.00 S"), SideButton ("+") };
     void configurePlayback(); void syncPlayback (bool blindSession); void layoutPlayback (juce::Rectangle<int> row);  // HyphaReferenceRoles.cpp

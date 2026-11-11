@@ -74,6 +74,7 @@ class AWindowRing
     bool parked = false;
     std::int64_t position = 0;
     int displayBlocks = 100;
+    bool song = false;  // C の SONG（A FROM START を集計する）
 public:
     ref::VisualObservation observation { [this] { return step(); } };
     static constexpr int blocksPerFrame = 20;
@@ -110,6 +111,8 @@ public:
         waitParked();
     }
     void park() { { const std::lock_guard<std::mutex> lock (mutex); stepsLeft = 0; } waitParked(); }
+    void seek (std::int64_t next) { position = next; }  // 次に入れる塊の DAW の位置
+    void setSong (bool value) { const std::lock_guard<std::mutex> lock (mutex); song = value; }
     void release() { { const std::lock_guard<std::mutex> lock (mutex); stepsLeft = running; parked = false; } wake.notify_all(); }
     // 走らせて受け口を空にし、測った物が publish されるまで待って止める。
     std::shared_ptr<const ref::VisualTimeline> drain()
@@ -159,6 +162,7 @@ private:
         if (stepsLeft != running) --stepsLeft;
         ref::VisualBinding binding;
         binding.aDisplayWindowBlocks = displayBlocks;
+        binding.songWanted = song;
         return binding;
     }
     void waitParked()
@@ -167,8 +171,67 @@ private:
     }
 };
 
+// C の SONG の A を観測スレッドで：DAW の位置ごとに溜め（同じ位置は上書き）、RESET で消え、SONG を見ていなければ出さない。
+void testASongRing()
+{
+    AWindowRing ring;
+    ring.setSong (true);
+    const auto holds = [&ring] (int slots, const char* why)
+    {
+        ring.release();
+        hypha::tests::reference_control::await ([&] {
+            const auto state = ring.observation.snapshot();
+            return state && state->aSong && state->aSong->slots == slots;
+        }, why);
+        ring.park();
+    };
+    ring.enqueue (200, 0.1f);  // 1 秒
+    holds (10, "SONG publishes A from the DAW's start");
+    ring.seek (0);
+    ring.enqueue (200, 0.1f);  // 同じ 1 秒をもう一度
+    ring.seek (5 * 48'000);
+    ring.enqueue (200, 0.1f);  // 新しい 1 秒
+    holds (20, "a replayed second keeps its place, a new one adds to A from the start");
+    ring.observation.resetAWindow();
+    holds (0, "RESET A WINDOW empties A from the start");
+    ring.enqueue (100, 0.1f);
+    holds (5, "A from the start fills again after RESET");
+    ring.setSong (false);
+    ring.release();
+    hypha::tests::reference_control::await ([&] { const auto state = ring.observation.snapshot(); return state && ! state->aSong; },
+                                            "CUE does not publish A from the start");
+    ring.park();
+}
+
+// C の CUE／SONG は保存する選択：変わった時だけ host に知らせ、state を往復し、復元で戻る。前の版の state は CUE。
+void testCheckSongNotifies (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("check-song");
+    require (root.createDirectory().wasOk(), "CUE / SONG fixture directory");
+    int changes = 0;
+    ref::ReferenceComparisonController controller (root, {}, {}, [&] { ++changes; });
+    require (! controller.savedSettings().checkSong, "CUE is the default");
+    require (controller.setCheckSong (true) && changes == 1 && controller.savedSettings().checkSong
+                 && controller.snapshot().visualPreferences && controller.snapshot().visualPreferences->checkSong(),
+             "SONG is saved and the host is told");
+    require (! controller.setCheckSong (true) && changes == 1, "SONG again is not a change");
+    juce::XmlElement saved ("State");
+    controller.savedSettings().write (saved);
+    require (ref::ReferenceComparisonSettings::read (saved).checkSong && ! ref::ReferenceComparisonSettings::read (saved).followA,
+             "SONG round trips through the project state, apart from how B and C play");
+    auto restored = controller.savedSettings();
+    restored.checkSong = false;
+    controller.restoreSettings (restored);
+    require (! controller.savedSettings().checkSong, "a restore brings back CUE");
+    juce::XmlElement older ("State");
+    ref::ReferenceComparisonSettings {}.write (older);
+    if (auto* choices = older.getChildByName ("ReferenceChoices")) choices->setAttribute ("check_values", "song-later");
+    require (! ref::ReferenceComparisonSettings::read (older).checkSong, "an unknown value reads as CUE");
+}
+
 void testAWindowResetRing()
 {
+    testASongRing();
     const auto queue = static_cast<int> (ringSize ({}));
     const auto drop = [] (AWindowRing& ring, int blocks, const char* why)
     {
@@ -233,6 +296,7 @@ void testOverlayNotifies (const juce::File& sandbox)
 void testAWindowTargets (const juce::File& sandbox)
 {
     testOverlayNotifies (sandbox);
+    testCheckSongNotifies (sandbox);
     const auto root = sandbox.getChildFile ("a-window-targets");
     require (root.createDirectory().wasOk(), "A window fixture directory");
     ref::ReferenceComparisonController controller (root, [] (bool) { return true; });

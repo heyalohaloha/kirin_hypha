@@ -156,9 +156,14 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     if (state.kirinOsRequest) return { kind, state.status };
     // C の Cue の値がまだ無い：曲全体で比べている、または曲全体のスペクトルを出さないことを、理由と直し方で言う
     // （2026-10-06：黙って曲全体の値を使い、手がかりは凡例の「C WHOLE」だけだった）。
+    // C の SONG（2026-11-12）：C の曲全体の値が無い（古い Kirin OS。CUE の値のまま描く）、A FROM START が上限を超えた。
     if (slot == 2 && (step == SourceStep::ready || step == SourceStep::playDaw))
+    {
+        if (state.song.cMissing) return { kind, "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1" };
+        if (state.song.shown && state.song.aBeyond) return { kind, "A FROM START HOLDS THE DAW'S FIRST 30 MIN" };
         if (const auto substitute = cueSubstituteLine (state.cueSubstitute); substitute.isNotEmpty())
             return { kind, substitute };
+    }
     // 文の無い理由は、状態の行にそのコードを出す（2026-10-18：B のページは案内を出さず、コードが見えなかった）。
     const auto& code = slot == 1 ? state.versionRejectionCode : slot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
     if (step == SourceStep::attention && code.isNotEmpty())
