@@ -43,8 +43,11 @@ RuntimeV2Controller::SongSwitch RuntimeV2Controller::switchAudibleSong (Workspac
     const auto nowMs = juce::Time::currentTimeMillis();
     auto& next = prepared.next;
     next.sourceLoudnessOffsetLu = staging.playbackLoudnessOffsetLu();
-    const auto levels = matchLevels (*prepared.source, next.cueLevelAvailable, next.cueIntegratedLoudness,
-                                     next.cueMaximumTruePeakDbtp, next.sourceLoudnessOffsetLu);
+    // この流し方の決まりで合わせる。渡す時（stateLock の中）に流し方が替わっていれば渡さずにやり直す（setFollowA も
+    // stateLock を持って流し方を書く）。
+    const bool follow = followA.load (std::memory_order_acquire);
+    const auto levels = matchLevelsFor (follow, *prepared.source, next.cueLevelAvailable, next.cueIntegratedLoudness,
+                                        next.cueMaximumTruePeakDbtp, next.sourceLoudnessOffsetLu);
     LiveLevelReading level;
     {
         // 押したときの A で合わせる。読めなければ旧曲を合わせていた A（追従がこの後すぐ直す）。
@@ -70,6 +73,7 @@ RuntimeV2Controller::SongSwitch RuntimeV2Controller::switchAudibleSong (Workspac
     const juce::ScopedLock lock (stateLock);
     if (requestedSelection.generation != prepared.selection.generation) return SongSwitch::waiting;
     if (! audible()) return SongSwitch::notAudible;
+    if (followA.load (std::memory_order_acquire) != follow) { prepared.matchRetryAtMs = nowMs; return SongSwitch::waiting; }
     pendingSourceFailureSinceMs = 0; pendingSourceFailureReason.clear();
     match.auditionEpoch = auditionEpoch.load (std::memory_order_acquire);
     match.selectionGeneration = prepared.selection.generation;
@@ -212,36 +216,46 @@ void RuntimeV2Controller::requestFollowPages() noexcept
         currentPages().request (position);
 }
 
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+void observeReferenceFollowMatch (const RuntimeV2Controller*);
+#endif
+
 // B・C の流し方（メッセージスレッド）。鳴っている役は新しい流し方の MATCH を先に決め、写像と gain を一組で渡す。決められ
 // なければ新しい写像は無音（gain 0）で渡して A へ戻す（上限を超える音を一度も出さない）。戻しの gain は捨てる。
+// MATCH を決めてから書くまで stateLock を持つ（鳴っている曲の切替も stateLock を持って写像と gain を渡すので、その間に別の
+// 曲が入らない）。書く直前に写像と選択の世代も確かめ、別の写像・選択に決めた gain は書かずに無音で渡す。
 bool RuntimeV2Controller::setFollowA (bool follow, double aLoudness, double aSessionPeakDbtp) noexcept
 {
     if (versionComparison || followA.load (std::memory_order_acquire) == follow) return true;
-    const bool selected = bSelected.load (std::memory_order_acquire);
-    const bool audible = selected || normalReturnToken.load (std::memory_order_acquire) || normalAudible.load (std::memory_order_acquire);
-    const auto generation = normalSelectionGeneration.load (std::memory_order_acquire);
-    PreparedNormalSelection prepared;
-    const auto match = selected ? matchForMode (follow, aLoudness, aSessionPeakDbtp, prepared) : ModeMatch::failed;
+    bool selected = false;
+    auto match = ModeMatch::failed;
     {
-        const juce::ScopedLock lock (mappingWriteLock);
-        std::optional<float> gain;
-        if (audible && match == ModeMatch::matched) gain = prepared.linearGain;
-        else if (audible && match == ModeMatch::failed) gain = 0.0f;
-        writeFollowMappingLocked (follow, followOffset.load (std::memory_order_relaxed), gain);
+        const juce::ScopedLock state (stateLock);
+        selected = bSelected.load (std::memory_order_acquire);
+        const bool audible = selected || normalReturnToken.load (std::memory_order_acquire)
+            || normalAudible.load (std::memory_order_acquire);
+        const auto generation = normalSelectionGeneration.load (std::memory_order_acquire);
+        const auto mapping = mappingGeneration.load (std::memory_order_acquire);
+        PreparedNormalSelection prepared;
+        if (selected && (mapping & 1u) == 0) match = matchForMode (follow, aLoudness, aSessionPeakDbtp, prepared);
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        observeReferenceFollowMatch (this);
+       #endif
+        {
+            const juce::ScopedLock lock (mappingWriteLock);
+            if (match == ModeMatch::matched && (mappingGeneration.load (std::memory_order_acquire) != mapping
+                    || normalSelectionGeneration.load (std::memory_order_acquire) != generation || ! bSelected.load (std::memory_order_acquire)))
+                match = ModeMatch::failed;  // 決めた後に写像か選択が替わった：その gain は今の音のものではない
+            std::optional<float> gain;
+            if (audible && match == ModeMatch::matched) gain = prepared.linearGain;
+            else if (audible && match == ModeMatch::failed) gain = 0.0f;
+            writeFollowMappingLocked (follow, followOffset.load (std::memory_order_relaxed), gain);
+        }
+        if (match == ModeMatch::matched) { beginMatchLocked(); applyPreparedFactsLocked (prepared); }
+        else if (match == ModeMatch::failed) heldSelection = {};  // 前の流し方の gain は新しい流し方で確かめていない
     }
     requestFollowPages();
-    {
-        const juce::ScopedLock lock (stateLock);
-        if (match == ModeMatch::matched && normalSelectionGeneration.load (std::memory_order_acquire) == generation)
-        {
-            beginMatchLocked();
-            applyPreparedFactsLocked (prepared);
-            return true;
-        }
-        if (match == ModeMatch::unchanged) return true;
-        heldSelection = {};  // 前の流し方で決めた gain は新しい流し方で確かめていない
-    }
-    if (! selected) return true;
+    if (match != ModeMatch::failed || ! selected) return true;
     selectA();  // 新しい写像は無音。A へ戻して、呼ぶ側が新しい MATCH の押し直しの待ちを立てる
     return false;
 }

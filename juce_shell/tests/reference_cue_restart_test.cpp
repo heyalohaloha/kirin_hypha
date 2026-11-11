@@ -248,6 +248,12 @@ void observeReferenceFollowWrite (const RuntimeV2Controller*)
 {
     if (auto probe = std::exchange (hypha::tests::follow_a::followWriteProbe, nullptr)) probe();
 }
+// 流し方を替える時、MATCH を決めた後・書く前（ReferenceRuntimeSongSwitch.cpp）。試験が選んだ役でだけ一度呼ぶ。
+void observeReferenceFollowMatch (const RuntimeV2Controller* role)
+{
+    if (role == hypha::tests::follow_a::followProbeRole)
+        if (auto probe = std::exchange (hypha::tests::follow_a::followMatchProbe, nullptr)) probe();
+}
 }
 
 void testReferenceCueRestart (const juce::File& sandbox)

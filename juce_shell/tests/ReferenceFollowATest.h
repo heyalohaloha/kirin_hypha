@@ -50,8 +50,12 @@ template <auto Member> struct SnapshotAccess
 template struct SnapshotAccess<&ref::RuntimeV2Controller::currentSnapshot>;
 // 流し方・ずらしを書いている途中（mappingGeneration が奇数の間）に一度だけ呼ぶ（reference_cue_restart_test.cpp）。
 inline std::function<void()> followWriteProbe;
+// 流し方を替える時、MATCH を決めた後・書く前に、この役（followProbeRole）で一度だけ呼ぶ。
+inline const ref::RuntimeV2Controller* followProbeRole = nullptr;
+inline std::function<void()> followMatchProbe;
 
-inline juce::var followSets (const juce::String& hash, const juce::String& pcm, const ref::RuntimeContentReceipt& source)
+inline juce::var followSets (const juce::String& hash, const juce::String& pcm, const ref::RuntimeContentReceipt& source,
+                             const juce::String& loudHash, const juce::String& loudPcm, const ref::RuntimeContentReceipt& loudSource)
 {
     const auto song = [] (const char* candidateId, const char* cueId, const char* name, const juce::var& identity,
                           const juce::var& artifact, const char* status)
@@ -67,18 +71,24 @@ inline juce::var followSets (const juce::String& hash, const juce::String& pcm, 
         candidate->setProperty ("preparation_status", status);
         return juce::var (candidate);
     };
-    auto* identity = new juce::DynamicObject();
-    identity->setProperty ("catalog_reference_id", "catalog:source-test");
-    identity->setProperty ("sha256_file", hash);
-    identity->setProperty ("sha256_pcm", pcm);
-    auto* artifact = new juce::DynamicObject();
-    artifact->setProperty ("relative_path", source.relativePath);
-    artifact->setProperty ("sha256", source.sha256);
-    artifact->setProperty ("bytes", source.bytes);
-    auto* other = new juce::DynamicObject();  // 2 曲目は Kirin OS がまだ確かめていない曲（選ぶと曲が替わる）
-    other->setProperty ("catalog_reference_id", "catalog:follow-a-other");
-    other->setProperty ("sha256_file", juce::String::repeatedString ("8", 64));
-    other->setProperty ("sha256_pcm", juce::String::repeatedString ("9", 64));
+    const auto identityOf = [] (const juce::String& file, const juce::String& audio)
+    {
+        auto* identity = new juce::DynamicObject();
+        identity->setProperty ("catalog_reference_id", "catalog:source-test");
+        identity->setProperty ("sha256_file", file);
+        identity->setProperty ("sha256_pcm", audio);
+        return juce::var (identity);
+    };
+    const auto artifactOf = [] (const ref::RuntimeContentReceipt& receipt)
+    {
+        auto* artifact = new juce::DynamicObject();
+        artifact->setProperty ("relative_path", receipt.relativePath);
+        artifact->setProperty ("sha256", receipt.sha256);
+        artifact->setProperty ("bytes", receipt.bytes);
+        return juce::var (artifact);
+    };
+    auto other = identityOf (juce::String::repeatedString ("8", 64), juce::String::repeatedString ("9", 64));
+    other.getDynamicObject()->setProperty ("catalog_reference_id", "catalog:follow-a-other");  // 2 曲目は Kirin OS がまだ確かめていない曲
     auto* set = new juce::DynamicObject();
     set->setProperty ("song_set_id", "79797979-7979-4979-8979-797979797979");
     set->setProperty ("revision_id", "68686868-6868-4868-8868-686868686868");
@@ -86,9 +96,12 @@ inline juce::var followSets (const juce::String& hash, const juce::String& pcm, 
     set->setProperty ("name", "Refs");
     set->setProperty ("songs", juce::Array<juce::var> {
         song ("58585858-5858-4858-8858-585858585858", "47474747-4747-4747-8747-474747474747", "Ramp",
-              juce::var (identity), juce::var (artifact), "prepared"),
+              identityOf (hash, pcm), artifactOf (source), "prepared"),
         song ("59595959-5959-4959-8959-595959595959", "48484848-4848-4848-8848-484848484848", "Other",
-              juce::var (other), juce::var(), "pending") });
+              other, juce::var(), "pending"),
+        // 3 曲目は同じ傾斜の 2 倍（6 dB 大きい曲）。静かな曲から大きい曲への替えで上限を確かめる。
+        song ("5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a", "49494949-4949-4949-8949-494949494949", "Loud",
+              identityOf (loudHash, loudPcm), artifactOf (loudSource), "prepared") });
     auto* root = new juce::DynamicObject();
     root->setProperty ("format", "kirin_hypha_reference_library_sets");
     root->setProperty ("version", "1.0");
@@ -117,8 +130,24 @@ inline void testReferenceFollowA (const juce::File& sandbox)
             for (int frame = 0; frame < songFrames; ++frame) data.setSample (channel, frame, rampAt (frame));
         require (writer && writer->writeFromAudioSampleBuffer (data, 0, songFrames), "ramp samples");
     }
+    const auto loudFile = root.getChildFile ("loud.wav");
+    {
+        juce::WavAudioFormat format;
+        auto stream = loudFile.createOutputStream();
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (stream.release(), 48'000, 2, 32, {}, 0));
+        juce::AudioBuffer<float> data (2, songFrames);
+        for (int channel = 0; channel < 2; ++channel)
+            for (int frame = 0; frame < songFrames; ++frame) data.setSample (channel, frame, 2.0f * rampAt (frame));
+        require (writer && writer->writeFromAudioSampleBuffer (data, 0, songFrames), "loud ramp samples");
+    }
     const auto hash = juce::SHA256 (file).toHexString();
     const auto pcm = juce::String::repeatedString ("6", 64);
+    const auto loudHash = juce::SHA256 (loudFile).toHexString();
+    const auto loudPcm = juce::String::repeatedString ("5", 64);
+    auto loudRuntimeSource = makeRuntimeV2Source (loudFile, loudHash, loudPcm);
+    loudRuntimeSource["audio"].getDynamicObject()->setProperty ("total_sample_frames", static_cast<juce::int64> (songFrames));
+    addRuntimeV2MeasurementSummary (loudRuntimeSource, -7.98, -1.94);  // 静かな曲より 6.02 dB 大きい
+    const auto loudSource = stageRuntimeV2Artifact (root, "sources", loudRuntimeSource);
     auto runtimeSource = makeRuntimeV2Source (file, hash, pcm);
     runtimeSource["audio"].getDynamicObject()->setProperty ("total_sample_frames", static_cast<juce::int64> (songFrames));
     addRuntimeV2MeasurementSummary (runtimeSource, -14.0, -7.96);  // max TP は傾斜の最大 0.4（-7.96 dBFS）
@@ -132,7 +161,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     preset["checks"][0]["candidates"][0].getDynamicObject()->setProperty ("preparation_status", "prepared");
     if (auto* checkCue = preset["checks"][0]["candidates"][0]["cues"][0].getDynamicObject())  // C も同じ 2〜4 秒を繰り返す
     { checkCue->setProperty ("start_sample", cueStart); checkCue->setProperty ("end_sample", cueEnd); checkCue->setProperty ("loop_enabled", true); }
-    require (writeJson (root.getChildFile ("library/sets.json"), followSets (hash, pcm, source))
+    require (writeJson (root.getChildFile ("library/sets.json"), followSets (hash, pcm, source, loudHash, loudPcm, loudSource))
                  && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
              "a library with one B song whose Cue loops, and a C");
 
@@ -325,7 +354,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     // 曲が替わると 0：選んだ曲が鳴らせなくても、戻した曲のずらしは 0 から。
     require (controller.nudgeFollowOffset (3, 0.3), "B has an offset before the song changes");
     const auto songs = controller.snapshot().songSets[0].songs;
-    require (songs.size() == 2 && controller.selectSong (songs[1].id) && std::abs (reference()->followOffsetSeconds) < 1.0e-12,
+    require (songs.size() == 3 && controller.selectSong (songs[1].id) && std::abs (reference()->followOffsetSeconds) < 1.0e-12,
              "choosing another song resets the offset");
     require (controller.selectSong (songs[0].id), "choose the first song again");
     require (control::waitUntil (deadline(), [&] { return reference()->state == ref::RuntimeState::ready; }), "the first song is published again");
@@ -418,6 +447,34 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; })
                  && std::abs (reference()->appliedGainDb - 5.0) < 1.0e-6,
              ("the remembered B is matched with A at the press: " + juce::String (reference()->appliedGainDb)).toRawUTF8());
+    // 流し方を替える間に曲の替え（静かな曲から 6 dB 大きい曲）が公開されようとしても、静かな曲に決めた gain が大きい曲で
+    // 鳴らない。替えは流し方を書き終えてから、その時の流し方の決まりで渡る（FOLLOW A の大きい曲は -9 − -7.98 ≈ -1 dB）。
+    controller.selectVisualSlot (3);  // B の一覧を見て、押す前に大きい曲を確かめておく（替えが待たずに公開できる）
+    serviceLoudness = -9.0;  // A は -9 LUFS のまま（曲の替えもこの A で合わせる）
+    controller.setFollowA (false, -9.0, -6.0);
+    position = 8 * second;
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; })
+                 && play (wait, [&] { const auto ready = controller.snapshot().referenceSelection->preloadedSongs;
+                                     return std::find (ready.begin(), ready.end(), songs[2].id) != ready.end(); }),
+             "the quiet B plays in LOOP and the loud song is checked ahead");
+    position = 8 * second;
+    loudest = 0.0f;
+    bool interleaved = false;
+    followProbeRole = &referenceRole;
+    followMatchProbe = [&]  // 曲の替えを頼み、公開を 3 秒まで待つ（公開の知らせで待つ。stateLock を持つ間は公開できない）
+    {
+        require (controller.selectSong (songs[2].id, -9.0, -6.0), "choose the loud song while the mode is being written");
+        interleaved = control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (3),
+            [&] { return referenceRole.snapshot().candidateId == "5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a"; });
+    };
+    controller.setFollowA (true, -9.0, -6.0);
+    followMatchProbe = nullptr; followProbeRole = nullptr;
+    const auto loudAt = [&] (double db) { return rendered >= 0 && std::abs (last() - 2.0f * rampAt (rendered + 479) * gainOf (db)) < 1.0e-3f; };
+    const bool loudPlays = play (wait, [&] { return controller.snapshot().audibleSongId.endsWith ("5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a")
+                                                    && loudAt (-1.02); });
+    require (! interleaved && loudPlays && loudest <= ceiling,
+             ("a song switch never lands between the match and the mode write, and the loud song plays in FOLLOW A under the ceiling: "
+              + juce::String (interleaved ? "interleaved, " : "") + juce::String (loudest)).toRawUTF8());
     serviceLoudness = -14.0; servicePeak = -6.0;
 
     // state：流し方を保存して読み戻す。復元は鳴らし始めない。前の版の state は LOOP。
