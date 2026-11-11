@@ -82,6 +82,7 @@ const Entry entries[] = {
     { "Choose a PRE before Keep.", u8"Keepの前にPREを選んでください。" },
     { "PRE unavailable. Choose PRE again.", u8"PREが使えません。選び直してください。" },
     { "Waiting for PRE to start Keep", u8"PREの応答を待ってKeepを始めます" },
+    { "Keep waits for PRE; Stop cancels", u8"KeepはPREの応答を待っています。Stopでやめます" },
     { "No pairs ready. Select PRE, then retry.", u8"ペア未準備。PREを選んでやり直してください。" },
     { "Another Keep is active", u8"別のKeepが動作中です" },
     { "Blind Compare active", u8"Blind Compareの最中です" },

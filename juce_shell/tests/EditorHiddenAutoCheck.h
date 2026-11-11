@@ -2,6 +2,7 @@
 #include "EditorProductChecks.h"
 #include <cstring>
 #include "TestProcessorStorage.h"
+#include "../src/HyphaKeepPreWait.h"
 namespace hypha::tests::editor_product
 {
 struct HiddenAutoAccess {};
@@ -89,7 +90,8 @@ inline void verifyWaitingRequests()
     e->*privateMember (WaitKeepPair {}) = "another PRE|"; tick();
     require (e->*privateMember (WaitKeepSince {}) <= 0.0 && (e->*privateMember (HiddenToast {})).isEmpty(),
              "a Keep waiting for one PRE is dropped when the pair changes");
-    e->*privateMember (WaitKeepSince {}) = now() - 9.0; e->*privateMember (WaitKeepNext {}) = 0.0;
+    // Only the two-minute bound asks to choose PRE again (output_ownership_test: 8 s still waits).
+    e->*privateMember (WaitKeepSince {}) = now() - (keep_ui::preWaitSeconds + 1.0); e->*privateMember (WaitKeepNext {}) = 0.0;
     e->*privateMember (WaitKeepPair {}) = pairKey; tick();
     require (e->*privateMember (WaitKeepSince {}) <= 0.0
                  && e->*privateMember (HiddenToast {}) == "PRE unavailable. Choose PRE again.",

@@ -125,6 +125,8 @@ void KirinHyphaEditor::updatePost()
                                   ? juce::String ("Final measurement unavailable")
                               : preparing ? juce::String ("Preparing pairs...")
                               : armed ? juce::String ("Ready to bounce")
+                              : keepPreWaitSince > 0.0
+                                  ? juce::String (hypha::keep_ui::waitingLine.data(), hypha::keep_ui::waitingLine.size())
                               : liveCompareWarningText();
     updateFeedback (now, now < bannerUntil, status);
 

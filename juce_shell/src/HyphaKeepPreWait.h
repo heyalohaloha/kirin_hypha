@@ -6,7 +6,9 @@
 namespace hypha::keep_ui
 {
 inline constexpr std::string_view preUnavailableNotice = "PRE unavailable. Choose PRE again.";
-inline constexpr double preWaitSeconds = 8.0, preRetrySeconds = 0.5;
+// 2026-11-11：8 秒で諦めず、待っていることを出し続けて 2 分まで待つ（PRE の準備が遅い project でも Keep が始まる）。
+inline constexpr std::string_view waitingLine = "Keep waits for PRE; Stop cancels";
+inline constexpr double preWaitSeconds = 120.0, preRetrySeconds = 0.5;
 enum class KeepWait { done, wait, notify };
 
 // 押した（または待たせた）Keep の答え：始まった、PRE を待つ、知らせる（Rust の短い文か、待ちの上限の選び直し）。

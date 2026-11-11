@@ -181,6 +181,9 @@ void decisionsCombineStates()
     // Keep（2026-10-31）：組んだ PRE がまだ応答しないだけなら、押した Keep を待たせ、上限まで応答しない時だけ選び直しを言う。
     using hypha::keep_ui::KeepWait;
     using hypha::keep_ui::keepWait;
+    // 2026-11-11: a PRE that answers after 8 s still starts the Keep; only two minutes ask to choose again.
+    require (keepWait (false, hypha::keep_ui::preUnavailableNotice, 9.0) == KeepWait::wait
+                 && hypha::keep_ui::preWaitSeconds >= 120.0, "a Keep past 8 s keeps waiting for its PRE");
     require (keepWait (false, hypha::keep_ui::preUnavailableNotice, 0.0) == KeepWait::wait
                  && keepWait (false, hypha::keep_ui::preUnavailableNotice, hypha::keep_ui::preWaitSeconds - 0.1) == KeepWait::wait,
              "Keep waits for a paired PRE that has not answered yet");

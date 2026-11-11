@@ -90,7 +90,7 @@ inline std::vector<Notice> notices()
         "VU calibration: connecting; try again in a moment", "DAW recording: showing Hybrid VU",
         "AUTO stopped at the TP limit", "AUTO stopped: press MATCH again", "No OS Guide from Kirin OS yet",
         "Capture could not be prepared; try again", "Available in POST", "NOTE requires an active Keep",
-        "Stop playback to change connection", "Ended; normal level returns with audio",
+        "Stop playback to change connection", "Ended; normal level returns with audio", "Keep waits for PRE; Stop cancels",
         "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
         "8 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
         "Available from 125%", "PRE input measurements", "Local measurements; PRE subtraction does not apply",
