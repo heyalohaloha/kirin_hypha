@@ -12,7 +12,7 @@ namespace kirin
 inline KirinSnapshotAbiContract expectedSnapshotAbiContract() noexcept
 {
     return {
-        1u, sizeof (KirinSnapshotAbiContract), 7u, 8u, 64u, 1200u,
+        1u, sizeof (KirinSnapshotAbiContract), 8u, 8u, 64u, 1200u,
         2u, 2u, 2u, 0u,
         sizeof (KirinAttackBandSummaryV2), alignof (KirinAttackBandSummaryV2),
         sizeof (KirinAttackSingleSnapshotV2), alignof (KirinAttackSingleSnapshotV2),

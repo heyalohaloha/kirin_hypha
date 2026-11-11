@@ -26,9 +26,9 @@ bool kirin_hypha_poll_level_snapshot(
     KirinLevelSnapshot* out);
 #ifdef __cplusplus
 }
-static_assert (sizeof (KirinLevelSnapshot) == 2160);
+static_assert (sizeof (KirinLevelSnapshot) == 2168);
 static_assert (offsetof (KirinLevelSnapshot, frame) == 16);
-static_assert (offsetof (KirinLevelSnapshot, chain) == 2120);
+static_assert (offsetof (KirinLevelSnapshot, chain) == 2128);
 #endif
 
 #endif

@@ -21,11 +21,13 @@ use crate::{
 /// 5 = B-962（`KirinMeterHistoryEntry` の `clip_event_count` 同上 + `measurement_epoch`）。
 /// 6 = B-981（Observatory comparison state/reason/generation/identity）。
 /// 7 = `KirinMeterHistoryEntry` の最後の range が PLR から PSR に変わった（大きさと offset は同じ）。
-pub const KIRIN_ABI_REVISION: u32 = 7;
+/// 8 = `KirinMeterSession` の末尾に `song_psr`（frame の `delta` 以降の offset が動く）。
+pub const KIRIN_ABI_REVISION: u32 = 8;
 
 /// `KirinObservatoryFrame.version`。フレーム 1 個ごとに載る版で、殻はこれが自分のヘッダの値と
 /// 違うフレームを捨てる（`HyphaObservatoryFrame.cpp:42`）。ABI 版とは別に数える。
-pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 6;
+/// 7 = `KirinMeterSession` の末尾に `song_psr`（ABI 8）。
+pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 7;
 
 /// `include/kirin_hypha_abi_contract.h` の `KirinAbiContract`。
 #[repr(C)]

@@ -87,11 +87,17 @@ void drawMetric (juce::Graphics& g,
             drawTabularText (g, monoFont (presentation, valueRole, typography::Composition::facts),
                              valueText (value, decimals, signedValue),
                              area.reduced (4, 0).toFloat(), juce::Justification::centred);
-        g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
+        // A second figure of the same quantity (PSR's SONG) takes the unit row, with the unit when
+        // both fit.
+        const auto withUnit = auxiliaryText + " " + unit;
+        const auto bottom = auxiliaryText.isEmpty() ? unit
+            : text_style::shownWidth (g.getCurrentFont(), withUnit) <= unitArea.getWidth() - 6
+                ? withUnit : auxiliaryText;
+        g.setColour (auxiliaryText.isEmpty() ? COL_TEXT_TERTIARY : COL_TEXT_SECONDARY);
         if (textOverride.isEmpty())
-            text_style::drawText (g, unit, unitArea.reduced (3, 0), juce::Justification::centred);
+            text_style::drawText (g, bottom, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
@@ -386,33 +392,24 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     {}, isFullDensity (density));
     }
 
+    // Every cell but the fourth keeps its place in TRACK and 2MIX: I for a track, PLR for the mix.
     const std::array<double, 5> supportValues {
-        trackStem ? numericWatch.current.psr : meter.true_peak,
-        trackStem ? meter.true_peak : summaryMeter.max_true_peak,
-        trackStem ? summaryMeter.max_true_peak : summaryMeter.lra,
+        numericWatch.current.psr, meter.true_peak, summaryMeter.max_true_peak,
         trackStem ? summaryMeter.lufs_i : optionValue (summaryMeter.plr, ! sessionSummaryPending()),
-        trackStem ? summaryMeter.lra : numericWatch.current.crest
+        summaryMeter.lra
     };
     const std::array<bool, 5> supportAvailable {
-        trackStem ? currentAvailable && watchDisplayAvailable : currentAvailable,
-        trackStem ? currentAvailable : cumulativeAvailable,
-        trackStem ? cumulativeAvailable
-                  : cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY,
-        cumulativeAvailable,
-        trackStem ? cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY
-                  : currentAvailable && watchDisplayAvailable
+        currentAvailable && watchDisplayAvailable, currentAvailable, cumulativeAvailable, cumulativeAvailable,
+        cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY
     };
-    const std::array<const char*, 5> supportUnits {
-        trackStem ? "dB" : "dBTP",
-        "dBTP",
-        trackStem ? "dBTP" : "LU",
-        trackStem ? "LUFS" : "dB",
-        trackStem ? "LU" : "dB"
-    };
+    const std::array<const char*, 5> supportUnits { "dB", "dBTP", "dBTP", trackStem ? "LUFS" : "dB", "LU" };
     constexpr int supportCount = 5;
+    // The song's PSR under the PSR of now: one figure for the whole song, read where it is loudest.
+    const auto songText = "SONG " + (cumulativeAvailable && std::isfinite (summaryMeter.song_psr)
+        ? juce::String (summaryMeter.song_psr, 1) : juce::String ("---"));
     for (int index = 0; index < supportCount; ++index)
     {
-        const auto lraIndex = trackStem ? 4 : 2;
+        constexpr auto lraIndex = 4;
         const auto warming = index == lraIndex && cumulativeAvailable
                           && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
         const auto warmingText = warming
@@ -427,7 +424,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     false, 1,
                     metricLayout.support[(size_t) index] == level_metrics::Metric::maximumTruePeak
                         && maximumBound.isNotEmpty() ? maximumBound : warmingText,
-                    isFullDensity (density) ? 0.54f : -1.0f, {},
+                    isFullDensity (density) ? 0.54f : -1.0f,
+                    metricLayout.support[(size_t) index] == level_metrics::Metric::psr ? songText : juce::String(),
                     true, typography::TextRole::secondaryValue);
     }
     if (! channelStrips.isEmpty())

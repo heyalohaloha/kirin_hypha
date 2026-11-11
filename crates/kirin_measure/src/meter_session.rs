@@ -60,6 +60,9 @@ pub struct MeterSessionSnapshot {
     pub max_lufs_m: Option<f64>,
     pub summary: SessionSummary,
     pub plr: Option<f64>,
+    /// The song's PSR since the reset: the highest 400 ms sample peak minus the highest
+    /// short-term loudness. One figure for the whole song, read where it is loudest.
+    pub song_psr: Option<f64>,
     pub stereo: StereoMeterSnapshot,
     /// The layout this session's engine was built for. The slot order is the buffer order, so a
     /// reader names a channel by its role rather than by where it happened to sit.
@@ -145,6 +148,8 @@ pub struct MeterSession {
     current: MeasureResult,
     maximum: MeasureResult,
     max_lufs_m: Option<f64>,
+    /// Highest sample peak since the reset (dBFS), the peak PSR reads, from every observation.
+    max_psr_peak: Option<f64>,
     summary: SessionSummary,
     observed_frames: u64,
     stereo: StereoMeter,
@@ -194,6 +199,7 @@ impl MeterSession {
             current: MeasureResult::default(),
             maximum: MeasureResult::default(),
             max_lufs_m: None,
+            max_psr_peak: None,
             summary: SessionSummary::default(),
             observed_frames: 0,
             stereo,
@@ -265,6 +271,17 @@ impl MeterSession {
                     if let Some(value) = value.filter(|v| v.is_finite()) {
                         *maximum = Some(maximum.map_or(value, |old| old.max(value)));
                     }
+                }
+                // The same sample peak PSR reads (engine_readout.rs), taken from the observation
+                // itself: a peak in a passage too quiet for loudness still counts.
+                let peak = observed_samples
+                    .iter()
+                    .map(|s| s.abs())
+                    .fold(0.0_f64, f64::max);
+                if peak > 0.0 && peak.is_finite() {
+                    let peak_db = 20.0 * peak.log10();
+                    self.max_psr_peak =
+                        Some(self.max_psr_peak.map_or(peak_db, |old| old.max(peak_db)));
                 }
                 self.observed_frames = self
                     .observed_frames
@@ -398,6 +415,7 @@ impl MeterSession {
         self.current = MeasureResult::default();
         self.maximum = MeasureResult::default();
         self.max_lufs_m = None;
+        self.max_psr_peak = None;
         self.summary = SessionSummary::default();
         self.observed_frames = 0;
         self.stereo.reset();
@@ -436,6 +454,11 @@ impl MeterSession {
                 .max_true_peak
                 .zip(self.summary.lufs_i)
                 .map(|(peak, integrated)| peak - integrated)
+                .filter(|value| value.is_finite()),
+            song_psr: self
+                .max_psr_peak
+                .zip(self.maximum.lufs_s)
+                .map(|(peak, short_term)| peak - short_term)
                 .filter(|value| value.is_finite()),
             stereo: self.stereo.snapshot(),
             layout: self.layout,

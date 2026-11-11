@@ -47,9 +47,9 @@ fn rejects_wrong_version_capacities_and_missing_buffers() {
         std::ptr::null_mut(),
         std::ptr::dangling_mut()
     ));
-    assert_eq!(std::mem::size_of::<KirinLevelSnapshot>(), 2_160);
+    assert_eq!(std::mem::size_of::<KirinLevelSnapshot>(), 2_168);
     assert_eq!(std::mem::offset_of!(KirinLevelSnapshot, frame), 16);
-    assert_eq!(std::mem::offset_of!(KirinLevelSnapshot, chain), 2_120);
+    assert_eq!(std::mem::offset_of!(KirinLevelSnapshot, chain), 2_128);
 }
 
 #[test]

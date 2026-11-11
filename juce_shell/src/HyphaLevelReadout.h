@@ -19,7 +19,8 @@ inline void availability (KirinMeterSession& held, const KirinMeterSession& next
 {
     for (auto member : { &KirinMeterSession::lufs_m, &KirinMeterSession::lufs_s,
             &KirinMeterSession::lufs_i, &KirinMeterSession::lra, &KirinMeterSession::true_peak,
-            &KirinMeterSession::max_true_peak, &KirinMeterSession::plr, &KirinMeterSession::max_lufs_m,
+            &KirinMeterSession::max_true_peak, &KirinMeterSession::plr, &KirinMeterSession::song_psr,
+            &KirinMeterSession::max_lufs_m,
             &KirinMeterSession::balance_db, &KirinMeterSession::correlation })
         availability (held.*member, next.*member);
     for (auto member : { &KirinMeterSession::sample_peak_dbfs, &KirinMeterSession::sample_peak_hold_dbfs,
