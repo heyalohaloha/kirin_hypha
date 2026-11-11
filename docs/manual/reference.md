@@ -26,7 +26,8 @@ Reference has four roles, each with its own button in the same place at every si
   Reference set (for example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
   stay usable, and while Kirin OS is publishing new sets the current ones stay.
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
-  to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
+  to listen for; its songs are the CHECK set's, or the first-ranked Reference set's when the CHECK set
+  has none (Kirin OS chooses them). The Cue is the section C plays.
   C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 

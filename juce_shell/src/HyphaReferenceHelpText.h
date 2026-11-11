@@ -33,7 +33,8 @@ inline constexpr const char* cueBar = "Where C's Cue sits in the song and its lo
 inline constexpr const char* match = "The gain C plays at: matched to A's recent window, or the gain it plays at now.";
 inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS. A tab changes C's Check and keeps the song.";
 // C は何のためか（2026-11-11：初めての人に C の役目が伝わっていなかった）。C のボタン・CHECK SET の欄と見出し・C の案内。
-inline constexpr const char* checkPurpose = "C compares A with a section of a reference song, chosen in a CHECK SET in Kirin OS.";
+// C の曲は CHECK セットの曲。CHECK セットに曲が無い時は、Kirin OS が 1 位の Reference のセットの曲を渡す。
+inline constexpr const char* checkPurpose = "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none.";
 
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
 inline constexpr const char* versionTabs = "WHOLE shows the whole song; the other tabs compare A and V over the same section.";
