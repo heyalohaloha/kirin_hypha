@@ -135,8 +135,8 @@ can change (outside the Cue, no match in this passage) or a match that cannot be
 instead.
 
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
-them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
-shows the song and the status; songs are switched from 125%.
+them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
+the B page chooses the Reference set and the song, also while A plays.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin

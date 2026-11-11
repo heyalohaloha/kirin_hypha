@@ -202,14 +202,13 @@ void verifyMoves()
     require (component.stepTab (1).isEmpty(), "the next V tab");
     spy.expectNone ("a V tab changes no sound and no selection");
 
-    // 100% keeps the choice of B's song to the larger sizes.
+    // B's song and Reference set are chosen at every size, 100% too (2026-11-11).
     component.setPresentationContext (presentation::forEditor (300, 200));
     state = readyState();
     state.comparisonSlot = 3;
     component.setState (state);
-    require (component.stepSong (1) == "Available from 125%", "100% does not change B's song");
-    require (component.stepSet (1) == "Available from 125%", "100% does not change B's set");
-    spy.expectNone ("100% changed nothing");
+    require (component.stepSong (1).isEmpty(), "100% changes B's song"); spy.expect ("song s3", "the next B song at 100%");
+    require (component.stepSet (1).isEmpty(), "100% changes B's set"); spy.expect ("songset set2", "the next Reference set at 100%");
 
     state.blindPhase = BlindPhase::active;
     component.setState (state);

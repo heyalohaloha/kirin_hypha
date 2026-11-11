@@ -93,7 +93,7 @@ inline std::vector<Notice> notices()
         "Stop playback to change connection", "Ended; normal level returns with audio", "Keep waits for PRE; Stop cancels",
         "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
         "8 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
-        "Available from 125%", "PRE input measurements", "Local measurements; PRE subtraction does not apply",
+        "PRE input measurements", "Local measurements; PRE subtraction does not apply",
         "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required",
         "LIVE: POST values on fixed scales, measured every 100 ms.",
         "RUN: absolute facts grouped by playback run within the selected history",
