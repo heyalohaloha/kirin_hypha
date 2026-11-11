@@ -75,6 +75,7 @@ class AWindowRing
     std::int64_t position = 0;
     int displayBlocks = 100;
     bool song = false;  // C の SONG（A FROM START を集計する）
+    std::uint64_t discontinuity = 1;  // 送り手の途切れの印（停止・遅延の変化で進む）
 public:
     ref::VisualObservation observation { [this] { return step(); } };
     static constexpr int blocksPerFrame = 20;
@@ -100,7 +101,7 @@ public:
             for (int n = 0; n < 240; ++n)
                 for (int channel = 0; channel < 2; ++channel)
                     pcm[static_cast<size_t> (n * 2 + channel)] = sample (position + n, channel);
-            observation.enqueue (pcm.data(), 240, 2, position, observation.inputGeneration(), 1);
+            observation.enqueue (pcm.data(), 240, 2, position, observation.inputGeneration(), discontinuity);
         }
     }
     // 止まっている観測スレッドを `iterations` 周だけ進めて、また止める。
@@ -112,6 +113,7 @@ public:
     }
     void park() { { const std::lock_guard<std::mutex> lock (mutex); stepsLeft = 0; } waitParked(); }
     void seek (std::int64_t next) { position = next; }  // 次に入れる塊の DAW の位置
+    void interruptInput() { ++discontinuity; }          // 停止して遅延を替えた（同じ位置から続けても途切れ）
     void setSong (bool value) { const std::lock_guard<std::mutex> lock (mutex); song = value; }
     void release() { { const std::lock_guard<std::mutex> lock (mutex); stepsLeft = running; parked = false; } wake.notify_all(); }
     // 走らせて受け口を空にし、測った物が publish されるまで待って止める。
@@ -208,6 +210,20 @@ void testASongRing()
     hypha::tests::reference_control::await ([&] { const auto state = ring.observation.snapshot(); return state && ! state->aSong; },
                                             "CUE does not publish A from the start");
     ring.park();
+    // 送り手の途切れの印：大きな音を 2,400 サンプルで止め、遅延を替えて同じ位置から小さな音で再開。半端の区切りは
+    // 持たない（9 つ）ので、大きな音は A FROM START に入らない（入れば音量の 400 ms が大きな音に引かれる）。
+    AWindowRing fresh;
+    fresh.setSong (true);
+    fresh.enqueue (10, 0.9f);
+    fresh.interruptInput();
+    fresh.enqueue (190, 0.01f);
+    fresh.release();
+    hypha::tests::reference_control::await ([&] {
+        const auto state = fresh.observation.snapshot();
+        return state && state->aSong && state->aSong->slots == 9 && std::isfinite (state->aSong->loudness)
+            && state->aSong->loudness < -30.0 && ! fresh.observation.pendingInput();
+    }, "an interruption the shared meter sees also ends A from the start's measuring");
+    fresh.park();
 }
 
 // C の CUE／SONG は保存する選択：変わった時だけ host に知らせ、state を往復し、復元で戻る。前の版の state は CUE。

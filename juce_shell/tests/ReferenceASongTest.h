@@ -20,6 +20,7 @@ struct ASongFeed
     ref::KirinSpectrumMeter meter;  // 図の A の窓（同じ定義かを比べる）
     ref::ASongMeter song;
     std::int64_t expected = -1;
+    std::uint64_t discontinuity = 1;  // 送り手の途切れの印（停止・遅延の変化で進む）
     ASongFeed() { meter.configure (48'000, 2, 6'000); song.configure (48'000, 2); }
     void play (double startSeconds, double seconds, double levelDbfs)
     {
@@ -38,7 +39,7 @@ struct ASongFeed
             }
             if (position != expected) meter.reset();
             meter.push (pcm.data(), count);
-            song.push (pcm.data(), count, position);
+            song.push (pcm.data(), count, position, discontinuity);
             expected = position + count;
         }
     }
@@ -112,6 +113,34 @@ inline void testReferenceASong()
         const auto summary = feed.song.summary();
         require (summary->slots == 50 && summary->loudnessBlocks == 17 + 7 + 17,
                  (juce::String ("loudness blocks never join positions played at different times: ") + juce::String (summary->loudnessBlocks)).toRawUTF8());
+    }
+    {   // 途切れの印（停止して遅延を替え、同じ位置から再開）：途中のフレームを捨て、音量の 400 ms もつながない。
+        ASongFeed feed;
+        feed.play (0.0, 0.05, -20.0);   // 2,400 サンプルで止める
+        ++feed.discontinuity;
+        feed.play (0.05, 0.95, -20.0);  // 同じ位置から再開：半端の区切りは持たず、次の境目（0.1 秒）から
+        require (feed.song.summary()->slots == 9, "an interruption at the same position drops the half-measured position");
+        feed.play (1.0, 1.0, -20.0);
+        ++feed.discontinuity;
+        feed.play (2.0, 1.0, -20.0);
+        const auto summary = feed.song.summary();
+        require (summary->slots == 29 && summary->loudnessBlocks == 16 + 7,  // 0.1〜2 秒（19 区切り）と 2〜3 秒の 2 つの再生
+                 (juce::String ("loudness blocks never span an interruption: ") + juce::String (summary->loudnessBlocks)).toRawUTF8());
+        feed.song.interrupt();  // 観測スレッドが共有の測りを新しくした（壊れた入力・見ていない間）
+        feed.play (3.0, 0.05, -20.0);
+        feed.song.interrupt();
+        feed.play (3.05, 0.95, -20.0);
+        require (feed.song.summary()->slots == 29 + 9, "an interrupt from the observation thread also drops the half-measured position");
+    }
+    {   // RESET の後は本当に新しい：-1 サンプルから鳴らし直しても、前の続きと取り違えない。
+        ASongFeed feed;
+        feed.play (0.0, 10.0, -20.0);
+        feed.song.clear();
+        feed.play (-1.0 / 48'000.0, 10.05, -20.0);
+        const auto summary = feed.song.summary();
+        require (summary->slots == 100 && std::abs (summary->loudness + 20.0) < 0.3,
+                 (juce::String ("after RESET a restart from -1 sample holds the first ten seconds at their level: ")
+                  + juce::String (summary->slots) + " / " + juce::String (summary->loudness)).toRawUTF8());
     }
     {   // 同じ区切りの値は図の A の窓のフレームと同じ（帯域の中央値）。
         ASongFeed feed;

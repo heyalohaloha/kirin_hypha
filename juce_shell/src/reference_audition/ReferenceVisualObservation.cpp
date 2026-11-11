@@ -127,15 +127,15 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
     }
     if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
     if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
-    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); kirinExpected = -1; dirty = true; return; }
+    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); aSongMeter.interrupt(); kirinExpected = -1; dirty = true; return; }
     if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity)
-    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); }
+    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); aSongMeter.interrupt(); }  // SONG も同じ途切れで
     kirinDiscontinuity = block.discontinuity;
     if (! aWindowCatchingUp)
     {
         // Start both summaries at RESET's boundary; the continuous range history keeps its own clock.
         kirinMeter.push (block.pcm.data(), block.frames);
-        aSongMeter.push (block.pcm.data(), block.frames, block.position);
+        aSongMeter.push (block.pcm.data(), block.frames, block.position, block.discontinuity);
         targetPeaks->push (block.pcm.data(), block.frames, rate, block.channels);
     }
     printMeter.push (block.pcm.data(), block.frames);
@@ -230,7 +230,7 @@ void VisualObservation::run()
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aSongMeter.interrupt(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             aWindowCatchingUp = false;
@@ -291,7 +291,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aSongMeter.interrupt(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);

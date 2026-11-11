@@ -51,34 +51,40 @@ public:
         frameLength = meter.configure (sampleRate, channels, 1) ? sampleRate / 10 : 0;
         weighting.configure (sampleRate);
     }
+    // 覚えた区切りを全部捨て、測りも新しくする（RESET A WINDOW・形式の変化）。
     void clear() noexcept
     {
         std::fill (filled.begin(), filled.end(), std::uint8_t { 0 });
         held = 0;
         beyond = false;
-        expected = -1;
+        interrupt();
         ++changes;
     }
-    // 観測スレッドが受けた A の塊（DAW の位置 `position` から）。位置が続かなければ途中のフレームを捨て、次の境目から。
-    void push (const float* pcm, int frames, std::int64_t position)
+    // 途切れ（停止・シーク・遅延や時計の変化・壊れた入力・見ていない間）：途中のフレームと K 特性の状態を捨て、
+    // 次の塊からは新しい再生（次の境目から測り、音量の 400 ms は前の再生とつながない）。覚えた区切りは残す。
+    void interrupt() noexcept
+    {
+        meter.reset();
+        state = {};
+        frameEnergy = 0.0;
+        playing = framing = false;
+    }
+    // 観測スレッドが受けた A の塊（DAW の位置 `position` から、`discontinuity` は送り手の途切れの印）。位置か印が
+    // 続かなければ途切れとして扱う。
+    void push (const float* pcm, int frames, std::int64_t position, std::uint64_t discontinuity)
     {
         if (frameLength <= 0 || pcm == nullptr || frames < 1) return;
-        if (position != expected)  // 途切れ（シーク・停止・RESET の後）：新しい再生
-        {
-            meter.reset();
-            state = {};
-            frameEnergy = 0.0;
-            frameStart = -1;
-            ++run;
-        }
+        if (playing && (position != expected || discontinuity != token)) interrupt();
+        if (! playing) { playing = true; token = discontinuity; ++run; }
         expected = position + frames;
         int index = 0;
-        if (frameStart < 0)
+        if (! framing)
         {
             const auto boundary = position <= 0 ? std::int64_t { 0 } : (position + frameLength - 1) / frameLength * frameLength;
             if (boundary >= position + frames) return;
             index = static_cast<int> (boundary - position);
             frameStart = boundary;
+            framing = true;
         }
         while (index < frames)
         {
@@ -189,8 +195,10 @@ private:
     KWeighting weighting;
     std::array<KWeighting::State, 2> state {};
     double frameEnergy = 0.0;
-    std::int64_t expected = -1, frameStart = -1;  // frameStart：今のフレームの頭（DAW の区切りの境目。-1 は次の境目待ち）
-    std::uint64_t changes = 0;
+    std::int64_t expected = 0, frameStart = 0;  // 次に続く位置と、今のフレームの頭（DAW の区切りの境目）
+    bool playing = false;  // 前の塊から続く再生の途中（false：次の塊は新しい再生）
+    bool framing = false;  // frameStart のフレームを測っている（false：次の境目を待つ）
+    std::uint64_t token = 0, changes = 0;  // token：今の再生の途切れの印
     std::uint32_t run = 0;  // 途切れごとに進む（音量の 400 ms は同じ run の区切りだけでつくる）
     bool beyond = false;
     std::vector<double> centers;
