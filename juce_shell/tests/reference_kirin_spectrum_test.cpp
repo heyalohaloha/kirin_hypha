@@ -68,7 +68,7 @@ void testBalanceOverlay()
     check (overlay.find ("p/c/one")->colour == 0, "its colour is free again");
     overlay.toggle ("bad id", listed);
     check (overlay.find ("bad id") == nullptr, "an ID outside the saved form is not shown");
-    overlay.all = true; overlay.drawing = ref::BalanceOverlay::Drawing::allShape;
+    overlay.all = overlay.used = true; overlay.drawing = ref::BalanceOverlay::Drawing::allShape;
     juce::XmlElement saved ("ReferenceChoices"); overlay.write (saved);
     check (ref::BalanceOverlay::read (saved) == overlay && ref::BalanceOverlay::read (saved).drawing == ref::BalanceOverlay::Drawing::allShape,
            "ALL, ALL SHAPE, the lines and their colours round trip");
@@ -82,7 +82,13 @@ void testBalanceOverlay()
     check (ref::ReferenceComparisonSettings::read (state).overlay == overlay, "the project keeps the overlay");
     state.getChildByName ("ReferenceChoices")->removeChildElement (state.getChildByName ("ReferenceChoices")->getChildByName ("Overlay"), true);
     const auto older = ref::ReferenceComparisonSettings::read (state).overlay;
-    check (! older.all && older.lines.empty(), "a project saved before the overlay opens on ONE");
+    check (! older.all && older.lines.empty() && ! older.used, "a project saved before the overlay opens on ONE, never used");
+    // Used once and emptied: kept as used (the next ALL stays empty). An overlay saved without the mark was used.
+    ref::BalanceOverlay emptied; emptied.used = true;
+    juce::XmlElement kept ("ReferenceChoices"); emptied.write (kept);
+    check (ref::BalanceOverlay::read (kept) == emptied, "an emptied selection keeps that ALL was used");
+    juce::XmlElement unmarked ("ReferenceChoices"); unmarked.createNewChildElement ("Overlay")->setAttribute ("all", true);
+    check (ref::BalanceOverlay::read (unmarked).used, "an overlay saved without the mark counts as used");
 }
 
 // 図の窓（3 S・10 S・30 S・CUE・ALL）：新しいフレームから数え、足りなければあるだけで集計する。

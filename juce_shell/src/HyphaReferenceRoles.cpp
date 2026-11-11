@@ -78,6 +78,7 @@ void Component::configureRoles()
         for (const auto& item : overlayItems (current)) listed.push_back (item.id);
         auto next = current.overlay;
         next.toggle (id, listed);
+        next.used = true;
         applyOverlay (std::move (next));
     };
     songList.onPoint = [this] (const juce::String& id)
@@ -87,19 +88,21 @@ void Component::configureRoles()
         repaint (balanceBounds);
     };
     addChildComponent (songList);
-    // ALL を初めて開いた時（今の一覧の線が 1 本も出ていない時）は、セットの曲を全部出す。目標は番号で足す。
+    // 本当に初めての ALL（project に一度も使った印が無い）だけ、セットの曲を全部出す。目標は番号で足す。利用者が
+    // 空にした選択は埋めない。
     overlaySwitch.onChoose = [this] (bool all)
     {
         if (current.overlay.all == all) return;
         auto probe = current;
         probe.overlay.all = all;
         const auto items = overlayItems (probe);
-        if (all && std::none_of (items.begin(), items.end(), [] (const auto& item) { return item.line != nullptr; }))
+        if (all && ! probe.overlay.used)
         {
             std::vector<juce::String> listed;
             for (const auto& item : items) listed.push_back (item.id);
             for (const auto& item : items) if (! item.target) probe.overlay.toggle (item.id, listed);
         }
+        probe.overlay.used = probe.overlay.used || all;
         applyOverlay (std::move (probe.overlay));
     };
     // ALL の描き方（LINES・SHAPE・ALL SHAPE）。SHAPE に入れる物は番号のまま、ALL SHAPE は全部。

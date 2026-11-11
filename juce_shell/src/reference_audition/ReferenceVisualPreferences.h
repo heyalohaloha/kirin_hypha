@@ -161,8 +161,9 @@ struct BalanceOverlay
     bool all = false;
     Drawing drawing = Drawing::lines;
     std::vector<Line> lines;  // in the order shown
+    bool used = false;        // ALL を一度でも開いた・番号を押した（最初の ALL だけセットの曲を全部出す。空にした選択は埋めない）
     bool operator== (const BalanceOverlay& other) const noexcept
-    { return all == other.all && drawing == other.drawing && lines == other.lines; }
+    { return all == other.all && drawing == other.drawing && lines == other.lines && used == other.used; }
     const Line* find (const juce::String& id) const noexcept
     {
         for (const auto& line : lines) if (line.id == id) return &line;
@@ -192,9 +193,10 @@ struct BalanceOverlay
     }
     void write (juce::XmlElement& parent) const
     {
-        if (! all && drawing == Drawing::lines && lines.empty()) return;
+        if (! all && drawing == Drawing::lines && lines.empty() && ! used) return;
         auto* overlay = parent.createNewChildElement ("Overlay");
         overlay->setAttribute ("all", all);
+        if (used) overlay->setAttribute ("used", true);
         if (drawing != Drawing::lines) overlay->setAttribute ("draw", drawing == Drawing::shape ? "shape" : "all_shape");
         for (const auto& line : lines)
         {
@@ -211,6 +213,8 @@ struct BalanceOverlay
         result.all = overlay->getBoolAttribute ("all");
         const auto drawing = overlay->getStringAttribute ("draw");
         result.drawing = drawing == "shape" ? Drawing::shape : drawing == "all_shape" ? Drawing::allShape : Drawing::lines;
+        // A saved overlay without the mark was used if it holds anything.
+        result.used = overlay->getBoolAttribute ("used", result.all || result.drawing != Drawing::lines || overlay->getNumChildElements() > 0);
         for (const auto* child : overlay->getChildWithTagNameIterator ("Line"))
         {
             const auto id = child->getStringAttribute ("id");

@@ -36,9 +36,35 @@ inline void verifyTargetsWithoutSongs()
              "with nothing to draw there is no list and no switch (the B step says why)");
 }
 
+// Only the very first ALL turns every song on. A selection the user emptied stays empty, also after ONE and
+// after the project is saved and opened again.
+inline void verifyFirstUseOnly()
+{
+    reference_ui::Component panel; reference_text_repairs::sizePanel (panel, 900, 600);
+    auto state = page (4, 0);
+    panel.setState (state);
+    Saved saved; saved.track (panel);
+    switchHalf (panel, "reference-overlay-all").onClick();
+    require (panel.state().overlay.lines.size() == 4 && panel.state().overlay.used && saved.overlay.used, "the first ALL turns the songs on");
+    auto& list = listOf (panel);
+    for (int round = 0; round < 4; ++round) boxesOf (list)[static_cast<size_t> (round)]->onClick();
+    require (panel.state().overlay.lines.empty(), "every line turned off");
+    switchHalf (panel, "reference-overlay-one").onClick();
+    switchHalf (panel, "reference-overlay-all").onClick();
+    require (panel.state().overlay.lines.empty(), "ALL again keeps the emptied selection");
+    reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), reference_ui::overlayEmptyText);
+    juce::XmlElement project ("ReferenceChoices"); saved.overlay.write (project);
+    auto reopened = state; reopened.overlay = ref::BalanceOverlay::read (project); reopened.overlay.all = false;
+    reference_ui::Component again; reference_text_repairs::sizePanel (again, 900, 600);
+    again.setState (reopened);
+    switchHalf (again, "reference-overlay-all").onClick();
+    require (again.state().overlay.lines.empty(), "a saved, emptied selection stays empty after reopening");
+}
+
 inline void verifyRepairs()
 {
     verifyTargetsWithoutSongs();
+    verifyFirstUseOnly();
     std::cout << "Reference Balance overlay repairs: PASS\n";
 }
 }
