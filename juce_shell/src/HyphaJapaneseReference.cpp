@@ -91,8 +91,10 @@ const Entry entries[] = {
     // 音量の合わせ方（2026-11-11：B・C の区間を言う行で、区間の追従と読み違えないよう「音量」と言う）。
     { "%1 FOLLOWING A (LAST 10 S)", u8"%1はA直近10秒に追従" },  // 凡例・B の一覧と同じ「A直近10秒」。300% の足元に入る
     { "LEVEL FOLLOWS A (LAST 10 S)", u8"音量はA直近10秒に追従" },
-    { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2 / %3秒）" },
-    { "LEVEL MATCHING A %1 OF %2 S", u8"音量をAに合わせ中（%1 / %2秒）" },
+    // 型は前から順に当てるので、「LEVEL」で始まる型を「%1」で始まる型より前に置く（後ろだと「LEVELはAに合わせ中」に
+    // なっていた）。秒の組は「/」を空けない（空けると足元の行がそこを区切りと見て途中で切った。2026-11-12）。
+    { "LEVEL MATCHING A %1 OF %2 S", u8"音量をAに合わせ中（%1/%2秒）" },
+    { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2/%3秒）" },
     { "%1 MATCHED AND FIXED", u8"%1はMATCH済み・固定" },
     { "LEVEL MATCHED AND FIXED", u8"音量はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },
