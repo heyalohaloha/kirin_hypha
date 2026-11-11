@@ -208,6 +208,8 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
                                         juce::Justification::centredLeft);
     };
     above (presetBox, "CHECK SET");
+    if (presetBox.isVisible() || selectionVisible (presetBox))  // 見出しを指すと C が何のためかを言う
+        help::note (presetBox.getBounds().withY (presetBox.getY() - 17).withHeight (15), help_text::checkPurpose);
     if (versionPage()) above (versionBox, "V / VERSION");
     above (checkSongBox, "C / SONG");
     // MATCH の左に、今の合わせ方（鳴っていればその gain と固定、鳴っていなければ鳴らすときの gain）。

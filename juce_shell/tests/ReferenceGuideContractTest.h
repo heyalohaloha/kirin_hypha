@@ -158,7 +158,7 @@ inline void verifyUnavailableButtons()
     component.setState (named ("no_version"));
     // 聴ける C は理由でなく、V・B と同じく何を聴くかを言う（300% では下の行の説明にもなる。2026-10-04）。
     require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "V: Play A or choose a Version"
-                 && c->getTooltip() == "Audition the Check's song from Kirin OS (C).",
+                 && c->getTooltip() == reference_ui::help_text::checkPurpose,
              "an unready B stays clickable and names its step on hover; a ready C says what it plays");
     b->onClick();
     require (explained == "V: Play A or choose a Version" && ! selectedB,

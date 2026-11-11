@@ -32,6 +32,8 @@ inline constexpr const char* truePeak = "Highest true peak of A and of C at the 
 inline constexpr const char* cueBar = "Where C's Cue sits in the song and its loop. The line is C's playing position.";
 inline constexpr const char* match = "The gain C plays at: matched to A's recent window, or the gain it plays at now.";
 inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS. A tab changes C's Check and keeps the song.";
+// C は何のためか（2026-11-11：初めての人に C の役目が伝わっていなかった）。C のボタン・CHECK SET の欄と見出し・C の案内。
+inline constexpr const char* checkPurpose = "C compares A with a section of a reference song, chosen in a CHECK SET in Kirin OS.";
 
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
 inline constexpr const char* versionTabs = "WHOLE shows the whole song; the other tabs compare A and V over the same section.";
@@ -42,5 +44,5 @@ inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue an
 // 説明の全部（足したらここにも足す。試験は全部を両言語で確かめる：足元の行に収まる・日本語に英語が残らない）。
 inline constexpr const char* all[] { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
-                                     integrated, truePeak, cueBar, match, checkTabs, versionTabs, versionMixContext, whole, songs };
+                                     integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs };
 }

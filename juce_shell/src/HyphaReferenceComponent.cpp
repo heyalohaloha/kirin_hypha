@@ -52,8 +52,7 @@ Component::Component()
     checkBox.setLookAndFeel (&selectorLookAndFeel);
     candidateBox.setLookAndFeel (&selectorLookAndFeel);
     cueBox.setLookAndFeel (&selectorLookAndFeel);
-    configureSelector (presetBox, "reference-preset", "Check Preset",
-                       "Temporarily call a Check Preset received from Kirin OS.");
+    configureSelector (presetBox, "reference-preset", "Check Preset", help_text::checkPurpose);
     configureSelector (versionBox, "reference-version", "V Version",
                        help_text::versionMixContext);
     versionBox.setTextWhenNothingSelected ("Choose Version");

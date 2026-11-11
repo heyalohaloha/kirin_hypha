@@ -249,8 +249,6 @@ const Entry entries[] = {
 
     // Selectors and buttons.
     { "Visual comparison", u8"表示の比較対象" },
-    { "Temporarily call a Check Preset received from Kirin OS.",
-      u8"Kirin OSから受け取ったCheck Presetを一時的に呼び出します。" },
     { "Choose Version", u8"Versionを選ぶ" },
     { "Temporarily call a Check received from Kirin OS.",
       u8"Kirin OSから受け取ったCheckを一時的に呼び出します。" },
@@ -275,7 +273,6 @@ const Entry entries[] = {
     { "Start Version Blind", u8"Version Blindを開始" },
     { "End Blind Compare", u8"Blind Compareを終了" },
     { "Return to the live DAW mix (A).", u8"DAWの今のミックス（A）に戻ります。" },
-    { "Audition the Check's song from Kirin OS (C).", u8"Kirin OSのCheckの曲（C）を試聴します。" },
     { "Start a separate Version Blind trial. Check Preset settings and facts are hidden.",
       u8"別のVersion Blindを始めます。Check Presetの設定と計測値は隠します。" },
     { "End Blind Compare and return to live A.", u8"Blind Compareを終了し、DAWの今のミックス（A）に戻ります。" },
