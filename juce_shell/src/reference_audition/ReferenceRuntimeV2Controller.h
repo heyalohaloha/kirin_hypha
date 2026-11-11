@@ -378,6 +378,8 @@ namespace hypha::reference_audition
         std::atomic<std::int64_t> cueStart { 0 };
         std::atomic<std::int64_t> cueEnd { 0 };
         std::atomic<bool> cueLoops { false };
+        // Kirin OS の公開が鳴っている区間を変えた・外したので A へ戻した理由（表示だけ。次にこの役が鳴り始めたら消す）。
+        std::atomic<int> publicationReturn { 0 };
         std::atomic<bool> sampleLocked { false };
         std::atomic<std::uint64_t> mappingGeneration { 0 };
         std::atomic<std::uint64_t> bAudibleConfirmations { 0 };

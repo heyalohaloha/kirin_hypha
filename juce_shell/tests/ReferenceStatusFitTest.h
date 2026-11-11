@@ -147,6 +147,13 @@ inline void verifyReferenceStatusFits()
         section.rangeShortfallDb = 4.0;
         cases.push_back ({ "B plays its looped section at a follow limit", section });
     }
+    for (const int slot : { 1, 2, 3 })
+        for (const int change : { 1, 2 })
+        {
+            auto returned = base;  // 2026-11-11：Kirin OS の公開で A に戻した理由
+            returned.comparisonSlot = slot; returned.publicationReturn = change;
+            cases.push_back ({ change == 1 ? "Kirin OS changed what played" : "Kirin OS removed what played", returned });
+        }
     // 2026-10-06：段階の表の全部の段階 × 全部の役（今までは 5 つの状態だけだった）。
     std::vector<juce::String> stageNames;
     stageNames.reserve (static_cast<size_t> (reference_ui::stageCount) * 3);  // Case は名前の文字を指すので動かさない

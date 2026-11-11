@@ -24,6 +24,8 @@ struct StatusLine
 StatusKind kindOf (SourceStep) noexcept;
 // returnInFooter：A を下げた量を足元の RETURN（+x dB）が出している（300% 以上）。状態の文ではもう言わない。
 StatusLine referenceStatusLine (const State&, bool returnInFooter = false);
+// 鳴っていた役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻したことを言う行（「B: KIRIN OS CHANGED THE SECTION / ...」）。
+juce::String publicationReturnLine (int change, int slot);
 // Kirin OS の準備の状態（まだ聴けない曲）の言い方。B の一覧の短い語と、状態の行の「理由 / 直し方」。
 // 聴ける曲・Kirin OS から届いていない曲は空。確かめられない曲（preparationFailed）は「できない」。
 juce::String preparationWord (const reference_audition::RuntimeSongPreparation&);

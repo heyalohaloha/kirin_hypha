@@ -115,6 +115,28 @@ inline void verifyReferenceStatusLine()
         require (reference_ui::referenceStatusLine (other).text == "LOADING V AT PLAYHEAD / KEEP PLAYING",
                  "on V's own page the starved V says loading");
     }
+    // 2026-11-11：Kirin OS の公開が鳴っていた区間を変えた・外したので A に戻した時は、その理由と次の一手を言う。
+    {
+        auto returned = named ("ready");
+        returned.separateComparisons = true; returned.comparisonSlot = 3; returned.referenceStep = Step::ready;
+        returned.publicationReturn = 1;
+        auto line = reference_ui::referenceStatusLine (returned);
+        auto japanese = i18n::translate (line.text, i18n::Language::japanese);
+        require (line.text == "B: KIRIN OS CHANGED THE SECTION / PRESS B TO HEAR IT"
+                     && japanese == juce::String::fromUTF8 (u8"B：Kirin OSで区間が変わりました ／ Bを押すと新しい音"),
+                 "a section Kirin OS changed says why A plays and how to hear it: " + line.text + " / " + japanese);
+        returned.comparisonSlot = 2; returned.checkStep = Step::chooseSource; returned.publicationReturn = 2;
+        line = reference_ui::referenceStatusLine (returned);
+        japanese = i18n::translate (line.text, i18n::Language::japanese);
+        require (line.text == "C: REMOVED IN KIRIN OS / CHOOSE AGAIN"
+                     && japanese == juce::String::fromUTF8 (u8"C：Kirin OSで外されました ／ 選び直す"),
+                 "a song or section Kirin OS removed says so: " + line.text + " / " + japanese);
+        returned.comparisonSlot = 1; returned.publicationReturn = 1;
+        require (reference_ui::referenceStatusLine (returned).text.startsWith ("V: KIRIN OS CHANGED THE VERSION"),
+                 "V says its Version changed");
+        returned.publicationReturn = 0;
+        require (! reference_ui::referenceStatusLine (returned).text.contains ("KIRIN OS CHANGED"), "nothing returned, nothing said");
+    }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.comparisonSlot = playing.audibleComparisonSlot = 3;
     playing.tracking = Tracking::following;

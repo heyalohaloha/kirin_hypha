@@ -95,6 +95,11 @@ const Entry entries[] = {
     { "LEVEL MATCHED AND FIXED", u8"音量はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },
     { "ORIGINAL LEVEL", u8"元の音量" },
+    // Kirin OS の公開が鳴っていた区間を変えた・外したので A に戻した（区切りごとに訳す）。
+    { "%1: KIRIN OS CHANGED THE SECTION", u8"%1：Kirin OSで区間が変わりました" },
+    { "%1: KIRIN OS CHANGED THE VERSION", u8"%1：Kirin OSでVersionが変わりました" },
+    { "PRESS %1 TO HEAR IT", u8"%1を押すと新しい音" },
+    { "%1: REMOVED IN KIRIN OS", u8"%1：Kirin OSで外されました" },
     // 見ている画面と鳴っている役（「C PAGE · A PLAYING / PRESS C」。区切りごとに訳す）。
     { "B PAGE", u8"Bの画面" }, { "C PAGE", u8"Cの画面" }, { "V PAGE", u8"Vの画面" },
     { "A PLAYING", u8"Aを再生中" }, { "B PLAYING", u8"Bを再生中" }, { "C PLAYING", u8"Cを再生中" }, { "V PLAYING", u8"Vを再生中" },

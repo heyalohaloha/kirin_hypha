@@ -113,7 +113,9 @@ namespace hypha::reference_audition
         double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
         double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN();
         bool cueLoops = false;
-        bool cueWraps = false;  // B・C の Cue は A の位置を追わず、終わりで頭へ戻って繰り返す（Kirin OS の印が無くても）
+        bool cueWraps = false;
+        // Kirin OS の公開で鳴っていた区間が変わった（1）・曲や区間が無くなった（2）ので A へ戻した。次に鳴らすまで残る。
+        int publicationReturn = 0;  // B・C の Cue は A の位置を追わず、終わりで頭へ戻って繰り返す（Kirin OS の印が無くても）
         double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
         bool bSelected = false;
         bool transportPlaying = false;

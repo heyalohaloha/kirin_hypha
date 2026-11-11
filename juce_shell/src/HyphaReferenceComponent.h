@@ -210,6 +210,7 @@ struct State
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;      // C の Cue が終わりで頭へ戻る（Kirin OS の印か、A の位置を追わない Cue）
     bool referenceWraps = false;  // B の Cue が同じく繰り返す
+    int publicationReturn = 0;    // 見ている役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻した
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
     reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
     CueSubstitute cueSubstitute = CueSubstitute::none;          // C の Cue の値が無いときの代わり（状態の行が言う）

@@ -17,6 +17,15 @@ static juce::String pagePlaying (int page, int heard)
     return juce::String (roleLetter (page)) + " PAGE" + juce::String::fromUTF8 (u8" \u00b7 ") + roleLetter (heard) + " PLAYING";
 }
 
+// 鳴っていた役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻したことを言う行。
+juce::String publicationReturnLine (int change, int slot)
+{
+    const auto letter = juce::String (roleLetter (slot));
+    return change == 1 ? letter + (slot == 1 ? ": KIRIN OS CHANGED THE VERSION" : ": KIRIN OS CHANGED THE SECTION")
+                             + " / PRESS " + letter + " TO HEAR IT"
+                       : letter + ": REMOVED IN KIRIN OS / CHOOSE AGAIN";
+}
+
 static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 {
     using Tracking = reference_audition::TrackingState;
@@ -121,6 +130,9 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     const auto slot = state.comparisonSlot;
     const auto step = slot == 1 ? state.versionStep : slot == 3 ? state.referenceStep : state.checkStep;
     const auto letter = juce::String (roleLetter (slot));
+    // Kirin OS の公開が鳴っていた区間を変えた・外したので A に戻した（2026-11-11）：理由と、どうすれば聴けるかを言う。
+    if (state.publicationReturn != 0)
+        return { StatusKind::waiting, publicationReturnLine (state.publicationReturn, slot) };
     // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
     // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限より先に言う。
     if (preparationFailed (state.rolePreparation) || (step != SourceStep::ready && step != SourceStep::playDaw))
