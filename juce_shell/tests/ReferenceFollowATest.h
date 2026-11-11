@@ -48,11 +48,10 @@ ref::Snapshot& snapshotFor (ref::RuntimeV2Controller&, SnapshotTag);
 template <auto Member> struct SnapshotAccess
 { friend ref::Snapshot& snapshotFor (ref::RuntimeV2Controller& r, SnapshotTag) { return r.*Member; } };
 template struct SnapshotAccess<&ref::RuntimeV2Controller::currentSnapshot>;
-// 流し方・ずらしを書いている途中（mappingGeneration が奇数の間）に一度だけ呼ぶ（reference_cue_restart_test.cpp）。
-inline std::function<void()> followWriteProbe;
-// 流し方を替える時、MATCH を決めた後・書く前に、この役（followProbeRole）で一度だけ呼ぶ。
+// この役（followProbeRole）が流し方・ずらしを書いている途中（mappingGeneration が奇数の間）と、流し方の MATCH を決めた後・
+// 書く前に、それぞれ一度だけ呼ぶ（reference_cue_restart_test.cpp）。ほかの役（鳴っていない C）の書き込みでは呼ばない。
 inline const ref::RuntimeV2Controller* followProbeRole = nullptr;
-inline std::function<void()> followMatchProbe;
+inline std::function<void()> followWriteProbe, followMatchProbe;
 
 inline juce::var followSets (const juce::String& hash, const juce::String& pcm, const ref::RuntimeContentReceipt& source,
                              const juce::String& loudHash, const juce::String& loudPcm, const ref::RuntimeContentReceipt& loudSource)
@@ -238,9 +237,10 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     const auto midWrite = [&] (const std::function<void()>& write)
     {
         bool sounded = false, probed = false;
+        followProbeRole = &referenceRole;  // 鳴っている B の書き込みの途中（C は先に書くが鳴っていない）
         followWriteProbe = [&] { probed = true; sounded = host (true); };
         write();
-        followWriteProbe = nullptr;
+        followWriteProbe = nullptr; followProbeRole = nullptr;
         return probed && sounded;
     };
 
