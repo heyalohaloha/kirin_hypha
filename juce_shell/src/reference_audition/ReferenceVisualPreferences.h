@@ -1,9 +1,11 @@
 #pragma once
 #include <juce_core/juce_core.h>
 #include "ReferenceTextEdges.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 namespace hypha::reference_audition
 {
 struct VisualViewChoice
@@ -141,6 +143,80 @@ private:
     }
 };
 
+// B の Balance の重ね比べ。ONE は今の形（A・選んだ曲・セットの帯）、ALL は A と、一覧の番号で出した線（セットの
+// 曲と目標）を重ねる。見せ方だけで、鳴る音は変えない。色は出した時に決め、消すまで変えない（ほかの線を出し入れ
+// しても入れ替わらない）。一覧に無くなった線は、次に番号を押した時に外して色を空ける。
+struct BalanceOverlay
+{
+    struct Line
+    {
+        juce::String id;
+        int colour = 0;
+        bool operator== (const Line& other) const noexcept { return id == other.id && colour == other.colour; }
+    };
+    static constexpr size_t maximumLines = 64;  // the list holds 16 songs and 16 targets at most
+    bool all = false;
+    std::vector<Line> lines;  // in the order shown
+    bool operator== (const BalanceOverlay& other) const noexcept { return all == other.all && lines == other.lines; }
+    const Line* find (const juce::String& id) const noexcept
+    {
+        for (const auto& line : lines) if (line.id == id) return &line;
+        return nullptr;
+    }
+    int freeColour() const noexcept
+    {
+        for (int colour = 0;; ++colour)
+            if (std::none_of (lines.begin(), lines.end(), [colour] (const Line& line) { return line.colour == colour; }))
+                return colour;
+    }
+    // Shows or hides `id`; `listed` is what the list shows now.
+    void toggle (const juce::String& id, const std::vector<juce::String>& listed)
+    {
+        lines.erase (std::remove_if (lines.begin(), lines.end(), [&listed] (const Line& line)
+            { return std::find (listed.begin(), listed.end(), line.id) == listed.end(); }), lines.end());
+        if (find (id) != nullptr)
+            lines.erase (std::remove_if (lines.begin(), lines.end(), [&id] (const Line& line) { return line.id == id; }), lines.end());
+        else if (validId (id) && lines.size() < maximumLines)
+            lines.push_back ({ id, freeColour() });
+    }
+    // A song's selection ("preset/check/candidate") or a target's ID.
+    static bool validId (const juce::String& id) noexcept
+    {
+        return id.isNotEmpty() && id.length() <= 500
+            && id.containsOnly ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-/");
+    }
+    void write (juce::XmlElement& parent) const
+    {
+        if (! all && lines.empty()) return;
+        auto* overlay = parent.createNewChildElement ("Overlay");
+        overlay->setAttribute ("all", all);
+        for (const auto& line : lines)
+        {
+            auto* child = overlay->createNewChildElement ("Line");
+            child->setAttribute ("id", line.id);
+            child->setAttribute ("colour", line.colour);
+        }
+    }
+    static BalanceOverlay read (const juce::XmlElement& parent)
+    {
+        BalanceOverlay result;
+        const auto* overlay = parent.getChildByName ("Overlay");
+        if (overlay == nullptr) return result;
+        result.all = overlay->getBoolAttribute ("all");
+        for (const auto* child : overlay->getChildWithTagNameIterator ("Line"))
+        {
+            const auto id = child->getStringAttribute ("id");
+            const auto colour = child->getIntAttribute ("colour", -1);
+            if (result.lines.size() == maximumLines || ! validId (id) || result.find (id) != nullptr
+                || colour < 0 || colour >= static_cast<int> (maximumLines)
+                || std::any_of (result.lines.begin(), result.lines.end(), [colour] (const Line& line) { return line.colour == colour; }))
+                continue;
+            result.lines.push_back ({ id, colour });
+        }
+        return result;
+    }
+};
+
 // Non-RT preferences survive editor close; source observations never do.
 class VisualPreferences final
 {
@@ -160,9 +236,12 @@ public:
         if (value == AWindowChoice::custom) heldSeconds = seconds;
         return true;
     }
+    BalanceOverlay overlay() const { const juce::ScopedLock lock (mutex); return balanceOverlay; }
+    void setOverlay (BalanceOverlay value) { const juce::ScopedLock lock (mutex); balanceOverlay = std::move (value); }
 private:
     mutable juce::CriticalSection mutex;
     VisualViewChoice choice;
     AWindowChoices windows;
+    BalanceOverlay balanceOverlay;
 };
 }

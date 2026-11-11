@@ -27,6 +27,7 @@ struct ReferenceComparisonSettings
     juce::String songSetId;                     // 選んでいる B SET
     VisualViewChoice visualView;
     AWindowChoices aWindows;                    // B・C の図の A の線の窓
+    BalanceOverlay overlay;                     // B の Balance の ONE／ALL と出した線（前の版は読み飛ばす）
     int viewedSlot = 2;
     // 2026-10-04：A の取り込み（ACapture）と以前の Balance の表示は書かず、古い版が残したものは読み飛ばす。
     void write (juce::XmlElement& parent) const
@@ -43,6 +44,7 @@ struct ReferenceComparisonSettings
             child->setAttribute ("cue", choice.cueId);
         };
         append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml); aWindows.write (*xml);
+        overlay.write (*xml);
         if (safeId (songSetId)) xml->getChildByName ("REF")->setAttribute ("set", songSetId);
         if (versionAuto && version.candidateId.isNotEmpty()) xml->getChildByName ("B")->setAttribute ("auto", true);
     }
@@ -61,6 +63,7 @@ struct ReferenceComparisonSettings
         };
         result.visualView = VisualViewChoice::read (*xml);
         result.aWindows = AWindowChoices::read (*xml);
+        result.overlay = BalanceOverlay::read (*xml);
         result.version = readChoice ("B"); result.check = readChoice ("C"); result.reference = readChoice ("REF");
         if (result.version.candidateId.isEmpty()) result.version = {};
         if (const auto* versionXml = xml->getChildByName ("B"))

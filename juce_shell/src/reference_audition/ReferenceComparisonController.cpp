@@ -139,7 +139,8 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
 {
     const auto b = version.snapshot();
     const juce::ScopedLock lock (selectionLock);
-    if (pendingSettings) { auto saved = *pendingSettings; saved.targets = targets.snapshot().collection; return saved; }
+    if (pendingSettings)
+    { auto saved = *pendingSettings; saved.targets = targets.snapshot().collection; saved.overlay = visualPreferences->overlay(); return saved; }
     ReferenceComparisonSettings result;
     result.targets = targets.snapshot().collection;
     result.version = versionId.isEmpty() ? ReferenceChoice {} : version.savedChoice();
@@ -157,6 +158,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
     result.aWindows = visualPreferences->aWindows();
+    result.overlay = visualPreferences->overlay();
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
 }
@@ -166,6 +168,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     const juce::ScopedLock transaction (targetChoiceLock);
     ReferenceComparisonSettings value = input;
     visualPreferences->set (value.visualView);
+    visualPreferences->setOverlay (value.overlay);
     if (! value.version.valid() || value.version.candidateId.isEmpty()) value.version = {};
     if (! value.check.valid()) value.check = {};
     if (! value.reference.valid() || value.reference.candidateId.isEmpty()) value.reference = {};

@@ -178,6 +178,7 @@ struct State
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
     reference_audition::AWindowChoices aWindows; // B・C の図の A の線の窓
     reference_audition::AWindowTarget aWindowTarget; // リストの回答を結ぶ役と世代
+    reference_audition::BalanceOverlay overlay;      // B の Balance の ONE／ALL と出した線（見せ方だけ）
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     juce::Point<float> chartPointer { -1.0f, -1.0f };  // where the pointer reads a spectrum chart
     std::vector<float> liveSpectrumDbfs;

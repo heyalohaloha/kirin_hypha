@@ -313,7 +313,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     state.visualPositionSeconds = runtime.visualPositionSeconds;
     state.visualPreferences = runtime.visualPreferences;
-    if (runtime.visualPreferences) state.aWindows = runtime.visualPreferences->aWindows();
+    if (runtime.visualPreferences) { state.aWindows = runtime.visualPreferences->aWindows(); state.overlay = runtime.visualPreferences->overlay(); }
     state.aWindowTarget = runtime.aWindowTarget;
     state.profiles = runtime.profiles;
     state.candidatePreparationPending = checkSelection.candidatePreparationStatus == "pending";
