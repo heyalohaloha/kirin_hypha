@@ -131,7 +131,10 @@ Guide guide (const State& state)
         && result.version != SourceStep::ready && result.check != SourceStep::ready
         && ! (state.comparisonSlot == 2 && !state.viewBindings.empty()
             && (state.detailedMeasurement || !state.profiles.empty()
-                || (state.visualTimeline && (state.visualTimeline->aKirin || state.visualTimeline->aTicks))));
+                || (state.visualTimeline && (state.visualTimeline->aKirin || state.visualTimeline->aTicks))))
+        // 2026-11-11：A を押しても、出ていた V の見比べ（V の波形と同じ区間の A）を案内で隠さない。V の段は状態の行が言う。
+        && ! (state.comparisonSlot == 1 && state.visualTimeline && state.visualTimeline->binding.overview
+              && state.visualTimeline->binding.overview->waveform);
     if (state.pendingAudition.stage != reference_audition::PendingAuditionView::Stage::none)
     {
         result.heading = pendingAuditionHeading (state);

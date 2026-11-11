@@ -378,8 +378,28 @@ inline void verifyGuideFits()
 }
 }
 
+// 2026-11-11：V を聴いて A を押しても、出ていた V の見比べ（V の波形と同じ区間の A）を案内で隠さない（V の段は状態の行）。
+inline void verifyVersionGraphStaysWithA()
+{
+    using namespace reference_guide_contract;
+    auto state = named ("ready");
+    state.separateComparisons = state.libraryReceived = state.aAvailable = true;
+    state.osAccess = os_access::State::ready;
+    state.comparisonSlot = 1; state.bSelected = false; state.audibleComparisonSlot = 0;
+    state.versionStep = state.checkStep = reference_ui::SourceStep::preparing;
+    state.versionReady = state.checkReady = false;
+    require (reference_ui::guide (state).shown, "without a V graph, the V page shows the guide while A plays");
+    auto measurement = std::make_shared<reference_audition::RuntimeDetailedMeasurement>();
+    measurement->waveform = reference_audition::RuntimeMeasurementWaveform {};
+    auto timeline = std::make_shared<reference_audition::VisualTimeline>();
+    timeline->binding.overview = measurement;
+    state.visualTimeline = timeline;
+    require (! reference_ui::guide (state).shown, "pressing A keeps the V comparison that was shown");
+}
+
 inline void verifyReferenceGuideContract()
 {
+    verifyVersionGraphStaysWithA();
     reference_guide_contract::verifyGuideStates();
     reference_guide_contract::verifySourceStepReasons();
     reference_guide_contract::verifyUnavailableButtons();
