@@ -92,7 +92,7 @@ inline std::vector<Notice> notices()
         "Capture could not be prepared; try again", "Available in POST", "NOTE requires an active Keep",
         "Stop playback to change connection", "Ended; normal level returns with audio", "Keep waits for PRE; Stop cancels",
         "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
-        "8 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
+        "16 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
         "PRE input measurements", "Local measurements; PRE subtraction does not apply",
         "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required",
         "LIVE: POST values on fixed scales, measured every 100 ms.",

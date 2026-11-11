@@ -40,8 +40,13 @@ the Cue in Kirin OS.
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
 seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
-with no audio to audition. The project stores up to eight targets: 64-band p10, median and p90,
-four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count.
+with no audio to audition. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
+drop holds more files than there are free places, they are measured in the order dropped until the
+places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
+how many were not added and that removing one makes room (3 NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO
+MAKE ROOM). Hypha 1.1.55 and 1.1.56 kept up to eight: they read the first eight of a project with more,
+and saving the project there keeps only those eight.
 Comparisons normalize the loudness channel sum to A's layout; the original measurements stay intact.
 The saved A window starts with fresh K-weighting state, matching a file of that window. Audio and source paths
 are not stored, and no target is written into Kirin OS. The Kirin OS license is required; its library
