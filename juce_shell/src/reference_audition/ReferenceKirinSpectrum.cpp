@@ -178,6 +178,7 @@ void KirinSpectrumMeter::transform() noexcept
                            / (static_cast<double> (size) * hannSquared);
     head = (head + 1) % capacity;
     held = std::min (held + 1, capacity);
+    ++made;
 }
 
 std::shared_ptr<const KirinSpectrumWindow> KirinSpectrumMeter::window (int wantedFrames) const
