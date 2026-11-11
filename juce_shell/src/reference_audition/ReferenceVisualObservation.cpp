@@ -133,9 +133,8 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
     if (! aWindowCatchingUp)
     {
         // Start both summaries at RESET's boundary; the continuous range history keeps its own clock.
-        const auto pending = kirinMeter.pendingFrames();
         kirinMeter.push (block.pcm.data(), block.frames);
-        aSongMeter.push (block.pcm.data(), block.frames, block.position, pending, kirinMeter);
+        aSongMeter.push (block.pcm.data(), block.frames, block.position);
         targetPeaks->push (block.pcm.data(), block.frames, rate, block.channels);
     }
     printMeter.push (block.pcm.data(), block.frames);

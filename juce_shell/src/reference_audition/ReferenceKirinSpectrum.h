@@ -46,10 +46,6 @@ public:
     // interleaved の frames × channels（configure と同じ ch 数）。100 ms がたまるたびに 1 フレームを足す。
     void push (const float* interleaved, int frames) noexcept;
     int framesHeld() const noexcept { return held; }
-    // 今のフレームにたまったサンプル数と、configure からフレームを作った数（reset でも戻らない）。C の SONG の A
-    // （ReferenceASong.h）が、どのサンプルでフレームが閉じたかを同じ区切りで知るため。
-    int pendingFrames() const noexcept { return pendingCount; }
-    std::uint64_t framesMade() const noexcept { return made; }
     // 直近 wantedFrames フレーム（足りなければあるだけ）の要約。1 フレームも無ければ空。
     std::shared_ptr<const KirinSpectrumWindow> window (int wantedFrames) const;
     // 試験用：最後に足したフレームの 64 帯域（dBFS）と 4 帯域 Balance（dBFS）。
@@ -72,6 +68,5 @@ private:
     std::vector<float> levels;          // capacity × 64（dBFS）
     std::vector<double> balancePower;   // capacity × 4（mean square）
     int head = 0, held = 0;
-    std::uint64_t made = 0;
 };
 }

@@ -1,9 +1,11 @@
 #pragma once
 
-// C の SONG の A（A FROM START、ReferenceASong.h）。観測スレッドと同じ順で、図の A の窓のメーターと一緒に足す。
-//  - 同じ DAW の位置をもう一度鳴らすと上書き（ループ・シークで偏らない）。区切りから外れた位置へのシークは近い区切りへ。
-//  - 長さは値のある区切りの数。DAW の頭より前は持たない。30 分より後は持たず、鳴らしたことを覚える。
-//  - 音量は BS.1770（-20 dBFS の 997 Hz は両 ch で約 -20 LUFS）。RESET（clear）と形式の変化で空。
+// C の SONG の A（A FROM START、ReferenceASong.h）。観測スレッドと同じ塊を、図の A の窓のメーターと一緒に足す。
+//  - 同じ DAW の区切りをもう一度鳴らすと上書き（ループ・シークで偏らない）。区切りの間からの再生は次の境目から測るので、
+//    区切りどうしは重ならず、鳴らした長さより多くは持たない。DAW の頭より前（負の位置の音）は持たない。
+//  - 音量の 400 ms は同じ再生の続いた区切りだけ（別の時に鳴らした隣の区切りとはつながない）。
+//  - 30 分より後は持たず、鳴らしたことを覚える。音量は BS.1770（-20 dBFS の 997 Hz は両 ch で約 -20 LUFS）。
+//  - RESET（clear）と形式の変化で空（観測スレッドを通した確かめは ReferenceAWindowRuntimeTest.h）。
 #include "../src/reference_audition/ReferenceASong.h"
 
 #include <cmath>
@@ -12,10 +14,10 @@
 // ref と require は reference_runtime_test_support.h。
 namespace
 {
-// 観測スレッド（VisualObservation::consumeKirin）と同じ：位置が続かなければメーターを新しくし、足す前の途中の数を渡す。
+// 観測スレッド（VisualObservation::consumeKirin）と同じ：位置が続かなければ図の A の窓を新しくし、同じ塊を両方へ。
 struct ASongFeed
 {
-    ref::KirinSpectrumMeter meter;
+    ref::KirinSpectrumMeter meter;  // 図の A の窓（同じ定義かを比べる）
     ref::ASongMeter song;
     std::int64_t expected = -1;
     ASongFeed() { meter.configure (48'000, 2, 6'000); song.configure (48'000, 2); }
@@ -35,9 +37,8 @@ struct ASongFeed
                 pcm[size_t (index * 2)] = pcm[size_t (index * 2 + 1)] = value;
             }
             if (position != expected) meter.reset();
-            const auto pending = meter.pendingFrames();
             meter.push (pcm.data(), count);
-            song.push (pcm.data(), count, position, pending, meter);
+            song.push (pcm.data(), count, position);
             expected = position + count;
         }
     }
@@ -57,8 +58,9 @@ inline void testReferenceASong()
         ASongFeed feed;
         feed.play (0.0, 10.0, -20.0);
         auto summary = feed.song.summary();
-        require (summary->slots == 100 && summary->spectrum && summary->spectrum->frames == 100 && ! summary->beyondLimit,
-                 "10 s from the DAW's start hold 100 positions");
+        require (summary->slots == 100 && summary->spectrum && summary->spectrum->frames == 100 && ! summary->beyondLimit
+                     && summary->loudnessBlocks == 97,
+                 "10 s from the DAW's start hold 100 positions and 97 loudness blocks");
         require (std::abs (summary->loudness + 20.0) < 0.3, (juce::String ("a -20 dBFS 997 Hz sine on both channels is about -20 LUFS: ")
                      + juce::String (summary->loudness)).toRawUTF8());
         feed.play (0.0, 10.0, -24.0);
@@ -66,10 +68,12 @@ inline void testReferenceASong()
         require (summary->slots == 100 && std::abs (summary->loudness + 24.0) < 0.3, "playing the same positions again replaces them");
         for (int lap = 0; lap < 10; ++lap) feed.play (0.0, 2.0, -20.0);  // 頭の 2 秒をループ
         summary = feed.song.summary();
-        require (summary->slots == 100 && std::abs (summary->loudness - meanLoudness ({ { 20, -20.0 }, { 80, -24.0 } })) < 0.3,
-                 (juce::String ("a loop counts its positions once, not once per lap: ") + juce::String (summary->loudness)).toRawUTF8());
-        feed.play (2.05, 1.0, -20.0);  // 区切りから外れた位置へのシーク：近い区切りを上書き
-        require (feed.song.summary()->slots == 100, "a seek between positions replaces the nearest ones");
+        require (summary->slots == 100 && summary->loudnessBlocks == 94
+                     && std::abs (summary->loudness - meanLoudness ({ { 20, -20.0 }, { 80, -24.0 } })) < 0.3,
+                 (juce::String ("a loop counts its positions once, not once per lap, and no block joins two plays: ")
+                  + juce::String (summary->loudness) + " / " + juce::String (summary->loudnessBlocks)).toRawUTF8());
+        feed.play (2.05, 1.0, -20.0);  // 区切りの間へのシーク：次の境目（2.1 秒）から、最後の半端は持たない
+        require (feed.song.summary()->slots == 100, "a seek between positions replaces whole positions only");
         feed.play (30.0, 1.0, -24.0);
         require (feed.song.summary()->slots == 110, "a seek to new positions adds them");
         feed.play (-1.0, 0.9, -24.0);
@@ -85,6 +89,29 @@ inline void testReferenceASong()
         require (feed.song.summary()->slots == 10, "A FROM START starts again after RESET");
         feed.song.configure (44'100, 2);
         require (feed.song.summary()->slots == 0, "a new format starts A FROM START again");
+    }
+    {   // 区切りの間からもう一度：1.05 秒の音で 11 の区切りにならない（同じ音を 2 つの区切りに数えない）。
+        ASongFeed feed;
+        feed.play (0.0, 1.0, -20.0);
+        feed.play (0.05, 1.0, -20.0);
+        require (feed.song.summary()->slots == 10, "a replay from between positions never holds more than was played");
+    }
+    {   // DAW の頭の直前の音は、頭をまたいで続けて鳴らしても入らない。
+        ASongFeed feed;
+        feed.play (-0.05, 0.05, -10.0);
+        feed.play (0.0, 1.0, -40.0);
+        const auto summary = feed.song.summary();
+        require (summary->slots == 10 && std::abs (summary->loudness + 40.0) < 0.5,
+                 (juce::String ("sound before the DAW's start stays out of the first position: ") + juce::String (summary->loudness)).toRawUTF8());
+    }
+    {   // 音量の 400 ms は同じ再生の続いた区切りだけ：0〜2 秒、10〜11 秒、2〜4 秒と鳴らすと 2 秒の継ぎ目をまたがない。
+        ASongFeed feed;
+        feed.play (0.0, 2.0, -20.0);
+        feed.play (10.0, 1.0, -20.0);
+        feed.play (2.0, 2.0, -20.0);
+        const auto summary = feed.song.summary();
+        require (summary->slots == 50 && summary->loudnessBlocks == 17 + 7 + 17,
+                 (juce::String ("loudness blocks never join positions played at different times: ") + juce::String (summary->loudnessBlocks)).toRawUTF8());
     }
     {   // 同じ区切りの値は図の A の窓のフレームと同じ（帯域の中央値）。
         ASongFeed feed;
