@@ -6,6 +6,12 @@ namespace hypha::reference_audition
 namespace
 {
 using Stage = PendingAuditionView::Stage;
+// 位置が音源の外のときの理由のコード。FOLLOW A（B・C）は曲の終わりの後・頭より前を分けて言う。
+juce::String outsideReason (const Snapshot& state)
+{
+    return state.followOutside > 0 ? "reference_follow_past_end"
+         : state.followOutside < 0 ? "reference_follow_before_start" : "reference_position_outside_source";
+}
 }
 
 void ReferenceComparisonController::clearPendingAudition()
@@ -43,7 +49,7 @@ void ReferenceComparisonController::appendPendingAudition (
     state.checkArmable = c.source != nullptr && !c.hidden && state.checkSelection->playbackIdentity.isNotEmpty();
 }
 
-bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
+bool ReferenceComparisonController::requestAuditionOnce (int slot, double loudness, double peak)
 {
     if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     if ((slot != 1 && slot != 2 && slot != 3) || outputDecision (output_owner::Activity::audition).refused()) return false;
@@ -108,7 +114,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
     {
         selectA();
         const juce::ScopedLock lock (selectionLock);
-        pendingAudition.view = { slot, Stage::startFailed, "reference_position_outside_source" };
+        pendingAudition.view = { slot, Stage::startFailed, outsideReason (now) };
         return false;
     }
     const bool settles = now.matchFailure != MatchFailure::sourceLevelUnavailable && ! now.auditionOutsideCue
@@ -231,12 +237,14 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         // 停止の後に同じ V へ戻る自動の戻し（resume）は、再生位置が版の範囲外でも捨てない。範囲外のあいだは A のまま
         // 待ち（確かめた写像で範囲外の位置は鳴らさない）、範囲内に入れば押し直し無しで戻す（1.1.53 と同じ）。
         // 利用者が押した初回と選択の替えは、確かめた写像の上で範囲外なら今までどおり理由を出して断る。
+        // FOLLOW A の曲の外も同じ：A のまま理由を言って待ち、曲の中へ戻れば押し直し無しで戻す。
         if (intent.resume && state.auditionPages == AuditionPageState::outsideSource)
-        { publish (state.transportPlaying ? Stage::checking : Stage::play, callbackLive); return; }
+        { publish (state.transportPlaying ? Stage::checking : Stage::play, callbackLive,
+                   state.followOutside != 0 ? outsideReason (state) : juce::String {}); return; }
         if (intent.resume || intent.switching) dropResume();
         publish (state.auditionPages == AuditionPageState::outsideSource ? Stage::startFailed : Stage::sourceChanged,
                  callbackLive, state.auditionPages == AuditionPageState::outsideSource
-                     ? "reference_position_outside_source" : "reference_audio_read_failed");
+                     ? outsideReason (state) : juce::String ("reference_audio_read_failed"));
         return;
     }
     if (!state.transportPlaying) { publish (Stage::play); return; }

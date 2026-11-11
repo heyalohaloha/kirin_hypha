@@ -66,6 +66,12 @@ public:
     bool selectSong (const juce::String& songId, double loudness = std::numeric_limits<double>::quiet_NaN(),
                      double peak = std::numeric_limits<double>::quiet_NaN());
     bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
+    // B・C の流し方（LOOP が既定、FOLLOW A は A の DAW の位置から曲全体）。B と C で 1 つ、plugin の state に保存する。
+    // 切り替えも復元も鳴らし始めない。手のずらしは見ている役（2 C・3 B）に足し、曲・役が替わると 0 に戻る。
+    void setFollowA (bool follow) noexcept;
+    bool followA() const noexcept { return followMode.load (std::memory_order_acquire); }
+    bool nudgeFollowOffset (int slot, double seconds) noexcept;
+    bool resetFollowOffset (int slot) noexcept;
     // C の MATCH の試みを 1 度だけ見る（窓を開き直しても、同じ試みの合わせ直しを立て直さない）。メッセージスレッド。
     bool takeCheckAttempt (std::uint64_t attempt) noexcept
     { if (attempt == checkAttemptSeen) return false; checkAttemptSeen = attempt; return true; }
@@ -124,6 +130,9 @@ public:
 
 private:
     bool admit (int, bool);
+    bool requestAuditionOnce (int, double, double);
+    std::atomic<bool> followMode { false };
+    std::atomic<int> followRole { 0 };  // 最後に押した役（替われば離れた役のずらしを 0 に戻す）
     output_owner::States ownStatesLocked() const;  // gateLock を持って呼ぶ（atomic と gateLock の値だけを読む）
     output_owner::States external() const { return externalStates ? externalStates() : 0; }  // gateLock の外で呼ぶ
     // VERSION BLIND の持ち物。始まりで A を観測へ渡すのを止め、ほかの Blind を締め出す（Blind の枠と barrier）。終わりは

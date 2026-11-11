@@ -132,6 +132,11 @@ namespace hypha::reference_audition
         // A へ切る道（ライブラリが公開を引っ込めた・音源が確かめられない）で戻す控えを消した。比べる制御が一度だけ読み、
         // 鳴っていた役を「音源が変わった」で止める（同じ音が戻っても勝手に鳴り直さない）。
         bool takeHeldWithdrawn() noexcept { return heldWithdrawn.exchange (false, std::memory_order_acq_rel); }
+        // B・C の流し方：false＝LOOP（Kirin OS の決めた区間を繰り返す、既定）、true＝FOLLOW A（A の DAW の位置から曲全体）。
+        // 切り替えだけでは鳴らし始めない。V では何もしない。手のずらしは秒（正で参照曲が先へ進む）。
+        void setFollowA (bool) noexcept;
+        void setFollowOffsetSeconds (double) noexcept;
+        double followOffsetSeconds() const noexcept;
 
     private:
         #include "ReferenceRuntimePreparationMembers.h"
@@ -387,6 +392,9 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> aAudibleConfirmations { 0 };
         std::atomic<std::int64_t> bHostAnchor { 0 };
         std::atomic<std::int64_t> bSourceAnchor { 0 };
+        // FOLLOW A と手のずらし（host の sample）。写像と同じく mappingWriteLock を持ち mappingGeneration の奇数の間に書く。
+        std::atomic<bool> followA { false };
+        std::atomic<std::int64_t> followOffset { 0 };
         // 対応づけ（cueStart・cueEnd・cueLoops・sampleLocked・起点）を書くのは作業スレッドとメッセージスレッド
         // （restartCueAtPlayhead）。書き手どうしをこの鍵でそろえる。音声スレッドは鍵を取らず mappingGeneration で読む。
         juce::CriticalSection mappingWriteLock;

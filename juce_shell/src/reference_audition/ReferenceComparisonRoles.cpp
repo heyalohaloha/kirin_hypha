@@ -42,6 +42,37 @@ bool ReferenceComparisonController::selectRef (double loudness, double peak) noe
 void ReferenceComparisonController::selectA() noexcept
 { clearPendingAudition(); dropResume(); version.selectA(); check.selectA(); reference.selectA(); }
 
+void ReferenceComparisonController::setFollowA (bool follow) noexcept
+{
+    followMode.store (follow, std::memory_order_release);
+    check.setFollowA (follow); reference.setFollowA (follow);
+    if (stateChanged) stateChanged();
+}
+
+bool ReferenceComparisonController::nudgeFollowOffset (int slot, double seconds) noexcept
+{
+    if ((slot != 2 && slot != 3) || ! followA() || trialActive()) return false;
+    auto& role = slotController (slot);
+    role.setFollowOffsetSeconds (role.followOffsetSeconds() + seconds);
+    return true;
+}
+
+bool ReferenceComparisonController::resetFollowOffset (int slot) noexcept
+{
+    if (slot != 2 && slot != 3) return false;
+    slotController (slot).setFollowOffsetSeconds (0.0);
+    return true;
+}
+
+// 押した役が替わったら、離れた役の手のずらしを 0 に戻す（曲が替わったときは役が自分で戻す）。
+bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
+{
+    if (! requestAuditionOnce (slot, loudness, peak)) return false;
+    if (const auto left = followRole.exchange (slot, std::memory_order_acq_rel); left != slot && (left == 2 || left == 3))
+        resetFollowOffset (left);
+    return true;
+}
+
 // 2026-10-03（R-12）：上限で届かない役を、承認して A を差だけ下げて合わせる（参照は元の音量）。
 // 下げ終わってから、押したのと同じ待ちで鳴らす（再生中でも止まっていても）。深くするだけで、浅くするのは RETURN。
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
@@ -115,7 +146,9 @@ bool ReferenceComparisonController::selectSong (const juce::String& id, double l
     if (trialActive()) return false;
     reference.supplyPreparedLevel (loudness, peak);
     if (! reference.selectLibrarySong (id)) return false;
-    { const juce::ScopedLock lock (selectionLock); songId = id; }
+    bool changed = false;
+    { const juce::ScopedLock lock (selectionLock); changed = songId != id; songId = id; }
+    if (changed) reference.setFollowOffsetSeconds (0.0);  // 曲が替われば手のずらしは 0（公開を待たない）
     continueAfterSwitch (3);
     if (stateChanged) stateChanged();
     return true;

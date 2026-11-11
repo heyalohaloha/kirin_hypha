@@ -114,6 +114,10 @@ namespace hypha::reference_audition
         double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN();
         bool cueLoops = false;
         bool cueWraps = false;
+        // B・C の FOLLOW A（A の位置から曲全体）と手のずらし（秒）。A の位置＋ずらしが曲の外：-1 は曲の頭より前、+1 は終わりの後。
+        bool followA = false;
+        double followOffsetSeconds = 0.0;
+        int followOutside = 0;
         // Kirin OS の公開で鳴っていた区間が変わった（1）・曲や区間が無くなった（2）ので A へ戻した。次に鳴らすまで残る。
         int publicationReturn = 0;
         // Kirin OS の新しい公開を読めず前の公開のまま（版の巻き戻し・同じ版の別内容・中身の不正など）。読めたら空。

@@ -91,6 +91,7 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared,
         bHostAnchor.store (latestHostPosition.load (std::memory_order_acquire),
                            std::memory_order_relaxed);
         bSourceAnchor.store (mappedCueStart, std::memory_order_relaxed);
+        followOffset.store (0, std::memory_order_relaxed);  // FOLLOW A の手のずらしは曲・区間が替われば 0
         if (audible != nullptr)
         {
             activePages.store (&nextPages(), std::memory_order_release);
@@ -104,7 +105,8 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared,
         activeContentMappingKey.clear();
     }
     // Cue の頭から鳴らし直す役（DAW の位置に合わせない曲）も、周回して頭へ戻るので頭のページを読んでおく。
-    currentPages().setPinnedCue (mappedCueStart, mappedCueEnd, cue->loopEnabled || restartsAtCueStart());
+    currentPages().setPinnedCue (mappedCueStart, mappedCueEnd,
+        ! followA.load (std::memory_order_acquire) && (cue->loopEnabled || restartsAtCueStart()));
     // MATCH compares A with what is played: the opened file's channels on this track's channels.
     next.sourceLoudnessOffsetLu = currentPages().playbackLoudnessOffsetLu();
     next.sourceIntegratedLoudness = selectedSource->measurementSummary

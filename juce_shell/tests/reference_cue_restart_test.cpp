@@ -7,6 +7,7 @@
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
 #include "ReferenceControllerTestAccess.h"
+#include "ReferenceFollowATest.h"
 #include <thread>
 
 void testReferenceCueRestart (const juce::File&);
@@ -244,4 +245,5 @@ void testReferenceCueRestart (const juce::File& sandbox)
 {
     verifyReferenceCueRestart (sandbox, false);
     verifyReferenceCueRestart (sandbox, true);
+    testReferenceFollowA (sandbox);  // LOOP（既定）と FOLLOW A
 }

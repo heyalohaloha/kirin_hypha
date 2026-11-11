@@ -160,6 +160,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     result.aWindows = visualPreferences->aWindows();
     result.overlay = visualPreferences->overlay();
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
+    result.followA = followA();
     return result;
 }
 
@@ -173,6 +174,9 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     if (! value.check.valid()) value.check = {};
     if (! value.reference.valid() || value.reference.candidateId.isEmpty()) value.reference = {};
     selectA();
+    // 流し方は覚えた形に戻すだけ（鳴らし始めない。R-12）。
+    followMode.store (value.followA, std::memory_order_release);
+    check.setFollowA (value.followA); reference.setFollowA (value.followA);
     targets.restore (value.targets);
     bool apply = false;
     {
@@ -237,6 +241,7 @@ Snapshot ReferenceComparisonController::snapshot()
     }
     result.separateComparisons = true;
     result.comparisonSlot = slot;
+    result.followA = followA();  // B と C で 1 つの選択（見ている役の値は手のずらしと曲の外だけ）
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : r.bSelected ? 3 : 0;
     result.bSelected = result.audibleComparisonSlot != 0;
     result.checkSelection = std::make_shared<const Snapshot> (c);
@@ -314,6 +319,7 @@ bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>
     if (viewedSlot.load (std::memory_order_acquire) != 1) viewedSlot.store (2, std::memory_order_release);
     // 同じ選択（世代が進まない）は鳴らしたまま。Kirin OS の準備を待つ CHECK SET は C を止めて手放す。
     const auto after = check.requestedGeneration();
+    if (after != before) check.setFollowOffsetSeconds (0.0);  // C の曲・Cue が替われば手のずらしは 0
     if (after != before) continueAfterSwitch (2);
     else if (check.snapshot().presetSelectionStatus == "pending") continueAfterSwitch (2, false);
     return true;

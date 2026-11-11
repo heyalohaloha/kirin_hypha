@@ -13,6 +13,8 @@ struct NormalPath
     AudioPages* pages = nullptr;
     std::uint64_t pageGeneration = 0, mapping = 0, switchSerial = 0;
     std::int64_t start = 0, end = 0, hostAnchor = 0, sourceAnchor = 0;
+    // locked は曲を project の時間に置く（同じ Work の Version、B・C の FOLLOW A）。offset は FOLLOW A の手のずらし。
+    std::int64_t offset = 0;
     float gain = 1.0f;
     bool loops = false, locked = false, valid = false;
 
