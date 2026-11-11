@@ -80,6 +80,7 @@ namespace hypha
         std::function<void (const juce::String&)> onCommit; // called with the new raw name
         std::function<void()> onPreviewDemand;
         std::function<void()> onSelect; // when present, click selects instead of editing
+        std::function<void()> onLocked; // a click while locked: says why (never selects or edits)
 
         void setPrefix (const juce::String& p)        { prefix = p; if (! editing) repaint(); }
         void setFallback (const juce::String& f)       { fallback = f; if (! editing) repaint(); }
@@ -87,7 +88,7 @@ namespace hypha
         std::uint64_t paintedSelectionGeneration() const noexcept { return paintedPreview; }
         void setModelName (const juce::String& raw);   // edited value; repaints when not editing
                                                         // (named to avoid hiding juce::Component::setName)
-        void setEditingEnabled (bool enabled);         // false -> click does nothing (locked)
+        void setEditingEnabled (bool enabled);         // false -> click only calls onLocked (locked)
         void setPresentationContext (presentation::Context next)
         {
             presentationContext = next;

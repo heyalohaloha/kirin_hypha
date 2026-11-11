@@ -13,7 +13,7 @@ mod tests {
             !record_mode.contains("**Mark**"),
             "the manual must not advertise a Mark control absent from the shipping UI"
         );
-        assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (4, \"Keep selected pair\""));
+        assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (4, osOwned ? \"Keep selected pair\""));
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (5, \"Stop selected pair\""));
         assert!(!PLUGIN_EDITOR_CPP.contains("markBtn"));
         assert!(!PLUGIN_EDITOR_CPP.contains("onMark"));
@@ -257,7 +257,10 @@ mod tests {
     #[test]
     fn keep_controls_are_owned_by_the_menu_and_observatory_footer() {
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addSectionHeader (\"Keep\")"));
-        assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (4, \"Keep selected pair\", osOwned)"));
+        // Without Kirin OS the greyed item says why (2026-11-11).
+        assert!(PLUGIN_EDITOR_CPP.contains(
+            "menu.addItem (4, osOwned ? \"Keep selected pair\" : \"Keep selected pair: Kirin OS required\", osOwned)"
+        ));
         let handle = between(
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu",
@@ -271,8 +274,9 @@ mod tests {
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
             .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("&& ! measurementOnlySurround);"));
-        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
-            .contains("localBlindButton.setEnabled (! keepActive);"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
+            "unavailable::set (localBlindButton, ! keepActive, \"Finish Keep / Record before PRE / POST Blind\");"
+        ));
     }
 
     #[test]

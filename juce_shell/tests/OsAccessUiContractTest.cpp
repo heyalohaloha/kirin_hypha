@@ -38,10 +38,13 @@ void verifyOsAccessUiContract()
     KIRIN_OS_ACCESS_REQUIRE (menu != nullptr && menu->isVisible());
     KIRIN_OS_ACCESS_REQUIRE (stop != nullptr && ! stop->isVisible());
     observatory.setSize (600, 400);
+    // INV-L5: greyed, never hidden, and a click says why.
     observatory.setNoteAvailability (false, false);
-    KIRIN_OS_ACCESS_REQUIRE (! note->isEnabled() && ! note->isVisible());
+    KIRIN_OS_ACCESS_REQUIRE (! note->isEnabled() && note->isVisible()
+                             && hypha::unavailable::reasonAt (note) == "NOTE requires Kirin OS");
     observatory.setNoteAvailability (true, false);
-    KIRIN_OS_ACCESS_REQUIRE (! note->isEnabled() && ! note->isVisible());
+    KIRIN_OS_ACCESS_REQUIRE (! note->isEnabled() && note->isVisible()
+                             && hypha::unavailable::reasonAt (note) == "NOTE requires an active Keep");
     observatory.setNoteAvailability (true, true);
     KIRIN_OS_ACCESS_REQUIRE (note->isEnabled() && note->isVisible());
     observatory.setKeepActive (true);

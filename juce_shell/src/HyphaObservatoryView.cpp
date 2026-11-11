@@ -357,13 +357,15 @@ void View::updateControls()
         juce::dontSendNotification);
     if (! capabilities().targetSelectable)
         targetButton.setButtonText (target() == ObservationTarget::absolute ? "POST" : hypha::delta());
-    targetButton.setEnabled (capabilities().targetSelectable
-                             && (fullCockpit || deltaTargetEnabled));
+    // Greyed, a click says why: the page has a fixed target, or Delta needs one channel (M/S has none).
+    const juce::String targetReason = ! capabilities().targetSelectable ? juce::String (capabilities().help)
+                                                                       : juce::String ("Select LR, MID, or SIDE to view Delta");
+    unavailable::set (targetButton, capabilities().targetSelectable && (fullCockpit || deltaTargetEnabled), targetReason);
     targetButton.setTooltip (deltaTargetEnabled ? capabilities().help
                                                 : "Select LR, MID, or SIDE to view Delta");
     deltaButton.setToggleState (target() == ObservationTarget::delta,
                                 juce::dontSendNotification);
-    deltaButton.setEnabled (capabilities().targetSelectable && deltaTargetEnabled);
+    unavailable::set (deltaButton, capabilities().targetSelectable && deltaTargetEnabled, targetReason);
     deltaButton.setTooltip (deltaTargetEnabled
         ? "POST minus PRE; select POST to return to absolute values"
         : "Select LR, MID, or SIDE to view Delta");

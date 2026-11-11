@@ -229,7 +229,9 @@ namespace hypha
 
     void EditableName::activate()
     {
-        if (! editingEnabled || ! isEnabled()) return;
+        // Locked: the click says why (onLocked) and never selects or edits.
+        if (! editingEnabled) { if (onLocked && isEnabled()) onLocked(); return; }
+        if (! isEnabled()) return;
         if (onSelect) onSelect();
         else if (! editing) startEditing();
     }

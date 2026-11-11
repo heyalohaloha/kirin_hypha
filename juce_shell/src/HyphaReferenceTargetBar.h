@@ -4,6 +4,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaKeyLight.h"
 #include "HyphaTextStyle.h"
+#include "HyphaUnavailableReason.h"
 #include "reference_audition/ReferenceTargetTypes.h"
 
 namespace hypha::reference_ui
@@ -70,9 +71,11 @@ public:
         state = std::move (next);
         make.context = remove.context = context;
         make.setButtonText (state.measuring ? "CANCEL" : "MAKE TARGET");
-        make.setEnabled (state.measuring || (canMake && state.collection.items.size() < reference_audition::TargetCollection::capacity));
+        const bool full = state.collection.items.size() >= reference_audition::TargetCollection::capacity;
+        unavailable::set (make, state.measuring || (canMake && ! full),
+                          ! canMake ? "Play A for 3 s to make a target" : "8 targets: remove one first");
         make.setTooltip (state.measuring ? "CANCEL" : canMake ? "MAKE TARGET" : "A WINDOW / 3 S");
-        remove.setEnabled (state.collection.selected.isNotEmpty());
+        unavailable::set (remove, state.collection.selected.isNotEmpty(), "Choose a target to remove");
         remove.setTooltip ("REMOVE TARGET");
         select.clear (juce::dontSendNotification);
         std::vector<SelectionControl::Row> rows;

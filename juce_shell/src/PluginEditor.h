@@ -25,6 +25,7 @@
 #include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaUiPreferences.h"
+#include "HyphaUnavailableReason.h"
 #include "HyphaWidgets.h"
 #include "appearance/AppearanceService.h"
 #include "update/UpdateChecker.h"
@@ -153,6 +154,7 @@ private:
     using AnalysisPage = hypha::analysis_navigation::Page;
     void requestTimePage (AnalysisPage page);
     void setAnalysisPage (AnalysisPage page);
+    void leaveDrumOutsideTrack(); // DRUM open in 2MIX: METERS, and the notice says why
     void configureSharpnessAnalysis (int pairStatus);
     void configureSpectrumAnalysis();
     hypha::analysis::Demand desiredAnalysisDemand() const noexcept;
@@ -234,6 +236,7 @@ private:
     void confirmCandidateCompare (const juce::String& pre2, std::uint64_t ticket);
     void startCandidateConfirmed (const juce::String&, std::uint64_t, bool waitForReturn = true);
     void requestListenStart();
+    const char* liveCompareEntryRefusal (bool blind) const; // why LISTEN / A/B (or BLIND) cannot open now
     void requestListenSelect (bool pre);
     void requestListenMatch();
     void requestListenAutoMenu();
@@ -302,6 +305,7 @@ private:
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
+    void showAutomaticNotice (const juce::String& text, bool showing = true); // a change Hypha made by itself
     // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
     // live 比較が断りの元なら、先に live 比較を読み直す（新しい中断の知らせを断りの文で隠さない：INV-LC21）。
     bool outputRefused (hypha::output_owner::Activity activity)
@@ -369,6 +373,8 @@ private:
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
+    // A click on a control that cannot be used now says why (HyphaUnavailableReason.h).
+    hypha::unavailable::ClickReasons unavailableClicks { [this] (const juce::String& reason) { showActionNotice (reason); } };
 
     hypha::observatory::Domain observatoryDomain = hypha::observatory::Domain::level;
     size_t observatorySizeIndex = 0;
@@ -452,6 +458,7 @@ private:
        #endif
     }
     juce::String toastText;
+    juce::String shownNotice; bool feedbackRead = false; // what the notice line shows now; read once yet
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
     KirinWatchDisplay observatoryWatchDisplay {};

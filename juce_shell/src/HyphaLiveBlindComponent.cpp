@@ -75,6 +75,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.sourceOne = revealed ? (current.trial.firstPre ? firstA : firstB) : "SOURCE 1";
     screen.sourceTwo = revealed ? (current.trial.firstPre ? secondB : secondA) : "SOURCE 2";
     screen.sourceOneEnabled = screen.sourceTwoEnabled = live;
+    // Only while the sources are being prepared; a stopped Blind says why in its guidance lines.
+    screen.sourceReason = ! live && (current.stage == Stage::preparing || current.stage == Stage::settling)
+        ? juce::String ("Preparing the sources") : juce::String();
     // Before the first source is ready the two buttons stand unlit, so the screen is not END alone.
     screen.sourcesShown = live || (! screen.guidanceShown && (current.stage == Stage::preparing || current.stage == Stage::settling));
     screen.audible = current.trial.selected; // selected button, not an audio receipt

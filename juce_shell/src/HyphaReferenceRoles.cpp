@@ -88,7 +88,7 @@ void Component::syncRoles (bool blindSession)
     const bool glance = presentationContext.density == observatory::Density::compact;
     songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
-    songBox.setEnabled (songBox.isEnabled() && ! glance);
+    if (glance) unavailable::set (songBox, false, "Available from 125%");
     // 300% の B の画面は、左に曲の一覧、右に Balance。
     songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
     std::vector<SongList::Row> rows;

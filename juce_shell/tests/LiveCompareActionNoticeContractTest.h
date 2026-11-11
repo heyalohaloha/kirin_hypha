@@ -11,8 +11,48 @@
 
 namespace hypha::tests
 {
+// A control that cannot be used says why (2026-11-11): a greyed LISTEN and A/B keep their reason, a click
+// on a disabled control hands that reason to the editor, and a greyed menu item gets a reason line.
+inline void verifyGreyedEntriesSayWhy()
+{
+    const auto fail = [] (const char* what) { std::cerr << "Greyed entries: " << what << '\n'; std::abort(); };
+    observatory::View post (observatory::Role::post); post.setVisible (true);
+    post.setSize (900, 600);
+    observatory::LiveCompareFooter state;
+    state.entrySupported = true; state.entryRefusal = "Finish Keep / Record first";
+    post.setLiveCompareFooter (state);
+    for (const char* id : { "observatory-live-compare", "observatory-candidate-compare" })
+        if (auto* entry = post.findChildWithID (id); entry == nullptr || ! entry->isVisible() || entry->isEnabled()
+            || unavailable::reasonAt (entry) != "Finish Keep / Record first") fail ("greyed entry keeps its reason");
+    state.entryEnabled = true; state.entryRefusal = "";
+    post.setLiveCompareFooter (state);
+    if (auto* entry = post.findChildWithID ("observatory-live-compare"); ! entry->isEnabled() || unavailable::reasonAt (entry).isNotEmpty())
+        fail ("an open entry has no reason");
+    post.setLiveCompareFooter ({});
+    if (post.findChildWithID ("observatory-live-compare")->isVisible()) fail ("an unsupported POST offers no footer entry");
+    juce::Component parent; juce::TextButton child; parent.addAndMakeVisible (child);
+    unavailable::set (child, false, "Play A for 3 s to make a target");
+    juce::String shown;
+    unavailable::ClickReasons clicks ([&shown] (const juce::String& reason) { shown = reason; });
+    parent.addMouseListener (&clicks, true);
+    const auto now = juce::Time::getCurrentTime();
+    const juce::MouseEvent press (juce::Desktop::getInstance().getMainMouseSource(), {}, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                  &child, &child, now, {}, now, 1, false);
+    clicks.mouseDown (press);
+    if (shown != "Play A for 3 s to make a target") fail ("a click on a disabled control shows its reason");
+    unavailable::set (child, true, "Play A for 3 s to make a target"); shown.clear(); clicks.mouseDown (press);
+    if (shown.isNotEmpty()) fail ("a usable control says nothing");
+    parent.removeMouseListener (&clicks);
+    juce::PopupMenu menu; unavailable::addItem (menu, 7, "BLIND", false, "Finish Keep / Record first");
+    int items = 0; bool reasonLine = false;
+    for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+    { ++items; reasonLine = reasonLine || (it.getItem().text == "Finish Keep / Record first" && ! it.getItem().isEnabled); }
+    if (items != 2 || ! reasonLine) fail ("a greyed menu item has its reason line");
+}
+
 inline void verifyLiveCompareActionNotices()
 {
+    verifyGreyedEntriesSayWhy();
     observatory::View post (observatory::Role::post); post.setVisible (true);
     observatory::LiveCompareFooter rail;
     rail.active = rail.matched = true;

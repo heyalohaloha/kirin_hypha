@@ -113,14 +113,25 @@ void KirinHyphaEditor::refreshLiveBlind()
 void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActive)
 {
     const auto live = processorRef.liveCompareStatus();
-    if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported()) return;
+    if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported())
+    {
+        // No comparison on this POST (INV-LC9): MENU still says why.
+        menu.addSectionHeader ("PRE / POST");
+        hypha::unavailable::addItem (menu, 40, "LISTEN", false, liveCompareEntryRefusal (false));
+        return;
+    }
     menu.addSectionHeader (processorRef.candidateCompareActive() ? "A / B" : "PRE / POST");
-    if (! live.active) menu.addItem (45, "A/B");
+    // A/B opens on the same terms as LISTEN; the reason line under LISTEN says why both are greyed.
+    if (! live.active) menu.addItem (45, "A/B", hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false)));
     const auto recovery = hypha::live_compare_ui::candidateNamedPresentation (live,
         hypha::live_compare_ui::currentListenPresentation (live, processorRef.liveCompareAdmission (false), processorRef.referenceOutputSlot()),
         processorRef.candidateCompareActive(), processorRef.candidateHostInactive(), processorRef.candidateBypassed());
     if (*recovery.instruction != 0) menu.addSectionHeader (recovery.instruction);
-    if (! live.active) menu.addItem (40, "LISTEN", hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false)));
+    // A greyed entry carries its reason, unless the heading above already says it.
+    const auto reasonFor = [&recovery] (const char* text) { return juce::String (text) == recovery.instruction ? "" : text; };
+    if (! live.active)
+        hypha::unavailable::addItem (menu, 40, "LISTEN", hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false)),
+                                     reasonFor (liveCompareEntryRefusal (false)));
     else
     {
         menu.addItem (41, "MATCH", ! live.finishing);
@@ -128,7 +139,9 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         menu.addItem (43, processorRef.candidateCompareActive() ? "B" : "POST", ! live.finishing);
     }
     if (observatoryView.localBlindEntryAvailable())
-        menu.addItem (23, "BLIND", ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)));
+        hypha::unavailable::addItem (menu, 23, "BLIND",
+            ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)),
+            reasonFor (keepActive ? "Finish Keep / Record before PRE / POST Blind" : liveCompareEntryRefusal (true)));
     menu.addItem (44, processorRef.candidateCompareActive() ? "Align A automatically" : "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 

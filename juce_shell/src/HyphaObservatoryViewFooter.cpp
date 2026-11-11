@@ -29,7 +29,7 @@ void View::setNoteAvailability (bool osOwned, bool recording)
                                   : juce::String ("Add a note at the current sample position");
     const bool enabled = osOwned && recording;
     const bool visibilityMayChange = noteButton.isEnabled() != enabled;
-    noteButton.setEnabled (enabled);
+    unavailable::set (noteButton, enabled, help);
     noteButton.setTitle (help);
     noteButton.setDescription (help);
     noteButton.setTooltip (help);
@@ -65,15 +65,20 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     stopButton.setVisible (role == Role::post && keepActive && ! captureFrame
                            && ! measurementOnlySurround);
     resetButton.setVisible (false); // Reset Meter Session has one entry in MENU.
-    noteButton.setVisible (role == Role::post && full && noteButton.isEnabled() && ! captureFrame);
+    // INV-L5: NOTE stands in the POST footer; without Kirin OS or a Keep it is greyed and says why.
+    noteButton.setVisible (role == Role::post && full && ! captureFrame);
     captureButton.setVisible (false); // Image Capture has one entry in MENU.
     localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
-    localBlindButton.setEnabled (! keepActive);
+    unavailable::set (localBlindButton, ! keepActive, "Finish Keep / Record before PRE / POST Blind");
     localBlindButton.setButtonText ("BLIND");
     localBlindButton.setTooltip (keepActive ? "Finish Keep / Record before PRE / POST Blind"
         : "Match levels and compare while the song plays");
-    candidateCompareButton.setVisible (full && liveCompareState.entryEnabled && ! captureFrame);
-    liveCompareButton.setVisible (full && liveCompareState.entryEnabled && ! captureFrame);
+    // A POST that offers comparison keeps LISTEN and A/B; greyed, a click says why (INV-LC9).
+    const bool entryShown = liveCompareState.entryEnabled || liveCompareState.entrySupported;
+    candidateCompareButton.setVisible (full && entryShown && ! captureFrame);
+    liveCompareButton.setVisible (full && entryShown && ! captureFrame);
+    for (auto* entry : { &candidateCompareButton, &liveCompareButton })
+        unavailable::set (*entry, liveCompareState.entryEnabled, liveCompareState.entryRefusal);
     liveCompareButton.setButtonText (getWidth() < 900 ? "LISTEN" : "PRE/POST LISTEN");
     if (layoutLiveCompareFooter (actions))
         return;

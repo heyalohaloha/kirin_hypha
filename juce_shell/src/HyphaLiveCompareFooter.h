@@ -6,6 +6,9 @@ namespace hypha::observatory
 struct LiveCompareFooter
 {
     bool entryEnabled = false; // this POST can open a session (host format, platform, layout)
+    bool entrySupported = false; // this POST offers LISTEN and A/B at all (INV-LC9); greyed when not enabled
+    const char* entryRefusal = ""; // why LISTEN and A/B cannot open now
+    const char* blindRefusal = ""; // why BLIND cannot open now
     bool active = false, candidate = false;
     bool finishing = false, blindAvailable = false;
     bool preSelected = false;
@@ -21,7 +24,8 @@ struct LiveCompareFooter
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
         return candidate == other.candidate && finishing == other.finishing && blindAvailable == other.blindAvailable
-            && entryEnabled == other.entryEnabled && active == other.active
+            && entryEnabled == other.entryEnabled && entrySupported == other.entrySupported
+            && entryRefusal == other.entryRefusal && blindRefusal == other.blindRefusal && active == other.active
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchHeld == other.matchHeld && matchLimited == other.matchLimited
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb

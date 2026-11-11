@@ -129,11 +129,12 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const juce::String postNamed = postLowered ? postLabel + " " + signedGain (state.postHeldTenthsDb) : postLabel;
     liveEndButton.setButtonText (state.finishing ? "RETURNING"
         : postLowered ? "END " + signedGain (-state.postHeldTenthsDb) : juce::String ("END"));
-    liveEndButton.setEnabled (! state.finishing);
+    unavailable::set (liveEndButton, ! state.finishing, "Ended; normal level returns with audio");
     liveEndButton.setTitle (liveEndButton.getButtonText());
-    localBlindButton.setEnabled (state.blindAvailable && ! state.finishing);
+    unavailable::set (localBlindButton, state.blindAvailable && ! state.finishing,
+                      state.finishing ? "Ended; normal level returns with audio" : state.blindRefusal);
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton })
-        button->setEnabled (! state.finishing);
+        unavailable::set (*button, ! state.finishing, "Ended; normal level returns with audio");
     auto withBlind = [this] (juce::Array<juce::Button*> set)
     {
         if (liveCompareState.blindAvailable) set.insert (3, &localBlindButton);
@@ -222,9 +223,11 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 // session that keeps it.
 bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
 {
-    candidateCompareButton.setVisible (liveCompareState.entryEnabled);
+    candidateCompareButton.setVisible (liveCompareState.entryEnabled || liveCompareState.entrySupported);
+    unavailable::set (candidateCompareButton, liveCompareState.entryEnabled, liveCompareState.entryRefusal);
     localBlindButton.setVisible (localBlindEntryEnabled && liveCompareState.blindAvailable);
-    localBlindButton.setEnabled (liveCompareState.blindAvailable && ! keepActive);
+    unavailable::set (localBlindButton, liveCompareState.blindAvailable && ! keepActive,
+                      keepActive ? "Finish Keep / Record before PRE / POST Blind" : liveCompareState.blindRefusal);
     liveReturnButton.setStatusOnly (false);
     liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
     liveReturnButton.setTooltip (liveReturnButton.getDescription());
@@ -234,7 +237,8 @@ bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
                           static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveReturnButton),
                           static_cast<juce::Button*> (&liveCompareButton), static_cast<juce::Button*> (&candidateCompareButton), static_cast<juce::Button*> (&localBlindButton),
                           static_cast<juce::Button*> (&operationsButton) })
-        if (button == &liveReturnButton || button->isVisible())
+        // RETURN's rail keeps its set: a greyed NOTE gives way here as before (it stands in the normal footer).
+        if (button == &liveReturnButton || (button->isVisible() && (button != &noteButton || noteButton.isEnabled())))
             everything.add (button);
     juce::Array<juce::Button*> auditions { &liveReturnButton };
     for (auto* button : { &liveCompareButton, &candidateCompareButton, &localBlindButton, &operationsButton })
