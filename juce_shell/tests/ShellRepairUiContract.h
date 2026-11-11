@@ -409,6 +409,10 @@ inline void verify()
     EditableName locked; attach (locked, 56); locked.setEditingEnabled (false);
     locked.keyPressed (juce::KeyPress (juce::KeyPress::returnKey));
     require (! locked.isEditing(), "locked names cannot edit through the keyboard");
+    int lockedSelect = 0, lockedReason = 0;
+    locked.onSelect = [&] { ++lockedSelect; }; locked.onLocked = [&] { ++lockedReason; };
+    locked.keyPressed (juce::KeyPress (juce::KeyPress::returnKey));
+    require (lockedReason == 1 && lockedSelect == 0 && ! locked.isEditing(), "a locked name says why and never selects");
     EditableName pressed; attach (pressed, 84);
     require (pressed.getAccessibilityHandler()->getActions().invoke (juce::AccessibilityActionType::press)
         && pressed.isEditing(), "AX press starts PRE name editing");

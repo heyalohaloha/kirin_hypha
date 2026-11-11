@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "HyphaGuideInformationFacts.h"
 #include "HyphaSurfacePresentation.h"
+#include <algorithm>
 namespace
 {
     namespace ui = hypha::ui_contract;
@@ -96,9 +97,7 @@ void KirinHyphaEditor::applyMeterContextChoice (hypha::meter_context::MeterConte
     processorRef.setScaleModePreference (scale);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     localBlindView.setMeterContext (context);
-    if (analysisPage == AnalysisPage::attack
-        && ! hypha::meter_context::drumAttackAvailable (context))
-        setAnalysisPage (AnalysisPage::meters);
+    leaveDrumOutsideTrack();
     updateTimePageNavigation();
     if (localBlindOpen) refreshLocalBlindProduct();
    #endif
@@ -113,15 +112,17 @@ void KirinHyphaEditor::showDomainMenu()
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Observation view");
+    bool greyed = false;
     for (size_t index = 0; index < domains.size(); ++index)
     {
         const bool surroundDomain = domains[index] == hypha::observatory::Domain::level
                                  || domains[index] == hypha::observatory::Domain::time;
-        menu.addItem (300 + (int) index, labels[index],
-                      hypha::observatory::domainCapabilities (role).allows (domains[index])
-                          && (! processorRef.surroundMeasurementOnly() || surroundDomain),
-                      observatoryDomain == domains[index]);
+        const bool allowed = hypha::observatory::domainCapabilities (role).allows (domains[index])
+                          && (! processorRef.surroundMeasurementOnly() || surroundDomain);
+        greyed = greyed || ! allowed;
+        menu.addItem (300 + (int) index, labels[index], allowed, observatoryDomain == domains[index]);
     }
+    if (greyed) menu.addItem (-1, isPost ? "Mono / stereo only" : "Available in POST", false); // why the greyed views
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView.domainMenuAnchor())
         .withDeletionCheck (*this).withMinimumWidth (220).withMaximumNumColumns (1)
@@ -182,6 +183,9 @@ void KirinHyphaEditor::showSizeMenu()
         menu.addItem (400 + (int) index, label, preset.width <= sizeConstrainer.getMaximumWidth(),
                       getWidth() == preset.width && getHeight() == preset.height);
     }
+    if (std::any_of (choices.begin(), choices.end(),
+                     [this] (const auto& preset) { return preset.width > sizeConstrainer.getMaximumWidth(); }))
+        menu.addItem (-1, "Greyed sizes are larger than this display", false);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView.sizeMenuAnchor())
         .withDeletionCheck (*this).withMinimumWidth (240).withMaximumNumColumns (1)
@@ -215,7 +219,11 @@ void KirinHyphaEditor::showGuideInformationMenu()
     }
     const auto display = processorRef.preDisplaySnapshot();
     const auto guide = processorRef.guidePresentationSnapshot();
-    if (! guide.guideAvailable && display.primary.isEmpty() && display.detail.isEmpty()) return;
+    if (! guide.guideAvailable && display.primary.isEmpty() && display.detail.isEmpty())
+    {
+        showActionNotice ("No OS Guide from Kirin OS yet");
+        return;
+    }
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     const auto heading = guide.payloadKind == "masking" ? "MASKING / OS GUIDE"

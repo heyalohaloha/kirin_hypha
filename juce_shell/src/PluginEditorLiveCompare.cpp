@@ -316,6 +316,9 @@ bool KirinHyphaEditor::refreshLiveCompare()
     footer.candidate = processorRef.candidateCompareActive();
     footer.finishing = status.finishing && ! processorRef.candidateReturning();
     footer.blindAvailable = hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true));
+    footer.entrySupported = processorRef.liveCompareSupported();
+    footer.entryRefusal = liveCompareEntryRefusal (false);
+    footer.blindRefusal = liveCompareEntryRefusal (true);
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = false; // selected PRE remains selected during quiet timing recovery
     footer.contentHeld = status.active && status.contentHeld;

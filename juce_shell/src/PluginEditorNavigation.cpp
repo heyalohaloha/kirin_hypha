@@ -37,7 +37,11 @@ void KirinHyphaEditor::requestObservationTarget (hypha::observatory::Observation
     if (target == hypha::observatory::ObservationTarget::delta
         && hypha::ui_contract::deltaBlockedByMidSide (
             observatoryDomain == hypha::observatory::Domain::frequency,
-            spectrumView.isPsbObservation(), spectrumView.isMidSideObservation())) return;
+            spectrumView.isPsbObservation(), spectrumView.isMidSideObservation()))
+    {
+        showActionNotice ("Select LR, MID, or SIDE to view Delta");
+        return;
+    }
    #endif
     nextTimeSnapshotMs = 0.0;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -64,7 +68,11 @@ void KirinHyphaEditor::requestTimePage (AnalysisPage page)
 {
     if (refusedByBlind() || observatoryDomain != hypha::observatory::Domain::time) return;
     if (page == AnalysisPage::attack
-        && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference())) return;
+        && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
+    {
+        showActionNotice ("DRUM: choose TRACK");
+        return;
+    }
     setAnalysisPage (page);
 }
 

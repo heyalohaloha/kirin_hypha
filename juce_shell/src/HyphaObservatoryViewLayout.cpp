@@ -147,7 +147,7 @@ void View::resized()
     levelButton.setVisible (! singleDomainControl);
     timeButton.setVisible (! singleDomainControl);
     frequencyButton.setVisible (! measurementOnlySurround && ! singleDomainControl);
-    frequencyButton.setEnabled (domainCapabilities (role).frequency);
+    unavailable::set (frequencyButton, domainCapabilities (role).frequency, "Available in POST");
     spaceButton.setVisible (! measurementOnlySurround && ! singleDomainControl);
     if (singleDomainControl)
         domainCycleButton.setBounds (navigation);

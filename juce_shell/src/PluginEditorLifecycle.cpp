@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    removeMouseListener (&unavailableClicks);
     processorRef.vuLive().setEnabled (false);
     setConstrainer (nullptr); // the size rule is a member and goes before the base editor
     pairPreview.reset();

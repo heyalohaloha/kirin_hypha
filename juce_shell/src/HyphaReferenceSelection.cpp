@@ -37,7 +37,8 @@ void Component::syncSelectionControl (juce::ComboBox& box,
             || step == SourceStep::publicationInvalid || step == SourceStep::attention;
     };
     const bool retry = recovery (&box == &versionBox ? current.versionStep : current.checkStep);
-    box.setEnabled (options.size() > 1 || (options.size() == 1 && (selected == 0 || retry)));
+    unavailable::set (box, options.size() > 1 || (options.size() == 1 && (selected == 0 || retry)),
+                      options.empty() ? "Nothing to choose yet" : "Only one to choose");
 }
 
 bool Component::selectionVisible (const juce::ComboBox& box) const

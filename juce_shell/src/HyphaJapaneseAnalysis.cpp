@@ -87,9 +87,9 @@ const Entry entries[] = {
     { "Return to meters", u8"メーターに戻ります" },
 
     // A mode the page cannot take says why for a moment.
-    { "M/S -- POST STEREO", u8"M/SはPOSTStereo用" },
-    { "SIDE -- STEREO", u8"SIDE：Stereoのみ" },
-    { "SIDE -- MONO", u8"SIDE：Mono不可" },
+    { "M/S: select POST", u8"M/S：POSTを選択" },
+    { "M/S: stereo only", u8"M/S：Stereoのみ" },
+    { "SIDE: stereo only", u8"SIDE：Stereoのみ" },
     { "MODE --", u8"使用不可" },
     { "MARK --", u8"MARK不可" },
 

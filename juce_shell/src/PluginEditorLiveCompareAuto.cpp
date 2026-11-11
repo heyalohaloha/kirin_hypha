@@ -89,10 +89,15 @@ void KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& sta
     auto& a = liveCompareAuto;
     if (! a.on)
         return;
-    if (! status.active || status.finishing || liveBlindOpen || (!status.matched && !status.matchHeld) || status.matchLimited
-        || status.interrupted)
+    // END and BLIND end AUTO with them, and an interruption says its own reason; the others say why AUTO stopped.
+    if (! status.active || status.finishing || liveBlindOpen || status.interrupted)
     {
         a.on = false;
+        return;
+    }
+    if (status.matchLimited || (!status.matched && !status.matchHeld))
+    {
+        stopLiveCompareAuto (status.matchLimited ? "AUTO stopped at the TP limit" : "AUTO stopped: press MATCH again");
         return;
     }
     if (status.contentHeld || status.compensationOff || ! status.matchReady

@@ -93,6 +93,7 @@ struct KirinHyphaEditor {
     void setObservatoryDomain(Domain value) { observatoryDomain = value; observatoryView.selectedDomain = value; }
     double nowSecs() const { return 1; } void resized() {} void configureSpectrumAnalysis() {}
     void setAnalysisPage(AnalysisPage value) { analysisPage = value; } void updateTimePageNavigation() {}
+    void leaveDrumOutsideTrack() {}
     void updateResizeLimits() {} int getWidth() const { return 300; } int getHeight() const { return 200; }
     void setSize(int, int) {} void refreshComparisonNotice(const KirinObservatoryFrame&) {}
     void refreshReferenceAudition(const KirinObservatoryFrame&, bool) {} void refreshTimeSnapshot() {}

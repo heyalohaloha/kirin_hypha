@@ -38,7 +38,8 @@ void View::setVuCalibration (int value, bool choiceAvailable)
 {
     const auto previous = vuCalibrationControl.referenceDbfs();
     vuCalibrationControl.setReference (value);
-    vuCalibrationControl.setEnabled (choiceAvailable);
+    // The preference belongs to this track's identity, which is still being resolved.
+    unavailable::set (vuCalibrationControl, choiceAvailable, "VU calibration: connecting; try again in a moment");
     if (hybridVuVisible() && previous != vuCalibrationControl.referenceDbfs()) repaint();
 }
 
@@ -79,6 +80,9 @@ bool View::setHostRecording (bool recording)
     updateControls();
     resized();
     repaint();
+    // The view changed by itself: say why (MENU > Show Hybrid VU while recording turns it off), and
+    // withdraw it when recording ends.
+    if (onAutomaticNotice) onAutomaticNotice ("DAW recording: showing Hybrid VU", recordingHybridVuRequested());
     return true;
 }
 

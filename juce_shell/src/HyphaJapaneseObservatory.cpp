@@ -7,6 +7,15 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // Why a LEVEL history button is greyed (2026-11-11).
+    { "No TP events yet", u8"TPの記録はまだありません" },
+    { "Select POST for TP events", u8"TPはPOSTを選ぶと見られます" },
+    { "No earlier TP over -1 dBTP", u8"これより前に-1 dBTPを超えたTPはありません" },
+    { "No later TP over -1 dBTP", u8"これより後に-1 dBTPを超えたTPはありません" },
+    { "History is already live", u8"履歴は今を表示しています" },
+    { "No history yet", u8"履歴はまだありません" },
+    { "Select POST to copy", u8"POSTを選ぶとコピーできます" },
+    { "Click the history to hold a point first", u8"履歴をクリックして止めるとコピーできます" },
     { "Stereo shape over 80 ms: vertical is shared sound, horizontal is difference. BAL and CORR use 3 s.",
       u8"直近80 msの音の広がり。縦は左右に共通する音、横は左右の違い。BALとCORRは3秒の統計です。" },
     { "PRE name", u8"PREの名前" },

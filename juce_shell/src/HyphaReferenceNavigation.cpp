@@ -150,7 +150,7 @@ juce::String Component::stepCue (int direction)
 {
     if (isBlindSession (current.blindPhase) || ! current.separateComparisons) return notHere;
     if (current.comparisonSlot != 2) return "Available in C";
-    if (current.candidatePreparationPending) return "Not available on this page";
+    if (current.candidatePreparationPending) return "Preparing the song; try again in a moment";
     return choose (stepIn (idsOf (current.cues), current.cueId, direction), onSelectCue);
 }
 

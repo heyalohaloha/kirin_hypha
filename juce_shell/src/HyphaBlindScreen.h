@@ -19,6 +19,7 @@ struct Screen
     bool sourcesShown = false, sourceOneEnabled = false, sourceTwoEnabled = false;
     int audible = 0;  // 1・2：鳴っているソース（そのボタンを点ける）
     juce::String sourceOne { "SOURCE 1" }, sourceTwo { "SOURCE 2" };
+    juce::String sourceReason;  // why a SOURCE cannot be chosen now (a click on it says so)
     bool revealShown = false, revealEnabled = false;
     bool alignOffShown = false;
     juce::String revealTitle { "Reveal the sources without an answer" };
@@ -42,6 +43,7 @@ public:
     bool requestSource (int);
     bool requestReveal();
     bool requestEnd();
+    const juce::String& sourceReason() const noexcept { return shown.sourceReason; }
     // Why a key did nothing, in place of the instruction for a moment. Never a name or a side.
     void setActionNotice (const juce::String&);
     const juce::String& actionNoticeShown() const noexcept { return actionNotice; }

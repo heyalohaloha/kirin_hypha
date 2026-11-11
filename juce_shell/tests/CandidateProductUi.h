@@ -295,8 +295,11 @@ template<class Require> void verifyCandidateSurfaces (Require require)
                     : juce::String::fromUTF8 (stage == live_compare::BlindStage::approval
                         ? u8"6.0 dB下げます。終了時に同じ量だけ上がり、A→Bの接続に戻ります"
                         : level == 1.0f ? u8"終了すると通常の音量とA→Bの接続に戻ります"
-                        : u8"終了すると音量が6.0 dB上がり、A→Bの接続に戻ります");
+                        : u8"割れを避けて6.0 dB下げました。終了すると音量とA→Bの接続が戻ります");
                 require (shown == expected, "actual BLIND detail translates the complete level and chain explanation");
+                require (stage != live_compare::BlindStage::active || level == 1.0f
+                             || screen.detail == "Lowered 6.0 dB to avoid clipping; END restores it and the A to B chain",
+                         "a lowered BLIND says why it is lower and what END gives back");
                 auto* approve = candidateControl (surface, "candidate-localized-approve");
                 require (approve && text_style::shownText (approve->getDescription()) == expected,
                          "the approval description uses the same complete translation");

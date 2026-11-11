@@ -7,6 +7,16 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // A greyed menu choice names what is missing (2026-11-11).
+    { "Keep selected pair: Kirin OS required", u8"選択中のペアでKeep：Kirin OSが必要です" },
+    { "Add NOTE: Kirin OS required", u8"NOTEを追加：Kirin OSが必要です" },
+    { "Save measurement image: not on REFERENCE", u8"計測画像を保存：REFERENCEでは使えません" },
+    { "Include OS Guide: Kirin OS required", u8"OS Guideを含める：Kirin OSが必要です" },
+    { "Include OS Guide: no guide shown", u8"OS Guideを含める：表示中のGuideがありません" },
+    { "Include PRE name: no PRE name", u8"PREの名前を含める：PREの名前がありません" },
+    { "Include POST name: no POST name", u8"POSTの名前を含める：POSTの名前がありません" },
+    { "Include project name: the DAW gives none", u8"プロジェクト名を含める：DAWから名前が来ていません" },
+    { "Greyed sizes are larger than this display", u8"灰色の大きさはこの画面に収まりません" },
     { "A/B: finish Record / Keep first", u8"A/B：Record／Keepの終了後" },
     { "A/B: add PRE2 between A and B", u8"A/B：AとBの間にPRE2を追加" },
     { "One track. Hardware in A or B.", u8"同じトラック。実機はA・Bどちらにも。" },
@@ -30,6 +40,8 @@ const Entry entries[] = {
     { "A/B: timing unavailable; check PRE1 and PRE2", u8"A/B：時刻を確認できません。PRE1・PRE2を確認" },
     { "END restores normal level and the A to B chain", u8"終了すると通常の音量とA→Bの接続に戻ります" },
     { "END returns +%1 dB and restores the A to B chain", u8"終了すると音量が%1 dB上がり、A→Bの接続に戻ります" },
+    { "Lowered %1 dB to avoid clipping; END restores it and the A to B chain",
+      u8"割れを避けて%1 dB下げました。終了すると音量とA→Bの接続が戻ります" },
     { "Lower %1 dB; END returns the same amount and restores the A to B chain", u8"%1 dB下げます。終了時に同じ量だけ上がり、A→Bの接続に戻ります" },
     { "PRE1: %1 / PRE2: %2", u8"PRE1：%1／PRE2：%2" },
     { "MATCH: %1 s remaining", u8"MATCH：残り%1秒" },

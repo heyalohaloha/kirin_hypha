@@ -44,7 +44,7 @@ juce::PopupMenu KirinHyphaEditor::operationsMenu()
         }
         else
         {
-            menu.addItem (4, "Keep selected pair", osOwned);
+            menu.addItem (4, osOwned ? "Keep selected pair" : "Keep selected pair: Kirin OS required", osOwned);
             menu.addItem (1, osOwned ? allKeepMenuLabel (nReady)
                                      : "All Keep: Kirin OS required",
                           osOwned && nReady >= 1);
@@ -62,9 +62,11 @@ juce::PopupMenu KirinHyphaEditor::operationsMenu()
     if (isPost)
     {
         if (recording && stereoWorkflows)
-            menu.addItem (22, "Add NOTE at current position", osOwned);
+            menu.addItem (22, osOwned ? "Add NOTE at current position" : "Add NOTE: Kirin OS required", osOwned);
         if (observatoryDomain != hypha::observatory::Domain::reference)
             menu.addItem (21, "Save measurement image");
+        else
+            menu.addItem (21, "Save measurement image: not on REFERENCE", false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         addLiveCompareMenu (menu, keepActive);
        #endif

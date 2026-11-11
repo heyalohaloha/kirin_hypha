@@ -22,6 +22,8 @@ run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
 run node --test scripts/check_screen_text.test.mjs
 run node scripts/check_screen_text.mjs
+run node --test scripts/check_unavailable_reasons.test.mjs
+run node scripts/check_unavailable_reasons.mjs
 run node --test scripts/check_native_test_inventory.test.mjs
 run node --test scripts/ci_build_structure.test.mjs scripts/check_native_shards.test.mjs scripts/ci_scope.test.mjs
 run node --test scripts/native_test_libraries.test.mjs
