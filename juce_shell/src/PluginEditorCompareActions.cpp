@@ -41,6 +41,7 @@ const char* KirinHyphaEditor::liveCompareEntryRefusal (bool blind) const
 void KirinHyphaEditor::requestListenStart ()
 {
     liveCompareStartAfterReturnCandidate.clear();
+    afterTail = {};  // LISTEN is the newer choice: a V, C, B or Keep waiting for the A/B tail is dropped
     // INV-LC14: a press that waited starts with the ticket of its press; a new press takes the latest one.
     const auto waited = std::exchange (liveCompareStartPressed, std::nullopt);
     const auto pressTicket = waited.value_or (processorRef.restoreOrPairTicket());
@@ -68,7 +69,7 @@ void KirinHyphaEditor::requestListenStart ()
                 && hypha::live_compare_ui::onStartPressed (result) == StartAfterReturn::returnFirst)
             {
                 requestNormalLevelReturn();  // the same RETURN, then LISTEN on this press
-                liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
+                liveCompareStartAfterReturnUntil = nowSecs() + 10.0; afterTail = {};  // one waiting press at a time
                 liveCompareStartAfterReturnKey = waitingPairKey();
                 liveCompareStartAfterReturnTicket = pressTicket;
                 liveCompareStartAfterReturnBlind = false;
@@ -76,6 +77,7 @@ void KirinHyphaEditor::requestListenStart ()
                 return;
             }
             if (result != StartResult::started) showToast (hypha::live_compare_ui::startFailure (result));
+            else if (processorRef.takeRealtimeBounceNotice()) showActionNotice (hypha::live_compare_ui::realtimeBounceNotice);
             if (hypha::live_compare_ui::startNeedsPreChoice (result)) showCandidateMenu();
         });
 }

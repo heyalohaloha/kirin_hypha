@@ -64,23 +64,24 @@ void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, con
             return whole;
         }
 
-        bool retainsAudibleSelection (const RuntimeWorkspace& publication, const Snapshot& audible,
-                                       RuntimeV2SourceRepository& sources, int channels, bool wholeVersion)
+        // 0：同じ音を鳴らし続けられる。1：区間（Cue）か音源が変わった。2：曲・Check・区間が公開から無くなった。
+        int audibleSelectionChange (const RuntimeWorkspace& publication, const Snapshot& audible,
+                                    RuntimeV2SourceRepository& sources, int channels, bool wholeVersion)
         {
             const auto* preset = findPreset (publication, audible.presetId);
             const auto* check = preset ? findCheck (*preset, audible.checkId) : nullptr;
             const auto* candidate = check ? findCandidate (*check, audible.candidateId) : nullptr;
             const auto* cue = candidate ? findCue (*candidate, audible.cueId) : nullptr;
-            if (!cue) return false;
+            if (!cue) return 2;
             const auto source = sources.load (*candidate);
-            if (!source.accepted()) return false;
+            if (!source.accepted()) return 1;
             const auto whole = wholeVersion && candidate->sourceKind == "work_version"
                 ? wholeVersionCue (*cue, *source.source) : *cue;
             auto key = runtimeSelectionPlaybackIdentity (*preset, *check, *candidate, whole,
                 publication.library ? runtimeSourceAudioIdentity (*source.source) : juce::String {});
             appendPlaybackIdentity (key, juce::String (audible.hostSampleRateHz));
             appendPlaybackIdentity (key, juce::String (channels));
-            return key == audible.playbackIdentity;
+            return key == audible.playbackIdentity ? 0 : 1;
         }
 
         std::int64_t outputSample (std::int64_t sourceSample, std::int64_t sourceRate,
@@ -146,14 +147,25 @@ void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, con
             publish (std::move (next));
             return;
         }
+        {
+            // 新しい公開を断って前の公開のまま使っている（ファイルが一時的に無いだけのときは言わない）。B の画面が言う。
+            const juce::ScopedLock lock (stateLock);
+            retainedPublicationIssue = loaded.state == RuntimeWorkspaceLoadState::retainedPrevious
+                && loaded.rejectionCode != "reference_library_missing" && loaded.rejectionCode != "reference_manifest_missing"
+                ? loaded.rejectionCode : juce::String {};
+        }
         const bool publicationChanged = workspace && workspace->publicationHash != loaded.workspace->publicationHash;
         if (prepareBeforeReturn.load (std::memory_order_acquire) && publicationChanged
             && bSelected.load (std::memory_order_acquire))
         {
             Snapshot audible;
             { const juce::ScopedLock lock (stateLock); audible = currentSnapshot; }
-            if (!retainsAudibleSelection (*loaded.workspace, audible, sourceRepository, configuration.channels, versionComparison))
+            if (const auto change = audibleSelectionChange (*loaded.workspace, audible, sourceRepository,
+                                                            configuration.channels, versionComparison); change != 0)
+            {
+                publicationReturn.store (change, std::memory_order_release);  // 画面が A へ戻した理由を言う
                 failClosedToA();
+            }
         }
         { const juce::ScopedLock lock (stateLock); workspace = loaded.workspace; }  // visualBinding がメッセージスレッドから読む
         if (versionComparison && workspace->independentVersions)

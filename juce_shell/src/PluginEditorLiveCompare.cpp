@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaQueuedStartText.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
@@ -309,6 +310,17 @@ bool KirinHyphaEditor::refreshLiveCompare()
     followLiveCompare (status, now);
     if (liveCompareWarning.isEmpty() && liveCompareAuto.on)
         liveCompareWarning = juce::String (hypha::live_compare_ui::autoLimitNotice (liveCompareAuto.limit, liveCompareAuto.shortDb, processorRef.candidateCompareActive()));
+    // A press waiting for its start says what it waits for, every refresh until it starts or drops.
+    if ((liveCompareWarning.isEmpty() || status.finishing) && liveCompareStartAfterReturnUntil > 0.0)
+    {
+        using hypha::live_compare_ui::QueuedStart;
+        const auto start = liveCompareStartAfterReturnCandidate.isNotEmpty() ? QueuedStart::candidate
+                         : liveCompareStartAfterReturnBlind ? QueuedStart::blind : QueuedStart::listen;
+        liveCompareWarning = hypha::live_compare_ui::queuedStartNotice (start, hypha::live_compare_ui::queuedWait (
+            processorRef.isPlaying(), status.finishing, processorRef.candidateReturning()));
+    }
+    if ((liveCompareWarning.isEmpty() || status.finishing) && afterTail.action != hypha::live_compare_ui::AfterTail::none)
+        liveCompareWarning = hypha::live_compare_ui::afterTailNotice (afterTail.action, processorRef.isPlaying());
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));
@@ -383,6 +395,65 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
     liveCompareStartPressed = liveCompareStartAfterReturnTicket;  // the processor checks it under the pair lock
     if (observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();
     liveCompareStartPressed.reset();
+}
+
+// After END of A/B, POST first returns to its level, then B plays out what it was fed during A/B, and the
+// output table keeps V, C, B and Keep off until both are done (the 4 s of audio, CandidateProcessorControl).
+// A press in that time is not refused: it waits and starts by itself once they are done, and the status
+// line says so (2026-11-11). A later press, A in REF, leaving REF or another REF selection, another pair or
+// restore, a new A/B, a LISTEN or Blind started meanwhile, or a hidden window drops it.
+bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, hypha::live_compare_ui::AfterTail action)
+{
+    using hypha::output_owner::State;
+    const auto decision = processorRef.outputDecision (activity);
+    // The blockers of this same return: POST returning, a candidate BLIND scope draining, B's tail.
+    const bool sameReturn = decision.cause == State::candidateSession || decision.cause == State::liveFinishing
+                         || decision.cause == State::liveBlind;
+    if (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
+        || processorRef.candidateCompareActive())
+        return false;
+    // One waiting press at a time: this one replaces a waiting LISTEN, BLIND, A/B or C MATCH.
+    liveCompareStartAfterReturnUntil = referenceRematchUntil = 0.0;
+    liveCompareStartAfterReturnCandidate.clear();
+    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket() };
+    return true;  // the status line names the wait from the next refresh (no toast to outlive it)
+}
+
+void KirinHyphaEditor::dropReferenceAfterTail() noexcept
+{
+    using hypha::live_compare_ui::AfterTail;
+    if (afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
+        || afterTail.action == AfterTail::referenceB)
+        afterTail = {};
+}
+
+void KirinHyphaEditor::serviceAfterTailPress()
+{
+    using hypha::live_compare_ui::AfterTail;
+    if (afterTail.action == AfterTail::none) return;
+    const bool reference = afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
+                        || afterTail.action == AfterTail::referenceB;
+    // A later start (A/B, LISTEN, a Blind) is the user's newer choice; REF choices and leaving REF drop it at once.
+    if (waitingPairKey() != afterTail.pairKey || processorRef.restoreOrPairTicket() != afterTail.ticket
+        || processorRef.candidateCompareActive() || processorRef.liveCompareStatus().active
+        || liveBlindOpen || localBlindOpen
+        || (reference && observatoryDomain != hypha::observatory::Domain::reference))
+    {
+        afterTail = {};
+        return;
+    }
+    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
+    const auto waited = std::exchange (afterTail, {});
+    // The same request the press made: its own refusals and notices still apply.
+    switch (waited.action)
+    {
+        case AfterTail::referenceV: if (referenceView.onSelectB) referenceView.onSelectB(); break;
+        case AfterTail::referenceC: if (referenceView.onSelectC) referenceView.onSelectC(); break;
+        case AfterTail::referenceB: if (referenceView.onSelectRef) referenceView.onSelectRef(); break;
+        case AfterTail::keepPair:   requestKeepPair (false, waited.ticket); break;
+        case AfterTail::keepAll:    requestKeepAll (waited.ticket); break;
+        case AfterTail::none:       break;
+    }
 }
 #endif
 

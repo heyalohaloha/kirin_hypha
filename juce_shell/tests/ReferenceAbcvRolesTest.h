@@ -126,12 +126,13 @@ inline void verifyReferenceAbcvRoles()
                      && set->getTooltip().contains ("Reference set") && song->getTooltip().contains ("Reference song")
                      && b->getTooltip().contains ("Reference song"),
                  "the B controls name the Reference set and song");
-        // 100%（300×200）は曲名だけ。REFERENCE SET は出さず、曲は 125% 以上で選ぶ。
-        const bool glance = presentation::forEditor (size.width, size.height).density == observatory::Density::compact;
-        require (set->isVisible() == ! glance && song->isVisible() && ! version->isVisible() && ! check->isVisible()
+        // B の曲と Reference のセットは、どの大きさでも選べる（2026-11-11）。
+        require (set->isVisible() && song->isVisible() && ! version->isVisible() && ! check->isVisible()
                      && song->getText() == "Song 1" && set->getText() == "Mastering refs   1 / 2"
-                     && song->isEnabled() == ! glance,
-                 "the B page shows only the B set and its songs, and only the song at 100%");
+                     && song->isEnabled() && set->isEnabled()
+                     && panel.getLocalBounds().contains (set->getBounds()) && panel.getLocalBounds().contains (song->getBounds())
+                     && ! set->getBounds().intersects (song->getBounds()),
+                 "the B page shows the Reference set and its songs at every size, " + juce::String (size.width));
         {
             juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
             juce::Graphics graphics (image);

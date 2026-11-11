@@ -53,7 +53,7 @@ inline void verifyGuideStates()
     require (! shown.shown && shown.version == Step::chooseVersion && shown.check == Step::ready,
              "one of B and C audible: the comparison stays and only the other explains itself");
     shown = guide (named ("no_check"));
-    require (shown.shown && shown.heading == "No Check is enabled in Kirin OS"
+    require (shown.shown && shown.heading == "No CHECK SET for C in Kirin OS"
                  && shown.check == Step::enableCheck,
              "C's guide names C's available action rather than the hidden V selector");
     state = named ("no_check"); state.comparisonSlot = 1;
@@ -158,7 +158,7 @@ inline void verifyUnavailableButtons()
     component.setState (named ("no_version"));
     // 聴ける C は理由でなく、V・B と同じく何を聴くかを言う（300% では下の行の説明にもなる。2026-10-04）。
     require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "V: Play A or choose a Version"
-                 && c->getTooltip() == "Audition the Check's song from Kirin OS (C).",
+                 && c->getTooltip() == reference_ui::help_text::checkPurpose,
              "an unready B stays clickable and names its step on hover; a ready C says what it plays");
     b->onClick();
     require (explained == "V: Play A or choose a Version" && ! selectedB,
@@ -378,8 +378,28 @@ inline void verifyGuideFits()
 }
 }
 
+// 2026-11-11：V を聴いて A を押しても、出ていた V の見比べ（V の波形と同じ区間の A）を案内で隠さない（V の段は状態の行）。
+inline void verifyVersionGraphStaysWithA()
+{
+    using namespace reference_guide_contract;
+    auto state = named ("ready");
+    state.separateComparisons = state.libraryReceived = state.aAvailable = true;
+    state.osAccess = os_access::State::ready;
+    state.comparisonSlot = 1; state.bSelected = false; state.audibleComparisonSlot = 0;
+    state.versionStep = state.checkStep = reference_ui::SourceStep::preparing;
+    state.versionReady = state.checkReady = false;
+    require (reference_ui::guide (state).shown, "without a V graph, the V page shows the guide while A plays");
+    auto measurement = std::make_shared<reference_audition::RuntimeDetailedMeasurement>();
+    measurement->waveform = reference_audition::RuntimeMeasurementWaveform {};
+    auto timeline = std::make_shared<reference_audition::VisualTimeline>();
+    timeline->binding.overview = measurement;
+    state.visualTimeline = timeline;
+    require (! reference_ui::guide (state).shown, "pressing A keeps the V comparison that was shown");
+}
+
 inline void verifyReferenceGuideContract()
 {
+    verifyVersionGraphStaysWithA();
     reference_guide_contract::verifyGuideStates();
     reference_guide_contract::verifySourceStepReasons();
     reference_guide_contract::verifyUnavailableButtons();

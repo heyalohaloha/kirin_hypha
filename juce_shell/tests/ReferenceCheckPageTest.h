@@ -108,9 +108,9 @@ inline void verifyReferenceCheckPage()
         require (reference_ui::matchReadout (waiting).isEmpty(), "before C plays, nothing counts up");
         waiting.bSelected = waiting.matchProvisional = true; waiting.audibleComparisonSlot = waiting.comparisonSlot = 2;
         waiting.tracking = reference_audition::TrackingState::fixed;
-        const auto line = reference_ui::referenceStatusLine (waiting).text.upToFirstOccurrenceOf ("  /  ", false, false);
-        require (line == "C MATCHING A 12 OF 30 S" && i18n::translate (line, i18n::Language::japanese) != line,
-                 "while C plays and A fills the Cue's window, the status line says how far it has come, in both languages");
+        const auto text = reference_ui::referenceStatusLine (waiting).text, line = text.fromFirstOccurrenceOf ("LOOP  /  ", false, false).upToFirstOccurrenceOf ("  /  ", false, false);
+        require (text.contains ("1:02-1:32 LOOP  /  ") && line == "LEVEL MATCHING A 12 OF 30 S" && i18n::translate (line, i18n::Language::japanese) != line,
+                 "while C plays and A fills the Cue's window, the status line names the looped section, then how far it has come");
     }
     // 2026-10-04：凡例は比べる側が曲のどの部分かを言う。B は時刻も添える。
     {

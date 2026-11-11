@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include "../src/HyphaLiveBlindComponent.h"
+#include "../src/HyphaQueuedStartText.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAuditionRecoveryText.h"
 #include "../src/HyphaLiveCompareActionResult.h"
@@ -70,7 +71,16 @@ inline std::vector<Notice> notices()
         "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
         "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
-        "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
+        "End the current comparison first", "BLIND COMPARE COULD NOT START", live_compare_ui::realtimeBounceNotice }) add (text);
+    // A press waiting for its start (HyphaQueuedStartText.h), for every start and wait.
+    for (auto start : { live_compare_ui::QueuedStart::listen, live_compare_ui::QueuedStart::blind,
+                        live_compare_ui::QueuedStart::candidate })
+        for (auto wait : { live_compare_ui::QueuedWait::returning, live_compare_ui::QueuedWait::tail,
+                           live_compare_ui::QueuedWait::stopped, live_compare_ui::QueuedWait::other })
+            add (live_compare_ui::queuedStartNotice (start, wait));
+    for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
+                         live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
+        for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));
     // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
     for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
         "Finish Keep / Record before PRE / POST Blind", "Select LR, MID, or SIDE to view Delta",
@@ -80,10 +90,10 @@ inline std::vector<Notice> notices()
         "VU calibration: connecting; try again in a moment", "DAW recording: showing Hybrid VU",
         "AUTO stopped at the TP limit", "AUTO stopped: press MATCH again", "No OS Guide from Kirin OS yet",
         "Capture could not be prepared; try again", "Available in POST", "NOTE requires an active Keep",
-        "Stop playback to change connection", "Ended; normal level returns with audio",
+        "Stop playback to change connection", "Ended; normal level returns with audio", "Keep waits for PRE; Stop cancels",
         "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
         "8 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
-        "Available from 125%", "PRE input measurements", "Local measurements; PRE subtraction does not apply",
+        "PRE input measurements", "Local measurements; PRE subtraction does not apply",
         "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required",
         "LIVE: POST values on fixed scales, measured every 100 ms.",
         "RUN: absolute facts grouped by playback run within the selected history",

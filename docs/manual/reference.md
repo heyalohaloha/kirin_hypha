@@ -16,10 +16,12 @@ Reference has four roles, each with its own button in the same place at every si
 
 - **A — LIVE**: the DAW input. A is never processed; audible comparisons use audition copies.
 - **B — REF**: Reference songs from Kirin OS. Rank up to three Reference sets for Hypha in Kirin OS;
-  choose the set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
-  head; when you press B, or B returns after a stop or seek, at a point outside that Cue (you moved
-  back before where you chose the song, or the song has run past its end), B starts the Cue again
-  from the current position instead of refusing. If a chosen song leaves
+  choose the set and the song on the B page. A song plays its Cue as Kirin OS set it and repeats it: the
+  Cue's head is placed at the DAW position where you chose the song, B moves with the DAW from there, and at
+  the Cue's end it continues from the Cue's head. Pressing B inside that repeating Cue joins it where it is, so
+  B can start in the middle of the Cue. When you press B, or B returns after a stop or seek, at a point
+  outside it (before where you chose the song, or past one Cue length when Kirin OS did not mark the Cue as a
+  loop), B places the Cue's head at the current position instead of refusing. If a chosen song leaves
   the Reference set, Hypha says so instead of switching to another song. If Hypha cannot read a
   Reference set (for example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
   stay usable, and while Kirin OS is publishing new sets the current ones stay.
@@ -27,6 +29,11 @@ Reference has four roles, each with its own button in the same place at every si
   to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
   C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
+
+B and C repeat a section chosen in Kirin OS (the Cue); they do not follow A's position in the song. Only V
+follows A's position. The status line names the section that plays, for example **B CHORUS 2:53-3:07 LOOP**,
+and then how its level is held, for example **LEVEL FOLLOWS A (LAST 10 S)**. To hear another section, change
+the Cue in Kirin OS.
   V works best with Hypha on the 2Mix.
 
 **Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
@@ -128,8 +135,8 @@ can change (outside the Cue, no match in this passage) or a match that cannot be
 instead.
 
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
-them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
-shows the song and the status; songs are switched from 125%.
+them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
+the B page chooses the Reference set and the song, also while A plays.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin

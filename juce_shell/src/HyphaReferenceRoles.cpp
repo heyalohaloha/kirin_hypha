@@ -84,11 +84,10 @@ void Component::syncRoles (bool blindSession)
     syncSelectionControl (songSetBox, current.songSets, current.songSetId);
     syncSelectionControl (songBox, current.songs, current.songId);
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
-    // 100% の B は曲名・gain・状態だけ。REFERENCE SET は出さず、曲の切替は 125% 以上。
-    const bool glance = presentationContext.density == observatory::Density::compact;
-    songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
+    // B の曲と Reference のセットは、どの大きさでも選べる（2026-11-11：100% では見つからず、切り替えられなかった）。
+    // A を鳴らしたままでも替えられる（B が鳴っていれば前の曲を鳴らしたまま次の曲を準備する）。
+    songSetBox.setVisible (referenceView && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
-    if (glance) unavailable::set (songBox, false, "Available from 125%");
     // 300% の B の画面は、左に曲の一覧、右に Balance。
     songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
     std::vector<SongList::Row> rows;

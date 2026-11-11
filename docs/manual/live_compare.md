@@ -138,6 +138,9 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
    the DAW reports, and another audition are never attenuated. Measurements remain before this path.
+   A DAW does not tell a plug-in when a realtime bounce runs, so a realtime bounce or export while
+   LISTEN, BLIND or A/B is on records what you hear. Press **END** first. The first comparison you
+   start in each Hypha says this once.
 
 Logic's cycle path relies on every intervening plug-in reporting its latency correctly and Logic
 compensating it, as required by R-12. Set Logic’s Plug-in Latency Compensation to **All**.

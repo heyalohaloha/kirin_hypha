@@ -123,6 +123,7 @@ struct State
     reference_audition::PendingAuditionView pendingAudition;
     juce::String versionId;
     std::vector<SelectionOption> versions;
+    juce::String versionPlaying, versionPositioning;  // V keeps one Version while the next is positioned (names; else empty)
     Readiness readiness = Readiness::disconnected;
     juce::String title;
     juce::String sourceLabel;
@@ -141,6 +142,7 @@ struct State
     bool originalAudition = false; // Explicit OS mode, not a failed match.
     bool bSelected = false;
     bool auditionBuffered = false;
+    bool audibleHeard = false;  // 選んで鳴らしている役の音が本当に出ている（読み込み中・ページの不足は false で A が鳴る）
     os_access::State osAccess = os_access::State::unowned;
     BlindPhase blindPhase = BlindPhase::unavailable;
     int activeBlindStimulus = 0;
@@ -207,7 +209,10 @@ struct State
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
-    bool cueLoops = false;
+    bool cueLoops = false;      // C の Cue が終わりで頭へ戻る（Kirin OS の印か、A の位置を追わない Cue）
+    bool referenceWraps = false;  // B の Cue が同じく繰り返す
+    int publicationReturn = 0;    // 見ている役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻した
+    juce::String publicationIssue;  // B の画面で言う：新しい公開を読めなかった・曲を外した（文）
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
     reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
     CueSubstitute cueSubstitute = CueSubstitute::none;          // C の Cue の値が無いときの代わり（状態の行が言う）
@@ -296,6 +301,7 @@ public:
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
     std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<bool(int)> pageCurrent; // 描いている画面がまだ今の画面か（古い画面のタブの押しは捨てる）
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;

@@ -18,7 +18,6 @@ const Entry entries[] = {
     { "Available in V", u8"Vで使えます" },
     { "Available in C and V", u8"CとVで使えます" },
     { "Available at 300%", u8"300%で使えます" },
-    { "Available from 125%", u8"125%以上で使えます" },
     { "Not available on this page", u8"この画面では使えません" },
     { "Nothing to choose", u8"選べる項目がありません" },
     { "First in the list", u8"一覧の先頭です" },

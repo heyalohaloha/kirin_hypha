@@ -172,6 +172,28 @@ juce::String cuePartLegend (const char* side, reference_audition::CuePart part, 
     return name + " CUE" + times;
 }
 
+juce::String playingSection (const State& state)
+{
+    using reference_audition::CuePart;
+    const auto section = [] (const char* side, CuePart part, double start, double end, bool wraps)
+    {
+        if (part == CuePart::unknown && ! (std::isfinite (start) && std::isfinite (end) && end > start)) return juce::String();
+        return cuePartLegend (side, part, start, end, true) + (wraps ? " LOOP" : "");
+    };
+    if (state.audibleComparisonSlot == 2)  // 曲全体の値で比べていても、鳴らしているのは Cue
+        return section ("C", state.cueSubstitute == CueSubstitute::wholeSong ? CuePart::cue : state.cuePart,
+                        state.cueStartSeconds, state.cueEndSeconds, state.cueLoops);
+    if (state.audibleComparisonSlot != 3) return {};
+    const auto& playing = state.audibleSongId.isNotEmpty() ? state.audibleSongId : state.songId;
+    for (size_t index = 0; index < state.songFacts.size() && index < state.songs.size(); ++index)
+        if (state.songs[index].id == playing)
+        {
+            const auto& fact = state.songFacts[index];
+            return section ("B", fact.part, fact.partStartSeconds, fact.partEndSeconds, state.referenceWraps);
+        }
+    return {};
+}
+
 juce::String matchReadout (const State& state)
 {
     if (state.comparisonMode == "original") return "ORIGINAL LEVEL";

@@ -4,6 +4,7 @@
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferenceNotices.h"
+#include "HyphaReferenceGuide.h"
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceSongChoice.h"
@@ -24,8 +25,10 @@ void KirinHyphaEditor::wireReferenceRoles()
     };
     referenceView.onSelectRef = [this]
     {
-        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
-        if (outputRefused (hypha::output_owner::Activity::audition)) return;
+        if (waitsForAbTail (hypha::output_owner::Activity::audition, hypha::live_compare_ui::AfterTail::referenceB)) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;  // a refused press keeps the waiting ones
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;  // 別の役は待たせた C の MATCH・LISTEN を捨てる
+        afterTail = {};
         processorRef.selectReferenceVisualSlot (3);
         if (processorRef.selectReferenceRef()) return;
         const auto latest = processorRef.referenceAuditionSnapshot();
@@ -133,8 +136,10 @@ void KirinHyphaEditor::serviceReferenceOpenedNotice()
     const auto& state = referenceView.state();  // whether pressing again plays, as it is now
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
                                     : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    // 2026-11-11：まだ鳴らせなければ、開いた時に理由と直し方も言う（もう一度押すまで分からなかった）。
     if (getWidth() >= 900 && getHeight() >= 600)
-        showToast (hypha::reference_ui::notice::pageOpened (slot, playable));
+        showToast (hypha::reference_ui::notice::pageOpened (slot, playable)
+                   + (playable ? juce::String() : " " + hypha::reference_ui::unavailableText (state, slot == 1)));
     else if (getWidth() == referenceOpenedFrom.x && getHeight() == referenceOpenedFrom.y)
         showToast (hypha::reference_ui::notice::roomRequired());  // back at the size before: say what C and V need
     // Any other size is the user's own or the host's: nothing is said.
@@ -204,6 +209,8 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
         : runtime.songSetsIssue.isNotEmpty() && ! runtime.songSets.empty() ? juce::String ("Some Kirin OS sets were not read. Update Kirin OS and Hypha.")
         : juce::String();
     if (issue.isNotEmpty() && referenceSetsIssueShown != issue) showToast (issue);
+    // B の画面の状態の行でも言い続ける（2026-11-11：知らせは一度だけで、B の画面には何も残らなかった）。
+    state.publicationIssue = slot.publicationIssue.isNotEmpty() ? rejectedStatus (slot.publicationIssue) : skipped;
     referenceSetsIssueShown = issue;
     state.referenceStep = referenceStep (runtime, slot, state.aAvailable);
     state.referenceRejectionCode = runtime.libraryReceived ? rejectionCodeOf (slot) : juce::String {};
@@ -236,7 +243,11 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;
     state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
-    state.cueLoops = checkRole.cueLoops;
+    state.cueLoops = checkRole.cueLoops || checkRole.cueWraps;
+    state.referenceWraps = runtime.referenceSelection != nullptr && runtime.referenceSelection->cueWraps;
+    const auto* pageRole = runtime.comparisonSlot == 1 ? runtime.versionSelection.get()
+        : runtime.comparisonSlot == 3 ? runtime.referenceSelection.get() : runtime.checkSelection.get();
+    state.publicationReturn = pageRole != nullptr ? pageRole->publicationReturn : 0;
     state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
     const auto aWindow = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
     state.aWindowLoudness = aWindow.loudness;
@@ -254,8 +265,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     {
         referenceVersionIdentity = processorRef.identifyReferenceVersion();
         referenceIdentifyAtMs = nowMs + 3000.0;
+        // A V press waiting for the A/B tail is a V that waits: AUTO keeps its Version (as above).
         if (const auto next = referenceAutoChooser.next (referenceVersionIdentity, runtime.selectedVersionId, runtime.versionAuto);
-            next.isNotEmpty())
+            next.isNotEmpty() && afterTail.action != hypha::live_compare_ui::AfterTail::referenceV)
             processorRef.selectReferenceVersion (next, true);
         if (const auto next = referenceAutoMark.next (referenceVersionIdentity, referenceAutoMarkId, true); next.isNotEmpty())
             referenceAutoMarkId = next;

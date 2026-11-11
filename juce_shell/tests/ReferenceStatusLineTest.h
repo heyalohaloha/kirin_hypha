@@ -10,6 +10,7 @@
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaReferenceStages.h"
 #include "../src/HyphaReferenceRuntimeStatus.h"
+#include "../src/HyphaReferenceNotices.h"
 
 namespace hypha::tests
 {
@@ -44,7 +45,7 @@ inline void verifyReferenceStatusLine()
              std::tuple { 2, Tracking::fixed, false, "C MATCHED AND FIXED" },
              std::tuple { 2, Tracking::none, true, "C ORIGINAL LEVEL" } })
     {
-        playing.audibleComparisonSlot = slot;
+        playing.comparisonSlot = playing.audibleComparisonSlot = slot;
         playing.tracking = tracking;
         playing.originalAudition = original;
         const auto line = reference_ui::referenceStatusLine (playing);
@@ -57,7 +58,7 @@ inline void verifyReferenceStatusLine()
         for (const double residual : { -2.0, -0.5, 0.0, 0.5, 2.0 })
         {
             auto limited = playing;
-            limited.audibleComparisonSlot = slot; limited.originalAudition = false;
+            limited.comparisonSlot = limited.audibleComparisonSlot = slot; limited.originalAudition = false;
             limited.tracking = Tracking::following; limited.rangeShortfallDb = residual;
             const auto text = reference_ui::referenceStatusLine (limited).text;
             require (text.contains ("FOLLOW LIMIT") == (std::abs (residual) > 0.5),
@@ -69,8 +70,124 @@ inline void verifyReferenceStatusLine()
                              && i18n::translate (text, i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"追従上限")),
                          "both roles report the signed residual first in both languages");
         }
+    // 2026-11-11：B・C は A の位置を追わず Kirin OS の決めた区間を繰り返す。何を鳴らしているか（区間とループ）を先に、
+    // 音量の合わせ方をその後に言う（区間が役の名前を言う）。区間が分からなければ今までどおり役の名前で言う。
+    {
+        auto c = playing;
+        c.audibleComparisonSlot = 2; c.tracking = Tracking::following; c.originalAudition = false;
+        c.cuePart = reference_audition::CuePart::chorus; c.cueStartSeconds = 173.0; c.cueEndSeconds = 187.0; c.cueLoops = true;
+        const auto line = reference_ui::referenceStatusLine (c).text;
+        const auto japanese = i18n::translate (line, i18n::Language::japanese);
+        require (line == "C CHORUS 2:53-3:07 LOOP  /  LEVEL FOLLOWS A (LAST 10 S)" + pre
+                     && japanese.contains (juce::String::fromUTF8 (u8"Cサビ 2:53-3:07 繰り返し"))
+                     && japanese.contains (juce::String::fromUTF8 (u8"音量はA直近10秒に追従")),
+                 "C names its looped section, then how its level is held, in both languages: " + line + " / " + japanese);
+        auto b = playing;
+        b.comparisonSlot = b.audibleComparisonSlot = 3; b.tracking = Tracking::following; b.originalAudition = false; b.rangeShortfallDb = 2.0;
+        b.songs = { { "s1", "Song" } }; b.songId = "s1"; b.referenceWraps = true;
+        b.songFacts.resize (1); b.songFacts[0].part = reference_audition::CuePart::cue;
+        b.songFacts[0].partStartSeconds = 10.0; b.songFacts[0].partEndSeconds = 25.0;
+        const auto bLine = reference_ui::referenceStatusLine (b).text;
+        const auto bJapanese = i18n::translate (bLine, i18n::Language::japanese);
+        require (bLine == "B CUE 0:10-0:25 LOOP  /  2.0 DB UNDER A (FOLLOW LIMIT)" + pre
+                     && bJapanese.contains (juce::String::fromUTF8 (u8"BのCue 0:10-0:25 繰り返し"))
+                     && bJapanese.contains (juce::String::fromUTF8 (u8"Aより2.0 dB小さい（追従上限）")) && ! bJapanese.contains ("%"),
+                 "B names the section of the song that plays, and a follow limit without repeating the role: " + bLine + " / " + bJapanese);
+        b.referenceWraps = false; b.rangeShortfallDb = 0.0; b.originalAudition = true;
+        require (reference_ui::referenceStatusLine (b).text == "B CUE 0:10-0:25  /  ORIGINAL LEVEL" + pre,
+                 "LOOP only when the Cue repeats");
+    }
+    // 2026-11-11：見ている画面と鳴っている役が違えば先に言う。選んだ役の音が届かず A が鳴っている間は、聴けるの札を
+    // 出さず読み込みを言う（その間は A が鳴っていると言う）。
+    {
+        auto other = playing;
+        other.comparisonSlot = 2; other.audibleComparisonSlot = 1; other.tracking = Tracking::following; other.originalAudition = false;
+        other.audibleHeard = true;
+        const auto line = reference_ui::referenceStatusLine (other).text;
+        const auto japanese = i18n::translate (line, i18n::Language::japanese);
+        require (line == juce::String::fromUTF8 (u8"C PAGE · V PLAYING  /  V FOLLOWING A (LAST 10 S)") + pre
+                     && japanese.contains (juce::String::fromUTF8 (u8"Cの画面")) && japanese.contains (juce::String::fromUTF8 (u8"Vを再生中")),
+                 "a page other than the role that sounds says both, in both languages: " + line + " / " + japanese);
+        other.status = "LOADING V AT PLAYHEAD / KEEP PLAYING"; other.audibleHeard = false;
+        const auto starved = reference_ui::referenceStatusLine (other);
+        require (starved.kind == StatusKind::waiting
+                     && starved.text == juce::String::fromUTF8 (u8"C PAGE · A PLAYING  /  LOADING V AT PLAYHEAD / KEEP PLAYING"),
+                 "while V's audio has not arrived and A is heard, the line says loading, not V's level: " + starved.text);
+        other.comparisonSlot = 1;
+        require (reference_ui::referenceStatusLine (other).text == "LOADING V AT PLAYHEAD / KEEP PLAYING",
+                 "on V's own page the starved V says loading");
+    }
+    // 2026-11-11：Kirin OS の公開が鳴っていた区間を変えた・外したので A に戻した時は、その理由と次の一手を言う。
+    {
+        auto returned = named ("ready");
+        returned.separateComparisons = true; returned.comparisonSlot = 3; returned.referenceStep = Step::ready;
+        returned.publicationReturn = 1;
+        auto line = reference_ui::referenceStatusLine (returned);
+        auto japanese = i18n::translate (line.text, i18n::Language::japanese);
+        require (line.text == "B: KIRIN OS CHANGED THE SECTION / PRESS B TO HEAR IT"
+                     && japanese == juce::String::fromUTF8 (u8"B：Kirin OSで区間が変わりました ／ Bを押すと新しい音"),
+                 "a section Kirin OS changed says why A plays and how to hear it: " + line.text + " / " + japanese);
+        returned.comparisonSlot = 2; returned.checkStep = Step::chooseSource; returned.publicationReturn = 2;
+        line = reference_ui::referenceStatusLine (returned);
+        japanese = i18n::translate (line.text, i18n::Language::japanese);
+        require (line.text == "C: REMOVED IN KIRIN OS / CHOOSE AGAIN"
+                     && japanese == juce::String::fromUTF8 (u8"C：Kirin OSで外されました ／ 選び直す"),
+                 "a song or section Kirin OS removed says so: " + line.text + " / " + japanese);
+        returned.comparisonSlot = 1; returned.publicationReturn = 1;
+        require (reference_ui::referenceStatusLine (returned).text.startsWith ("V: KIRIN OS CHANGED THE VERSION"),
+                 "V says its Version changed");
+        returned.publicationReturn = 0;
+        require (! reference_ui::referenceStatusLine (returned).text.contains ("KIRIN OS CHANGED"), "nothing returned, nothing said");
+        // 変えた後の音が鳴らせない（開けない）なら「押せば聴ける」と言わず、理由と直し方を言う。
+        returned.comparisonSlot = 3; returned.referenceStep = Step::sourceUnopenable; returned.publicationReturn = 1;
+        line = reference_ui::referenceStatusLine (returned);
+        require (! line.text.contains ("TO HEAR IT") && line.text.contains ("SOURCE COULD NOT BE OPENED"),
+                 "a changed section that cannot play gives the reason, not PRESS B: " + line.text);
+        returned.referenceStep = Step::ready;
+    }
+    // 2026-11-11：Kirin OS の新しい公開を読めず前のまま、または曲を外したことは、B の画面の状態の行でも言う。
+    {
+        auto issue = named ("ready");
+        issue.separateComparisons = true; issue.comparisonSlot = 3; issue.referenceStep = Step::ready;
+        issue.publicationIssue = reference_ui::runtime_view::rejectedStatus ("reference_library_revision_conflict");
+        auto line = reference_ui::referenceStatusLine (issue);
+        require (line.kind == StatusKind::unable && line.text == "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS"
+                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+                 "a publication Hypha did not read is said on the B page: " + line.text);
+        // 外した曲（manifest・sets.json から。ReferenceRuntimePresetOptions.h が両方を librarySkipped に入れる）。
+        issue.publicationIssue = reference_ui::notice::librarySkipped ({ { "Song A", false } });
+        line = reference_ui::referenceStatusLine (issue);
+        require (line.text == "\"Song A\" was not read. Prepare it again in Kirin OS."
+                     && i18n::translate (line.text, i18n::Language::japanese).contains ("Song A")
+                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+                 "a song dropped from a Reference set is named on the B page: " + line.text);
+        issue.comparisonSlot = 2; issue.checkStep = Step::ready;
+        require (! reference_ui::referenceStatusLine (issue).text.contains ("Song A"), "the C page does not take B's notice");
+        // B を鳴らしている間も（前の公開で鳴らし続ける）、B の画面は理由を言い続ける。
+        issue.comparisonSlot = issue.audibleComparisonSlot = 3; issue.bSelected = issue.audibleHeard = true;
+        issue.tracking = Tracking::fixed;
+        line = reference_ui::referenceStatusLine (issue);
+        require (line.kind == StatusKind::ready && line.text.contains ("\"Song A\" was not read"),
+                 "the B page keeps the publication notice while B plays: " + line.text);
+        // 状態の文（「A / B」で 1 文）を足した行も、その文のまま日本語になる（区切りで分けて英語に残さない）。
+        issue.publicationIssue = reference_ui::runtime_view::rejectedStatus ("reference_library_revision_conflict");
+        line = reference_ui::referenceStatusLine (issue);
+        const auto issueJapanese = i18n::translate (line.text, i18n::Language::japanese);
+        require (line.text.contains ("REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS")
+                     && issueJapanese.contains (i18n::translate ("REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS",
+                                                                 i18n::Language::japanese))
+                     && ! issueJapanese.contains ("PUBLICATION"),
+                 "the publication notice on the B page reads as one Japanese sentence: " + issueJapanese);
+        // つないで探すのは型の無い 1 文だけ。「A %1 / %2 S」の型が別々の 2 つ（グラフの凡例）を取らない。
+        const auto ja = [] (const char* text) { return i18n::translate (text, i18n::Language::japanese); };
+        const auto legend = ja ("A LAST 18 S / C LOUDEST 30 S / TARGET RANGE");
+        require (legend == ja ("A LAST 18 S") + juce::String::fromUTF8 (u8" ／ ") + ja ("C LOUDEST 30 S")
+                               + juce::String::fromUTF8 (u8" ／ ") + ja ("TARGET RANGE")
+                     && ! legend.contains ("LAST"),
+                 "separate legend facts keep their own translations: " + legend);
+    }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
-    playing.audibleComparisonSlot = 3;
+    playing.comparisonSlot = playing.audibleComparisonSlot = 3;
     playing.tracking = Tracking::following;
     playing.originalAudition = false;
     playing.heldAttenuationDb = -8.04;
@@ -98,10 +215,10 @@ inline void verifyReferenceStatusLine()
     heldReady.status = "READY / A REMAINS LIVE";
     heldReady.heldAttenuationDb = -7.24;
     const auto heldLine = reference_ui::referenceStatusLine (heldReady);
-    require (heldLine.text == "READY / A LOWERED 7.2 DB"
+    require (heldLine.text == juce::String::fromUTF8 (u8"C PAGE · A LOWERED 7.2 DB / PRESS C")
                  && i18n::translate (heldLine.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "7.2 dB")),
              "A lowered after a role still says how far, in both languages: " + heldLine.text);
-    require (reference_ui::referenceStatusLine (heldReady, true).text == "READY",
+    require (reference_ui::referenceStatusLine (heldReady, true).text == juce::String::fromUTF8 (u8"C PAGE · A PLAYING / PRESS C"),
              "with RETURN in the footer a held A is not said again");
     // 上限で届かない役は鳴ったまま、足りない量を言う。直し方はボタンが言う（2 度言うと 300% の足元で両方切れた）。
     auto offered = named ("ready");
@@ -220,7 +337,8 @@ inline void verifyReferenceStatusLine()
         require (reference_ui::referenceStatusLine (preparing).kind == StatusKind::unable,
                  "a ready marker cannot hide an explicit source failure");
         preparing.rolePreparation = {};
-        require (reference_ui::referenceStatusLine (preparing).text == "READY / A REMAINS LIVE", "a ready song reads ready");
+        require (reference_ui::referenceStatusLine (preparing).text == juce::String::fromUTF8 (u8"B PAGE · A PLAYING / PRESS B"),
+                 "a ready song names the page, that A plays, and the press that plays it");
         using P = reference_audition::RuntimeSongPreparation;
         require (reference_ui::preparationWord (P { "pending", "queued", {}, {}, "working", 3 }) == "3 AHEAD"
                      && reference_ui::preparationWord (P { "pending", "resolving", {}, {}, "working", 0 }) == "CHECKING"

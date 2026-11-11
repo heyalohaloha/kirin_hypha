@@ -217,8 +217,7 @@ juce::String exactOrPattern (const Catalog& catalog, const juce::String& text, b
 // up on its own when the whole is not in the catalog. The spaces around each separator are kept.
 juce::String translateParts (const Catalog& catalog, const juce::String& text, int depth)
 {
-    juce::String result;
-    auto translatedAny = false;
+    juce::StringArray parts, separators;  // separators[i] sits between parts[i] and parts[i + 1]
     auto start = 0;
     for (auto slash = 0; slash < text.length(); ++slash)
     {
@@ -233,17 +232,37 @@ juce::String translateParts (const Catalog& catalog, const juce::String& text, i
         auto nextStart = slash + 2;
         while (nextStart < text.length() && text[nextStart] == ' ')
             ++nextStart;
-        bool found = false;
-        result += exactOrPattern (catalog, text.substring (start, partEnd), found, depth);
-        translatedAny = translatedAny || found;
-        result += text.substring (partEnd, nextStart).replace ("/", juce::String::fromUTF8 (u8"／"));
+        parts.add (text.substring (start, partEnd));
+        separators.add (text.substring (partEnd, nextStart));
         start = nextStart;
     }
     if (start == 0)
         return text;
-    bool found = false;
-    result += exactOrPattern (catalog, text.substring (start), found, depth);
-    return translatedAny || found ? result : text;
+    parts.add (text.substring (start));
+    juce::String result;
+    auto translatedAny = false;
+    for (auto i = 0; i < parts.size(); ++i)
+    {
+        bool found = false;
+        auto translated = juce::String();
+        // A status the catalog has as one exact "PART / PART" sentence keeps its single-spaced " / " inside a longer
+        // line whose facts are joined by "  /  " (the B page adds a publication notice to the audition line). Only
+        // exact entries: a pattern such as "A %1 / %2 S" would take two separate facts ("A LAST 18 S / C LOUDEST 30 S").
+        if (i + 1 < parts.size() && separators[i] == " / ")
+            if (const auto joined = catalog.exact.find (parts[i] + " / " + parts[i + 1]); joined != catalog.exact.end())
+            {
+                translated = joined->second;
+                found = true;
+                ++i;
+            }
+        if (! found)
+            translated = exactOrPattern (catalog, parts[i], found, depth);
+        result += translated;
+        translatedAny = translatedAny || found;
+        if (i < separators.size())
+            result += separators[i].replace ("/", juce::String::fromUTF8 (u8"／"));
+    }
+    return translatedAny ? result : text;
 }
 
 // A name Kirin OS ranked for Hypha ("Mastering · tone, level, and dynamics   1 / 3", HyphaReferenceRuntimeView.h and

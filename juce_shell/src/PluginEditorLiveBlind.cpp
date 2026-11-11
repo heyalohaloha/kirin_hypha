@@ -44,6 +44,7 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
 {
     if (localBlindOpen || liveBlindOpen) return;
     liveCompareStartAfterReturnCandidate.clear();
+    afterTail = {};  // BLIND is the newer choice: a V, C, B or Keep waiting for the A/B tail is dropped
     const auto result = processorRef.beginLiveBlind (waitedTicket);
     if (result != StartResult::started)
     {
@@ -54,7 +55,7 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
         if (! waitedTicket && hypha::live_compare_ui::onStartPressed (result) == hypha::live_compare_ui::StartAfterReturn::returnFirst)
         {
             observatoryView.onLiveCompareReturn();
-            liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
+            liveCompareStartAfterReturnUntil = nowSecs() + 10.0; afterTail = {};  // one waiting press at a time
             liveCompareStartAfterReturnKey = waitingPairKey();
             liveCompareStartAfterReturnTicket = processorRef.restoreOrPairTicket();
             liveCompareStartAfterReturnBlind = true;
@@ -79,6 +80,8 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
     // Isolate every measurement, tooltip and accessibility sibling BEFORE publishing an anonymous source.
     layoutLocalBlindProduct();
     refreshLiveBlind();
+    if (liveBlindOpen && processorRef.takeRealtimeBounceNotice())
+        showActionNotice (hypha::live_compare_ui::realtimeBounceNotice);  // on the Blind screen, which covers the footer
     if (liveBlindView.isShowing()) liveBlindView.grabKeyboardFocus();
 }
 

@@ -3,6 +3,9 @@
 #include "../src/OutputOwnership.h"
 #include "../src/live_compare/LiveCompareAuthority.h"
 #include "../src/HyphaLiveStartAfterReturn.h"
+#include "../src/HyphaQueuedStartText.h"
+#include <set>
+#include <string>
 #include "../src/HyphaKeepPreWait.h"
 
 #include <cstdlib>
@@ -125,6 +128,26 @@ void decisionsCombineStates()
                  && entryAdmission (false, true, false, false, false, 0.5f, 0.5f) == StartResult::returnRequired,
              "only LIVE BLIND carries its session's attenuation");
     // INV-LC14（2026-10-31）：下げているあいだに押した LISTEN は断らずに RETURN し、戻り終えたら同じ押しで始める。
+    {
+        // A waiting press names what it waits for: stopped first, then the return, then the A/B tail.
+        using namespace hypha::live_compare_ui;
+        require (queuedWait (false, true, true) == QueuedWait::stopped
+                     && queuedWait (true, true, true) == QueuedWait::returning
+                     && queuedWait (true, false, true) == QueuedWait::tail
+                     && queuedWait (true, false, false) == QueuedWait::other,
+                 "a waiting press names the one thing it waits for");
+        std::set<std::string> texts;
+        for (auto start : { QueuedStart::listen, QueuedStart::blind, QueuedStart::candidate })
+            for (auto wait : { QueuedWait::returning, QueuedWait::tail, QueuedWait::stopped, QueuedWait::other })
+                texts.insert (queuedStartNotice (start, wait));
+        require (texts.size() == 12, "every start and wait has its own sentence");
+        std::set<std::string> afterTail;
+        for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
+            for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));
+        require (afterTail.size() == 8 && std::string (afterTailNotice (AfterTail::keepAll, true))
+                     == afterTailNotice (AfterTail::keepPair, true) && std::string (afterTailNotice (AfterTail::none, true)).empty(),
+                 "V, C, B and Keep each say what waits for the A/B tail, playing or stopped");
+    }
     using hypha::live_compare_ui::StartAfterReturn;
     using hypha::live_compare_ui::onStartPressed;
     using hypha::live_compare_ui::whileReturning;
@@ -158,6 +181,9 @@ void decisionsCombineStates()
     // Keep（2026-10-31）：組んだ PRE がまだ応答しないだけなら、押した Keep を待たせ、上限まで応答しない時だけ選び直しを言う。
     using hypha::keep_ui::KeepWait;
     using hypha::keep_ui::keepWait;
+    // 2026-11-11: a PRE that answers after 8 s still starts the Keep; only two minutes ask to choose again.
+    require (keepWait (false, hypha::keep_ui::preUnavailableNotice, 9.0) == KeepWait::wait
+                 && hypha::keep_ui::preWaitSeconds >= 120.0, "a Keep past 8 s keeps waiting for its PRE");
     require (keepWait (false, hypha::keep_ui::preUnavailableNotice, 0.0) == KeepWait::wait
                  && keepWait (false, hypha::keep_ui::preUnavailableNotice, hypha::keep_ui::preWaitSeconds - 0.1) == KeepWait::wait,
              "Keep waits for a paired PRE that has not answered yet");

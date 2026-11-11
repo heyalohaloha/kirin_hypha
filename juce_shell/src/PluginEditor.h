@@ -10,6 +10,7 @@
 
 #include "PluginProcessor.h"
 #include "HyphaOutputOwnershipText.h"
+#include "HyphaAfterTailWait.h"
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaEditorResizeGrip.h"
 #include "HyphaEditorSizeConstrainer.h"
@@ -259,6 +260,10 @@ private:
     std::uint64_t liveCompareStartAfterReturnTicket = 0;     // 押したときの復元・組みの世代（開始の入口まで渡す）
     std::optional<std::uint64_t> liveCompareStartPressed;    // 待たせた押しを始めるあいだだけ持つ
     void serviceLiveCompareStartAfterReturn();
+    hypha::live_compare_ui::AfterTailWait afterTail; // V, C, B or Keep after the A/B tail
+    bool waitsForAbTail (hypha::output_owner::Activity, hypha::live_compare_ui::AfterTail);
+    void serviceAfterTailPress();
+    void dropReferenceAfterTail() noexcept;
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -470,9 +475,11 @@ private:
     double comparisonPreInactiveSince = 0.0; // a starting PRE is not called stopped at once
     double keepPreWaitSince = 0.0, keepPreWaitNextAt = 0.0;  // PRE の応答を待たせた Keep（2026-10-31）
     juce::String keepPreWaitPair;  // 押したときの組み。同じ組みだけを確かめ直す
+    std::optional<std::uint64_t> keepPreWaitTicket;  // 待たせた押しの復元・組みの世代（あれば開始の入口で確かめる）
     juce::String waitingPairKey() const;
     void dropWaitingRequests();    // 隠す・Stop・組み／state の変更・別の試聴で、まだ始めていない要求を捨てる
-    void requestKeepPair (bool retry);
+    void requestKeepPair (bool retry, std::optional<std::uint64_t> ticket = {});
+    void requestKeepAll (std::optional<std::uint64_t> ticket);
     uint8_t comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};

@@ -269,6 +269,7 @@ namespace hypha::reference_audition
         }
         activeAuditionEpoch.store (epoch, std::memory_order_release);
         normalReturnToken.store (0, std::memory_order_release);
+        publicationReturn.store (0, std::memory_order_release);
         bSelected.store (true, std::memory_order_release);
         if (! ready.load (std::memory_order_acquire)
             || auditionEpoch.load (std::memory_order_acquire) != epoch

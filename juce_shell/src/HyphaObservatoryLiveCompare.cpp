@@ -1,5 +1,6 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaShortcutBindings.h"
+#include "HyphaQueuedStartText.h"
 
 #include <array>
 #include <cstdlib>
@@ -31,18 +32,18 @@ void View::configureComparisonEntries()
     localBlindButton.setComponentID ("observatory-local-blind");
     localBlindButton.setTitle ("PRE / POST Blind Compare");
     localBlindButton.setDescription ("Match levels and compare while the song plays");
-    localBlindButton.setTooltip (localBlindButton.getDescription());
+    localBlindButton.setTooltip (localBlindButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     localBlindButton.onClick = [this] { if (onLocalBlind) onLocalBlind(); };
 
     candidateCompareButton.setComponentID ("observatory-candidate-compare");
     candidateCompareButton.setTitle ("A/B");
     candidateCompareButton.setDescription ("Compare A and B on one track");
-    candidateCompareButton.setTooltip (candidateCompareButton.getDescription());
+    candidateCompareButton.setTooltip (candidateCompareButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     candidateCompareButton.onClick = [this] { if (onCandidateCompare) onCandidateCompare(); };
     liveCompareButton.setComponentID ("observatory-live-compare");
     liveCompareButton.setTitle ("PRE / POST Listen");
     liveCompareButton.setDescription ("Switch between PRE and POST while playing. Comparison continues when this window closes");
-    liveCompareButton.setTooltip (liveCompareButton.getDescription());
+    liveCompareButton.setTooltip (liveCompareButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     liveCompareButton.onClick = [this] { if (onLiveCompareStart) onLiveCompareStart(); };
     livePreButton.setComponentID ("observatory-live-pre");
     livePreButton.setTitle ("PRE");

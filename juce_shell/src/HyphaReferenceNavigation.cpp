@@ -93,7 +93,6 @@ juce::String Component::stepSong (int direction)
     if (isBlindSession (current.blindPhase) || ! current.separateComparisons) return notHere;
     if (current.comparisonSlot == 3)
     {
-        if (presentationContext.density == observatory::Density::compact) return "Available from 125%";
         return choose (stepIn (idsOf (current.songs), current.songId, direction), onSelectSong);
     }
     if (current.comparisonSlot == 2)
@@ -158,7 +157,6 @@ juce::String Component::stepSet (int direction)
 {
     if (isBlindSession (current.blindPhase) || ! current.separateComparisons) return notHere;
     if (current.comparisonSlot != 3) return choose (stepIn (idsOf (current.presets), current.presetId, direction), onSelectPreset);
-    if (presentationContext.density == observatory::Density::compact) return "Available from 125%";
     return choose (stepIn (idsOf (current.songSets), current.songSetId, direction), onSelectSongSet);
 }
 }

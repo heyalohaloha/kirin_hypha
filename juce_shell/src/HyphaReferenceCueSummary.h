@@ -37,4 +37,7 @@ juce::String cueChartLegend (juce::Rectangle<float> chart, const juce::String& h
 // 凡例の比べる側の名前（2026-10-04。「A直近10秒 / Bサビ」の形）：「B CHORUS 1:02-1:24」「C WHOLE」など。
 // range は区間の時刻を添えるか（B の画面には Cue の時間軸が無いので添える。C は時間軸が言う）。
 juce::String cuePartLegend (const char* side, reference_audition::CuePart, double startSeconds, double endSeconds, bool range);
+// 鳴っている B・C が曲のどこを鳴らしているか（2026-11-11。B・C は A の位置を追わず Kirin OS の決めた区間を繰り返す）：
+// 「B CHORUS 2:53-3:07 LOOP」。区間の名前も時刻も分からなければ空（状態の行は役の名前で言う）。V は A の位置を追うので空。
+juce::String playingSection (const State&);
 }

@@ -170,6 +170,14 @@ void verifyMoves()
     state.checkId = "low/one"; component.setState (state);
     component.stepTab (-1); spy.expect ("check space/two", "no song one in this Check: its first song");
     require (component.stepTab (1) == "Last in the list", "the last Check"); spy.expectNone ("last Check");
+    // 2026-11-11：役を押した直後の古い画面（今の画面は別）のタブは何も替えない（画面が描き直される）。
+    int pageChecks = 0;
+    component.pageCurrent = [&pageChecks] (int page) { ++pageChecks; return page == 1; };
+    component.stepTab (-1); spy.expectNone ("a tab on a stale page");
+    require (pageChecks == 1, "the tab asked whether its page is still the current one");
+    component.pageCurrent = [] (int page) { return page == 2; };
+    component.stepTab (-1); spy.expect ("check space/two", "a tab on the current page applies");
+    component.pageCurrent = nullptr;
 
     // V walks the order Kirin OS sent, not the shown order that lifts the chosen song to the top.
     state = readyState();
@@ -194,14 +202,13 @@ void verifyMoves()
     require (component.stepTab (1).isEmpty(), "the next V tab");
     spy.expectNone ("a V tab changes no sound and no selection");
 
-    // 100% keeps the choice of B's song to the larger sizes.
+    // B's song and Reference set are chosen at every size, 100% too (2026-11-11).
     component.setPresentationContext (presentation::forEditor (300, 200));
     state = readyState();
     state.comparisonSlot = 3;
     component.setState (state);
-    require (component.stepSong (1) == "Available from 125%", "100% does not change B's song");
-    require (component.stepSet (1) == "Available from 125%", "100% does not change B's set");
-    spy.expectNone ("100% changed nothing");
+    require (component.stepSong (1).isEmpty(), "100% changes B's song"); spy.expect ("song s3", "the next B song at 100%");
+    require (component.stepSet (1).isEmpty(), "100% changes B's set"); spy.expect ("songset set2", "the next Reference set at 100%");
 
     state.blindPhase = BlindPhase::active;
     component.setState (state);

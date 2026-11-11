@@ -23,7 +23,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         referenceAccessView.setRecheckUnconfirmed (! processorRef.licenseIsOs());
     };
     scaleRoot.addChildComponent (referenceAccessView);
-    referenceView.onSelectA = [this] { referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0; processorRef.selectReferenceA(); };
+    referenceView.onSelectA = [this] { referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0; afterTail = {}; processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     // 開いている間に役や状態が替わったリストの回答は断られる（何も変えず、変わっていないと言う）。
     referenceView.onSelectAWindow = [this] (auto target, auto choice, int seconds)
@@ -34,8 +34,10 @@ void KirinHyphaEditor::configureReferenceAudition()
     wireReferenceRoles();
     referenceView.onSelectB = [this]
     {
+        if (waitsForAbTail (hypha::output_owner::Activity::audition, hypha::live_compare_ui::AfterTail::referenceV)) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;  // a refused press keeps the waiting ones
         referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;  // 別の役は待たせた C の MATCH・LISTEN を捨てる
-        if (outputRefused (hypha::output_owner::Activity::audition)) return;
+        afterTail = {};
         processorRef.selectReferenceVisualSlot (1);  // 押した役の画面にする
         if (! processorRef.selectReferenceB())
         {
@@ -46,8 +48,10 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onSelectC = [this]
     {
-        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
-        if (outputRefused (hypha::output_owner::Activity::audition)) return;
+        if (waitsForAbTail (hypha::output_owner::Activity::audition, hypha::live_compare_ui::AfterTail::referenceC)) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;  // a refused press keeps the waiting ones
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;  // 別の役は待たせた C の MATCH・LISTEN を捨てる
+        afterTail = {};
         processorRef.selectReferenceVisualSlot (2);
         if (! processorRef.selectReferenceC())
         {
@@ -128,6 +132,32 @@ void KirinHyphaEditor::configureReferenceAudition()
         if (! processorRef.changeReferenceTarget (request) && processorRef.referenceTargetSnapshot().issue.isEmpty())
             showToast ("TARGET UNAVAILABLE");
     };
+    // A V, C or B press waiting for the A/B tail was for the choice on screen: another choice drops it.
+    for (auto* choice : { &referenceView.onSelectSong, &referenceView.onSelectSongSet, &referenceView.onSelectVersion,
+                          &referenceView.onSelectPreset, &referenceView.onSelectCheck, &referenceView.onSelectCandidate,
+                          &referenceView.onSelectCue })
+        *choice = [this, chosen = std::move (*choice)] (const juce::String& id)
+        {
+            dropReferenceAfterTail();
+            if (chosen) chosen (id);
+        };
+    // 押した役の画面と状態を、次の見回り（10 Hz）を待たずに描く（2026-11-11：役を押した直後に古い画面のタブを押せた）。
+    const auto refreshNow = [this]
+    {
+        KirinObservatoryFrame frame {};
+        const bool available = processorRef.pollObservatoryFrame (frame);
+        refreshReferenceAudition (frame, available);
+    };
+    for (auto* role : { &referenceView.onSelectA, &referenceView.onSelectB, &referenceView.onSelectC, &referenceView.onSelectRef })
+        *role = [refreshNow, press = std::move (*role)] { if (press) press(); refreshNow(); };
+    referenceView.onSelectVisualSlot = [refreshNow, choose = std::move (referenceView.onSelectVisualSlot)] (int slot)
+    { if (choose) choose (slot); refreshNow(); };
+    referenceView.pageCurrent = [this, refreshNow] (int page)
+    {
+        if (processorRef.referenceAuditionSnapshot().comparisonSlot == page) return true;
+        refreshNow();
+        return false;
+    };
     scaleRoot.addChildComponent (referenceView);
 }
 void KirinHyphaEditor::layoutReferenceAudition()
@@ -204,6 +234,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         runtime.state == hypha::reference_audition::RuntimeState::ready);
     state.auditionBuffered = callbackLive && runtime.transportPlaying
         && runtime.transportPositionValid && runtime.auditionBuffered;
+    // 見ている画面ではなく、鳴らしている役の音が届いているか（状態の行の「C PAGE · V PLAYING」の V か A か）。
+    const auto* heardRole = runtime.audibleComparisonSlot == 1 ? runtime.versionSelection.get()
+        : runtime.audibleComparisonSlot == 2 ? runtime.checkSelection.get()
+        : runtime.audibleComparisonSlot == 3 ? runtime.referenceSelection.get() : nullptr;
+    state.audibleHeard = callbackLive && runtime.transportPlaying && runtime.transportPositionValid
+        && heardRole != nullptr && heardRole->bSelected && heardRole->auditionBuffered;
     state.title = runtime.title;
     state.sourceLabel = sourceLabel (runtime.sourceKind);
     state.alignmentLabel = runtime.separateComparisons && runtime.comparisonSlot == 1

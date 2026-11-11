@@ -27,6 +27,7 @@ under the buttons then says why both are quieter and what END gives back, for ex
 **Lowered 2.0 dB to avoid clipping; END restores it**.
 END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
 END, ramped over about two seconds, and confirmed by the Audio Thread. Closing the window alone never raises the level.
+A realtime bounce or export while BLIND is on records the source you hear, so press END first.
 If restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before
 starting a new LISTEN or BLIND session. Only a still-active session can carry its own approved
 attenuation into BLIND. A match outside the final ±24 dB range reports why it cannot start;

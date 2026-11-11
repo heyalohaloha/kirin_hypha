@@ -166,6 +166,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
         else
             processorRef.endReferenceBlind();
         referenceRematchUntil = 0.0;
+        dropReferenceAfterTail();  // leaving REF drops a V, C or B press waiting for the A/B tail
     }
    #endif
     observatoryDomain = domain;

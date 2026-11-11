@@ -34,6 +34,8 @@ bool Component::checkPage() const noexcept
 
 void Component::chooseTab (const juce::String& checkId)
 {
+    // 役を押した直後で、描いている画面が古い（今の画面と違う）ときのタブは捨てる（その間に画面は描き直される）。
+    if (pageCurrent && ! pageCurrent (current.comparisonSlot)) return;
     // V の画面のタブは見るものだけを替える（音も C の選択も変えない）。
     if (versionPage()) { versionTab = checkId; setState (current); return; }
     // 同じ曲のまま Check を替える（その Check に同じ曲が無ければ最初の曲）。
@@ -206,6 +208,8 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
                                         juce::Justification::centredLeft);
     };
     above (presetBox, "CHECK SET");
+    if (presetBox.isVisible() || selectionVisible (presetBox))  // 見出しを指すと C が何のためかを言う
+        help::note (presetBox.getBounds().withY (presetBox.getY() - 17).withHeight (15), help_text::checkPurpose);
     if (versionPage()) above (versionBox, "V / VERSION");
     above (checkSongBox, "C / SONG");
     // MATCH の左に、今の合わせ方（鳴っていればその gain と固定、鳴っていなければ鳴らすときの gain）。

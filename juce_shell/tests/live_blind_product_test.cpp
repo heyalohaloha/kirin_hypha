@@ -93,6 +93,7 @@ public:
     }
 
     bool passed = false;
+    juce::String listenFooter; // the footer as LISTEN started (requireBounceSaidOnce)
     bool loopStall = false; // --loop-stall: LiveBlindLoopStallStep.h
 
 private:
@@ -181,11 +182,8 @@ private:
                 break;
             case 2:
                 if (! post->isPlaying() || ! post->heartbeatLive()) break;
-                if (reuse)
-                {
-                    if (! click ("observatory-live-compare")) break;
-                }
-                else if (! click ("observatory-local-blind")) break;
+                if (! click (reuse ? "observatory-live-compare" : "observatory-local-blind")) break;
+                if (reuse) listenFooter = footer();
                 listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
@@ -240,7 +238,7 @@ private:
                 require (! post->liveCompareStatus().finishing, "trial is not returning");
                 if (reuse) require (std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f, "existing MATCH is reused exactly");
                 require (! post->revealLiveBlind(), "both source receipts are required before reveal");
-                require (find (*editor, "live-blind-screen")->isVisible(), "anonymous screen opens");
+                require (find (*editor, "live-blind-screen")->isVisible(), "anonymous screen opens"); requireBounceSaidOnce (*post, listenFooter, reuse);
                 require (! findView (*editor)->isAccessible() && ! findView (*editor)->isEnabled(),
                          "underlying identity-bearing UI and accessibility are isolated");
                 require (! find (*editor, "observatory-live-pre")->isAccessible(), "descendant identity is inaccessible too");

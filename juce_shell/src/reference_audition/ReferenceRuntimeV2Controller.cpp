@@ -111,6 +111,7 @@ namespace hypha::reference_audition
         auto result = currentSnapshot;
         const auto observationBefore = inputObservationGeneration.load (std::memory_order_acquire);
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
+        result.publicationIssue = retainedPublicationIssue;
         result.osOnline = libraryOnline.load (std::memory_order_acquire);
         result.libraryPreparation = libraryPreparation;
         result.adoptedVersions = adoptedVersions;
@@ -128,6 +129,9 @@ namespace hypha::reference_audition
         const auto mappingAfter = mappingGeneration.load (std::memory_order_acquire);
         // 押せば Cue の頭から鳴らし直す曲（restartCueAtPlayhead）は、今の位置が Cue の外でも「範囲外」にしない。
         const bool restarts = sourcePosition < 0 && restartsAtCueStart();
+        // 鳴らす音の描き方（ReferenceRuntimeV2Realtime の loops || restart）と同じ：B・C の Cue は終わりで頭へ戻る。
+        result.cueWraps = ! versionComparison && (cueLoops.load (std::memory_order_acquire) || restartsAtCueStart());
+        result.publicationReturn = publicationReturn.load (std::memory_order_acquire);
         result.auditionOutsideCue = publishedReady && ! versionComparison
             && result.transportPositionValid && sourcePosition < 0 && ! restarts
             && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter

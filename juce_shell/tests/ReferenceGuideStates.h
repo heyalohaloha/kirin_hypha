@@ -129,7 +129,7 @@ inline std::vector<Case> cases()
         state.osAccess = os_access::State::connectedUnprepared;
         state.versionStep = Step::chooseVersion;
         state.checkStep = Step::enableCheck;
-        state.status = "ENABLE A CHECK IN KIRIN OS";
+        state.status = "ADD SONGS TO A CHECK SET IN KIRIN OS";
         result.push_back ({ "no_check", state });
     }
     {
@@ -187,7 +187,7 @@ inline std::vector<Case> cases()
         state.referenceReady = item.second == Step::ready;
         state.versionStep = Step::chooseVersion;
         state.checkStep = state.aAvailable ? Step::enableCheck : Step::playDaw;
-        state.status = state.aAvailable ? "ENABLE A CHECK IN KIRIN OS" : "PLAY A TO AUDITION";
+        state.status = state.aAvailable ? "ADD SONGS TO A CHECK SET IN KIRIN OS" : "PLAY A TO AUDITION";
         result.push_back ({ item.first, state });
     }
     {
