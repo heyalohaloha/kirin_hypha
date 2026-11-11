@@ -406,6 +406,18 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; }) && play (100, {})
                  && loudest <= ceiling,
              ("once A's level is known, B plays in LOOP with a new MATCH under the ceiling: " + juce::String (loudest)).toRawUTF8());
+    // 曲の外で押して覚えた B は、押した時の A（-9）で合わせる。鳴り始める時の A（-14）では合わせない。
+    controller.selectA();
+    controller.setFollowA (true);
+    position = songFrames + 9 * second;
+    serviceLoudness = -14.0;
+    require (play (wait, [&] { return reference()->followOutside == 1; }) && controller.requestAudition (3, -9.0, -6.0)
+                 && play (wait, [&] { return waitingFor (3, "reference_follow_past_end"); }),
+             "B pressed past the song's end is remembered with A at the press");
+    position = 6 * second;
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; })
+                 && std::abs (reference()->appliedGainDb - 5.0) < 1.0e-6,
+             ("the remembered B is matched with A at the press: " + juce::String (reference()->appliedGainDb)).toRawUTF8());
     serviceLoudness = -14.0; servicePeak = -6.0;
 
     // state：流し方を保存して読み戻す。復元は鳴らし始めない。前の版の state は LOOP。

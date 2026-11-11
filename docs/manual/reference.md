@@ -52,7 +52,7 @@ pages; one choice serves both, and the project remembers it.
   **B PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP**; a role that was playing comes back by itself
   when A is inside the song again. Pressing B or C there is remembered: A keeps playing, the status line says
   what the press waits for (**A is past the song's end; B starts when A is in the song**), and B or C starts
-  by itself once A's position enters the song. Pressing A or another role, or leaving REF, cancels it, as
+  by itself once A's position enters the song, matched with A's level at the press. Pressing A or another role, or leaving REF, cancels it, as
   with any waiting press.
 
 Switching while B or C plays moves it to the new position with a short crossfade (A plays for the moment the

@@ -20,6 +20,7 @@ void ReferenceComparisonController::clearPendingAudition()
     const juce::ScopedLock lock (selectionLock);
     version.setQueuedContentObservationEnabled (false);
     pendingAudition = {};
+    rememberedPress = {};
 }
 
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
@@ -71,13 +72,13 @@ bool ReferenceComparisonController::requestAuditionOnce (int slot, double loudne
     {
         if (slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak))
             return true;
-        return waitWhilePreparing (slot);
+        return waitWhilePreparing (slot, loudness, peak);
     }
-    return queueAudition (slot, safety) || waitWhilePreparing (slot);
+    return queueAudition (slot, safety, loudness, peak) || waitWhilePreparing (slot, loudness, peak);
 }
 
 // 押した役を待たせる（止まっている・A の音量を待つ・A を下げている途中）。再生で、準備でき次第鳴らす。
-bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety)
+bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety, double loudness, double peak)
 {
     const juce::ScopedLock transaction (targetChoiceLock);
     if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
@@ -92,6 +93,8 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
     PendingIntent next;
     next.identity = identity; next.safetyEpoch = safety;
     next.view = { slot, Stage::play };
+    // FOLLOW A で曲の外で押した：押した時の A で合わせる（決めるのは押した時）。
+    if (slotController (slot).snapshot().followOutside != 0) { next.pressLoudness = loudness; next.pressPeak = peak; }
     { const juce::ScopedLock lock (selectionLock);
       next.intentId = ++pendingSequence; pendingAudition = std::move (next);
       version.setQueuedContentObservationEnabled (slot == 1);
@@ -104,7 +107,7 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
 // 待って待ちを立てる）で、準備でき次第新しい MATCH で鳴らす。待ちの上限は画面が見張る。待っても変わらない
 // もの（MATCH の上限超え・音源の音量が無い・Cue の外・失敗）は断って理由を出す（2026-10-03。V の版を替えた
 // 直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
-bool ReferenceComparisonController::waitWhilePreparing (int slot)
+bool ReferenceComparisonController::waitWhilePreparing (int slot, double loudness, double peak)
 {
     if (trialActive()) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned) return false; }
@@ -133,7 +136,12 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
             || now.matchFailure == MatchFailure::liveLevelUnavailable || now.followOutside != 0);
     if (! settles) return false;
     selectA();
-    { const juce::ScopedLock lock (selectionLock); switchGeneration = target.requestedGeneration(); }
+    {
+        const juce::ScopedLock lock (selectionLock);
+        switchGeneration = target.requestedGeneration();
+        // FOLLOW A で曲の外で押した：押した時の A を覚え、A の位置が曲に入って鳴らす時にそれで合わせる。
+        if (now.followOutside != 0) rememberedPress = { slot, switchGeneration, loudness, peak };
+    }
     switchSlot.store (slot, std::memory_order_release);
     normalOutputSlot.store (slot, std::memory_order_release);
     return true;
@@ -259,6 +267,9 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         else publish (Stage::checking, callbackLive);
         return;
     }
+    // 曲の外で押して覚えた役は、押した時の A で合わせる（読めていなければ鳴らす時の A）。
+    if (std::isfinite (intent.pressLoudness)) loudness = intent.pressLoudness;
+    if (std::isfinite (intent.pressPeak)) peak = intent.pressPeak;
     if (!intent.resume && intent.view.slot != 1 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
         || (state.comparisonMode == "peak_match" && !std::isfinite (peak))))
     { publish (Stage::level, true); return; }

@@ -138,6 +138,8 @@ private:
     bool admit (int, bool);
     bool requestAuditionOnce (int, double, double);
     void restartWithNewMatch (int slot);  // 選んでいた役を新しい MATCH の押し直しの待ちにする（selectionLock の外）
+    // 曲の外で押して覚えた役の、押した時の A（決めるのは押した時、の決まり）。その役の替えの世代と一緒に持つ（selectionLock）。
+    struct PressLevel { int slot = 0; std::uint64_t generation = 0; double loudness = 0.0, peak = 0.0; } rememberedPress;
     std::atomic<bool> followMode { false };
     std::atomic<int> followRole { 0 };  // 最後に押した役（替われば離れた役のずらしを 0 に戻す）
     output_owner::States ownStatesLocked() const;  // gateLock を持って呼ぶ（atomic と gateLock の値だけを読む）
@@ -186,6 +188,7 @@ private:
         bool sawPlayback = false;
         bool resume = false; // 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
         bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）
+        double pressLoudness = std::numeric_limits<double>::quiet_NaN(), pressPeak = std::numeric_limits<double>::quiet_NaN();
     } pendingAudition; // selectionLock; control thread only.
     bool resumeWanted() const;
     bool armResume();
@@ -200,8 +203,10 @@ private:
     // 終わった役の印を残すと、選択を替えただけで鳴り出し、timer が回り続け、V の AUTO が止まる。ライブラリが公開を
     // 引っ込めて控えが消えたときは、その役を「音源が変わった」で止めたと言う。
     void reconcileOutputMark();
-    bool waitWhilePreparing (int slot);
-    bool queueAudition (int slot, std::uint64_t safetyEpoch);
+    bool waitWhilePreparing (int slot, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                             double peak = std::numeric_limits<double>::quiet_NaN());
+    bool queueAudition (int slot, std::uint64_t safetyEpoch, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                        double peak = std::numeric_limits<double>::quiet_NaN());
     bool selectCheckRole (const std::function<bool()>& apply);
     bool preparingCheck() const { return switchSlot.load() == 2 && normalOutputSlot.load() == 2; }
     bool preparingReference() const { return switchSlot.load() == 3 && normalOutputSlot.load() == 3; }
