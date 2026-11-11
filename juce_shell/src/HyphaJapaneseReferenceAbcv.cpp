@@ -230,6 +230,7 @@ const Entry entries[] = {
     { "Choose FOLLOW A to move the song against A", u8"曲をずらすにはFOLLOW Aを選びます" },
     { "FOLLOW A: C plays the whole song from A's position. The line is C's playing position.",
       u8"FOLLOW A：CはAの位置から曲全体を再生します。線はCの再生位置。" },
+    { "WHOLE SONG MATCHED TO A (ALL), FIXED", u8"曲全体をA全体に合わせて固定" },
     { "%1 FOLLOW A", u8"%1はAに同期" },  // 語の幅の契約に収める短い形
     { "%1 FOLLOW A %2 S", u8"%1はAに同期%2秒" },
     { "%1 PAST SONG END, A PLAYING", u8"%1は曲の終わりの後・Aを再生中" },

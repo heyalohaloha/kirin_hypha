@@ -29,6 +29,17 @@ inline juce::DynamicObject* cueObject (const char* id)
     return cue;
 }
 
+// 試験だけが読む MATCH の基（loudness・peak）。FOLLOW A では Cue の値ではなく曲全体の値になる。
+struct LevelsTag {};
+std::pair<double, double> levelsFor (ref::RuntimeV2Controller&, const ref::RuntimeSource&, bool, double, double, LevelsTag);
+template <auto Member> struct LevelsAccess
+{
+    friend std::pair<double, double> levelsFor (ref::RuntimeV2Controller& r, const ref::RuntimeSource& s, bool cue,
+                                                double cueLoudness, double cuePeak, LevelsTag)
+    { const auto levels = (r.*Member) (s, cue, cueLoudness, cuePeak, 0.0); return { levels.loudness, levels.peak }; }
+};
+template struct LevelsAccess<&ref::RuntimeV2Controller::matchLevels>;
+
 inline juce::var followSets (const juce::String& hash, const juce::String& pcm, const ref::RuntimeContentReceipt& source)
 {
     const auto song = [] (const char* candidateId, const char* cueId, const char* name, const juce::var& identity,
@@ -169,11 +180,33 @@ inline void testReferenceFollowA (const juce::File& sandbox)
                  "in LOOP, every block of B stays inside its Cue whatever A's position");
     }
     require (reference()->cueWraps && ! reference()->followA, "LOOP is reported as the repeated Cue");
+    require (reference()->tracking == ref::TrackingState::following && controller.trackingNeedsService()
+                 && controller.liveWindowBlocks (3) == 100,
+             "in LOOP B's level follows A's last 10 s, as before");
+    // MATCH の基：LOOP は Cue の値、FOLLOW A は曲全体の値（Kirin OS の LUFS-I と max TP）。
+    ref::RuntimeSource measured;
+    ref::RuntimeMeasurementSummary summary;
+    summary.loudnessLufsI = -14.0; summary.maximumTruePeakDbtp = -6.0;
+    measured.measurementSummary = summary;
+    auto& referenceRole = control::roleFor (controller, { 3 });
+    require (levelsFor (referenceRole, measured, true, -20.0, -3.0, LevelsTag {}) == std::pair { -20.0, -3.0 },
+             "LOOP matches the Cue's values");
 
     // FOLLOW A に替える：鳴ったまま、A の位置の曲の音へ移る（ページを読む間だけ A）。
     controller.setFollowA (true);
     require (controller.followA() && reference()->followA && ! reference()->cueWraps,
              "FOLLOW A applies to the playing B at once and is no longer a repeated Cue");
+    require (levelsFor (referenceRole, measured, true, -20.0, -3.0, LevelsTag {}) == std::pair { -14.0, -6.0 },
+             "FOLLOW A matches the whole song's values");
+    // 鳴っている B は新しい流し方の決まりで合わせ直す：曲全体と A の ALL の窓、固定（追従しない）。
+    require (controller.liveWindowBlocks (3) == 6'000 && controller.liveWindowBlocks (2) == 6'000,
+             "FOLLOW A measures A over its ALL window (up to 10 minutes)");
+    // （gain 0 dB のまま：下の確かめは鳴った sample をそのまま曲の値と比べる。-3 dB は下の押し直しで確かめる）
+    require (controller.rematchForMode (3, -14.0, -6.0) == ref::RematchResult::matched
+                 && std::abs (reference()->appliedGainDb) < 1.0e-9 && reference()->tracking == ref::TrackingState::fixed
+                 && ! controller.trackingNeedsService()
+                 && controller.followAudition ({}, -6.0) == ref::TrackingAction::keep,
+             "FOLLOW A matches the whole song to A once and holds the gain");
     require (play (wait, [&] { return at (0); }), "FOLLOW A plays the song at A's DAW position");
     for (int index = 0; index < 50; ++index)
         require (play (1, {}) && at (0), "FOLLOW A follows A block by block without gaps");
@@ -224,6 +257,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     require (play (wait, [&] { return at (-10 * second); }) && rendered >= 10 * second, "B joins once A reaches the song's start");
 
     // 曲が替わると 0：選んだ曲が鳴らせなくても、戻した曲のずらしは 0 から。
+    require (controller.nudgeFollowOffset (3, 0.3), "B has an offset before the song changes");
     const auto songs = controller.snapshot().songSets[0].songs;
     require (songs.size() == 2 && controller.selectSong (songs[1].id) && std::abs (reference()->followOffsetSeconds) < 1.0e-12,
              "choosing another song resets the offset");
@@ -232,16 +266,22 @@ inline void testReferenceFollowA (const juce::File& sandbox)
 
     // 役が替わると 0：B のずらしは C を押せば 0 に戻る。
     require (play (wait, [&] { return reference()->auditionBuffered && controller.snapshot().checkReady; }), "B and C are ready");
-    require (controller.requestAudition (3, -14.0, -6.0) && play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3; }),
+    require (controller.requestAudition (3, -17.0, -6.0) && play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3; }),
              "B plays again");
+    require (std::abs (reference()->appliedGainDb + 3.0) < 1.0e-9 && reference()->tracking == ref::TrackingState::fixed,
+             "a press in FOLLOW A matches the whole song to A at the press and holds it");
     require (controller.nudgeFollowOffset (3, 0.25) && std::abs (reference()->followOffsetSeconds - 0.25) < 1.0e-9, "B is nudged");
     require (controller.requestAudition (2, -14.0, -6.0), "C is pressed");
     require (std::abs (reference()->followOffsetSeconds) < 1.0e-12, "leaving B for C resets B's offset");
     require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 2 && at (0); }),
              "C follows A too: one mode for B and C");
 
-    // LOOP へ戻す：C は Cue の中だけを鳴らす（今まで通り）。
+    // LOOP へ戻す：C は Cue の中だけを鳴らす（今まで通り）。合わせ方も LOOP の決まりに戻る（C は Cue の窓で固定）。
     controller.setFollowA (false);
+    require (controller.liveWindowBlocks (2) != 6'000 && controller.liveWindowBlocks (3) == 100
+                 && controller.rematchForMode (2, -14.0, -6.0) == ref::RematchResult::matched
+                 && controller.snapshot().checkSelection->tracking == ref::TrackingState::fixed,
+             "back in LOOP the windows and the match are LOOP's again");
     require (play (wait, [&] { return rendered >= 0 && last() >= rampAt (cueStart) - 1.0e-4f && last() < rampAt (cueEnd) + 1.0e-4f; }),
              "back in LOOP the Cue repeats again");
 

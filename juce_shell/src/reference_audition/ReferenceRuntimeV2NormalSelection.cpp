@@ -24,6 +24,8 @@ namespace hypha::reference_audition
         const RuntimeSource& source, bool cueLevel, double cueLoudness, double cuePeak, double loudnessOffset) const noexcept
     {
         const auto& summary = source.measurementSummary;
+        // FOLLOW A（B・C）は曲全体を鳴らすので、Cue の値ではなく曲全体の値（Kirin OS の LUFS-I・max TP）で合わせる。
+        cueLevel = cueLevel && ! followA.load (std::memory_order_acquire);
         return { loudnessOffset + (cueLevel && ! versionComparison ? cueLoudness
                      : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable()),
                  cueLevel && ! versionComparison && std::isfinite (cuePeak) ? cuePeak
@@ -93,11 +95,18 @@ namespace hypha::reference_audition
         prepared.requiredGainDb = requiredGain;
         prepared.comparisonFallbackOriginal = false;
         // V と、追従にした役（B）の知覚音量の MATCH は窓に追従する。Peak の MATCH と C は固定。
-        prepared.tracking = ! versionComparison && comparisonMode == "original" ? TrackingState::none
-            : versionComparison || (trackingEnabled.load (std::memory_order_acquire) && comparisonMode == "loudness_match")
-                ? TrackingState::following : TrackingState::fixed;
+        prepared.tracking = trackingFor (comparisonMode);
         prepared.valid = true;
         return true;
+    }
+
+    // FOLLOW A の B・C は押した時の MATCH（曲全体と A の ALL の窓）で固定し、追従しない。
+    TrackingState RuntimeV2Controller::trackingFor (const juce::String& comparisonMode) const noexcept
+    {
+        return ! versionComparison && comparisonMode == "original" ? TrackingState::none
+            : versionComparison || (trackingEnabled.load (std::memory_order_acquire) && comparisonMode == "loudness_match"
+                                    && ! followA.load (std::memory_order_acquire))
+                ? TrackingState::following : TrackingState::fixed;
     }
 
     // stateLock を持って呼ぶ。掛ける gain と、画面の値・追従の中心・戻す控えを同じ MATCH にそろえる。

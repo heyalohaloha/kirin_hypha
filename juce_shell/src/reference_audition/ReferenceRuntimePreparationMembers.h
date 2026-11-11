@@ -39,6 +39,7 @@
 
         struct MatchLevels { double loudness = 0.0, peak = 0.0; };
         MatchLevels matchLevels (const RuntimeSource&, bool cueLevel, double cueLoudness, double cuePeak, double loudnessOffset) const noexcept;
+        TrackingState trackingFor (const juce::String& comparisonMode) const noexcept;
         MatchFailure requiredMatchGain (const juce::String& mode, const MatchLevels&, double aLoudness, double aPeak, double& requiredGain) const noexcept;
         bool matchedSelection (const juce::String& mode, double requiredGain, const MatchLevels&, double aLoudness, double aPeak,
                                PreparedNormalSelection&, MatchFailure&) const noexcept;

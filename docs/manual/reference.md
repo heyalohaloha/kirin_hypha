@@ -43,13 +43,18 @@ pages; one choice serves both, and the project remembers it.
   **B FOLLOW A**. The offset moves the song against A when it does not line up: **+** and **-** move it by
   0.1 s (with Shift, 0.01 s; hold to repeat), and pressing the amount returns it to 0. A positive amount plays
   the song ahead of A. The offset returns to 0 when the song changes or when you press another role.
+  The level is matched once, when you press B or C: the whole song's Integrated loudness from Kirin OS
+  against A over its ALL window (up to the last 10 minutes), and then held (it does not follow A). The
+  status line says **WHOLE SONG MATCHED TO A (ALL), FIXED**. The ceiling, the shortfall at the peak limit
+  and LOWER A work as in LOOP. Before a press, B's list shows the MATCH gain only for the chosen song,
+  whose whole-song value has arrived; C's readout uses the whole song too.
   When A's position with the offset is outside the song, A plays and the status line says why, for example
   **B PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP**; a role that was playing comes back by itself
   when A is inside the song again.
 
 Switching while B or C plays moves it to the new position with a short crossfade (A plays for the moment the
-new position takes to load). Choosing or restoring a way never starts a role. MATCH and level following are
-the same in both ways. V always follows A's position by its content, and Blind is unchanged.
+new position takes to load), and its level is matched again by the new way's rule. Choosing or restoring a
+way never starts a role. V always follows A's position by its content, and Blind is unchanged.
   V works best with Hypha on the 2Mix.
 
 **Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files

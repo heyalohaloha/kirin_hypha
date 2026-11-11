@@ -11,6 +11,7 @@
 #include "../src/HyphaReferenceCueSummary.h"
 #include "../src/HyphaReferenceHelpText.h"
 #include "../src/HyphaReferencePendingUI.h"
+#include "../src/HyphaReferencePreviewGain.h"
 
 namespace hypha::tests
 {
@@ -29,15 +30,16 @@ inline void verifyReferenceFollowAPages()
     playing.separateComparisons = playing.libraryReceived = playing.transportPlaying = playing.bSelected = true;
     playing.osAccess = os_access::State::ready;
     playing.comparisonSlot = playing.audibleComparisonSlot = 3;
-    playing.tracking = reference_audition::TrackingState::following;
+    playing.tracking = reference_audition::TrackingState::fixed;  // FOLLOW A は押した時に曲全体で合わせて固定
     playing.followA = true;
     playing.songs = { { "s1", "Song" } }; playing.songId = "s1"; playing.songFacts.resize (1);
     playing.songFacts[0].part = reference_audition::CuePart::chorus;
     playing.songFacts[0].partStartSeconds = 173.0; playing.songFacts[0].partEndSeconds = 187.0;
     auto line = reference_ui::referenceStatusLine (playing).text;
-    require (line.startsWith ("B FOLLOW A  /  LEVEL FOLLOWS A (LAST 10 S)") && ! line.contains ("CHORUS") && ! line.contains ("LOOP")
-                 && japanese (line).startsWith (u8 (u8"BはAに同期")),
-             "B in FOLLOW A says so instead of its looped section, in both languages: " + line + " / " + japanese (line));
+    require (line.startsWith ("B FOLLOW A  /  WHOLE SONG MATCHED TO A (ALL), FIXED") && ! line.contains ("CHORUS") && ! line.contains ("LOOP")
+                 && japanese (line).startsWith (u8 (u8"BはAに同期")) && japanese (line).contains (u8 (u8"曲全体をA全体に合わせて固定")),
+             "B in FOLLOW A says so instead of its looped section, and how its level is set, in both languages: "
+                 + line + " / " + japanese (line));
     playing.audibleFollowOffsetSeconds = 0.25;
     line = reference_ui::referenceStatusLine (playing).text;
     require (line.startsWith ("B FOLLOW A +0.25 S  /  ") && japanese (line).startsWith (u8 (u8"BはAに同期+0.25秒")),
@@ -45,7 +47,7 @@ inline void verifyReferenceFollowAPages()
     playing.comparisonSlot = playing.audibleComparisonSlot = 2; playing.audibleFollowOffsetSeconds = -1.2;
     playing.tracking = reference_audition::TrackingState::fixed;
     line = reference_ui::referenceStatusLine (playing).text;
-    require (line.startsWith ("C FOLLOW A -1.20 S  /  LEVEL MATCHED AND FIXED") && japanese (line).startsWith (u8 (u8"CはAに同期-1.20秒")),
+    require (line.startsWith ("C FOLLOW A -1.20 S  /  WHOLE SONG MATCHED TO A (ALL), FIXED") && japanese (line).startsWith (u8 (u8"CはAに同期-1.20秒")),
              "C in FOLLOW A says so with a negative offset: " + line + " / " + japanese (line));
 
     // 曲の外：A が鳴っていることと、どうすれば聴けるか。押した後に待っている戻しも同じ文。
@@ -71,6 +73,22 @@ inline void verifyReferenceFollowAPages()
         outside.pendingAudition = { 2, reference_audition::PendingAuditionView::Stage::checking, code };
         require (reference_ui::referenceStatusLine (outside).text == expected,
                  "a C waiting outside the song says why, not a generic wait: " + reference_ui::referenceStatusLine (outside).text);
+    }
+
+    // 押す前の MATCH の読み：FOLLOW A は曲全体の値と A の ALL の窓（B は選んでいる曲だけ、ほかの曲は押すまで出さない）。
+    {
+        auto preview = named ("ready");
+        preview.followA = true; preview.aWindowLoudness = -10.0; preview.wholeSongLoudness = -13.0; preview.cueLoudness = -8.0;
+        preview.comparisonMode = "loudness_match"; preview.comparisonSlot = 2;
+        reference_ui::SongFact fact; fact.lufsI = -8.0; fact.prepared = true;
+        require (std::abs (reference_ui::songPreviewGainDb (preview, fact, true) - 3.0) < 1.0e-9
+                     && ! std::isfinite (reference_ui::songPreviewGainDb (preview, fact, false))
+                     && std::abs (reference_ui::comparisonGainDb (preview) - 3.0) < 1.0e-9,
+                 "FOLLOW A previews the whole-song MATCH");
+        preview.followA = false;
+        require (std::abs (reference_ui::songPreviewGainDb (preview, fact, false) + 2.0) < 1.0e-9
+                     && std::abs (reference_ui::comparisonGainDb (preview) + 2.0) < 1.0e-9,
+                 "LOOP previews the Cue's MATCH as before");
     }
 
     // C の画面（300%）の Cue の段。

@@ -214,6 +214,7 @@ struct State
     bool cueLoops = false;      // C の Cue が終わりで頭へ戻る（Kirin OS の印か、A の位置を追わない Cue）
     bool referenceWraps = false;  // B の Cue が同じく繰り返す
     bool followA = false; double followOffsetSeconds = 0.0, audibleFollowOffsetSeconds = 0.0;  // FOLLOW A と、見ている・鳴っている役のずらし（秒）
+    double wholeSongLoudness = unavailableValue();  // 見ている役（B・C）の曲全体の LUFS-I（FOLLOW A の MATCH の基）
     int publicationReturn = 0;    // 見ている役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻した
     juce::String publicationIssue;  // B の画面で言う：新しい公開を読めなかった・曲を外した（文）
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）

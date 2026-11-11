@@ -104,6 +104,8 @@ namespace hypha::reference_audition
         // 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
         // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
         RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // C の MATCH をもう一度
+        // 流し方を替えた時の鳴っている B・C：新しい流し方の決まりで MATCH を決め直す（FOLLOW A は曲全体と A の ALL で固定）。
+        RematchResult rematchForMode (double aLoudness, double aSessionPeakDbtp) noexcept;
         VersionIdentity identifyVersions (const KirinFingerprint&, std::int64_t endTick); // （メッセージスレッド）
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
@@ -118,8 +120,9 @@ namespace hypha::reference_audition
         bool awaitingPreparedLevel() const;
         int preparedMatchWindowBlocks() const;
         void supplyPreparedLevel (double loudness, double peak);
-        bool trackingAudible() const noexcept
-        { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
+        bool trackingAudible() const noexcept  // FOLLOW A の B・C は押した時の MATCH で固定（追従しない）
+        { return trackingEnabled.load (std::memory_order_acquire) && ! followA.load (std::memory_order_acquire)
+              && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
         // MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
         int matchWindowBlocks() const;
         // 停止・シークで A に戻った選択を、同じ音（playback identity）・同じ gain のまま戻す。

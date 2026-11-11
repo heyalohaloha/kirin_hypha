@@ -254,6 +254,8 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.referenceWraps = runtime.referenceSelection != nullptr && runtime.referenceSelection->cueWraps;
     state.followA = runtime.followA;
     state.followOffsetSeconds = runtime.comparisonSlot == 2 || runtime.comparisonSlot == 3 ? runtime.followOffsetSeconds : 0.0;
+    state.wholeSongLoudness = runtime.comparisonSlot == 2 || runtime.comparisonSlot == 3 ? runtime.sourceIntegratedLoudness
+                                                                                         : std::numeric_limits<double>::quiet_NaN();
     state.audibleFollowOffsetSeconds = runtime.audibleComparisonSlot == 2 || runtime.audibleComparisonSlot == 3
         ? audibleRole.followOffsetSeconds : 0.0;  // 鳴っている役（B・C）のずらし
     const auto* pageRole = runtime.comparisonSlot == 1 ? runtime.versionSelection.get()
@@ -319,6 +321,7 @@ void KirinHyphaEditor::armCheckRematch (const hypha::reference_audition::Snapsho
                                         const hypha::reference_audition::Snapshot& check)
 {
     if (! runtime.bSelected || runtime.audibleComparisonSlot != 2 || ! processorRef.takeReferenceCheckAttempt (check.matchAttempt)) return;
+    if (runtime.followA) return;  // FOLLOW A は押した時の MATCH で固定（黙って合わせ直さない）
     if (referenceRematchUntil > 0.0 || check.comparisonMode != "loudness_match") return;
     if (std::isfinite (processorRef.referenceWindowLoudness (2).loudness)) return;  // 窓の値で合わせてある
     referenceRematchUntil = nowSecs() + 40.0;

@@ -46,7 +46,8 @@ double comparisonGainDb (const State& state) noexcept
 {
     if (state.comparisonMode == "original") return 0.0;
     if (state.bSelected && state.audibleComparisonSlot == state.comparisonSlot) return state.appliedGainDb;
-    return state.comparisonMode == "loudness_match" ? state.aWindowLoudness - (state.cueLoudness + state.cueLoudnessOffsetLu)
+    const auto source = state.followA ? state.wholeSongLoudness : state.cueLoudness;  // FOLLOW A は曲全体で合わせる
+    return state.comparisonMode == "loudness_match" ? state.aWindowLoudness - (source + state.cueLoudnessOffsetLu)
                                                     : std::numeric_limits<double>::quiet_NaN();
 }
 

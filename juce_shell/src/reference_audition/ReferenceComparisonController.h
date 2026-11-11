@@ -72,6 +72,11 @@ public:
     bool followA() const noexcept { return followMode.load (std::memory_order_acquire); }
     bool nudgeFollowOffset (int slot, double seconds) noexcept;
     bool resetFollowOffset (int slot) noexcept;
+    // 流し方を替えた時、鳴っている B・C（slot）の MATCH を新しい流し方の決まりで決め直す。A の値はその役の今の窓で。
+    RematchResult rematchForMode (int slot, double loudness, double peak) noexcept
+    { return slot == 2 || slot == 3 ? slotController (slot).rematchForMode (loudness, peak) : RematchResult::notPlaying; }
+    int selectedSlot() const noexcept  // 選んで鳴らしている役（1 V、2 C、3 B、無ければ 0）
+    { return version.outputSelected() ? 1 : check.outputSelected() ? 2 : reference.outputSelected() ? 3 : 0; }
     // C の MATCH の試みを 1 度だけ見る（窓を開き直しても、同じ試みの合わせ直しを立て直さない）。メッセージスレッド。
     bool takeCheckAttempt (std::uint64_t attempt) noexcept
     { if (attempt == checkAttemptSeen) return false; checkAttemptSeen = attempt; return true; }
