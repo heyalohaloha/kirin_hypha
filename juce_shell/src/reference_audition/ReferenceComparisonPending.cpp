@@ -61,7 +61,8 @@ bool ReferenceComparisonController::requestAuditionOnce (int slot, double loudne
     if (binding.source)
     {
         RuntimeV2SourceRepository verifier (juce::File {});
-        if (verifier.verifySourceRevision (*binding.source).isNotEmpty()) return queueAudition (slot, safety);
+        // 確かめ直しの間の押しも、押した時の A を持って待つ（FOLLOW A の曲の外で押した時、鳴り始める時の A で合わせない）。
+        if (verifier.verifySourceRevision (*binding.source).isNotEmpty()) return queueAudition (slot, safety, loudness, peak);
     }
     // C は A の音量が何も無いときだけ待たせる（A のまま。待ちの上限を超えたら理由を出す）。A の直近が Cue の長さに
     // 足りないあいだは、今ある A で合わせて鳴らし、たまったら合わせ直す（KirinHyphaEditor::serviceReferenceRematch）。
