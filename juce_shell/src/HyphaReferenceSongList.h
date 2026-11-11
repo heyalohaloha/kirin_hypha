@@ -43,7 +43,7 @@ public:
     std::function<void (const juce::String&)> onToggle;  // ALL：番号を押した（線を出す・消す）
     std::function<void (const juce::String&)> onPoint;   // 指している行（離れたら空）
     void setRows (std::vector<Row>, presentation::Context);
-    void setOverlay (bool all);  // ALL の時だけ番号を箱にする
+    void setOverlay (bool all, bool fixed = false);  // ALL の時だけ番号を箱にする（fixed：ALL SHAPE、箱は薄く）
     // A の直近の窓の音量（LUFS）と秒数。有限なら見出しの下に A の行を出す。
     void setLive (double loudness, int seconds);
     const std::vector<Row>& rows() const noexcept { return items; }
@@ -71,7 +71,7 @@ private:
     bool liveShown() const noexcept { return std::isfinite (liveLoudness); }
     std::vector<Row> items;
     std::vector<std::unique_ptr<NumberToggle>> toggles;
-    bool overlayAll = false;
+    bool overlayAll = false, overlayFixed = false;
     int firstRow = 0;
     double wheel = 0.0;
     juce::String shownSelection, pointed;

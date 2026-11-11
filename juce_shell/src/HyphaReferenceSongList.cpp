@@ -54,10 +54,11 @@ void SongList::setRows (std::vector<Row> next, presentation::Context nextContext
     scrollTo (firstRow);
 }
 
-void SongList::setOverlay (bool all)
+void SongList::setOverlay (bool all, bool fixed)
 {
-    if (overlayAll == all) return;
+    if (overlayAll == all && overlayFixed == fixed) return;
     overlayAll = all;
+    overlayFixed = fixed;
     placeToggles();
     repaint();
 }
@@ -128,7 +129,7 @@ void SongList::placeToggles()
         const auto& row = items[static_cast<size_t> (index)];
         const auto bounds = shown.rows.withY (shown.rows.getY() + static_cast<int> (slot) * rowHeight()).withHeight (rowHeight());
         toggle.setBounds (columns (bounds, shown.rows.getWidth())[0]);
-        toggle.show (index + 1, row.shown, row.colour, context);
+        toggle.show (index + 1, row.shown, row.colour, context, overlayFixed);
     }
 }
 

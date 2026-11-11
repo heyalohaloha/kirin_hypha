@@ -16,6 +16,13 @@ namespace hypha::tests::reference_overlay
 using reference_guide_contract::require;
 namespace ref = reference_audition;
 
+// A preview file written anew (a FileOutputStream appends to a file that is already there).
+inline std::unique_ptr<juce::FileOutputStream> fresh (const juce::File& file)
+{
+    file.deleteFile();
+    return file.createOutputStream();
+}
+
 inline ref::MeasuredTarget target (int index)
 {
     ref::MeasuredTarget result;
@@ -189,16 +196,16 @@ inline void verifyFullSet()
                 list.scrollTo (16);
                 list.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 120.0f, 100.0f }, juce::ModifierKeys(),
                     0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &list, &list, juce::Time(), { 120.0f, 100.0f }, juce::Time(), 0, false));
-                auto full = juce::File (preview).getChildFile (juce::String ("overlay-full-")
-                    + (language == i18n::Language::japanese ? "ja.png" : "en.png")).createOutputStream();
+                auto full = fresh (juce::File (preview).getChildFile (juce::String ("overlay-full-")
+                    + (language == i18n::Language::japanese ? "ja.png" : "en.png")));
                 require (full && juce::PNGImageFormat().writeImageToStream (panel.createComponentSnapshot (panel.getLocalBounds()), *full),
                          "full overlay preview");
                 state.songId = state.songs.front().id;
                 state.overlay.lines.resize (4);
                 panel.setState (state); list.scrollTo (0);
                 const auto image = panel.createComponentSnapshot (panel.getLocalBounds());
-                auto stream = juce::File (preview).getChildFile (juce::String ("overlay-")
-                    + (language == i18n::Language::japanese ? "ja.png" : "en.png")).createOutputStream();
+                auto stream = fresh (juce::File (preview).getChildFile (juce::String ("overlay-")
+                    + (language == i18n::Language::japanese ? "ja.png" : "en.png")));
                 require (stream && juce::PNGImageFormat().writeImageToStream (image, *stream), "overlay preview");
             }
         }
@@ -276,6 +283,9 @@ inline void verifyPalette()
             require (distance > 0.12f, "the first eight line colours are far apart");
         }
     require (reference_ui::overlayLineColour (16) != reference_ui::overlayLineColour (0), "the seventeenth line is told apart from the first");
+    require ((luminance (COL_TEXT_SECONDARY) + 0.05f) / (ground + 0.05f) >= 4.5f, "a number not shown, or dimmed in ALL SHAPE, reads at 4.5:1");
+    // What a press explains fits the footer's status at 300% in both languages.
+    verifyReferenceHelpFits ({ reference_ui::targetSilentText, reference_ui::allShapeFixedText });
 }
 
 // SHAPE: the mean and the band from the lowest to the highest of the lines turned on, at B's level.
@@ -353,9 +363,32 @@ inline void verifyShape()
         drawn = a_direction::drawnTexts (panel);
         reference_text_repairs::requireWhole (drawn, "MEAN OF ALL 6");
         reference_text_repairs::requireWhole (drawn, "RANGE OF ALL 6");
+        // The numbers are dimmed and a press says why it changes nothing; the choice of SHAPE and LINES is kept.
+        const auto kept = panel.state().overlay.lines;
+        juce::String explained;
+        panel.onExplain = [&] (const juce::String& text) { explained = text; };
         press (list, { 20.0f, rowY (0) });
+        auto boxes = boxesOf (list);
+        require (explained == reference_ui::allShapeFixedText && panel.state().overlay.lines == kept,
+                 "a number pressed in ALL SHAPE says ALL SHAPE uses every song and keeps what SHAPE uses");
+        explained.clear();
+        boxes[2]->onClick();
+        require (explained == reference_ui::allShapeFixedText && panel.state().overlay.lines == kept && boxes[2]->getTooltip() == explained,
+                 "a dimmed box says the same in its help");
         reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF ALL 6");
         require (panel.state().overlay.drawing == Drawing::allShape && every.getToggleState(), "ALL SHAPE stays on and counts every item");
+        {
+            juce::Image image (juce::Image::ARGB, boxes[0]->getWidth(), boxes[0]->getHeight(), true);
+            juce::Graphics graphics (image); boxes[0]->paintEntireComponent (graphics, true);
+            shape.onClick();
+            const auto lit = boxes[0]->createComponentSnapshot (boxes[0]->getLocalBounds());
+            bool differs = false;
+            for (int y = 0; y < image.getHeight(); ++y)
+                for (int x = 0; x < image.getWidth(); ++x) differs = differs || image.getPixelAt (x, y) != lit.getPixelAt (x, y);
+            require (differs && boxes[0]->getTooltip() == reference_ui::help_text::overlayNumber, "the boxes are lit again in SHAPE");
+            reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF 4");
+            every.onClick();
+        }
         // Pointing at a row draws that one line on top, thin, while pointed.
         const auto before = panel.createComponentSnapshot (panel.getLocalBounds());
         list.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 120.0f, rowY (1) }, juce::ModifierKeys(),
@@ -373,10 +406,13 @@ inline void verifyShape()
         panel.setState (unmatched);
         if (const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_OVERLAY_PREVIEW", {}); preview.isNotEmpty())
         {
-            auto stream = juce::File (preview).getChildFile (juce::String ("all-shape-")
-                + (language == i18n::Language::japanese ? "ja.png" : "en.png")).createOutputStream();
-            require (stream && juce::PNGImageFormat().writeImageToStream (panel.createComponentSnapshot (panel.getLocalBounds()), *stream),
-                     "ALL SHAPE preview");
+            juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
+            juce::Graphics graphics (image);
+            graphics.fillAll (BG);  // the page's dark ground, as the editor draws it
+            panel.paintEntireComponent (graphics, true);
+            auto stream = fresh (juce::File (preview).getChildFile (juce::String ("all-shape-")
+                + (language == i18n::Language::japanese ? "ja.png" : "en.png")));
+            require (stream && juce::PNGImageFormat().writeImageToStream (image, *stream), "ALL SHAPE preview");
         }
         // SHAPE with nothing turned on says why.
         shape.onClick();
@@ -389,8 +425,8 @@ inline void verifyShape()
         {
             auto shown = panel.state(); shown.overlay.lines = { { state.songs[0].id, 0 }, { state.songs[1].id, 1 }, { state.songs[2].id, 2 } };
             panel.setState (shown);
-            auto stream = juce::File (preview).getChildFile (juce::String ("shape-")
-                + (language == i18n::Language::japanese ? "ja.png" : "en.png")).createOutputStream();
+            auto stream = fresh (juce::File (preview).getChildFile (juce::String ("shape-")
+                + (language == i18n::Language::japanese ? "ja.png" : "en.png")));
             require (stream && juce::PNGImageFormat().writeImageToStream (panel.createComponentSnapshot (panel.getLocalBounds()), *stream),
                      "SHAPE preview");
         }
@@ -403,8 +439,43 @@ inline void verifyShape()
     }
 }
 
+// ONE draws the same list, chart and status line whatever ALL holds (lines, SHAPE, ALL SHAPE): an overlay
+// saved for ALL never changes ONE.
+inline void verifyOneUnchanged()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        reference_ui::Component plain, held;
+        reference_text_repairs::sizePanel (plain, 900, 600); reference_text_repairs::sizePanel (held, 900, 600);
+        auto state = page (4, 2);
+        plain.setState (state);
+        for (const auto drawing : { ref::BalanceOverlay::Drawing::lines, ref::BalanceOverlay::Drawing::shape, ref::BalanceOverlay::Drawing::allShape })
+        {
+            auto saved = state;
+            saved.overlay = { false, drawing, { { state.songs[1].id, 3 }, { state.targets.collection.items[0].id, 0 } } };
+            held.setState (saved);
+            const auto one = plain.statusTextLayout (plain.footerStatusStrip().getLocalBounds());
+            const auto other = held.statusTextLayout (held.footerStatusStrip().getLocalBounds());
+            require (one.line.text == other.line.text && one.line.kind == other.line.kind && one.text == other.text,
+                     "ONE's status line is the same whatever ALL holds");
+            const auto& rows = listOf (plain).rows(), & heldRows = listOf (held).rows();
+            require (rows.size() == heldRows.size() && boxesOf (listOf (held)).empty(), "ONE's list has the same rows and no boxes");
+            for (size_t index = 0; index < rows.size(); ++index)
+                require (rows[index].id == heldRows[index].id && rows[index].title == heldRows[index].title && ! heldRows[index].shown
+                         && ! heldRows[index].target, "each row of ONE's list is as before");
+            const auto image = plain.createComponentSnapshot (plain.getLocalBounds()), heldImage = held.createComponentSnapshot (held.getLocalBounds());
+            bool same = image.getWidth() == heldImage.getWidth();
+            for (int y = 0; same && y < image.getHeight(); ++y)
+                for (int x = 0; same && x < image.getWidth(); ++x) same = image.getPixelAt (x, y) == heldImage.getPixelAt (x, y);
+            require (same, "ONE's page draws pixel for pixel the same whatever ALL holds");
+        }
+    }
+}
+
 inline void verify()
 {
+    verifyOneUnchanged();
     verifyPalette();
     verifyShape();
     verifySwitchAndColours();

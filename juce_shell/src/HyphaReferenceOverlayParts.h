@@ -142,7 +142,11 @@ private:
     presentation::Context context = presentation::defaultContext();
 };
 
+// What a number says in ALL SHAPE, which takes every song and target whatever the numbers say.
+inline constexpr const char* allShapeFixedText = "ALL SHAPE uses every song. Choose SHAPE to pick songs.";
+
 // A row's number in ALL: a framed box in the line's colour while its line shows, plain while it does not.
+// In ALL SHAPE the boxes are dimmed (their text stays readable) and say why a press changes nothing.
 class NumberToggle final : public juce::Button
 {
 public:
@@ -152,8 +156,10 @@ public:
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         setTooltip (help_text::overlayNumber);
     }
-    void show (int number, bool shown, int colour, presentation::Context next)
+    void show (int number, bool shown, int colour, presentation::Context next, bool fixed = false)
     {
+        dimmed = fixed;
+        setTooltip (fixed ? allShapeFixedText : help_text::overlayNumber);
         setName (juce::String (number));
         setTitle ("Line " + juce::String (number));
         setToggleable (true);
@@ -168,11 +174,16 @@ public:
         const auto box = getLocalBounds().toFloat().withSizeKeepingCentre (juce::jmin (22.0f, getWidth() - 2.0f),
                                                                            juce::jmin (22.0f, getHeight() - 4.0f));
         const bool shown = getToggleState();
-        const auto colour = shown ? overlayTextColour (lineColour) : COL_TEXT_SECONDARY;
-        g.setColour ((shown ? overlayLineColour (lineColour) : COL_MUTED).withAlpha (shown ? (down ? 0.30f : 0.16f) : (highlighted ? 0.18f : 0.0f)));
-        g.fillRoundedRectangle (box, 3.0f);
-        g.setColour (shown ? overlayLineColour (lineColour) : COL_MUTED.withAlpha (highlighted ? 0.95f : 0.62f));
-        g.drawRoundedRectangle (box.reduced (0.5f), 3.0f, shown ? 1.3f : 1.0f);
+        // Dimmed: the frame keeps a quiet hint of the line's colour; the number stays in the readable text tier.
+        const auto colour = shown && ! dimmed ? overlayTextColour (lineColour) : COL_TEXT_SECONDARY;
+        if (! dimmed)
+        {
+            g.setColour ((shown ? overlayLineColour (lineColour) : COL_MUTED).withAlpha (shown ? (down ? 0.30f : 0.16f) : (highlighted ? 0.18f : 0.0f)));
+            g.fillRoundedRectangle (box, 3.0f);
+        }
+        g.setColour (dimmed ? (shown ? overlayLineColour (lineColour).interpolatedWith (BG, 0.55f) : COL_MUTED.withAlpha (0.40f))
+                            : shown ? overlayLineColour (lineColour) : COL_MUTED.withAlpha (highlighted ? 0.95f : 0.62f));
+        g.drawRoundedRectangle (box.reduced (0.5f), 3.0f, shown && ! dimmed ? 1.3f : 1.0f);
         g.setColour (colour);
         g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
         text_style::drawText (g, getName(), box.toNearestInt(), juce::Justification::centred, false);
@@ -180,6 +191,7 @@ public:
 
 private:
     int lineColour = 0;
+    bool dimmed = false;
     presentation::Context context = presentation::defaultContext();
 };
 }

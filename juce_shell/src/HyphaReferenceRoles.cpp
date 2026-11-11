@@ -65,6 +65,12 @@ void Component::configureRoles()
     };
     songList.onToggle = [this] (const juce::String& id)
     {
+        // ALL SHAPE は番号に関わらず全部：押しても何も変えず（SHAPE・LINES の時の選択は残す）、理由を言う。
+        if (current.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape)
+        {
+            if (onExplain) onExplain (allShapeFixedText);
+            return;
+        }
         std::vector<juce::String> listed;
         for (const auto& item : overlayItems (current)) listed.push_back (item.id);
         auto next = current.overlay;
@@ -178,7 +184,7 @@ void Component::syncRoles (bool blindSession)
         rows.back().shown = item.line != nullptr;
         rows.back().colour = colour;
     }
-    songList.setOverlay (current.overlay.all);
+    songList.setOverlay (current.overlay.all, current.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape);
     songList.setRows (std::move (rows), presentationContext);
     songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));
     if (! referenceView) return;
