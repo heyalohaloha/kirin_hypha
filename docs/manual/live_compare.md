@@ -211,8 +211,9 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   **Aligning PRE** shows that this check is incomplete. Initial silence, a held tone, a limiter or
   outboard between PRE and POST may not confirm a read position: POST plays for at most one second
   of proven playback, then PRE plays where the clocks put it, as with alignment off. A later
-  confirmed early PRE is still aligned through the usual fades; a confirmed late PRE returns to
-  POST while strong estimates keep showing it. When PRE is early, as with a
+  confirmed early PRE is still aligned through the usual fades. A confirmed late PRE cannot be
+  read earlier, so it keeps playing where the clocks put it, and after three seconds the status
+  line says so, for example **PRE 2.31 ms late / Check chain delay and DAW compensation**. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
   follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
@@ -228,12 +229,14 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   anonymous sources; neither source earns a listening receipt from substitute POST.
   PRE then returns with the same selection and approved gain;
   no samples at the old, invalid position are used for a fade.
-- If a strong, unambiguous content offset changes to a difference Hypha cannot align, Hypha uses
-  POST while preserving the comparison. A confirmed late PRE during a changed clock mapping
-  shows the measured delay and asks to check chain delay and DAW compensation. Two fresh estimates back at the
-  original baseline clear the hold automatically; stopping and restarting also resets it. Weak
-  peaks caused by processing do not create a hold, and do not keep one: after one second of
-  playback without a strong estimate that still shows the change, PRE returns. A late PRE under
+- If a strong, unambiguous content offset changes to a difference Hypha cannot align, or shows
+  that PRE is late, PRE keeps playing at its clock position and the comparison continues; the
+  audio estimate alone never switches you to POST. After three seconds the status line shows the
+  measured amount and asks to check chain delay and DAW compensation. In BLIND the words are the
+  same for both sources, and RESULT says by how much PRE may have been off. Two fresh estimates
+  back at the original baseline clear the notice; stopping and restarting also resets it. Weak
+  peaks caused by processing do not create a notice, and do not keep one: after one second of
+  playback without a strong estimate that still shows the change, it ends. A late PRE under
   0.25 ms is not treated as a delay and plays as it is. A bass-heavy window that the chain has
   changed is skipped rather than counted as doubt.
 - While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume
