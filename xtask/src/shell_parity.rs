@@ -270,7 +270,7 @@ mod tests {
             .contains("result == 4 && processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED"));
         assert!(handle.contains("showToast (hypha::pair_labels::choose)"));
         assert!(handle.contains("showCandidateMenu()"));
-        assert!(PLUGIN_EDITOR_CPP.contains("processorRef.keepPair()"));
+        assert!(PLUGIN_EDITOR_CPP.contains("processorRef.keepPair (keepPreWaitTicket)"));
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
             .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("&& ! measurementOnlySurround);"));
@@ -375,7 +375,8 @@ mod tests {
             !keep_body.contains("recordExclusionConflict()"),
             "JUCE Keep must not pre-check the 12-cap; FFI reserve->count>MAX is authoritative"
         );
-        assert!(keep_body.contains("processorRef.keepPair()"));
+        // 2026-11-11: the press carries the pair ticket; a stale ticket starts nothing.
+        assert!(keep_body.contains("processorRef.keepPair (keepPreWaitTicket)"));
         assert!(
             keep_body.contains("processorRef.recordErrorMessage()"),
             "Keep failure must surface the FFI cap/error message instead of falling through to No PRE"
@@ -388,13 +389,19 @@ mod tests {
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (",
         );
-        let all_keep_body = between(body, "if (result == 1)", "else if (result == 2)");
-
+        let all_keep_menu = between(body, "if (result == 1)", "else if (result == 2)");
+        // 2026-11-11: the menu All Keep goes through requestKeepAll, which carries the pair ticket.
+        assert!(all_keep_menu.contains("requestKeepAll ({})"));
+        assert!(
+            !all_keep_menu.contains("recordExclusionConflict()"),
+            "All Keep must not pre-check the 12-cap before the engine has resolved same-pair reservations"
+        );
+        let all_keep_body = cpp_body(PLUGIN_EDITOR_CPP, "void KirinHyphaEditor::requestKeepAll (");
         assert!(
             !all_keep_body.contains("recordExclusionConflict()"),
             "All Keep must not pre-check the 12-cap before the engine has resolved same-pair reservations"
         );
-        assert!(all_keep_body.contains("processorRef.keepAll()"));
+        assert!(all_keep_body.contains("processorRef.keepAll (ticket)"));
         assert!(
             all_keep_body.contains("processorRef.recordErrorMessage()"),
             "All Keep cap failure must use the FFI record_error_message"
