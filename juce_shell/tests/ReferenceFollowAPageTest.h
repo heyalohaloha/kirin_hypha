@@ -36,16 +36,16 @@ inline void verifyReferenceFollowAPages()
     playing.songFacts[0].partStartSeconds = 173.0; playing.songFacts[0].partEndSeconds = 187.0;
     auto line = reference_ui::referenceStatusLine (playing).text;
     require (line.startsWith ("B FOLLOW A  /  LEVEL FOLLOWS A (LAST 10 S)") && ! line.contains ("CHORUS") && ! line.contains ("LOOP")
-                 && japanese (line).startsWith (u8 (u8"BはAの位置で再生")),
+                 && japanese (line).startsWith (u8 (u8"BはAに同期")),
              "B in FOLLOW A says so instead of its looped section, in both languages: " + line + " / " + japanese (line));
     playing.audibleFollowOffsetSeconds = 0.25;
     line = reference_ui::referenceStatusLine (playing).text;
-    require (line.startsWith ("B FOLLOW A +0.25 S  /  ") && japanese (line).startsWith (u8 (u8"BはAの位置+0.25秒で再生")),
+    require (line.startsWith ("B FOLLOW A +0.25 S  /  ") && japanese (line).startsWith (u8 (u8"BはAに同期+0.25秒")),
              "B names its offset: " + line + " / " + japanese (line));
     playing.comparisonSlot = playing.audibleComparisonSlot = 2; playing.audibleFollowOffsetSeconds = -1.2;
     playing.tracking = reference_audition::TrackingState::fixed;
     line = reference_ui::referenceStatusLine (playing).text;
-    require (line.startsWith ("C FOLLOW A -1.20 S  /  LEVEL MATCHED AND FIXED") && japanese (line).startsWith (u8 (u8"CはAの位置-1.20秒で再生")),
+    require (line.startsWith ("C FOLLOW A -1.20 S  /  LEVEL MATCHED AND FIXED") && japanese (line).startsWith (u8 (u8"CはAに同期-1.20秒")),
              "C in FOLLOW A says so with a negative offset: " + line + " / " + japanese (line));
 
     // 曲の外：A が鳴っていることと、どうすれば聴けるか。押した後に待っている戻しも同じ文。
@@ -57,7 +57,7 @@ inline void verifyReferenceFollowAPages()
     outside.referenceStep = SourceStep::pastSongEnd;
     line = reference_ui::referenceStatusLine (outside).text;
     require (line == "B PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP"
-                 && japanese (line) == u8 (u8"Bは曲の終わりを過ぎた・Aを再生中 ／ Aを戻すかLOOPを選ぶ"),
+                 && japanese (line) == u8 (u8"Bは曲の終わりの後・Aを再生中 ／ Aを戻すかLOOPを選ぶ"),
              "past the song's end the page says A plays and how to hear B: " + line + " / " + japanese (line));
     outside.referenceStep = SourceStep::beforeSongStart;
     line = reference_ui::referenceStatusLine (outside).text;
@@ -179,7 +179,7 @@ inline void verifyReferenceFollowAPages()
         {
             const auto joined = shownTexts (bPage, language).joinIntoString ("|");
             require (! joined.contains (" LOOP") && ! joined.contains (juce::String::fromUTF8 (u8"繰り返し"))
-                         && (joined.contains ("B FOLLOW A") || joined.contains (juce::String::fromUTF8 (u8"BはAの位置で再生"))),
+                         && (joined.contains ("B FOLLOW A") || joined.contains (juce::String::fromUTF8 (u8"BはAに同期"))),
                      "B playing in FOLLOW A never reads as a loop on its page: " + joined);
         }
     }

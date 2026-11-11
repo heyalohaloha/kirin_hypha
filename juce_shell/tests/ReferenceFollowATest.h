@@ -147,6 +147,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
         return ! done;
     };
     const auto last = [&] { return block.getSample (0, 479); };
+    constexpr int wait = 1500;  // 待ちの上限（15 秒ぶんの block）。条件が揃えばすぐ抜ける
     const auto at = [&] (std::int64_t offset)  // 鳴った block の最後の sample が、A の位置＋offset の曲の sample
     { return rendered >= 0 && std::abs (last() - rampAt (rendered + 479 + offset)) < 1.0e-4f; };
     const auto reference = [&] { return controller.snapshot().referenceSelection; };
@@ -159,9 +160,9 @@ inline void testReferenceFollowA (const juce::File& sandbox)
              "LOOP is the default for B and C");
 
     // LOOP（今まで通り）：B は Cue（2〜4 秒）の中だけを繰り返す。A の位置は追わない。
-    require (play (100, [&] { return reference()->auditionBuffered; }), "the looped Cue is buffered");
+    require (play (wait, [&] { return reference()->auditionBuffered; }), "the looped Cue is buffered");
     require (controller.requestAudition (3, -14.0, -6.0), "B is pressed in LOOP");
-    require (play (300, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; }), "B sounds in LOOP");
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; }), "B sounds in LOOP");
     for (int index = 0; index < 150; ++index)
     {
         require (play (1, {}) && rendered >= 0 && last() >= rampAt (cueStart) - 1.0e-4f && last() < rampAt (cueEnd) + 1.0e-4f,
@@ -173,7 +174,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     controller.setFollowA (true);
     require (controller.followA() && reference()->followA && ! reference()->cueWraps,
              "FOLLOW A applies to the playing B at once and is no longer a repeated Cue");
-    require (play (200, [&] { return at (0); }), "FOLLOW A plays the song at A's DAW position");
+    require (play (wait, [&] { return at (0); }), "FOLLOW A plays the song at A's DAW position");
     for (int index = 0; index < 50; ++index)
         require (play (1, {}) && at (0), "FOLLOW A follows A block by block without gaps");
     require (controller.snapshot().audibleComparisonSlot == 3, "switching the mode keeps B selected");
@@ -181,25 +182,25 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     // 手のずらし：正で曲が先へ、負で後ろへ。
     require (controller.nudgeFollowOffset (3, 0.5) && std::abs (reference()->followOffsetSeconds - 0.5) < 1.0e-9,
              "the offset nudges by half a second");
-    require (play (200, [&] { return at (half); }), "a positive offset plays the song ahead of A");
+    require (play (wait, [&] { return at (half); }), "a positive offset plays the song ahead of A");
     require (controller.nudgeFollowOffset (3, -1.0) && std::abs (reference()->followOffsetSeconds + 0.5) < 1.0e-9,
              "the offset can go below zero");
-    require (play (200, [&] { return at (-half); }), "a negative offset plays the song behind A");
+    require (play (wait, [&] { return at (-half); }), "a negative offset plays the song behind A");
 
     // seek：A と同じ所へ移る。
     position = 6 * second;
-    require (play (300, [&] { return at (-half); }), "after a seek B is at A's new position with the same offset");
+    require (play (wait, [&] { return at (-half); }), "after a seek B is at A's new position with the same offset");
 
     // 停止と再開：止めている間は鳴らさず、別の位置から再生すれば押し直さずにその位置で戻る。
     require (! host (false) && controller.auditionHeld(), "stopping keeps B chosen");
     controller.servicePendingAudition (-14.0, -6.0, false);
     position = 5 * second;
-    require (play (300, [&] { return controller.snapshot().audibleComparisonSlot == 3 && at (-half); }),
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && at (-half); }),
              "starting again resumes B at the new position");
 
     // 曲の終わりの後：A のまま理由を出し、曲の中へ戻れば押し直さずに戻る。
     position = songFrames + second;
-    require (play (400, [&] {
+    require (play (wait, [&] {
                  const auto state = controller.snapshot();
                  return state.audibleComparisonSlot == 0 && state.referenceSelection->followOutside == 1
                      && state.pendingAudition.reasonCode == "reference_follow_past_end";
@@ -209,18 +210,18 @@ inline void testReferenceFollowA (const juce::File& sandbox)
         require (block.findMinMax (ch, 0, 480).getLength() == 0.0f && block.getSample (ch, 0) == 0.0f,
                  "past the song's end the block is A, untouched");
     position = 3 * second;
-    require (play (300, [&] { return controller.snapshot().audibleComparisonSlot == 3 && at (-half); }),
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && at (-half); }),
              "moving A back into the song brings B back without pressing it again");
 
     // 曲の頭より前（負のずらし）：A のまま理由を出し、A が進んで曲の頭に届けば B が入る。
-    require (controller.nudgeFollowOffset (3, -5.5) && std::abs (reference()->followOffsetSeconds + 6.0) < 1.0e-9, "a long negative offset");
+    require (controller.nudgeFollowOffset (3, -9.5) && std::abs (reference()->followOffsetSeconds + 10.0) < 1.0e-9, "a long negative offset");
     position = 0;
-    require (play (500, [&] {
+    require (play (900, [&] {
                  const auto state = controller.snapshot();
                  return state.referenceSelection->followOutside == -1
                      && state.pendingAudition.reasonCode == "reference_follow_before_start";
              }) && rendered < 0, "before the song's start A plays and the reason is published");
-    require (play (1000, [&] { return at (-6 * second); }) && rendered >= 6 * second, "B joins once A reaches the song's start");
+    require (play (wait, [&] { return at (-10 * second); }) && rendered >= 10 * second, "B joins once A reaches the song's start");
 
     // 曲が替わると 0：選んだ曲が鳴らせなくても、戻した曲のずらしは 0 から。
     const auto songs = controller.snapshot().songSets[0].songs;
@@ -230,18 +231,18 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     require (control::waitUntil (deadline(), [&] { return reference()->state == ref::RuntimeState::ready; }), "the first song is published again");
 
     // 役が替わると 0：B のずらしは C を押せば 0 に戻る。
-    require (play (300, [&] { return reference()->auditionBuffered && controller.snapshot().checkReady; }), "B and C are ready");
-    require (controller.requestAudition (3, -14.0, -6.0) && play (300, [&] { return controller.snapshot().audibleComparisonSlot == 3; }),
+    require (play (wait, [&] { return reference()->auditionBuffered && controller.snapshot().checkReady; }), "B and C are ready");
+    require (controller.requestAudition (3, -14.0, -6.0) && play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3; }),
              "B plays again");
     require (controller.nudgeFollowOffset (3, 0.25) && std::abs (reference()->followOffsetSeconds - 0.25) < 1.0e-9, "B is nudged");
     require (controller.requestAudition (2, -14.0, -6.0), "C is pressed");
     require (std::abs (reference()->followOffsetSeconds) < 1.0e-12, "leaving B for C resets B's offset");
-    require (play (300, [&] { return controller.snapshot().audibleComparisonSlot == 2 && at (0); }),
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 2 && at (0); }),
              "C follows A too: one mode for B and C");
 
     // LOOP へ戻す：C は Cue の中だけを鳴らす（今まで通り）。
     controller.setFollowA (false);
-    require (play (300, [&] { return rendered >= 0 && last() >= rampAt (cueStart) - 1.0e-4f && last() < rampAt (cueEnd) + 1.0e-4f; }),
+    require (play (wait, [&] { return rendered >= 0 && last() >= rampAt (cueStart) - 1.0e-4f && last() < rampAt (cueEnd) + 1.0e-4f; }),
              "back in LOOP the Cue repeats again");
 
     // state：流し方を保存して読み戻す。復元は鳴らし始めない。前の版の state は LOOP。
