@@ -128,6 +128,7 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
             if (slot.auditionPages == reference_audition::AuditionPageState::readFailed) return SourceStep::sourceUnavailable;
             return ! playing ? SourceStep::playDaw
                  : slot.auditionOutsideCue ? SourceStep::outsideCue
+                 : slot.followOutside > 0 ? SourceStep::pastSongEnd : slot.followOutside < 0 ? SourceStep::beforeSongStart
                   : slot.auditionBuffered ? SourceStep::ready
                  : slot.sourceKind == "work_version"
                      && slot.auditionPages == reference_audition::AuditionPageState::outsideSource ? SourceStep::outsideVersion

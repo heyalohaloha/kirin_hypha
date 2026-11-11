@@ -6,6 +6,7 @@
     bool selectReferenceVersion (const juce::String&, bool automatic = false);
     bool selectReferenceB();
     bool selectReferenceRef(); bool selectReferenceSong (const juce::String&); bool selectReferenceSongSet (const juce::String&);
+    void setReferenceFollowA (bool); bool nudgeReferenceFollow (int slot, double seconds); bool resetReferenceFollow (int slot); // B・C の流し方
     bool takeReferenceCheckAttempt (std::uint64_t attempt) noexcept;
     hypha::reference_audition::WindowLoudnessCache referenceWindowLoudness (int slot) const; hypha::reference_audition::RematchResult rematchReferenceCheck();
     hypha::reference_audition::VersionIdentity identifyReferenceVersion(); // V の自動特定（メッセージスレッド）

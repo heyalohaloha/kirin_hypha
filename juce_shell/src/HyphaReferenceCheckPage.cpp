@@ -157,6 +157,9 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     }
     checkTabs.setBounds (row);
     cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
+    auto cueRow = cueRowBounds();  // その右に流し方とずらし、残りが時間軸
+    if (selectionVisible (cueBox) || cueBox.isVisible()) cueRow.removeFromLeft (188);
+    layoutPlayback (cueRow);
 }
 
 // 2026-10-05：C の Check のタブが MATCH の読みとボタンの左に 1 段で
@@ -239,6 +242,8 @@ juce::Rectangle<int> Component::paintCheckFooter (juce::Graphics& g, juce::Recta
     {
         auto row = area.removeFromBottom (checkFooterRow);
         if (selectionVisible (cueBox) || cueBox.isVisible()) row.removeFromLeft (cueBox.getWidth() + 8);  // CUE の選択
+        for (const auto& button : playbackButtons)  // 流し方とずらし
+            if (button.isVisible()) row.setLeft (juce::jmax (row.getX(), button.getRight() + 8));
         if (std::isfinite (current.sourceDurationSeconds)) paintCueBar (g, row, current, presentationContext);
     }
     if (current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size())

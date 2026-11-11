@@ -146,6 +146,13 @@ inline void verifyReferenceStatusFits()
         section.songFacts[0].partStartSeconds = 173.0; section.songFacts[0].partEndSeconds = 187.0;
         section.rangeShortfallDb = 4.0;
         cases.push_back ({ "B plays its looped section at a follow limit", section });
+        // FOLLOW A：区間の代わりに「B FOLLOW A -12.25 S」。曲の外で待っている戻しは理由と A が鳴っていること。
+        section.followA = true; section.audibleFollowOffsetSeconds = -12.25;
+        cases.push_back ({ "B follows A with an offset at a follow limit", section });
+        auto waiting = base;
+        waiting.comparisonSlot = 3;
+        waiting.pendingAudition = { 3, reference_audition::PendingAuditionView::Stage::checking, "reference_follow_past_end" };
+        cases.push_back ({ "B waits past the song's end", waiting });
     }
     for (const int slot : { 1, 2, 3 })
         for (const int change : { 1, 2 })

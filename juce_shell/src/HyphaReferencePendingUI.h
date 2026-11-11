@@ -110,6 +110,10 @@ inline juce::String versionStoppedText (const State& state)
 inline juce::String pendingAuditionText (const State& state)
 {
     if (state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::none) return {};
+    // FOLLOW A の曲の外：待っていても止まっていても、何が鳴っていてなぜかを段階の文で言う（A のまま。戻れば鳴る）。
+    if (state.pendingAudition.reasonCode == "reference_follow_past_end" || state.pendingAudition.reasonCode == "reference_follow_before_start")
+        return stageLine (state.pendingAudition.reasonCode.endsWith ("end") ? SourceStep::pastSongEnd : SourceStep::beforeSongStart,
+                          state.pendingAudition.slot);
     if (state.pendingAudition.slot == 1 && !state.pendingAudition.waiting()) return versionStoppedText (state);
     return pendingAuditionHeading (state) + " / " + pendingAuditionReason (state)
         + (state.pendingAudition.waiting() ? "" : " / SELECT AGAIN");

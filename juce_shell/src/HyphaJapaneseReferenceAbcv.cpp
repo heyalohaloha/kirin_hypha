@@ -219,6 +219,27 @@ const Entry entries[] = {
     { "RANGE OF ALL %1", u8"全%1曲の範囲" },
     { "MEAN OF %1", u8"%1曲の平均" },
     { "RANGE OF %1", u8"%1曲の範囲" },
+    // B・C の流し方（LOOP／FOLLOW A）と FOLLOW A の手のずらし。ボタンの名前は英語のまま。
+    { "LOOP: B and C repeat their Cue, the section chosen in Kirin OS.", u8"LOOP：BとCはKirin OSで決めた区間（Cue）を繰り返します。" },
+    { "FOLLOW A: B and C play the whole song from A's position in the DAW.", u8"FOLLOW A：BとCはDAWのAの位置から曲全体を再生します。" },
+    { "Move the song 0.1 s back against A (Shift: 0.01 s).", u8"曲をAより0.1秒後ろへずらします（Shiftで0.01秒）。" },
+    { "How far the song plays ahead of A. Click for 0. A new song or role starts at 0.",
+      u8"曲をAより何秒先で鳴らすか。押すと0。曲・役が替わると0に戻ります。" },
+    { "Move the song 0.1 s ahead of A (Shift: 0.01 s).", u8"曲をAより0.1秒先へずらします（Shiftで0.01秒）。" },
+    { "Move the song back", u8"曲を後ろへずらす" }, { "Song offset", u8"曲のずらし" }, { "Move the song ahead", u8"曲を先へずらす" },
+    { "Choose FOLLOW A to move the song against A", u8"曲をずらすにはFOLLOW Aを選びます" },
+    { "%1 FOLLOW A", u8"%1はAの位置で再生" },
+    { "%1 FOLLOW A %2 S", u8"%1はAの位置%2秒で再生" },
+    { "%1 PAST SONG END, A PLAYING", u8"%1は曲の終わりを過ぎた・Aを再生中" },
+    { "%1 BEFORE SONG START, A PLAYING", u8"%1は曲の頭より前・Aを再生中" },
+    { "MOVE A BACK OR CHOOSE LOOP", u8"Aを戻すかLOOPを選ぶ" },
+    { "Past the song's end; move A back", u8"曲の終わりを過ぎた・Aを戻す" },
+    { "Before the song's start; keep playing", u8"曲の頭より前・再生を継続" },
+    { "A is past the end of %1's song", u8"Aの位置が%1の曲の終わりを過ぎています" },
+    { "A is before the start of %1's song", u8"Aの位置が%1の曲の頭より前です" },
+    { "FOLLOW A plays the song at A's position. Move A back into the song, or choose LOOP.",
+      u8"FOLLOW AはAの位置で曲を再生します。Aを曲の中へ戻すか、LOOPを選びます。" },
+    { "The offset moves the song after A. It starts when A reaches it.", u8"ずらしで曲がAより後ろにあります。Aが届くと始まります。" },
 };
 }
 

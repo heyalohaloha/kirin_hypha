@@ -213,6 +213,7 @@ struct State
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;      // C の Cue が終わりで頭へ戻る（Kirin OS の印か、A の位置を追わない Cue）
     bool referenceWraps = false;  // B の Cue が同じく繰り返す
+    bool followA = false; double followOffsetSeconds = 0.0, audibleFollowOffsetSeconds = 0.0;  // FOLLOW A と、見ている・鳴っている役のずらし（秒）
     int publicationReturn = 0;    // 見ている役を Kirin OS の公開が変えた（1）・外した（2）ので A へ戻した
     juce::String publicationIssue;  // B の画面で言う：新しい公開を読めなかった・曲を外した（文）
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
@@ -308,6 +309,7 @@ public:
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;
     std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
+    std::function<void(bool)> onSetFollowA; std::function<void(int, double)> onNudgeFollow; std::function<void(int)> onResetFollow;  // B・C の流し方とずらし
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
     // A B or C that cannot be heard yet says why when it is clicked.
@@ -434,6 +436,8 @@ private:
     SelectionControl checkSongBox; // いまの Check の曲
     SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
+    std::array<SideButton, 5> playbackButtons { SideButton ("LOOP"), SideButton ("FOLLOW A"), SideButton ("-"), SideButton ("0.00 S"), SideButton ("+") };
+    void configurePlayback(); void syncPlayback (bool blindSession); void layoutPlayback (juce::Rectangle<int> row);  // HyphaReferenceRoles.cpp
     SideButton actionButton { "OPEN KIRIN OS" };
     std::array<AWindowControl, 3> aWindowControls; // 図の凡例の A の場所（図ごとに 1 つ）。B の Balance は 1 番目
     juce::Rectangle<int> balanceBounds;            // B の画面の Balance

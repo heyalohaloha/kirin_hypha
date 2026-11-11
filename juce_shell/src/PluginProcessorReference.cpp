@@ -140,6 +140,20 @@ bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
    #endif
 }
 
+// B・C の流し方（LOOP／FOLLOW A）と FOLLOW A の手のずらし。鳴らし始めない（R-12）。
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+void KirinHyphaProcessorBase::setReferenceFollowA (bool follow)
+{ if (referenceAuditionController != nullptr) referenceAuditionController->setFollowA (follow); }
+bool KirinHyphaProcessorBase::nudgeReferenceFollow (int slot, double seconds)
+{ return referenceAuditionController != nullptr && referenceAuditionController->nudgeFollowOffset (slot, seconds); }
+bool KirinHyphaProcessorBase::resetReferenceFollow (int slot)
+{ return referenceAuditionController != nullptr && referenceAuditionController->resetFollowOffset (slot); }
+#else
+void KirinHyphaProcessorBase::setReferenceFollowA (bool) {}
+bool KirinHyphaProcessorBase::nudgeReferenceFollow (int, double) { return false; }
+bool KirinHyphaProcessorBase::resetReferenceFollow (int) { return false; }
+#endif
+
 bool KirinHyphaProcessorBase::selectReferenceSongSet (const juce::String& id)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY

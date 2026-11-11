@@ -172,9 +172,18 @@ juce::String cuePartLegend (const char* side, reference_audition::CuePart part, 
     return name + " CUE" + times;
 }
 
+juce::String followOffsetText (double seconds)
+{
+    const auto value = std::abs (seconds) < 0.005 ? 0.0 : seconds;
+    return (value > 0.0 ? "+" : "") + juce::String (value, 2) + " S";
+}
+
 juce::String playingSection (const State& state)
 {
     using reference_audition::CuePart;
+    if (state.followA && (state.audibleComparisonSlot == 2 || state.audibleComparisonSlot == 3))
+        return juce::String (roleLetter (state.audibleComparisonSlot)) + " FOLLOW A"
+            + (std::abs (state.audibleFollowOffsetSeconds) < 0.005 ? juce::String() : " " + followOffsetText (state.audibleFollowOffsetSeconds));
     const auto section = [] (const char* side, CuePart part, double start, double end, bool wraps)
     {
         if (part == CuePart::unknown && ! (std::isfinite (start) && std::isfinite (end) && end > start)) return juce::String();

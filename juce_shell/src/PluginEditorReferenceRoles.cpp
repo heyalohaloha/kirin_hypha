@@ -44,6 +44,13 @@ void KirinHyphaEditor::wireReferenceRoles()
     };
     referenceView.onSelectSongSet = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSongSet (id)) showToast ("Reference set selection was not changed"); };
+    // B・C の流し方（B と C で 1 つ、state に保存）と FOLLOW A の手のずらし。切り替えても鳴らし始めない。すぐ描き直す。
+    const auto refreshNow = [this]
+    { KirinObservatoryFrame frame {}; const bool available = processorRef.pollObservatoryFrame (frame); refreshReferenceAudition (frame, available); };
+    referenceView.onSetFollowA = [this, refreshNow] (bool follow) { processorRef.setReferenceFollowA (follow); refreshNow(); };
+    referenceView.onNudgeFollow = [this, refreshNow] (int slot, double seconds)
+    { if (! processorRef.nudgeReferenceFollow (slot, seconds)) showToast ("Choose FOLLOW A to move the song against A"); refreshNow(); };
+    referenceView.onResetFollow = [this, refreshNow] (int slot) { processorRef.resetReferenceFollow (slot); refreshNow(); };
     // C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
     referenceView.onMatch = [this]
     {
@@ -243,8 +250,12 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;
     state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
-    state.cueLoops = checkRole.cueLoops || checkRole.cueWraps;
+    state.cueLoops = ! runtime.followA && (checkRole.cueLoops || checkRole.cueWraps);  // FOLLOW A は Cue を繰り返さない
     state.referenceWraps = runtime.referenceSelection != nullptr && runtime.referenceSelection->cueWraps;
+    state.followA = runtime.followA;
+    state.followOffsetSeconds = runtime.comparisonSlot == 2 || runtime.comparisonSlot == 3 ? runtime.followOffsetSeconds : 0.0;
+    state.audibleFollowOffsetSeconds = runtime.audibleComparisonSlot == 2 || runtime.audibleComparisonSlot == 3
+        ? audibleRole.followOffsetSeconds : 0.0;  // 鳴っている役（B・C）のずらし
     const auto* pageRole = runtime.comparisonSlot == 1 ? runtime.versionSelection.get()
         : runtime.comparisonSlot == 3 ? runtime.referenceSelection.get() : runtime.checkSelection.get();
     state.publicationReturn = pageRole != nullptr ? pageRole->publicationReturn : 0;

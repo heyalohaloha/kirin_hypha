@@ -48,6 +48,8 @@ enum class SourceStep
     sourceRecordMismatch,   // Kirin OS's record of the source does not match its file
     sourceRecordUnsupported, // Kirin OS's record of the source is in a form this Hypha does not read
     publicationInvalid,     // Kirin OS's Reference publication (Preset, Work, catalog) was not read
+    pastSongEnd,            // FOLLOW A: A's position (with the offset) is past the end of the song
+    beforeSongStart,        // FOLLOW A: A's position (with the offset) is before the start of the song
     attention,              // a reason Hypha has no message for: said with its code, never guessed
 };
 

@@ -4,6 +4,9 @@
 #include "HyphaReferenceSongChoice.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceStatusModel.h"
+#include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceHelpText.h"
+#include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 
 #include <algorithm>
@@ -107,6 +110,7 @@ void Component::configureRoles()
         applyOverlay (std::move (next));
     };
     addChildComponent (overlaySwitch);
+    configurePlayback();
 }
 
 void Component::applyOverlay (reference_audition::BalanceOverlay next)
@@ -190,6 +194,67 @@ void Component::syncRoles (bool blindSession)
     if (! referenceView) return;
     // B の画面には V・C の選択を出さない（REFERENCE SET と曲だけ）。
     for (auto* box : { &versionBox, &checkBox, &presetBox, &cueBox }) box->setVisible (false);
+}
+
+// B・C の流し方（B と C で 1 つ）：LOOP は Cue を繰り返す、FOLLOW A は A の DAW の位置から曲全体。FOLLOW A のときだけ
+// 300% の画面に手のずらし（- / 今の量 / +、Shift で 0.01 秒、押し続けると繰り返す。今の量を押すと 0）。
+void Component::configurePlayback()
+{
+    static constexpr const char* ids[] { "reference-loop", "reference-follow-a", "reference-offset-back",
+                                         "reference-offset", "reference-offset-ahead" };
+    static constexpr const char* titles[] { "LOOP", "FOLLOW A", "Move the song back", "Song offset", "Move the song ahead" };
+    const char* helps[] { help_text::loop, help_text::followA, help_text::earlier, help_text::offset, help_text::later };
+    for (size_t index = 0; index < playbackButtons.size(); ++index)
+    {
+        auto& button = playbackButtons[index];
+        button.setComponentID (ids[index]);
+        button.setTitle (titles[index]);
+        button.setTooltip (helps[index]);
+        addChildComponent (button);
+    }
+    // 役を押した直後の古い画面の押しは捨てる（タブと同じ）。
+    const auto live = [this] { return ! pageCurrent || pageCurrent (current.comparisonSlot); };
+    const auto step = [] { return juce::ModifierKeys::getCurrentModifiers().isShiftDown() ? 0.01 : 0.1; };
+    playbackButtons[0].onClick = [this, live] { if (live() && onSetFollowA) onSetFollowA (false); };
+    playbackButtons[1].onClick = [this, live] { if (live() && onSetFollowA) onSetFollowA (! current.followA); };
+    playbackButtons[2].onClick = [this, live, step] { if (live() && onNudgeFollow) onNudgeFollow (current.comparisonSlot, -step()); };
+    playbackButtons[3].onClick = [this, live] { if (live() && onResetFollow) onResetFollow (current.comparisonSlot); };
+    playbackButtons[4].onClick = [this, live, step] { if (live() && onNudgeFollow) onNudgeFollow (current.comparisonSlot, step()); };
+    playbackButtons[2].setRepeatSpeed (400, 80);
+    playbackButtons[4].setRepeatSpeed (400, 80);
+}
+
+// B の画面はどの大きさでも（300% 未満は FOLLOW A の切り替えだけ、曲の欄の右）、C の画面は 300% の Cue の段。
+void Component::syncPlayback (bool blindSession)
+{
+    const bool referencePage = current.separateComparisons && current.comparisonSlot == 3 && ! current.songs.empty();
+    const bool checkRow = checkPage() && ! current.targetSelected && ! current.checks.empty()
+        && (std::isfinite (current.sourceDurationSeconds) || cueBox.isVisible());
+    const bool shown = ! blindSession && (referencePage || checkRow);
+    const bool both = shown && rolePage();
+    playbackButtons[0].setToggleState (! current.followA, juce::dontSendNotification);
+    playbackButtons[1].setToggleState (current.followA, juce::dontSendNotification);
+    playbackButtons[3].setButtonText (followOffsetText (current.followOffsetSeconds));
+    playbackButtons[0].setVisible (both);
+    playbackButtons[1].setVisible (shown);
+    for (const size_t index : { size_t { 2 }, size_t { 3 }, size_t { 4 } }) playbackButtons[index].setVisible (both && current.followA);
+}
+
+// 見えているボタンを左から並べる（幅は文字に合わせ、今の量は桁が変わっても動かない幅）。
+void Component::layoutPlayback (juce::Rectangle<int> row)
+{
+    const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
+    const auto height = juce::jmin (row.getHeight(), 24);
+    for (size_t index = 0; index < playbackButtons.size(); ++index)
+    {
+        auto& button = playbackButtons[index];
+        if (! button.isVisible()) continue;
+        auto text = text_style::shownWidth (font, button.getButtonText());
+        if (index == 3) text = std::max (text, text_style::shownWidth (font, "+000.00 S"));
+        const auto width = juce::roundToInt (std::ceil (text)) + (index == 2 || index == 4 ? 18 : 16);
+        button.setBounds (row.removeFromLeft (width).withSizeKeepingCentre (width, height));
+        row.removeFromLeft (index == 1 ? 12 : 3);
+    }
 }
 
 bool Component::explainReference()

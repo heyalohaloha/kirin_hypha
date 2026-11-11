@@ -41,6 +41,12 @@ inline constexpr const char* versionTabs = "WHOLE shows the whole song; the othe
 inline constexpr const char* versionMixContext = "V works best with Hypha on the 2Mix.";
 inline constexpr const char* whole = "The whole song: A above V, peak outside and RMS inside. Select a region to compare.";
 inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.";
+// B・C の流し方とずらし（HyphaReferenceRoles.cpp。B と C で 1 つの選択）。
+inline constexpr const char* loop = "LOOP: B and C repeat their Cue, the section chosen in Kirin OS.";
+inline constexpr const char* followA = "FOLLOW A: B and C play the whole song from A's position in the DAW.";
+inline constexpr const char* earlier = "Move the song 0.1 s back against A (Shift: 0.01 s).";
+inline constexpr const char* offset = "How far the song plays ahead of A. Click for 0. A new song or role starts at 0.";
+inline constexpr const char* later = "Move the song 0.1 s ahead of A (Shift: 0.01 s).";
 
 // B の Balance の重ね比べ（HyphaReferenceOverlay.h）：ALL の図、ONE／ALL の切り替え、一覧の番号。
 inline constexpr const char* balanceAll = "Balance: A over the chosen window and the lines you show, each at the level B plays it at.";
@@ -53,5 +59,6 @@ inline constexpr const char* balanceShape = "Balance: A over the chosen window, 
 inline constexpr const char* all[] { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
                                      integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs,
-                                     balanceAll, overlay, overlayNumber, drawing, balanceShape };
+                                     balanceAll, overlay, overlayNumber, drawing, balanceShape,
+                                     loop, followA, earlier, offset, later };
 }

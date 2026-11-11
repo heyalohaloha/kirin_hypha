@@ -3,6 +3,8 @@
 #include "HyphaMainFrame.h"
 #include "HyphaReferenceBalance.h"
 #include "HyphaReferenceVisuals.h"
+#include "HyphaTextStyle.h"
+#include "HyphaTheme.h"
 
 namespace hypha::reference_ui
 {
@@ -38,6 +40,8 @@ void Component::resized()
         selectors.removeFromLeft (8);
         songBox.setBounds (selectors.removeFromBottom (25));
         versionBox.setBounds (songSetBox.getBounds()); checkBox.setBounds (songBox.getBounds());
+        if (playbackButtons[1].isVisible())  // 流し方とずらしの段（曲の一覧と BALANCE の上）
+        { area.removeFromTop (panelGap()); layoutPlayback (area.removeFromTop (26)); }
     }
     else if (current.separateComparisons && ! blindSession)
     {
@@ -57,6 +61,14 @@ void Component::resized()
         }
         songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに
         songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
+        if (playbackButtons[1].isVisible())  // 300% 未満の B：曲の欄の右に FOLLOW A の切り替え
+        {
+            auto picker = songBox.getBounds();
+            const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
+            const auto width = juce::roundToInt (std::ceil (text_style::shownWidth (font, "FOLLOW A"))) + 14;
+            songBox.setBounds (picker.withTrimmedRight (width + 4));
+            playbackButtons[1].setBounds (picker.removeFromRight (width));
+        }
         auto top = area.removeFromTop (selectionVisible (presetBox) || selectionVisible (cueBox)
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
         const auto width = selectionVisible (cueBox) ? (top.getWidth() - 5) * 3 / 5 : top.getWidth();
