@@ -114,6 +114,10 @@ inline std::vector<BlindCase> blindCases()
     }
     { LiveBlindStatus state; state.stage = BlindStage::preparing;
       state.signalWait = state.prolongedWait = true; add (state, true, 1.0f); }
+    // A to B BLIND adds the chain to the END line; the longest level is 24 dB.
+    for (auto stage : { BlindStage::approval, BlindStage::active, BlindStage::finishing, BlindStage::invalidated })
+    { LiveBlindStatus state; state.candidate = true; state.stage = stage; state.lowerPostDb = -24.0;
+      add (state, true, 1.0f); add (state, true, 0.0630957f); }
     for (int reason = 0; reason <= static_cast<int> (RecoveryReason::contentAmbiguous); ++reason)
     for (int stage = 1; stage <= static_cast<int> (BlindStage::failed); ++stage)
     for (int mode = 0; mode < 14; ++mode)

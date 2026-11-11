@@ -23,7 +23,8 @@ BLIND matches by raising the quieter source, as long as it stays under the ceili
 or later in the song, BLIND matches on the quieter side instead: the raised source returns to its
 own level and the louder one is lowered by the same amount, without a question. From that block on
 the two sources stay matched, and the louder source never stands in for the raised one. The line
-under the buttons then names the rise on END, for example **END returns +2.0 dB**.
+under the buttons then says why both are quieter and what END gives back, for example
+**Lowered 2.0 dB to avoid clipping; END restores it**.
 END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
 END, ramped over about two seconds, and confirmed by the Audio Thread. Closing the window alone never raises the level.
 If restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before

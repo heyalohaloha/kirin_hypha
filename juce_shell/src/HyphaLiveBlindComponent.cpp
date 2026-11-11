@@ -21,8 +21,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     const juce::String normalLevel = "END restores normal level";
-    juce::String instruction, explanation = returnDb > 0.05
-        ? "END returns +" + juce::String (returnDb, 1) + " dB" : normalLevel;
+    // A lower level always says why: BLIND matched on the quieter side so nothing goes over the ceiling.
+    const juce::String loweredLevel = "Lowered " + juce::String (returnDb, 1) + " dB to avoid clipping; END restores it";
+    juce::String instruction, explanation = returnDb > 0.05 ? loweredLevel : normalLevel;
     if (current.stage == Stage::failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange
             ? "MATCH over 24 dB" : "MATCH failed; try again";
@@ -30,11 +31,12 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     {
         instruction = current.reason == live_compare::RecoveryReason::outputTaken
             ? "Blind stopped; output released" : "Blind stopped; POST output";
-        const auto db = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
-        explanation = db > 0.05 ? "END returns +" + juce::String (db, 1) + " dB" : explanation;
     }
     else if (finishing)
+    {
         instruction = playing ? "Returning to normal level" : "Return waiting for audio";
+        explanation = returnDb > 0.05 ? "END returns +" + juce::String (returnDb, 1) + " dB" : normalLevel;
+    }
     else if (current.stage == Stage::approval)
     {
         instruction = current.candidate ? "Lower B to match levels?" : "Lower POST to match levels?";
@@ -61,7 +63,8 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.instruction = screen.guidanceShown ? juce::String() : instruction;
     // One sentence: END says once what it gives back, the level and then the A to B chain.
     if (current.candidate)
-        explanation += explanation == normalLevel ? " and the A to B chain" : " and restores the A to B chain";
+        explanation += explanation == normalLevel || explanation == loweredLevel
+            ? " and the A to B chain" : " and restores the A to B chain";
     screen.detail = explanation;
     // The rise on END is named before anything else (INV-LC14).
     if (live && !revealed && repeatingAudio && ! (returnDb > 0.05)) screen.detail = "Repeated audio: checked per block";
