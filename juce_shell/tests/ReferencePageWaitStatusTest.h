@@ -126,15 +126,18 @@ inline void verifyReferencePageWaitStatus()
         selected->pendingSourceFailure = "reference_source_revalidating";
         update();
         const auto nextSource = reference_ui::referenceStatusLine (ui);
+        // 2026-11-11：見ている画面と鳴っている役が違えば、その 2 つを先に言う。
+        const auto page = viewed == slot ? juce::String() : juce::String (reference_ui::roleLetter (viewed))
+            + juce::String::fromUTF8 (u8" PAGE · ") + reference_ui::roleLetter (slot) + " PLAYING  /  ";
         if (nextSource.kind != reference_ui::StatusKind::waiting
-            || nextSource.text != "NEXT SOURCE UNAVAILABLE / RETRYING")
+            || nextSource.text != page + "NEXT SOURCE UNAVAILABLE / RETRYING")
             throw std::runtime_error ("the final status row reports a failed requested source while the previous source plays");
         for (const auto* code : { "reference_source_cache_full", "reference_source_copy_failed" })
         {
             selected->pendingSourceFailure = code; update();
             const auto storage = reference_ui::referenceStatusLine (ui);
             if (storage.kind != reference_ui::StatusKind::waiting || storage.text.contains ("SOURCE UNAVAILABLE")
-                || storage.text != reference_ui::runtime_view::rejectedStatus (code))
+                || storage.text != page + reference_ui::runtime_view::rejectedStatus (code))
                 throw std::runtime_error ("temporary storage failures reach the final row without blaming the source");
             auto failed = *selected; failed.state = reference_audition::RuntimeState::waiting; failed.rejectionCode = code;
             if (reference_ui::runtime_view::slotStep (failed, true)

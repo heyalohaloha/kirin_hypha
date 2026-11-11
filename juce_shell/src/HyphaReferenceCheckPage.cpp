@@ -34,6 +34,8 @@ bool Component::checkPage() const noexcept
 
 void Component::chooseTab (const juce::String& checkId)
 {
+    // 役を押した直後で、描いている画面が古い（今の画面と違う）ときのタブは捨てる（その間に画面は描き直される）。
+    if (pageCurrent && ! pageCurrent (current.comparisonSlot)) return;
     // V の画面のタブは見るものだけを替える（音も C の選択も変えない）。
     if (versionPage()) { versionTab = checkId; setState (current); return; }
     // 同じ曲のまま Check を替える（その Check に同じ曲が無ければ最初の曲）。

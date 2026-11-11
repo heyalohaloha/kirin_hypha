@@ -95,6 +95,10 @@ const Entry entries[] = {
     { "LEVEL MATCHED AND FIXED", u8"音量はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },
     { "ORIGINAL LEVEL", u8"元の音量" },
+    // 見ている画面と鳴っている役（「C PAGE · A PLAYING / PRESS C」。区切りごとに訳す）。
+    { "B PAGE", u8"Bの画面" }, { "C PAGE", u8"Cの画面" }, { "V PAGE", u8"Vの画面" },
+    { "A PLAYING", u8"Aを再生中" }, { "B PLAYING", u8"Bを再生中" }, { "C PLAYING", u8"Cを再生中" }, { "V PLAYING", u8"Vを再生中" },
+    { "PRESS B", u8"Bを押す" }, { "PRESS C", u8"Cを押す" }, { "PRESS V", u8"Vを押す" },
     // B・C が鳴らす区間（A の位置を追わず、Kirin OS の決めた Cue を繰り返す）。
     { "%1 LOOP", u8"%1 繰り返し" },
     { "C CHORUS %1", u8"Cサビ %1" },

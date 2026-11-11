@@ -298,6 +298,7 @@ public:
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
     std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<bool(int)> pageCurrent; // 描いている画面がまだ今の画面か（古い画面のタブの押しは捨てる）
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;

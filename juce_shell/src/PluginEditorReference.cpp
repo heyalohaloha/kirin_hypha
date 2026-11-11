@@ -141,6 +141,23 @@ void KirinHyphaEditor::configureReferenceAudition()
             dropReferenceAfterTail();
             if (chosen) chosen (id);
         };
+    // 押した役の画面と状態を、次の見回り（10 Hz）を待たずに描く（2026-11-11：役を押した直後に古い画面のタブを押せた）。
+    const auto refreshNow = [this]
+    {
+        KirinObservatoryFrame frame {};
+        const bool available = processorRef.pollObservatoryFrame (frame);
+        refreshReferenceAudition (frame, available);
+    };
+    for (auto* role : { &referenceView.onSelectA, &referenceView.onSelectB, &referenceView.onSelectC, &referenceView.onSelectRef })
+        *role = [refreshNow, press = std::move (*role)] { if (press) press(); refreshNow(); };
+    referenceView.onSelectVisualSlot = [refreshNow, choose = std::move (referenceView.onSelectVisualSlot)] (int slot)
+    { if (choose) choose (slot); refreshNow(); };
+    referenceView.pageCurrent = [this, refreshNow] (int page)
+    {
+        if (processorRef.referenceAuditionSnapshot().comparisonSlot == page) return true;
+        refreshNow();
+        return false;
+    };
     scaleRoot.addChildComponent (referenceView);
 }
 void KirinHyphaEditor::layoutReferenceAudition()

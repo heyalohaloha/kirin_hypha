@@ -11,6 +11,12 @@
 
 namespace hypha::reference_ui
 {
+// 「C PAGE · A PLAYING」：見ている画面と、鳴っている役（0 は A）。区切りの「·」で 1 つの区切りのまま（狭い行でも切れない）。
+static juce::String pagePlaying (int page, int heard)
+{
+    return juce::String (roleLetter (page)) + " PAGE" + juce::String::fromUTF8 (u8" \u00b7 ") + roleLetter (heard) + " PLAYING";
+}
+
 static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 {
     using Tracking = reference_audition::TrackingState;
@@ -45,6 +51,8 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             || state.status == stageLine (SourceStep::cacheSpaceUnavailable, state.comparisonSlot)
             || state.status == stageLine (SourceStep::cacheWriteFailed, state.comparisonSlot))
             return { StatusKind::waiting, state.status };
+        // 選んだ役の音がまだ届かず A が鳴っている（ページの不足・再生位置の読み込み）：聴けるの札を出さず、読み込みを言う。
+        if (state.status.startsWith ("LOADING ")) return { StatusKind::waiting, state.status };
         // 聴いているあいだは、何を鳴らしているか（B・C は Kirin OS の決めた区間とループ。A の位置は追わない）と、音量を
         // どう合わせているか（追従か固定か）を言う。区間が役の名前を言うので、音量の札は「LEVEL ...」だけ。PRE の Δ は止まっている。
         const auto role = state.separateComparisons ? juce::String (roleLetter (state.audibleComparisonSlot)) : juce::String ("B");
@@ -135,6 +143,8 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     const auto& code = slot == 1 ? state.versionRejectionCode : slot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
     if (step == SourceStep::attention && code.isNotEmpty())
         return { kind, stageLine (step, slot).replace ("SEE THE REASON CODE", "REASON CODE " + code) };
+    // 鳴らせるが鳴っていない役の画面（A が鳴っている）：どの画面で何が鳴っているかと、押せば鳴ることを言う。
+    if (step == SourceStep::ready) return { kind, pagePlaying (slot, 0) + " / PRESS " + letter };
     return { kind, stageLine (step, slot) };
 }
 
@@ -142,6 +152,14 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 StatusLine referenceStatusLine (const State& state, bool returnInFooter)
 {
     auto line = composeStatusLine (state, returnInFooter);
+    // 見ている画面と鳴っている役が違う（2026-11-11）：どの画面で何が鳴っているかを先に言う。読み込み中は A が鳴る。
+    if (state.separateComparisons && state.bSelected && ! isBlindSession (state.blindPhase)
+        && state.audibleComparisonSlot >= 1 && state.audibleComparisonSlot != state.comparisonSlot)
+        line.text = pagePlaying (state.comparisonSlot, state.status.startsWith ("LOADING ") ? 0 : state.audibleComparisonSlot)
+            + "  /  " + line.text;
+    if (state.heldAttenuationDb < -0.05 && ! returnInFooter)
+        line.text = line.text.replace (pagePlaying (state.comparisonSlot, 0),
+                                       pagePlaying (state.comparisonSlot, 0).replace ("A PLAYING", "A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB"));
     if (state.heldAttenuationDb < -0.05)
     {
         if (returnInFooter)  // 足元の RETURN が下げた量を言う

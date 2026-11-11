@@ -170,6 +170,14 @@ void verifyMoves()
     state.checkId = "low/one"; component.setState (state);
     component.stepTab (-1); spy.expect ("check space/two", "no song one in this Check: its first song");
     require (component.stepTab (1) == "Last in the list", "the last Check"); spy.expectNone ("last Check");
+    // 2026-11-11：役を押した直後の古い画面（今の画面は別）のタブは何も替えない（画面が描き直される）。
+    int pageChecks = 0;
+    component.pageCurrent = [&pageChecks] (int page) { ++pageChecks; return page == 1; };
+    component.stepTab (-1); spy.expectNone ("a tab on a stale page");
+    require (pageChecks == 1, "the tab asked whether its page is still the current one");
+    component.pageCurrent = [] (int page) { return page == 2; };
+    component.stepTab (-1); spy.expect ("check space/two", "a tab on the current page applies");
+    component.pageCurrent = nullptr;
 
     // V walks the order Kirin OS sent, not the shown order that lifts the chosen song to the top.
     state = readyState();

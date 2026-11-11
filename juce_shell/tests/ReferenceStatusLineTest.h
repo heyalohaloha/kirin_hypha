@@ -44,7 +44,7 @@ inline void verifyReferenceStatusLine()
              std::tuple { 2, Tracking::fixed, false, "C MATCHED AND FIXED" },
              std::tuple { 2, Tracking::none, true, "C ORIGINAL LEVEL" } })
     {
-        playing.audibleComparisonSlot = slot;
+        playing.comparisonSlot = playing.audibleComparisonSlot = slot;
         playing.tracking = tracking;
         playing.originalAudition = original;
         const auto line = reference_ui::referenceStatusLine (playing);
@@ -57,7 +57,7 @@ inline void verifyReferenceStatusLine()
         for (const double residual : { -2.0, -0.5, 0.0, 0.5, 2.0 })
         {
             auto limited = playing;
-            limited.audibleComparisonSlot = slot; limited.originalAudition = false;
+            limited.comparisonSlot = limited.audibleComparisonSlot = slot; limited.originalAudition = false;
             limited.tracking = Tracking::following; limited.rangeShortfallDb = residual;
             const auto text = reference_ui::referenceStatusLine (limited).text;
             require (text.contains ("FOLLOW LIMIT") == (std::abs (residual) > 0.5),
@@ -82,7 +82,7 @@ inline void verifyReferenceStatusLine()
                      && japanese.contains (juce::String::fromUTF8 (u8"音量はA直近10秒に追従")),
                  "C names its looped section, then how its level is held, in both languages: " + line + " / " + japanese);
         auto b = playing;
-        b.audibleComparisonSlot = 3; b.tracking = Tracking::following; b.originalAudition = false; b.rangeShortfallDb = 2.0;
+        b.comparisonSlot = b.audibleComparisonSlot = 3; b.tracking = Tracking::following; b.originalAudition = false; b.rangeShortfallDb = 2.0;
         b.songs = { { "s1", "Song" } }; b.songId = "s1"; b.referenceWraps = true;
         b.songFacts.resize (1); b.songFacts[0].part = reference_audition::CuePart::cue;
         b.songFacts[0].partStartSeconds = 10.0; b.songFacts[0].partEndSeconds = 25.0;
@@ -96,8 +96,27 @@ inline void verifyReferenceStatusLine()
         require (reference_ui::referenceStatusLine (b).text == "B CUE 0:10-0:25  /  ORIGINAL LEVEL" + pre,
                  "LOOP only when the Cue repeats");
     }
+    // 2026-11-11：見ている画面と鳴っている役が違えば先に言う。選んだ役の音が届かず A が鳴っている間は、聴けるの札を
+    // 出さず読み込みを言う（その間は A が鳴っていると言う）。
+    {
+        auto other = playing;
+        other.comparisonSlot = 2; other.audibleComparisonSlot = 1; other.tracking = Tracking::following; other.originalAudition = false;
+        const auto line = reference_ui::referenceStatusLine (other).text;
+        const auto japanese = i18n::translate (line, i18n::Language::japanese);
+        require (line == juce::String::fromUTF8 (u8"C PAGE · V PLAYING  /  V FOLLOWING A (LAST 10 S)") + pre
+                     && japanese.contains (juce::String::fromUTF8 (u8"Cの画面")) && japanese.contains (juce::String::fromUTF8 (u8"Vを再生中")),
+                 "a page other than the role that sounds says both, in both languages: " + line + " / " + japanese);
+        other.status = "LOADING V AT PLAYHEAD / KEEP PLAYING";
+        const auto starved = reference_ui::referenceStatusLine (other);
+        require (starved.kind == StatusKind::waiting
+                     && starved.text == juce::String::fromUTF8 (u8"C PAGE · A PLAYING  /  LOADING V AT PLAYHEAD / KEEP PLAYING"),
+                 "while V's audio has not arrived and A is heard, the line says loading, not V's level: " + starved.text);
+        other.comparisonSlot = 1;
+        require (reference_ui::referenceStatusLine (other).text == "LOADING V AT PLAYHEAD / KEEP PLAYING",
+                 "on V's own page the starved V says loading");
+    }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
-    playing.audibleComparisonSlot = 3;
+    playing.comparisonSlot = playing.audibleComparisonSlot = 3;
     playing.tracking = Tracking::following;
     playing.originalAudition = false;
     playing.heldAttenuationDb = -8.04;
@@ -125,10 +144,10 @@ inline void verifyReferenceStatusLine()
     heldReady.status = "READY / A REMAINS LIVE";
     heldReady.heldAttenuationDb = -7.24;
     const auto heldLine = reference_ui::referenceStatusLine (heldReady);
-    require (heldLine.text == "READY / A LOWERED 7.2 DB"
+    require (heldLine.text == juce::String::fromUTF8 (u8"C PAGE · A LOWERED 7.2 DB / PRESS C")
                  && i18n::translate (heldLine.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "7.2 dB")),
              "A lowered after a role still says how far, in both languages: " + heldLine.text);
-    require (reference_ui::referenceStatusLine (heldReady, true).text == "READY",
+    require (reference_ui::referenceStatusLine (heldReady, true).text == juce::String::fromUTF8 (u8"C PAGE · A PLAYING / PRESS C"),
              "with RETURN in the footer a held A is not said again");
     // 上限で届かない役は鳴ったまま、足りない量を言う。直し方はボタンが言う（2 度言うと 300% の足元で両方切れた）。
     auto offered = named ("ready");
@@ -247,7 +266,8 @@ inline void verifyReferenceStatusLine()
         require (reference_ui::referenceStatusLine (preparing).kind == StatusKind::unable,
                  "a ready marker cannot hide an explicit source failure");
         preparing.rolePreparation = {};
-        require (reference_ui::referenceStatusLine (preparing).text == "READY / A REMAINS LIVE", "a ready song reads ready");
+        require (reference_ui::referenceStatusLine (preparing).text == juce::String::fromUTF8 (u8"B PAGE · A PLAYING / PRESS B"),
+                 "a ready song names the page, that A plays, and the press that plays it");
         using P = reference_audition::RuntimeSongPreparation;
         require (reference_ui::preparationWord (P { "pending", "queued", {}, {}, "working", 3 }) == "3 AHEAD"
                      && reference_ui::preparationWord (P { "pending", "resolving", {}, {}, "working", 0 }) == "CHECKING"
