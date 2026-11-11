@@ -169,6 +169,15 @@ inline void verifyReferenceStatusLine()
         line = reference_ui::referenceStatusLine (issue);
         require (line.kind == StatusKind::ready && line.text.contains ("\"Song A\" was not read"),
                  "the B page keeps the publication notice while B plays: " + line.text);
+        // 状態の文（「A / B」で 1 文）を足した行も、その文のまま日本語になる（区切りで分けて英語に残さない）。
+        issue.publicationIssue = reference_ui::runtime_view::rejectedStatus ("reference_library_revision_conflict");
+        line = reference_ui::referenceStatusLine (issue);
+        const auto issueJapanese = i18n::translate (line.text, i18n::Language::japanese);
+        require (line.text.contains ("REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS")
+                     && issueJapanese.contains (i18n::translate ("REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS",
+                                                                 i18n::Language::japanese))
+                     && ! issueJapanese.contains ("PUBLICATION"),
+                 "the publication notice on the B page reads as one Japanese sentence: " + issueJapanese);
     }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.comparisonSlot = playing.audibleComparisonSlot = 3;
