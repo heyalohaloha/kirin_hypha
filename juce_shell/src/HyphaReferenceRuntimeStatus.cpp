@@ -86,7 +86,7 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
             : runtime.rejectionCode == "reference_alignment_no_match" ? "NO VERIFIED MATCH / CHECK VERSION V"
             : runtime.rejectionCode == "reference_alignment_ambiguous" ? "PLAY ANOTHER PASSAGE TO ALIGN V"
             : runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
-            : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"
+            : runtime.rejectionCode == "reference_checks_empty" ? "ADD SONGS TO A CHECK SET IN KIRIN OS"
             : runtime.rejectionCode == "reference_source_unavailable" ? stageLine (SourceStep::sourceUnavailable, runtime.comparisonSlot)
             : "RECEIVING REFERENCE";
     else

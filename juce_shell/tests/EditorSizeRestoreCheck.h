@@ -155,8 +155,9 @@ inline void verifyReferenceRoomSize()
     pane.onOpenLarge (2);
     openedAt -= 0.2;
     (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
-    require (editor->getWidth() == 900 && opened.startsWith ("C opened at 300%"),
-             "a window that stayed wide says C opened at 300%");
+    require (editor->getWidth() == 900 && opened.startsWith ("C opened at 300%")
+                 && (opened.endsWith ("Press C to listen.") || opened.contains ("opened at 300%. C: ")),
+             ("a window that stayed wide says C opened at 300%, and why C cannot play yet: " + opened).toRawUTF8());
     // The wait belongs to its press. The user's own size, another role, a later notice, another page
     // or a hidden window drops it without a word; a size the host may not have chosen gets no cause.
     auto& sizeView = *component<observatory::View> (*editor);

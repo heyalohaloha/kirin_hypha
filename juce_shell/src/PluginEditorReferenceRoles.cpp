@@ -4,6 +4,7 @@
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferenceNotices.h"
+#include "HyphaReferenceGuide.h"
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceSongChoice.h"
@@ -135,8 +136,10 @@ void KirinHyphaEditor::serviceReferenceOpenedNotice()
     const auto& state = referenceView.state();  // whether pressing again plays, as it is now
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
                                     : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    // 2026-11-11：まだ鳴らせなければ、開いた時に理由と直し方も言う（もう一度押すまで分からなかった）。
     if (getWidth() >= 900 && getHeight() >= 600)
-        showToast (hypha::reference_ui::notice::pageOpened (slot, playable));
+        showToast (hypha::reference_ui::notice::pageOpened (slot, playable)
+                   + (playable ? juce::String() : " " + hypha::reference_ui::unavailableText (state, slot == 1)));
     else if (getWidth() == referenceOpenedFrom.x && getHeight() == referenceOpenedFrom.y)
         showToast (hypha::reference_ui::notice::roomRequired());  // back at the size before: say what C and V need
     // Any other size is the user's own or the host's: nothing is said.
