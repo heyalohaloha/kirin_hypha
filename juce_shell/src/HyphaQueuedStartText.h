@@ -5,6 +5,11 @@
 namespace hypha::live_compare_ui
 {
 enum class QueuedStart { listen, blind, candidate };
+
+// A realtime bounce cannot be told from playback (only an offline render is reported), so it records what
+// the comparison plays. The first LISTEN, BLIND or A/B that starts in a plug-in says so once; the buttons'
+// help says it too.
+inline constexpr const char* realtimeBounceNotice = "Realtime bounce records what you hear; END first";
 enum class QueuedWait { returning, tail, stopped, other };
 
 // What the press waits for now. Stopped comes first: neither the return nor the tail moves without audio.

@@ -77,6 +77,7 @@ void KirinHyphaEditor::requestListenStart ()
                 return;
             }
             if (result != StartResult::started) showToast (hypha::live_compare_ui::startFailure (result));
+            else if (processorRef.takeRealtimeBounceNotice()) showActionNotice (hypha::live_compare_ui::realtimeBounceNotice);
             if (hypha::live_compare_ui::startNeedsPreChoice (result)) showCandidateMenu();
         });
 }

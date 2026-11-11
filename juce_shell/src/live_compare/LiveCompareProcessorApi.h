@@ -6,6 +6,8 @@ hypha::live_compare::StartResult startLiveCompare (std::optional<std::uint64_t> 
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 // INV-LC16：窓を閉じた間の AUTO（message thread だけ）。開き直した窓が同じ session なら続ける。
 hypha::live_compare::ProcessorState::AutoRest& liveCompareAutoRest() noexcept { return liveCompare.autoRest; }
+// No DAW tells a plug-in that a realtime bounce runs: true once per plug-in, at the first started LISTEN, BLIND or A/B.
+bool takeRealtimeBounceNotice() noexcept { return ! std::exchange (liveCompare.realtimeBounceNoticeGiven, true); }
 // LISTEN の開始と終わりだけで進む番号。ループの折り返しや再生の途切れでは変わらない（sessionGeneration と別）。
 std::uint64_t liveCompareListenSession() const noexcept { return liveCompare.listenSession.load (std::memory_order_acquire); }
 void stopLiveCompare (hypha::live_compare::RecoveryReason reason = hypha::live_compare::RecoveryReason::none);

@@ -2,6 +2,8 @@
 
 #include "../src/HyphaLiveCompareActionResult.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
+#include "../src/HyphaHelpLineText.h"
+#include "../src/HyphaQueuedStartText.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -50,9 +52,33 @@ inline void verifyGreyedEntriesSayWhy()
     if (items != 2 || ! reasonLine) fail ("a greyed menu item has its reason line");
 }
 
+// No DAW reports a realtime bounce, which records what a comparison plays (2026-11-11): the help of LISTEN, BLIND
+// and A/B says so on its second line. The help line keeps the button's own first line; both lines have Japanese.
+inline void verifyComparisonHelpSaysBounce()
+{
+    const auto fail = [] (const char* what) { std::cerr << "Realtime bounce help: " << what << '\n'; std::abort(); };
+    observatory::View post (observatory::Role::post); post.setVisible (true);
+    observatory::LiveCompareFooter state; state.entryEnabled = true;
+    post.setLiveCompareFooter (state);
+    post.setLocalBlindEntryEnabled (true);
+    post.setSize (900, 600);
+    for (const char* id : { "observatory-live-compare", "observatory-candidate-compare", "observatory-local-blind" })
+    {
+        auto* client = dynamic_cast<juce::TooltipClient*> (post.findChildWithID (id));
+        const auto help = client != nullptr ? client->getTooltip() : juce::String();
+        const auto first = help.upToFirstOccurrenceOf ("\n", false, false);
+        const auto japanese = i18n::translate (help, i18n::Language::japanese);
+        if (! help.endsWith (juce::String ("\n") + live_compare_ui::realtimeBounceNotice)) fail ("the help says what a bounce records");
+        if (help_line::forLine (help, false).contains ("bounce")) fail ("the help line keeps the first line");
+        if (! japanese.contains (juce::String::fromUTF8 (u8"リアルタイム書き出し")) || japanese.contains ("Realtime")
+            || japanese.contains (first)) fail ("both lines of the help have Japanese");
+    }
+}
+
 inline void verifyLiveCompareActionNotices()
 {
     verifyGreyedEntriesSayWhy();
+    verifyComparisonHelpSaysBounce();
     observatory::View post (observatory::Role::post); post.setVisible (true);
     observatory::LiveCompareFooter rail;
     rail.active = rail.matched = true;

@@ -58,7 +58,8 @@ void KirinHyphaEditor::confirmCandidateCompare (const juce::String& pre2, std::u
 void KirinHyphaEditor::startCandidateConfirmed (const juce::String& pre2, std::uint64_t ticket, bool waitForReturn)
 {
     const auto result = processorRef.startCandidateCompare (pre2, true, ticket);
-    refreshLiveCompare();
+    const auto generation = processorRef.liveCompareStatus().sessionGeneration;
+    const bool fault = refreshLiveCompare();  // a fault it just published is not covered by the bounce notice
     if (waitForReturn && (result == hypha::live_compare::StartResult::returnRequired
         || result == hypha::live_compare::StartResult::returnPending))
     {
@@ -75,5 +76,8 @@ void KirinHyphaEditor::startCandidateConfirmed (const juce::String& pre2, std::u
             ? "A/B: Record / Keep or another comparison is running"
             : result == hypha::live_compare::StartResult::notReady ? "A/B could not start" : hypha::live_compare_ui::startFailure (result));
     else if (processorRef.candidateTrackMismatch()) showToast ("A/B: track names differ");
+    else if (! fault && processorRef.candidateCompareActive()  // said only for the A/B that just started and still runs
+             && hypha::live_compare_ui::currentNamedAction (processorRef.liveCompareStatus(), generation, false)
+             && processorRef.takeRealtimeBounceNotice()) showToast (hypha::live_compare_ui::realtimeBounceNotice);
 }
 #endif

@@ -80,6 +80,8 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
     // Isolate every measurement, tooltip and accessibility sibling BEFORE publishing an anonymous source.
     layoutLocalBlindProduct();
     refreshLiveBlind();
+    if (liveBlindOpen && processorRef.takeRealtimeBounceNotice())
+        showActionNotice (hypha::live_compare_ui::realtimeBounceNotice);  // on the Blind screen, which covers the footer
     if (liveBlindView.isShowing()) liveBlindView.grabKeyboardFocus();
 }
 

@@ -15,6 +15,15 @@ const hypha::observatory::View* findView (juce::Component& parent)
     return nullptr;
 }
 
+// No DAW reports a realtime bounce (2026-11-11): the first comparison started in a plug-in says once that a
+// bounce records what is heard. LISTEN says it in the footer as it starts; BLIND after it does not repeat it.
+void requireBounceSaidOnce (Processor& post, const juce::String& listenFooter, bool listenFirst)
+{
+    require (! listenFirst || listenFooter == hypha::live_compare_ui::realtimeBounceNotice,
+             "LISTEN's start says that a realtime bounce records what you hear");
+    require (! post.takeRealtimeBounceNotice(), "the first start said it, once");
+}
+
 // Exercise the real END button with NO audio callback: dismissal cannot depend on rendering.
 // RT receipts and the approved attenuation stay untouched until the host supplies audio again.
 class SuspendedBlindEndProbe

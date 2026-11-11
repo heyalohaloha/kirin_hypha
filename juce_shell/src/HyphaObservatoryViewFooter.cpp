@@ -6,6 +6,7 @@
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaTextStyle.h"
 #include "HyphaFooterNoticeFont.h"
+#include "HyphaQueuedStartText.h"
 
 #include <cmath>
 #include <utility>
@@ -71,8 +72,8 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
     unavailable::set (localBlindButton, ! keepActive, "Finish Keep / Record before PRE / POST Blind");
     localBlindButton.setButtonText ("BLIND");
-    localBlindButton.setTooltip (keepActive ? "Finish Keep / Record before PRE / POST Blind"
-        : "Match levels and compare while the song plays");
+    localBlindButton.setTooltip (keepActive ? juce::String ("Finish Keep / Record before PRE / POST Blind")
+        : localBlindButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     // A POST that offers comparison keeps LISTEN and A/B; greyed, a click says why (INV-LC9).
     const bool entryShown = liveCompareState.entryEnabled || liveCompareState.entrySupported;
     candidateCompareButton.setVisible (full && entryShown && ! captureFrame);

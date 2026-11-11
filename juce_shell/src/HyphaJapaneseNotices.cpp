@@ -155,6 +155,7 @@ const Entry entries[] = {
     { "Play to continue, then B", u8"再生すると続き、そのあとBを鳴らします" },
     { "Play to continue, then Keep", u8"再生すると続き、そのあとKeepを始めます" },
     { "MATCH waits until A has played the Cue length (up to 30 s).", u8"Aがたまり次第MATCHします（最長30秒）" },
+    { "Realtime bounce records what you hear; END first", u8"リアルタイム書き出しは聴く音が入ります。先にEND" },
     // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
     { "LISTEN is restoring; try again in a moment", u8"LISTENを戻しています。少し待ってください" },
     { "End Blind Compare first", u8"先にBlind Compareを終えてください" },

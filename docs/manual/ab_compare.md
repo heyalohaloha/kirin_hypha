@@ -24,3 +24,4 @@ Normal measurement and capture are suspended during A/B. Finish Record / Keep be
 Hardware and effects with feedback or long tails retain their own history when their input
 changes. A/B does not reset them. Allow the effect to settle before judging it or exporting;
 an immediate offline render can include that retained history.
+A realtime bounce or export while A/B is on records what you hear, so press END first.

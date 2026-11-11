@@ -71,7 +71,7 @@ inline std::vector<Notice> notices()
         "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
         "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
-        "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
+        "End the current comparison first", "BLIND COMPARE COULD NOT START", live_compare_ui::realtimeBounceNotice }) add (text);
     // A press waiting for its start (HyphaQueuedStartText.h), for every start and wait.
     for (auto start : { live_compare_ui::QueuedStart::listen, live_compare_ui::QueuedStart::blind,
                         live_compare_ui::QueuedStart::candidate })
