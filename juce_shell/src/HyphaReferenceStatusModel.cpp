@@ -1,6 +1,7 @@
 #include "HyphaReferenceStatusModel.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceStages.h"
@@ -44,17 +45,24 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             || state.status == stageLine (SourceStep::cacheSpaceUnavailable, state.comparisonSlot)
             || state.status == stageLine (SourceStep::cacheWriteFailed, state.comparisonSlot))
             return { StatusKind::waiting, state.status };
-        // 聴いているあいだは、どう合わせているか（追従か固定か）を言う。PRE の Δ は止まっている。
+        // 聴いているあいだは、何を鳴らしているか（B・C は Kirin OS の決めた区間とループ。A の位置は追わない）と、音量を
+        // どう合わせているか（追従か固定か）を言う。区間が役の名前を言うので、音量の札は「LEVEL ...」だけ。PRE の Δ は止まっている。
         const auto role = state.separateComparisons ? juce::String (roleLetter (state.audibleComparisonSlot)) : juce::String ("B");
+        const auto section = state.separateComparisons ? playingSection (state) : juce::String();
+        const auto tag = section.isNotEmpty() ? juce::String() : role + " ";
         const bool rangeLimited = state.tracking == Tracking::following && std::abs (state.rangeShortfallDb) > 0.5 + 1.0e-9;
-        const auto range = role + " " + juce::String (std::abs (state.rangeShortfallDb), 1)
+        const auto range = tag + juce::String (std::abs (state.rangeShortfallDb), 1)
             + (state.rangeShortfallDb > 0.0 ? " DB UNDER A (FOLLOW LIMIT)" : " DB OVER A (FOLLOW LIMIT)");
-        const auto how = state.originalAudition ? role + " ORIGINAL LEVEL"
+        // 区間が無い（V、区間の分からない役）ときは今までの短い札（300% の足元で Blind のボタンの横に入る長さ）。
+        const auto level = state.originalAudition ? tag + "ORIGINAL LEVEL"
             : rangeLimited ? range
-            : state.tracking == Tracking::following ? role + " FOLLOWING A (LAST 10 S)"
+            : state.tracking == Tracking::following ? (section.isNotEmpty() ? juce::String ("LEVEL FOLLOWS A (LAST 10 S)") : role + " FOLLOWING A (LAST 10 S)")
             : state.tracking == Tracking::fixed && state.matchProvisional && state.aWindowNeededBlocks > 0
-                ? role + " MATCHING A " + juce::String (state.aWindowBlocks / 10) + " OF " + juce::String (state.aWindowNeededBlocks / 10) + " S"
-            : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
+                ? (section.isNotEmpty() ? juce::String ("LEVEL MATCHING A ") : role + " MATCHING A ") + juce::String (state.aWindowBlocks / 10)
+                    + " OF " + juce::String (state.aWindowNeededBlocks / 10) + " S"
+            : state.tracking == Tracking::fixed ? (section.isNotEmpty() ? juce::String ("LEVEL MATCHED AND FIXED") : role + " MATCHED AND FIXED")
+            : section.isNotEmpty() ? juce::String() : role + " AUDITION";
+        const auto how = section.isEmpty() ? level : level.isEmpty() ? section : section + "  /  " + level;
         // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。足元に RETURN（+x dB）が
         // 出ていれば言わない（2 度言うと 300% の足元で切れた。2026-10-05）。
         const auto lowered = state.heldAttenuationDb < -0.05 && ! returnInFooter

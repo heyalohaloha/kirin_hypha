@@ -238,7 +238,8 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;
     state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
-    state.cueLoops = checkRole.cueLoops;
+    state.cueLoops = checkRole.cueLoops || checkRole.cueWraps;
+    state.referenceWraps = runtime.referenceSelection != nullptr && runtime.referenceSelection->cueWraps;
     state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
     const auto aWindow = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
     state.aWindowLoudness = aWindow.loudness;

@@ -86,10 +86,20 @@ const Entry entries[] = {
     { "SOURCE IDENTITY HIDDEN", u8"音源は伏せています" },
     { "REVEALED", u8"答え表示中" },
     { "%1 AUDITION", u8"%1を試聴中" },
+    // 音量の合わせ方（2026-11-11：B・C の区間を言う行で、区間の追従と読み違えないよう「音量」と言う）。
     { "%1 FOLLOWING A (LAST 10 S)", u8"%1はA直近10秒に追従" },  // 凡例・B の一覧と同じ「A直近10秒」。300% の足元に入る
+    { "LEVEL FOLLOWS A (LAST 10 S)", u8"音量はA直近10秒に追従" },
     { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2 / %3秒）" },
+    { "LEVEL MATCHING A %1 OF %2 S", u8"音量をAに合わせ中（%1 / %2秒）" },
     { "%1 MATCHED AND FIXED", u8"%1はMATCH済み・固定" },
+    { "LEVEL MATCHED AND FIXED", u8"音量はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },
+    { "ORIGINAL LEVEL", u8"元の音量" },
+    // B・C が鳴らす区間（A の位置を追わず、Kirin OS の決めた Cue を繰り返す）。
+    { "%1 LOOP", u8"%1 繰り返し" },
+    { "C CHORUS %1", u8"Cサビ %1" },
+    { "C LOUDEST 30 S %1", u8"C最も大きい30秒 %1" },
+    { "C CUE %1", u8"CのCue %1" },
     { "V plays %1; positioning %2", u8"Vは%1を再生中。%2の位置を合わせています" },  // V の Version を替える間
     { "Open V at 300%", u8"Vを300%で開く" }, { "Open C at 300%", u8"Cを300%で開く" },
     { "%1 opened at 300%. Press %2 to listen.", u8"%1を300%で開きました。%2を押すと試聴します。" },

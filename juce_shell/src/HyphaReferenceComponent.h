@@ -208,7 +208,8 @@ struct State
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
-    bool cueLoops = false;
+    bool cueLoops = false;      // C の Cue が終わりで頭へ戻る（Kirin OS の印か、A の位置を追わない Cue）
+    bool referenceWraps = false;  // B の Cue が同じく繰り返す
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
     reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
     CueSubstitute cueSubstitute = CueSubstitute::none;          // C の Cue の値が無いときの代わり（状態の行が言う）

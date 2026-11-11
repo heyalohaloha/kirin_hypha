@@ -69,6 +69,33 @@ inline void verifyReferenceStatusLine()
                              && i18n::translate (text, i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"追従上限")),
                          "both roles report the signed residual first in both languages");
         }
+    // 2026-11-11：B・C は A の位置を追わず Kirin OS の決めた区間を繰り返す。何を鳴らしているか（区間とループ）を先に、
+    // 音量の合わせ方をその後に言う（区間が役の名前を言う）。区間が分からなければ今までどおり役の名前で言う。
+    {
+        auto c = playing;
+        c.audibleComparisonSlot = 2; c.tracking = Tracking::following; c.originalAudition = false;
+        c.cuePart = reference_audition::CuePart::chorus; c.cueStartSeconds = 173.0; c.cueEndSeconds = 187.0; c.cueLoops = true;
+        const auto line = reference_ui::referenceStatusLine (c).text;
+        const auto japanese = i18n::translate (line, i18n::Language::japanese);
+        require (line == "C CHORUS 2:53-3:07 LOOP  /  LEVEL FOLLOWS A (LAST 10 S)" + pre
+                     && japanese.contains (juce::String::fromUTF8 (u8"Cサビ 2:53-3:07 繰り返し"))
+                     && japanese.contains (juce::String::fromUTF8 (u8"音量はA直近10秒に追従")),
+                 "C names its looped section, then how its level is held, in both languages: " + line + " / " + japanese);
+        auto b = playing;
+        b.audibleComparisonSlot = 3; b.tracking = Tracking::following; b.originalAudition = false; b.rangeShortfallDb = 2.0;
+        b.songs = { { "s1", "Song" } }; b.songId = "s1"; b.referenceWraps = true;
+        b.songFacts.resize (1); b.songFacts[0].part = reference_audition::CuePart::cue;
+        b.songFacts[0].partStartSeconds = 10.0; b.songFacts[0].partEndSeconds = 25.0;
+        const auto bLine = reference_ui::referenceStatusLine (b).text;
+        const auto bJapanese = i18n::translate (bLine, i18n::Language::japanese);
+        require (bLine == "B CUE 0:10-0:25 LOOP  /  2.0 DB UNDER A (FOLLOW LIMIT)" + pre
+                     && bJapanese.contains (juce::String::fromUTF8 (u8"BのCue 0:10-0:25 繰り返し"))
+                     && bJapanese.contains (juce::String::fromUTF8 (u8"Aより2.0 dB小さい（追従上限）")) && ! bJapanese.contains ("%"),
+                 "B names the section of the song that plays, and a follow limit without repeating the role: " + bLine + " / " + bJapanese);
+        b.referenceWraps = false; b.rangeShortfallDb = 0.0; b.originalAudition = true;
+        require (reference_ui::referenceStatusLine (b).text == "B CUE 0:10-0:25  /  ORIGINAL LEVEL" + pre,
+                 "LOOP only when the Cue repeats");
+    }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.audibleComparisonSlot = 3;
     playing.tracking = Tracking::following;

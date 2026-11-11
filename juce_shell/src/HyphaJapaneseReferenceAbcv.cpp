@@ -115,6 +115,9 @@ const Entry entries[] = {
     // 日本語名にする（HyphaReferenceDisplayText.h。2026-10-18：同じ綴りの自作の名前を訳さない）。
     { "%1 %2 DB UNDER A (FOLLOW LIMIT)", u8"%1 Aより%2 dB小さい（追従上限）" },
     { "%1 %2 DB OVER A (FOLLOW LIMIT)", u8"%1 Aより%2 dB大きい（追従上限）" },
+    // 区間を言う行（B・C）では役の名前を区間が言う。上の 2 つの値の形より後に置く（先に合うと役の名前が値に入る）。
+    { "%1 DB UNDER A (FOLLOW LIMIT)", u8"Aより%1 dB小さい（追従上限）" },
+    { "%1 DB OVER A (FOLLOW LIMIT)", u8"Aより%1 dB大きい（追従上限）" },
     { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（Peak上限）" },
     { "%1 DB UNDER A", u8"Aより%1 dB小さい" },
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。

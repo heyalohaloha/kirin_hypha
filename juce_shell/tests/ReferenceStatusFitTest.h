@@ -132,6 +132,21 @@ inline void verifyReferenceStatusFits()
             limited.rangeShortfallDb = residual;
             cases.push_back ({ "following at range limit", limited });
         }
+    {
+        // 2026-11-11：B・C は鳴らしている区間とループを先に言う（最初の区切りが 300% の足元に入る）。
+        auto section = base;
+        section.comparisonSlot = section.audibleComparisonSlot = 2;
+        section.bSelected = true; section.tracking = Tracking::following;
+        section.cuePart = reference_audition::CuePart::loudest; section.cueLoops = true;
+        section.cueStartSeconds = 593.0; section.cueEndSeconds = 623.0;
+        cases.push_back ({ "C plays its looped section", section });
+        section.comparisonSlot = section.audibleComparisonSlot = 3;
+        section.songs = { { "s", "Song" } }; section.songId = "s"; section.referenceWraps = true;
+        section.songFacts.resize (1); section.songFacts[0].part = reference_audition::CuePart::chorus;
+        section.songFacts[0].partStartSeconds = 173.0; section.songFacts[0].partEndSeconds = 187.0;
+        section.rangeShortfallDb = 4.0;
+        cases.push_back ({ "B plays its looped section at a follow limit", section });
+    }
     // 2026-10-06：段階の表の全部の段階 × 全部の役（今までは 5 つの状態だけだった）。
     std::vector<juce::String> stageNames;
     stageNames.reserve (static_cast<size_t> (reference_ui::stageCount) * 3);  // Case は名前の文字を指すので動かさない
