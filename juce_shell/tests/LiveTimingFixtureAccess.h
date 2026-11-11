@@ -109,7 +109,7 @@ public:
         state.preWaiting.store (true);
         state.observationReason.store (reason);
     }
-    static hypha::live_compare::OffsetEstimate holdContent (KirinHyphaProcessorBase& processor, std::int64_t lag = 96)
+    static hypha::live_compare::OffsetEstimate noticeContent (KirinHyphaProcessorBase& processor, std::int64_t lag = 96)
     {
         hypha::live_compare::OffsetEstimate e;
         e.determined = true; e.sampleRate = processor.preparedFormat.sampleRate > 0
@@ -119,7 +119,7 @@ public:
         e.timelineGeneration = processor.liveCompare.timelineGeneration.load();
         e.alignContext = processor.liveCompare.alignContext();
         e.alignRevision = processor.liveCompare.renderer.alignRevision();
-        processor.holdLiveCompareForContentJump (e);
+        processor.noticeLiveCompareContentTiming (e);
         return e;
     }
     static void blindWaiting (KirinHyphaProcessorBase& processor, hypha::live_compare::BlindStage stage)

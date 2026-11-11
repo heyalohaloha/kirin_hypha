@@ -211,24 +211,29 @@ private:
                 break;
             case 4:
             {
-                // The latency changed with the clocks unchanged: POST is held (INV-LC10).
-                heldNoticeSeen = heldNoticeSeen || footer() == "Timing changed: check chain delay (POST)";
+                // The latency changed with the clocks unchanged: PRE keeps sounding at K and the
+                // status line tells the measured change (INV-LC10).
+                const juce::String notice ("PRE 62.50 ms early / Check chain delay and DAW compensation");
+                heldNoticeSeen = heldNoticeSeen || footer() == notice;
                 if (! post->liveCompareStatus().contentHeld || ! heldNoticeSeen) break;
+                require (post->liveCompareStatus().preAudible == post->liveCompareStatus().preSelected
+                         && ! post->liveCompareStatus().preWaiting,
+                         "a content timing notice never holds the selected output back");
                 if (heldAt == std::chrono::steady_clock::time_point()) heldAt = std::chrono::steady_clock::now();
                 if (std::chrono::steady_clock::now() - heldAt < std::chrono::milliseconds (3500)) break;
-                require (footer() == "Timing changed: check chain delay (POST)", "recovery persists beyond the toast timeout");
-                // The exact settled measurement that triggered the hold is retained. Re-reading
-                // a moving RT history here can be undetermined and is not the jump evidence.
+                require (footer() == notice, "the notice persists beyond the toast timeout");
+                // The exact settled measurement behind the notice is retained. Re-reading a moving
+                // RT history here can be undetermined and is not the jump evidence.
                 require (post->liveCompareStatus().contentJumpLagFrames == -3000,
-                         "the 62.50 ms observation remains measured under the recovery notice");
+                         "the 62.50 ms observation remains measured under the notice");
                 std::cout << "held: " << footer() << std::endl;
                 play.store (false);
                 ++stage;
                 break;
             }
             case 5:
-                // Stopping ends the hold; the session stays for the next run. One audio callback
-                // clears the hold before it revokes MATCH, so wait until the stop is fully observed.
+                // Stopping ends the notice; the session stays for the next run. One audio callback
+                // clears it before it revokes MATCH, so wait until the stop is fully observed.
                 if (post->liveCompareStatus().contentHeld || post->liveCompareStatus().matched) break;
                 require (post->liveCompareStatus().contentJumpLagFrames == 0,
                          "the prior run's jump evidence does not leak into a new run");
@@ -297,10 +302,12 @@ private:
             case 10:
             {
                 const auto status = post->liveCompareStatus();
-                const juce::String expected ("PRE 10.42 ms late / Check chain delay and DAW compensation; POST plays");
-                if (status.observation != hypha::live_compare::RecoveryReason::preLate || footer() != expected) break;
-                require (status.preSelected && status.preWaiting && !status.preAudible,
-                         "confirmed late PRE retains selection while exact POST plays");
+                // INV-LC10: a confirmed late PRE sounds at its clock position; the footer tells it.
+                const juce::String expected ("PRE 10.42 ms late / Check chain delay and DAW compensation");
+                if (! status.contentHeld || footer() != expected) break;
+                require (status.preSelected && ! status.preWaiting && status.preAudible
+                         && status.observation != hypha::live_compare::RecoveryReason::preLate,
+                         "a confirmed late PRE keeps sounding at K instead of POST");
                 const auto japanese = hypha::i18n::translate (footer(), hypha::i18n::Language::japanese);
                 require (japanese.contains ("10.42") && japanese.contains (juce::String::fromUTF8 (u8"遅れ"))
                          && japanese.contains (juce::String::fromUTF8 (u8"遅延補正")),
@@ -316,7 +323,7 @@ private:
             {
                 if (!post->liveCompareStatus().preAudible || footer() != "PRE 62.50 ms aligned") break;
                 require (post->liveCompareStatus().preSelected, "corrected chain automatically resumes the same selected PRE");
-                std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold, "
+                std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, content notice, "
                              "delay compensation off, alignment, uncorrectable timing guidance and recovery)\n";
                 passed = true;
                 stopTimer();

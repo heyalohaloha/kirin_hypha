@@ -82,7 +82,7 @@ inline void verifyCurrentRecoveryNotHistory()
                  "END waiting for an audio callback remains explicit");
         status.finishing = false; status.contentHeld = true;
         require (currentNamedPresentation (status, admission).action == RecoveryAction::none,
-                 "after END at normal POST level a timing hold has no stop/play remedy; LISTEN shows it again");
+                 "after END at normal POST level a content timing notice has no remedy; LISTEN shows it again");
         status.contentHeld = false; status.active = true;
         const auto current = currentNamedPresentation (status, admission);
         const auto recovery = namedPresentation (status, admission);

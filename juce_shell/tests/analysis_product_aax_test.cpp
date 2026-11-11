@@ -188,7 +188,7 @@ try
         if (scenario == "alignment_recovery")
         {
             newMappingStartsWithOneVote (layout == "mono" ? 1 : 2);
-            waitingBlindCanDisableAlignment (layout == "mono" ? 1 : 2);
+            lateBlindSoundsAtItsClock (layout == "mono" ? 1 : 2);
             waitingBlindResumesAtItsClock (layout == "mono" ? 1 : 2);
             heardSourcesCanRevealDuringRecheck (layout == "mono" ? 1 : 2);
             unconfirmableChainPlaysPreAtItsClock (layout == "mono" ? 1 : 2);

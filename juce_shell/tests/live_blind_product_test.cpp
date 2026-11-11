@@ -276,7 +276,8 @@ private:
                 {
                     using Reason = hypha::live_compare::RecoveryReason;
                     faultGain = post->liveCompareStatus().gain;
-                    if (faultReason == Reason::contentChanged) LiveTimingFixtureAccess::holdContent (*post, -3000);
+                    faultRatio = lastOutputRatio.load();
+                    if (faultReason == Reason::contentChanged) LiveTimingFixtureAccess::noticeContent (*post, -3000);
                     else if (faultReason == Reason::callbackGap) injectGap.store (true);
                     else if (faultReason == Reason::stopped) play.store (false);
                     else post->kirinHostDelayCompensationStateChanged (false);
@@ -311,9 +312,11 @@ private:
                 require (std::abs (post->liveCompareStatus().gain - faultGain) <= 0.0f,
                          "recovery never remeasures the approved fixed gain");
                 if (faultReason == hypha::live_compare::RecoveryReason::compensationOff
-                    || faultReason == hypha::live_compare::RecoveryReason::stopped
-                    || faultReason == hypha::live_compare::RecoveryReason::contentChanged)
+                    || faultReason == hypha::live_compare::RecoveryReason::stopped)
                     require (lastOutputRatio.load() < 0.0f, "unresolved timing holds original POST");
+                if (faultReason == hypha::live_compare::RecoveryReason::contentChanged)
+                    require (std::abs (lastOutputRatio.load() - faultRatio) < 0.0001f,
+                             "a content timing notice keeps the selected source sounding (INV-LC10)");
                 post->kirinHostDelayCompensationStateChanged (true);
                 play.store (true);
                 if (faultReason == hypha::live_compare::RecoveryReason::callbackGap)
@@ -441,7 +444,7 @@ private:
     bool loopMode = false;
     bool certifiedStallArmed = false;
     int recoveredStalls = 0, stallRestarts = 0;
-    float faultGain = 1.0f;
+    float faultGain = 1.0f, faultRatio = 0.0f;
     hypha::live_compare::RecoveryReason faultReason;
     std::atomic<bool> injectGap { false };
     float reusedGain = 1.0f, held = 1.0f, firstRatio = 0.0f;

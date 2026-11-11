@@ -108,8 +108,9 @@ inline std::vector<Notice> notices()
         for (const auto* side : { " early", " late" }) add (juce::String ("PRE ") + offset + " ms" + side);
     for (const auto* offset : { "0.02", "170.67", "9999.99" })
     {
-        Status state; state.active = state.preSelected = state.prolongedWait = true;
-        state.observation = RecoveryReason::preLate;
+        // INV-LC10: the content timing notice; PRE still sounds at K.
+        Status state; state.active = state.preSelected = state.prolongedWait = state.contentHeld = true;
+        state.contentJumpLagFrames = 1;
         add (juce::String ("PRE ") + offset + " ms late / " + live_compare_ui::namedPresentation (state).instruction, state);
     }
     for (int n = 0; n <= static_cast<int> (live_compare_ui::AutoReadiness::blocked); ++n)
@@ -162,6 +163,7 @@ inline std::vector<BlindCase> blindCases()
                         : mode == 6 ? LoopPairingBlock::aaxLoop : LoopPairingBlock::none;
         state.prolongedWait = mode < 10;
         state.trial.revealed = mode == 7 || mode >= 11;
+        state.contentNoticeMs = mode == 7 ? 9999.99 : 0.0; // RESULT: the content estimate, longest amount
         state.trial.usedPostFallback = mode >= 11;
         state.trial.fallbackForTiming = mode == 11 || mode == 13;
         state.trial.fallbackForCeiling = mode >= 12;

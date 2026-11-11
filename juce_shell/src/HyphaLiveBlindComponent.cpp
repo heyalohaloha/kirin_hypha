@@ -55,6 +55,11 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             : "POST played for timing and the PRE ceiling";
     if (revealed && current.candidate && current.trial.usedPostFallback)
         instruction = "Chain audio was used briefly";
+    // INV-LC10: PRE kept its clock position; after REVEAL the estimate is told as a possibility. It
+    // explains a short timing substitute too; a ceiling substitute is still said first.
+    if (revealed && ! current.trial.fallbackForCeiling && current.contentNoticeMs != 0.0)
+        instruction = juce::String (current.candidate ? "Audio estimate: A may have been " : "Audio estimate: PRE may have been ")
+            + juce::String (std::fabs (current.contentNoticeMs), 2) + " ms off";
     if (current.candidate && current.stage == Stage::preparing && current.matchSecondsRemaining > 0)
     {
         instruction = "MATCH: " + juce::String (current.matchSecondsRemaining) + " s remaining";
@@ -85,8 +90,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.revealEnabled = current.trial.played == 3;
     // Keep an earned REVEAL reachable; ALIGN OFF only replaces an unavailable action.
     screen.alignOffShown = !stopped && !finishing && current.prolongedWait
-        && (guidance.reason == live_compare::RecoveryReason::contentAmbiguous
-            || guidance.reason == live_compare::RecoveryReason::preLate)
+        && guidance.reason == live_compare::RecoveryReason::contentAmbiguous
         && !(screen.revealShown && screen.revealEnabled);
     screen.approveShown = current.stage == Stage::approval && !current.compensationOff;
     screen.approveTitle = current.candidate ? "Lower B and begin Blind" : "Lower POST and begin Blind";

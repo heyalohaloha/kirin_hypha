@@ -226,9 +226,8 @@ private:
         // A block without proof is POST from its first frame, and so is an idle one.
         if (idle || (! status.active && status.reason != hypha::live_compare::RecoveryReason::none)
             || status.verdict != hypha::live_compare::Verdict::accepted
-            || status.observation == hypha::live_compare::RecoveryReason::ceiling || status.contentHeld
+            || status.observation == hypha::live_compare::RecoveryReason::ceiling
             || (status.observation == hypha::live_compare::RecoveryReason::calibrating
-                || status.observation == hypha::live_compare::RecoveryReason::preLate
                 || status.observation == hypha::live_compare::RecoveryReason::contentAmbiguous)
             || (LiveTimingFixtureAccess::gainRevision (*post).load() & 1u) != 0)
         {

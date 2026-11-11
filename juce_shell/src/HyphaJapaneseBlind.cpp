@@ -20,7 +20,6 @@ const Entry entries[] = {
     { "POST played for timing and the PRE ceiling", u8"タイミング未確認と上限超えの所はPOSTを鳴らしました" },
     { "Timing unavailable; check PRE and play (POST)", u8"タイミング未確認：PREを確認し再生（POST）" },
     { "Check chain levels; resumes automatically (POST)", u8"チェーンの音量を確認すると自動で戻ります（POST出力）" },
-    { "Timing changed: check chain delay (POST)", u8"時間差が変化：チェーンの遅延を確認（POST）" },
     { "This DAW cannot verify timing; comparison is unavailable", u8"このDAWではPREとPOSTのタイミングを確かめられないため使えません" },
 
     // ローカル Blind の取り込みと live 比較の段階（2026-10-04 まで Reference の A の取り込みの区分にあった）。

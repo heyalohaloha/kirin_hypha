@@ -127,13 +127,13 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         return;
     }
 
-    // INV-LC10: a playback run starts at play after stop; a content-jump hold ends with its run.
+    // INV-LC10: a playback run starts at play after stop; a content timing notice ends with its run.
     if (block.playing && ! liveCompare.wasPlaying)
         liveCompare.playbackRun.fetch_add (1, std::memory_order_acq_rel);
     if (! block.playing)
         liveCompare.contentHold.stopped();
     liveCompare.wasPlaying = block.playing;
-    const bool contentHeld = liveCompare.contentHold.held();
+    const bool contentNotice = liveCompare.contentHold.held(); // told after 3 s; never changes the output
     // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
     const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
     const auto compensationRevision = liveCompare.compensationRevision.load (std::memory_order_acquire);
@@ -191,7 +191,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         permitted ? Reason::none : (liveCompare.pairRevocationGeneration.load (std::memory_order_acquire)
             == liveCompare.authority.generation() ? Reason::pairChanged : Reason::restored),
         bypassed, nonRealtimeMode, usable, outputTaken, block.playing, block.projectValid,
-        block.clockValid, callbackGap, compensationOff, contentHeld };
+        block.clockValid, callbackGap, compensationOff };
     const auto selection = liveCompare.selection.command();
     const auto revision = gains.revision;
     const float gain = gains.pre, ceiling = gains.ceiling;
@@ -271,7 +271,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             }
         }
         // Renderer lifetime is protected by the publication slot, including END/fault reads.
-        if (! permitted || blindRejected || ! coherent || contentHeld) liveCompare.renderer.silenceTransition();
+        if (! permitted || blindRejected || ! coherent) liveCompare.renderer.silenceTransition();
         if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
         if (! usable || outputTaken)
         {
@@ -339,7 +339,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    ceiling, blindCommand.active() && ! blindRejected,
                                                    cycleUnverified ? Reason::cycleUnverified : Reason::none,
                                                    trace != nullptr ? &trace->decision : nullptr,
-                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! contentHeld && ! compensationOff, true },
+                                                   { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! compensationOff, true },
                                                    // END releases proof authority while the audio return still needs its fade.
                                                    candidateReturning ? 0 : candidateToken, candidateToken != 0,
                                                    blindLive);
@@ -395,7 +395,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             if (coherent && (!gainCurrent || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision))
                 liveCompare.blind.invalidate (blindCommand, Reason::gainChanged);
             else if (report.verdict != hypha::live_compare::Verdict::accepted || report.guardTripped
-                || report.preWaiting || report.alignWaiting || contentHeld || compensationOff || !coherent)
+                || report.preWaiting || report.alignWaiting || compensationOff || !coherent)
             {
                 if (hypha::live_compare::endsComparison (report.reason))
                     liveCompare.blind.invalidate (blindCommand, report.reason);
@@ -414,7 +414,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.verdict.store (static_cast<std::uint8_t> (report.verdict), std::memory_order_release);
         liveCompare.preAudible.store (report.preAudible, std::memory_order_release);
         const bool preHeldBack = report.preWaiting
-            || (preSelected && (contentHeld || compensationOff) && ! report.guardTripped);
+            || (preSelected && compensationOff && ! report.guardTripped);
         liveCompare.preWaiting.store (preHeldBack, std::memory_order_release);
         liveCompare.observationReason.store (report.reason, std::memory_order_release);
         if (preHeldBack)
@@ -451,7 +451,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         }
     }
     liveCompare.waitNotice.observe (liveCompare.sessionActive.load (std::memory_order_acquire)
-        && (!rendered || !usable || outputTaken || contentHeld || compensationOff || !coherent
+        && (!rendered || !usable || outputTaken || contentNotice || compensationOff || !coherent
             || (liveCompareAutoAlign() && liveCompare.renderer.alignPending())
             || liveCompare.verdict.load (std::memory_order_acquire)
                 != static_cast<std::uint8_t> (hypha::live_compare::Verdict::accepted)

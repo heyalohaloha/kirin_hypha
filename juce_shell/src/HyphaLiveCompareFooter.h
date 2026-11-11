@@ -17,7 +17,7 @@ struct LiveCompareFooter
     bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
     int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
-    bool contentHeld = false;  // INV-LC10: POST until playback stops and restarts
+    bool contentHeld = false;  // INV-LC10: a content timing notice; PRE still sounds at K
     bool following = false;    // INV-LC16: AUTO keeps PRE's gain on POST's loudness
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off; PRE waits
     const char* recoveryHelp = "";

@@ -11,7 +11,6 @@ const char* hypha::live_compare_ui::startFailure (StartResult result) noexcept
     {
         case StartResult::started:
         case StartResult::notPost:           return "";
-        case StartResult::contentHeld:       return "Timing changed: check chain delay (POST)";
         case StartResult::comparisonBusy:    return "End the current comparison first";
         case StartResult::returnPending:     return "Ended; normal level returns with audio";
         case StartResult::returnRequired:    return "Press RETURN first";

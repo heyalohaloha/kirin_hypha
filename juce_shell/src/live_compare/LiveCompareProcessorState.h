@@ -41,6 +41,8 @@ struct LiveBlindStatus
     RecoveryReason reason = RecoveryReason::none;
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
+    std::int64_t contentLagFrames = 0; // INV-LC10 notice: positive when PRE is late
+    double contentNoticeMs = 0.0;      // the last notice in this trial, for the RESULT only
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
     ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
     bool prolongedWait = false, signalWait = false;
@@ -70,8 +72,8 @@ struct Status
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
-    bool contentHeld = false; // INV-LC10: POST until playback stops and restarts
-    std::int64_t contentJumpLagFrames = 0; // settled offset that caused the hold; zero when not held
+    bool contentHeld = false; // INV-LC10: a strong estimate the clock cannot act on; PRE still sounds at K
+    std::int64_t contentJumpLagFrames = 0; // the settled offset of that notice; zero without one
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off
     RecoveryReason reason = RecoveryReason::none; // retained first failure, never a current blocker
     RecoveryReason observation = RecoveryReason::none;
@@ -166,11 +168,11 @@ struct ProcessorState
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
     std::uint64_t alignConfirmStart = 0;          // message thread: the short wait for content (INV-LC28)
-    std::uint64_t alignLateAt = 0;                // message thread: the last confident late PRE (INV-LC28)
-    std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a hold (INV-LC10)
+    std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a notice (INV-LC10)
+    double blindContentNoticeMs = 0.0;            // message thread: a notice during this BLIND trial
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
     OffsetWindow contentWindow;
-    ContentHold contentHold;      // INV-LC10: the content offset jumped
+    ContentHold contentHold;      // INV-LC10: a status-line notice; never changes the output
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved

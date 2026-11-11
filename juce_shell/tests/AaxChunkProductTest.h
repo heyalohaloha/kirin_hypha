@@ -259,13 +259,13 @@ inline void chunkedPost (int channels)
     post.kirinHostDelayCompensationStateChanged (true);
     chain.settled (40, "the same anonymous source returns after compensation ON");
     require (post.liveCompareAlignFrames() == 1024, "compensation recovery cannot apply pending alignment in BLIND");
-    LiveTimingFixtureAccess::holdContent (post, -2048);
+    LiveTimingFixtureAccess::noticeContent (post, -2048);
     for (int i = 0; i < 4; ++i) chain.chunk (false);
-    require (! post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024,
-             "a content hold is not an anonymous source switch");
+    require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024,
+             "a content timing notice neither switches nor mutes the anonymous source (INV-LC10)");
     LiveTimingFixtureAccess::clearContent (post);
-    chain.settled (40, "the same anonymous source returns after a content hold");
-    require (post.liveCompareAlignFrames() == 1024, "the trial's address survives temporary POST output");
+    chain.settled (40, "the same anonymous source plays on after the notice");
+    require (post.liveCompareAlignFrames() == 1024, "the trial's address survives the notice");
     chain.seek (chain.transport + 96000);
     chain.settled (40, "BLIND returns after a timing interruption");
     require (post.liveCompareAlignFrames() == 1024, "a seek cannot apply the pending address in BLIND");
@@ -285,10 +285,15 @@ inline void chunkedPost (int channels)
     const auto after = post.liveCompareStatus();
     require (after.preAudible && after.gain == gain && after.verdict == Verdict::accepted, "the same source at the same gain");
     require (post.revealLiveBlind() && post.liveBlindStatus().trial.usedPostFallback, "REVEAL says POST stood in");
-    // The result names what actually happened.
+    // The result names what actually happened. The content notice in this trial is told as an
+    // estimate in place of the timing substitute (INV-LC10); without one, the substitute is named.
+    require (std::abs (post.liveBlindStatus().contentNoticeMs + 2048.0 * 1000.0 / 48000.0) < 1.0e-9
+             && hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, 1.0f).instruction
+                == "Audio estimate: PRE may have been 42.67 ms off", "RESULT tells the trial's content estimate");
     const auto revealed = [&] (bool timing, bool ceiling)
     {
         auto status = post.liveBlindStatus();
+        status.contentNoticeMs = 0.0;
         status.trial.fallbackForTiming = timing;
         status.trial.fallbackForCeiling = ceiling;
         return hypha::live_blind_ui::screenFor (status, true, 1.0f).instruction;
