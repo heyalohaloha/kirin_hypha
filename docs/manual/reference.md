@@ -56,7 +56,10 @@ pages; one choice serves both, and the project remembers it.
   with any waiting press.
 
 Switching while B or C plays moves it to the new position with a short crossfade (A plays for the moment the
-new position takes to load), and its level is matched again by the new way's rule. Choosing or restoring a
+new position takes to load); the new position and its level, matched again by the new way's rule, arrive
+together, so the ceiling is never exceeded. If the level cannot be matched yet (A's level is unknown), A plays,
+the status line says what B or C waits for, and it starts once it can be matched. A level held while the DAW is
+stopped is not reused after a switch: B or C is matched again when it comes back. Choosing or restoring a
 way never starts a role. V always follows A's position by its content, and Blind is unchanged.
   V works best with Hypha on the 2Mix.
 

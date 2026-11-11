@@ -223,54 +223,6 @@ namespace hypha::reference_audition
         return true;
     }
 
-    // B・C の流し方（メッセージスレッド）。写像と一緒に書き、鳴っていれば曲の切替と同じ短いクロスフェードで今の位置から
-    // 新しい位置へ移る（同じ PCM の別の位置。新しい位置のページが無ければ読み込むまで A）。LOOP へ戻すときは今の位置に
-    // Cue の頭を置き直す。V は A の位置を中身で合わせるので使わない。
-    void RuntimeV2Controller::setFollowA (bool follow) noexcept
-    {
-        if (versionComparison) return;
-        const juce::ScopedLock lock (mappingWriteLock);
-        if (followA.load (std::memory_order_relaxed) == follow) return;
-        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-        followA.store (follow, std::memory_order_relaxed);
-        if (! follow && ! sampleLocked.load (std::memory_order_relaxed))
-        {
-            bHostAnchor.store (latestHostPosition.load (std::memory_order_acquire), std::memory_order_relaxed);
-            bSourceAnchor.store (cueStart.load (std::memory_order_relaxed), std::memory_order_relaxed);
-        }
-        normalSwitchSerial.fetch_add (1, std::memory_order_acq_rel);
-        mappingGeneration.fetch_add (1, std::memory_order_release);
-        // 繰り返す Cue の頭と終わりのページは LOOP の間だけ押さえる（FOLLOW A は曲の先を読む）。
-        const auto start = cueStart.load (std::memory_order_relaxed), end = cueEnd.load (std::memory_order_relaxed);
-        currentPages().setPinnedCue (start, end, ! follow && (cueLoops.load (std::memory_order_relaxed) || restartsAtCueStart()));
-        if (const auto position = mappedSourcePosition (latestHostPosition.load (std::memory_order_acquire)); position >= 0)
-            currentPages().request (position);
-    }
-
-    // FOLLOW A の手のずらし（秒。正で参照曲が先へ進む）。±10 分まで。曲・区間・形式が替わると作業スレッドが 0 に戻す。
-    void RuntimeV2Controller::setFollowOffsetSeconds (double seconds) noexcept
-    {
-        if (versionComparison || ! std::isfinite (seconds)) return;
-        double rate = 0.0;
-        { const juce::ScopedLock state (stateLock); rate = requestedConfiguration.sampleRate; }
-        const auto samples = rate > 0.0 ? static_cast<std::int64_t> (std::llround (juce::jlimit (-600.0, 600.0, seconds) * rate)) : 0;
-        const juce::ScopedLock lock (mappingWriteLock);
-        if (followOffset.load (std::memory_order_relaxed) == samples) return;
-        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-        followOffset.store (samples, std::memory_order_relaxed);
-        if (followA.load (std::memory_order_relaxed)) normalSwitchSerial.fetch_add (1, std::memory_order_acq_rel);
-        mappingGeneration.fetch_add (1, std::memory_order_release);
-        if (const auto position = mappedSourcePosition (latestHostPosition.load (std::memory_order_acquire)); position >= 0)
-            currentPages().request (position);
-    }
-
-    double RuntimeV2Controller::followOffsetSeconds() const noexcept
-    {
-        const juce::ScopedLock state (stateLock);
-        const auto rate = requestedConfiguration.sampleRate;
-        return rate > 0.0 ? static_cast<double> (followOffset.load (std::memory_order_acquire)) / rate : 0.0;
-    }
-
     bool RuntimeV2Controller::startBlind (double aIntegratedLoudness,
                                           double aMaximumTruePeakDbtp) noexcept
     {

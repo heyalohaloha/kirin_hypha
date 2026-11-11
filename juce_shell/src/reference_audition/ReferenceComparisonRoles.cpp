@@ -42,11 +42,33 @@ bool ReferenceComparisonController::selectRef (double loudness, double peak) noe
 void ReferenceComparisonController::selectA() noexcept
 { clearPendingAudition(); dropResume(); version.selectA(); check.selectA(); reference.selectA(); }
 
-void ReferenceComparisonController::setFollowA (bool follow) noexcept
+void ReferenceComparisonController::setFollowA (bool follow, double loudness, double peak) noexcept
 {
     followMode.store (follow, std::memory_order_release);
-    check.setFollowA (follow); reference.setFollowA (follow);
+    for (const int slot : { 2, 3 })
+    {
+        auto& role = slotController (slot);
+        const bool chosen = normalOutputSlot.load (std::memory_order_acquire) == slot;
+        const bool continued = role.setFollowA (follow, loudness, peak);
+        // 新しい流し方で合わせられずに A へ戻した役と、止めている間の戻し（前の gain は捨てた）は、新しい MATCH で鳴らし直す。
+        if (chosen && (! continued || ! role.outputSelected())) restartWithNewMatch (slot);
+    }
     if (stateChanged) stateChanged();
+}
+
+void ReferenceComparisonController::restartWithNewMatch (int slot)
+{
+    bool pendingHere = false;
+    {
+        const juce::ScopedLock lock (selectionLock);
+        pendingHere = activePendingIntent.load (std::memory_order_acquire) != 0 && pendingAudition.view.slot == slot;
+    }
+    if (pendingHere) clearPendingAudition();
+    auto& role = slotController (slot);
+    role.forgetHeldSelection();
+    { const juce::ScopedLock lock (selectionLock); switchGeneration = role.requestedGeneration(); }
+    switchSlot.store (slot, std::memory_order_release);
+    normalOutputSlot.store (slot, std::memory_order_release);
 }
 
 bool ReferenceComparisonController::nudgeFollowOffset (int slot, double seconds) noexcept

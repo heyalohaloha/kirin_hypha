@@ -8,7 +8,10 @@
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
 #include "ReferenceControllerTestAccess.h"
+#include <cmath>
+#include <functional>
 #include <thread>
+#include <utility>
 
 namespace hypha::tests::follow_a
 {
@@ -39,6 +42,14 @@ template <auto Member> struct LevelsAccess
     { const auto levels = (r.*Member) (s, cue, cueLoudness, cuePeak, 0.0); return { levels.loudness, levels.peak }; }
 };
 template struct LevelsAccess<&ref::RuntimeV2Controller::matchLevels>;
+// 試験だけが書く公開の値（Kirin OS の Cue の値を静かな区間として与える）。stateLock を持って使う。
+struct SnapshotTag {};
+ref::Snapshot& snapshotFor (ref::RuntimeV2Controller&, SnapshotTag);
+template <auto Member> struct SnapshotAccess
+{ friend ref::Snapshot& snapshotFor (ref::RuntimeV2Controller& r, SnapshotTag) { return r.*Member; } };
+template struct SnapshotAccess<&ref::RuntimeV2Controller::currentSnapshot>;
+// 流し方・ずらしを書いている途中（mappingGeneration が奇数の間）に一度だけ呼ぶ（reference_cue_restart_test.cpp）。
+inline std::function<void()> followWriteProbe;
 
 inline juce::var followSets (const juce::String& hash, const juce::String& pcm, const ref::RuntimeContentReceipt& source)
 {
@@ -110,7 +121,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     const auto pcm = juce::String::repeatedString ("6", 64);
     auto runtimeSource = makeRuntimeV2Source (file, hash, pcm);
     runtimeSource["audio"].getDynamicObject()->setProperty ("total_sample_frames", static_cast<juce::int64> (songFrames));
-    addRuntimeV2MeasurementSummary (runtimeSource, -14.0, -6.0);
+    addRuntimeV2MeasurementSummary (runtimeSource, -14.0, -7.96);  // max TP は傾斜の最大 0.4（-7.96 dBFS）
     const auto source = stageRuntimeV2Artifact (root, "sources", runtimeSource);
     auto preset = bindRuntimeV2PresetToSource ("88888888-8888-4888-8888-888888888882", "99999999-9999-4999-8999-999999999992",
                                                source, hash, pcm);
@@ -130,6 +141,8 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     controller.setPresented (true);
     juce::AudioBuffer<float> block (2, 480);
     std::int64_t position = 0, rendered = -1;  // rendered：最後に鳴った block の頭の DAW の位置
+    float loudest = 0.0f;                      // 出した音の最大（上限の確かめ）
+    double serviceLoudness = -14.0, servicePeak = -6.0;  // 制御の処理に渡す A（鳴らす時の A）
     const auto host = [&] (bool playing)
     {
         block.clear();
@@ -139,6 +152,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
         const bool sounded = controller.renderSelectedB (block, position, true, true, true);
         require (endReferenceRtProbe() == 0, "FOLLOW A adds no heap operations to the audio callback");
         rendered = sounded ? position : -1;
+        for (int ch = 0; ch < 2; ++ch) loudest = std::max (loudest, block.getMagnitude (ch, 0, block.getNumSamples()));
         if (playing) position += block.getNumSamples();
         return sounded;
     };
@@ -150,7 +164,7 @@ inline void testReferenceFollowA (const juce::File& sandbox)
         for (int index = 0; index < blocks; ++index)
         {
             host (true);
-            controller.servicePendingAudition (-14.0, -6.0, true);
+            controller.servicePendingAudition (serviceLoudness, servicePeak, true);
             if (done && done()) return true;
             nextBlock += std::chrono::milliseconds (10);
             std::this_thread::sleep_until (nextBlock);
@@ -191,9 +205,19 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     auto& referenceRole = control::roleFor (controller, { 3 });
     require (levelsFor (referenceRole, measured, true, -20.0, -3.0, LevelsTag {}) == std::pair { -20.0, -3.0 },
              "LOOP matches the Cue's values");
+    // 書いている途中の block も前の写像を鳴らし切る（いきなり A にしない）：ずらしと流し方の書き込みの両方。
+    const auto midWrite = [&] (const std::function<void()>& write)
+    {
+        bool sounded = false, probed = false;
+        followWriteProbe = [&] { probed = true; sounded = host (true); };
+        write();
+        followWriteProbe = nullptr;
+        return probed && sounded;
+    };
 
-    // FOLLOW A に替える：鳴ったまま、A の位置の曲の音へ移る（ページを読む間だけ A）。
-    controller.setFollowA (true);
+    // FOLLOW A に替える：鳴ったまま、A の位置の曲の音へ移る（ページを読む間だけ A）。合わせ方は新しい流し方で先に決め、
+    // 写像と一緒に渡す（曲全体と A の ALL の窓、固定）。書いている途中の block は前の写像（LOOP）を鳴らす。
+    require (midWrite ([&] { controller.setFollowA (true, -14.0, -6.0); }), "a block during the mode write plays the previous path");
     require (controller.followA() && reference()->followA && ! reference()->cueWraps,
              "FOLLOW A applies to the playing B at once and is no longer a repeated Cue");
     require (levelsFor (referenceRole, measured, true, -20.0, -3.0, LevelsTag {}) == std::pair { -14.0, -6.0 },
@@ -201,9 +225,8 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     // 鳴っている B は新しい流し方の決まりで合わせ直す：曲全体と A の ALL の窓、固定（追従しない）。
     require (controller.liveWindowBlocks (3) == 6'000 && controller.liveWindowBlocks (2) == 6'000,
              "FOLLOW A measures A over its ALL window (up to 10 minutes)");
-    // （gain 0 dB のまま：下の確かめは鳴った sample をそのまま曲の値と比べる。-3 dB は下の押し直しで確かめる）
-    require (controller.rematchForMode (3, -14.0, -6.0) == ref::RematchResult::matched
-                 && std::abs (reference()->appliedGainDb) < 1.0e-9 && reference()->tracking == ref::TrackingState::fixed
+    // （gain 0 dB：下の確かめは鳴った sample をそのまま曲の値と比べる。-3 dB は下の押し直しで確かめる）
+    require (std::abs (reference()->appliedGainDb) < 1.0e-9 && reference()->tracking == ref::TrackingState::fixed
                  && ! controller.trackingNeedsService()
                  && controller.followAudition ({}, -6.0) == ref::TrackingAction::keep,
              "FOLLOW A matches the whole song to A once and holds the gain");
@@ -213,8 +236,8 @@ inline void testReferenceFollowA (const juce::File& sandbox)
     require (controller.snapshot().audibleComparisonSlot == 3, "switching the mode keeps B selected");
 
     // 手のずらし：正で曲が先へ、負で後ろへ。
-    require (controller.nudgeFollowOffset (3, 0.5) && std::abs (reference()->followOffsetSeconds - 0.5) < 1.0e-9,
-             "the offset nudges by half a second");
+    require (midWrite ([&] { controller.nudgeFollowOffset (3, 0.5); }) && std::abs (reference()->followOffsetSeconds - 0.5) < 1.0e-9,
+             "the offset nudges by half a second, and a block during the write plays the previous path");
     require (play (wait, [&] { return at (half); }), "a positive offset plays the song ahead of A");
     require (controller.nudgeFollowOffset (3, -1.0) && std::abs (reference()->followOffsetSeconds + 0.5) < 1.0e-9,
              "the offset can go below zero");
@@ -320,13 +343,70 @@ inline void testReferenceFollowA (const juce::File& sandbox)
              "C follows A too: one mode for B and C");
 
     // LOOP へ戻す：C は Cue の中だけを鳴らす（今まで通り）。合わせ方も LOOP の決まりに戻る（C は Cue の窓で固定）。
-    controller.setFollowA (false);
+    controller.setFollowA (false, -14.0, -6.0);
     require (controller.liveWindowBlocks (2) != 6'000 && controller.liveWindowBlocks (3) == 100
-                 && controller.rematchForMode (2, -14.0, -6.0) == ref::RematchResult::matched
+                 && controller.snapshot().audibleComparisonSlot == 2
                  && controller.snapshot().checkSelection->tracking == ref::TrackingState::fixed,
              "back in LOOP the windows and the match are LOOP's again");
     require (play (wait, [&] { return rendered >= 0 && last() >= rampAt (cueStart) - 1.0e-4f && last() < rampAt (cueEnd) + 1.0e-4f; }),
              "back in LOOP the Cue repeats again");
+
+    // 上限（-1 dBTP）を一度も超えない：流し方を替える時、鳴っている間も止めている間も、合わせられない時も。B の Cue を
+    // 静かな区間として Kirin OS の値を与える（Cue -20 LUFS・max TP -13.98、曲全体 -14・-7.96）。A は -9 LUFS・max TP -6。
+    // LOOP は +11 dB、FOLLOW A は +5 dB。前の +11 dB が曲全体（8 秒の所で 0.3）で鳴れば 1.06 になり上限 0.891 を超える。
+    constexpr float ceiling = 0.8913f;
+    const auto gainOf = [] (double db) { return static_cast<float> (std::pow (10.0, db / 20.0)); };
+    const auto playsAt = [&] (double db) { return rendered >= 0 && std::abs (last() - rampAt (rendered + 479) * gainOf (db)) < 1.0e-3f; };
+    const auto injectQuietCue = [&]
+    {
+        const juce::ScopedLock lock (control::lockFor (referenceRole, {}));
+        auto& published = snapshotFor (referenceRole, SnapshotTag {});
+        published.cueLevelAvailable = true; published.cueIntegratedLoudness = -20.0; published.cueMaximumTruePeakDbtp = -13.98;
+    };
+    controller.selectA();
+    controller.setFollowA (false);
+    serviceLoudness = -9.0; servicePeak = -6.0;
+    position = 8 * second;
+    require (play (wait, [&] { return reference()->auditionBuffered && reference()->state == ref::RuntimeState::ready; }), "B is ready in LOOP");
+    injectQuietCue();
+    require (controller.requestAudition (3, -9.0, -6.0) && play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; })
+                 && std::abs (reference()->appliedGainDb - 11.0) < 1.0e-6,
+             "B plays its quiet Cue in LOOP at +11 dB");
+    position = 8 * second;
+    loudest = 0.0f;
+    controller.setFollowA (true, -9.0, -6.0);
+    require (std::abs (reference()->appliedGainDb - 5.0) < 1.0e-6 && reference()->tracking == ref::TrackingState::fixed,
+             "switching while B plays publishes the whole-song MATCH with the new mapping");
+    require (play (wait, [&] { return playsAt (5.0); }) && loudest <= ceiling,
+             ("switching to FOLLOW A while B plays never exceeds the ceiling: " + juce::String (loudest)).toRawUTF8());
+    injectQuietCue();
+    controller.setFollowA (false, -9.0, -6.0);
+    require (std::abs (reference()->appliedGainDb - 11.0) < 1.0e-6 && play (50, {}) && controller.snapshot().audibleComparisonSlot == 3,
+             "back in LOOP B plays its Cue at +11 dB again");
+    require (! host (false) && controller.auditionHeld(), "B stops with its LOOP gain held");
+    controller.servicePendingAudition (serviceLoudness, servicePeak, false);
+    controller.setFollowA (true);  // 止めている間：鳴っている役は無いので A の値は無い
+    position = 8 * second;
+    loudest = 0.0f;
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && playsAt (5.0); })
+                 && std::abs (reference()->appliedGainDb - 5.0) < 1.0e-6 && loudest <= ceiling,
+             ("after a switch while stopped, B comes back with a new whole-song MATCH and never exceeds the ceiling: "
+                 + juce::String (loudest)).toRawUTF8());
+    // 合わせられない（A の値が無い）：新しい写像は鳴らさず A へ戻し、A を測っていると言って待つ。測れれば新しい MATCH で鳴る。
+    serviceLoudness = std::numeric_limits<double>::quiet_NaN();
+    loudest = 0.0f;
+    controller.setFollowA (false);
+    require (play (wait, [&] {
+                 const auto state = controller.snapshot();
+                 return state.audibleComparisonSlot == 0 && state.pendingAudition.slot == 3 && state.pendingAudition.waiting()
+                     && state.pendingAudition.stage == ref::PendingAuditionView::Stage::level;
+             }) && play (50, {}) && rendered < 0 && loudest <= ceiling,
+             ("a switch that cannot be matched returns to A and waits for A's level: " + juce::String (loudest)).toRawUTF8());
+    serviceLoudness = -9.0;
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && rendered >= 0; }) && play (100, {})
+                 && loudest <= ceiling,
+             ("once A's level is known, B plays in LOOP with a new MATCH under the ceiling: " + juce::String (loudest)).toRawUTF8());
+    serviceLoudness = -14.0; servicePeak = -6.0;
 
     // state：流し方を保存して読み戻す。復元は鳴らし始めない。前の版の state は LOOP。
     controller.setFollowA (true);

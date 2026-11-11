@@ -39,7 +39,11 @@
 
         struct MatchLevels { double loudness = 0.0, peak = 0.0; };
         MatchLevels matchLevels (const RuntimeSource&, bool cueLevel, double cueLoudness, double cuePeak, double loudnessOffset) const noexcept;
-        TrackingState trackingFor (const juce::String& comparisonMode) const noexcept;
+        MatchLevels matchLevelsFor (bool follow, const RuntimeSource&, bool cueLevel, double cueLoudness, double cuePeak,
+                                    double loudnessOffset) const noexcept;
+        TrackingState trackingFor (const juce::String& comparisonMode, bool follow) const noexcept;
+        enum class ModeMatch { matched, unchanged, failed };  // 流し方を替える時の MATCH（unchanged：元の音量・合わせない役）
+        ModeMatch matchForMode (bool follow, double aLoudness, double aSessionPeakDbtp, PreparedNormalSelection&) const noexcept;
         MatchFailure requiredMatchGain (const juce::String& mode, const MatchLevels&, double aLoudness, double aPeak, double& requiredGain) const noexcept;
         bool matchedSelection (const juce::String& mode, double requiredGain, const MatchLevels&, double aLoudness, double aPeak,
                                PreparedNormalSelection&, MatchFailure&) const noexcept;

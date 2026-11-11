@@ -68,13 +68,14 @@ public:
     bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
     // B・C の流し方（LOOP が既定、FOLLOW A は A の DAW の位置から曲全体）。B と C で 1 つ、plugin の state に保存する。
     // 切り替えも復元も鳴らし始めない。手のずらしは見ている役（2 C・3 B）に足し、曲・役が替わると 0 に戻る。
-    void setFollowA (bool follow) noexcept;
+    // loudness・peak：鳴っている役（selectedSlot）の、新しい流し方の窓（windowBlocksFor）の A。無ければ NaN（合わせられ
+    // ない役は A へ戻して、新しい MATCH の押し直しを待つ）。止めている間の戻しも新しい MATCH で鳴らし直す。
+    void setFollowA (bool follow, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                     double peak = std::numeric_limits<double>::quiet_NaN()) noexcept;
+    int windowBlocksFor (int slot, bool follow) const { return slotController (slot).matchWindowBlocksFor (follow); }
     bool followA() const noexcept { return followMode.load (std::memory_order_acquire); }
     bool nudgeFollowOffset (int slot, double seconds) noexcept;
     bool resetFollowOffset (int slot) noexcept;
-    // 流し方を替えた時、鳴っている B・C（slot）の MATCH を新しい流し方の決まりで決め直す。A の値はその役の今の窓で。
-    RematchResult rematchForMode (int slot, double loudness, double peak) noexcept
-    { return slot == 2 || slot == 3 ? slotController (slot).rematchForMode (loudness, peak) : RematchResult::notPlaying; }
     int selectedSlot() const noexcept  // 選んで鳴らしている役（1 V、2 C、3 B、無ければ 0）
     { return version.outputSelected() ? 1 : check.outputSelected() ? 2 : reference.outputSelected() ? 3 : 0; }
     // C の MATCH の試みを 1 度だけ見る（窓を開き直しても、同じ試みの合わせ直しを立て直さない）。メッセージスレッド。
@@ -136,6 +137,7 @@ public:
 private:
     bool admit (int, bool);
     bool requestAuditionOnce (int, double, double);
+    void restartWithNewMatch (int slot);  // 選んでいた役を新しい MATCH の押し直しの待ちにする（selectionLock の外）
     std::atomic<bool> followMode { false };
     std::atomic<int> followRole { 0 };  // 最後に押した役（替われば離れた役のずらしを 0 に戻す）
     output_owner::States ownStatesLocked() const;  // gateLock を持って呼ぶ（atomic と gateLock の値だけを読む）

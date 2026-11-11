@@ -176,7 +176,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     selectA();
     // 流し方は覚えた形に戻すだけ（鳴らし始めない。R-12）。
     followMode.store (value.followA, std::memory_order_release);
-    check.setFollowA (value.followA); reference.setFollowA (value.followA);
+    check.setFollowA (value.followA); reference.setFollowA (value.followA);  // selectA の後：鳴っている役は無い
     targets.restore (value.targets);
     bool apply = false;
     {

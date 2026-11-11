@@ -147,11 +147,11 @@ bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
 void KirinHyphaProcessorBase::setReferenceFollowA (bool follow)
 {
     if (referenceAuditionController == nullptr) return;
-    referenceAuditionController->setFollowA (follow);
-    // 鳴っている B・C は新しい流し方の決まりで合わせ直す（FOLLOW A は曲全体と A の ALL の窓で固定）。
+    // 鳴っている B・C は、新しい流し方の窓の A で新しい MATCH を先に決め、写像と一緒に渡す（FOLLOW A は曲全体と ALL）。
+    hypha::reference_audition::LiveALevel level;
     if (const auto slot = referenceAuditionController->selectedSlot(); slot == 2 || slot == 3)
-    { const auto level = referenceLiveALevel (false, referenceAuditionController->liveWindowBlocks (slot), 0);
-      referenceAuditionController->rematchForMode (slot, level.loudness, level.peak); }
+        level = referenceLiveALevel (false, referenceAuditionController->windowBlocksFor (slot, follow), 0);
+    referenceAuditionController->setFollowA (follow, level.loudness, level.peak);
 }
 bool KirinHyphaProcessorBase::nudgeReferenceFollow (int slot, double seconds)
 { return referenceAuditionController != nullptr && referenceAuditionController->nudgeFollowOffset (slot, seconds); }

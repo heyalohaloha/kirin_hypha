@@ -104,8 +104,6 @@ namespace hypha::reference_audition
         // 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
         // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
         RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // C の MATCH をもう一度
-        // 流し方を替えた時の鳴っている B・C：新しい流し方の決まりで MATCH を決め直す（FOLLOW A は曲全体と A の ALL で固定）。
-        RematchResult rematchForMode (double aLoudness, double aSessionPeakDbtp) noexcept;
         VersionIdentity identifyVersions (const KirinFingerprint&, std::int64_t endTick); // （メッセージスレッド）
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
@@ -125,6 +123,7 @@ namespace hypha::reference_audition
               && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
         // MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
         int matchWindowBlocks() const;
+        int matchWindowBlocksFor (bool follow) const;  // その流し方での A の窓（FOLLOW A は ALL）
         // 停止・シークで A に戻った選択を、同じ音（playback identity）・同じ gain のまま戻す。
         // 利用者が A を押す・別の音にする・試聴を止められたときは忘れる（forgetHeldSelection）。
         bool resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept;
@@ -136,8 +135,11 @@ namespace hypha::reference_audition
         // 鳴っていた役を「音源が変わった」で止める（同じ音が戻っても勝手に鳴り直さない）。
         bool takeHeldWithdrawn() noexcept { return heldWithdrawn.exchange (false, std::memory_order_acq_rel); }
         // B・C の流し方：false＝LOOP（Kirin OS の決めた区間を繰り返す、既定）、true＝FOLLOW A（A の DAW の位置から曲全体）。
-        // 切り替えだけでは鳴らし始めない。V では何もしない。手のずらしは秒（正で参照曲が先へ進む）。
-        void setFollowA (bool) noexcept;
+        // 切り替えだけでは鳴らし始めない。V では何もしない。手のずらしは秒（正で参照曲が先へ進む）。鳴っている役は、新しい
+        // 写像と新しい流し方の決まりで決めた gain を一組で渡す（A の値はその流し方の窓で）。決められなければ新しい写像を
+        // 無音で渡して A へ戻し false。前の流し方で決めた戻しの gain は捨てる（止めている間に替えた時も）。
+        bool setFollowA (bool, double aLoudness = std::numeric_limits<double>::quiet_NaN(),
+                         double aSessionPeakDbtp = std::numeric_limits<double>::quiet_NaN()) noexcept;
         void setFollowOffsetSeconds (double) noexcept;
         double followOffsetSeconds() const noexcept;
 
@@ -398,6 +400,8 @@ namespace hypha::reference_audition
         // FOLLOW A と手のずらし（host の sample）。写像と同じく mappingWriteLock を持ち mappingGeneration の奇数の間に書く。
         std::atomic<bool> followA { false };
         std::atomic<std::int64_t> followOffset { 0 };
+        void writeFollowMappingLocked (bool follow, std::int64_t offset, std::optional<float> gain) noexcept;
+        void requestFollowPages() noexcept;
         // 対応づけ（cueStart・cueEnd・cueLoops・sampleLocked・起点）を書くのは作業スレッドとメッセージスレッド
         // （restartCueAtPlayhead）。書き手どうしをこの鍵でそろえる。音声スレッドは鍵を取らず mappingGeneration で読む。
         juce::CriticalSection mappingWriteLock;

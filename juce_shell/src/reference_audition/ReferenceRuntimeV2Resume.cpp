@@ -23,8 +23,6 @@ RuntimeV2Controller::StartResult RuntimeV2Controller::resumeHeldResult (
             || normalSelectionGeneration.load (std::memory_order_acquire) != selectionGeneration)
             return StartResult::stale;
         auto prepared = heldSelection.facts;
-        // 止めている間に流し方を替えた：gain はそのまま、追従するかは今の流し方で（FOLLOW A は固定）。
-        if (prepared.tracking != TrackingState::none) prepared.tracking = trackingFor (currentSnapshot.comparisonMode);
         prepared.auditionEpoch = auditionEpoch.load (std::memory_order_acquire);
         prepared.selectionGeneration = selectionGeneration;
         prepared.valid = true;
