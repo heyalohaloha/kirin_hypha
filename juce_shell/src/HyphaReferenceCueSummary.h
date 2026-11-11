@@ -27,6 +27,11 @@ double chartGainDb (const State&) noexcept;
 // 替える）。C の曲全体の値が無ければ CUE の値のまま、state.song.cMissing（状態の行が理由を言う）。
 void applySongComparison (State&, const reference_audition::ASongSummary* a,
                           std::shared_ptr<const reference_audition::KirinSpectrumWindow> c, double cLoudness);
+// SONG で比べられる Check か：主の図がどれもスペクトル（spectrum_full・spectrum_low）で、耳で聴き比べる Check でない。
+// 範囲の帯の図（dynamics・loudness・stereo・waveform・transient）は Cue の区間と A の直近で測るので、曲全体の値を描けない。
+// その Check では SONG を押せず（理由を言う）、どこも CUE のまま（覚えた SONG は SONG で比べられる Check で戻る）。
+bool songSupported (const State&) noexcept;
+inline constexpr const char* songUnsupportedText = "SONG works on Spectrum Checks. This Check compares its Cue.";
 // 「A FROM START 2:41」。`slots` は値のある 100 ms の区切りの数。
 juce::String songALegend (int slots);
 // A と C の値が同じ帯域の並びで揃っているか（64 帯域、中心が 0.1% 以内）。

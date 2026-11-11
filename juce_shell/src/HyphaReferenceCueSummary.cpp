@@ -65,7 +65,7 @@ void applySongComparison (State& state, const reference_audition::ASongSummary* 
 {
     auto& song = state.song;
     song = { song.chosen };
-    if (! song.chosen || state.comparisonSlot != 2 || state.targetSelected) return;
+    if (! song.chosen || state.comparisonSlot != 2 || state.targetSelected || ! songSupported (state)) return;
     if (! c) { song.cMissing = true; return; }
     song.shown = true;
     song.cLoudness = cLoudness;
@@ -73,6 +73,15 @@ void applySongComparison (State& state, const reference_audition::ASongSummary* 
     state.aKirin = a != nullptr ? a->spectrum : nullptr;
     state.cueKirin = std::move (c);
     state.cueSubstitute = CueSubstitute::none;  // 曲全体の範囲で比べている（Cue の値の代わりではない）
+}
+
+bool songSupported (const State& state) noexcept
+{
+    if (state.viewBindings.empty() || state.listeningChecks.count (state.checkId.upToFirstOccurrenceOf ("/", false, false)) > 0)
+        return false;
+    for (const auto& binding : state.viewBindings)
+        if (binding != "spectrum_full" && binding != "spectrum_low") return false;
+    return true;
 }
 
 juce::String songALegend (int slots)
@@ -327,10 +336,11 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
 }
 
 // FOLLOW A では C は曲全体を A の位置で鳴らす：Cue の箱を描かず曲全体を帯にし、札は「FOLLOW A（+ずらし） / 長さ」。
+// SONG では比べている曲全体を Cue の箱と同じ金の地と枠で示し、鳴っている所（LOOP の Cue・FOLLOW A の位置）はその上に。
 void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
 {
-    const bool follow = state.followA;
-    help::note (area, follow ? help_text::cueBarFollow : help_text::cueBar);
+    const bool follow = state.followA, song = state.song.shown;
+    help::note (area, follow ? help_text::cueBarFollow : song ? help_text::cueBarSong : help_text::cueBar);
     surface_material::paintPanel (g, area.toFloat(), 0.6f);
     const auto duration = state.sourceDurationSeconds;
     if (! std::isfinite (duration) || duration <= 0.0
@@ -344,27 +354,32 @@ void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& sta
         g.drawVerticalLine (juce::roundToInt (x (tick)), track.getY() + track.getHeight() * 0.55f, track.getBottom());
     const auto cue = follow ? track : juce::Rectangle<float>::leftTopRightBottom (x (state.cueStartSeconds), track.getY(),
                                           std::max (x (state.cueEndSeconds), x (state.cueStartSeconds) + 2.0f), track.getBottom());
-    if (state.song.shown && ! follow)  // SONG：比べているのは曲全体（Cue の箱は鳴っている所）
+    if (song)
     {
-        g.setColour (COL_FLORA.withAlpha (0.08f));
+        g.setColour (COL_FLORA.withAlpha (0.16f));
         g.fillRoundedRectangle (track, 2.0f);
-        g.setColour (COL_FLORA_BR.withAlpha (0.4f));
+        g.setColour (COL_FLORA_BR.withAlpha (0.8f));
         g.drawRoundedRectangle (track, 2.0f, 1.0f);
     }
-    g.setColour (COL_FLORA.withAlpha (follow ? 0.08f : 0.16f));
-    g.fillRoundedRectangle (cue, 2.0f);
-    g.setColour (COL_FLORA_BR.withAlpha (follow ? 0.4f : 0.8f));
-    g.drawRoundedRectangle (cue, 2.0f, 1.0f);
+    if (! (song && follow))  // FOLLOW A は曲全体を鳴らすので、SONG の枠がそのまま鳴っている所
+    {
+        // SONG の中の Cue は一段濃く、上下を詰めて重ねる（曲全体の枠と見分ける）。
+        const auto playing = song ? cue.reduced (0.0f, 3.0f) : cue;
+        g.setColour (COL_FLORA.withAlpha (song ? 0.42f : follow ? 0.08f : 0.16f));
+        g.fillRoundedRectangle (playing, 2.0f);
+        g.setColour (COL_FLORA_BR.withAlpha (follow ? 0.4f : 0.8f));
+        g.drawRoundedRectangle (playing, 2.0f, 1.0f);
+    }
     if (std::isfinite (state.cuePlayheadSeconds))
     {
         g.setColour (COL_SPECTRUM_DELTA_BR);
         g.fillRect (juce::Rectangle<float> (x (state.cuePlayheadSeconds) - 0.75f, track.getY() - 2.0f, 1.5f, track.getHeight() + 4.0f));
     }
     g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
-    g.setColour (COL_TEXT_TERTIARY);
+    g.setColour (song ? COL_FLORA_BR : COL_TEXT_TERTIARY);  // 金の地の上でも地と 4.5:1 以上
     auto labels = area.reduced (12, 0);
     text_style::drawEllipsized (g, "0:00", labels.removeFromLeft (40), juce::Justification::centredLeft);
-    g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+    g.setColour (COL_FLORA_BR);
     const auto offset = std::abs (state.followOffsetSeconds) < 0.005 ? juce::String() : " " + followOffsetText (state.followOffsetSeconds);
     text_style::drawEllipsized (g, (follow ? "FOLLOW A" + offset
                                            : "CUE " + clock (state.cueStartSeconds) + "-" + clock (state.cueEndSeconds)

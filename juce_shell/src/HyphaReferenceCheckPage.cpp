@@ -115,7 +115,9 @@ void Component::syncCheckPage (bool blindSession)
     matchButton.setTooltip (current.bSelected && current.audibleComparisonSlot == 2
         ? "Match C to the latest A over the Cue's length again, and keep it fixed."
         : "Play C matched to the latest A over the Cue's length.");
-    songSwitch.setChoice (current.song.chosen, SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
+    const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
+    songSwitch.setChoice (current.song.chosen && songAvailable, songAvailable,
+                          SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
     songSwitch.setVisible (page && ! blindSession && ! current.targetSelected && group != nullptr && ! listeningCheck()
                            && (std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox)));
     if (page)

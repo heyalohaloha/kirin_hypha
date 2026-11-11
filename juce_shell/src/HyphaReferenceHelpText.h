@@ -39,6 +39,7 @@ inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS
 inline constexpr const char* songCompare = "CUE compares C's Cue with A's recent window. SONG compares C's whole song with A from the DAW's start.";
 inline constexpr const char* songSpectrum = "Spectrum of C's whole song with its range, and A from the DAW's start, at the same loudness.";
 inline constexpr const char* songBands = "Four bands: how much more or less A from the start has than C's whole song, at the same loudness.";
+inline constexpr const char* cueBarSong = "SONG compares the whole song, framed in gold. The inner box is the Cue C plays.";
 inline constexpr const char* checkPurpose = "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none.";
 
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
@@ -65,5 +66,5 @@ inline constexpr const char* all[] { strips, crest, movement, momentary, width, 
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
                                      integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs,
                                      balanceAll, overlay, overlayNumber, drawing, balanceShape,
-                                     loop, followA, earlier, offset, later, cueBarFollow, songCompare, songSpectrum, songBands };
+                                     loop, followA, earlier, offset, later, cueBarFollow, songCompare, songSpectrum, songBands, cueBarSong };
 }
