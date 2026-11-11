@@ -21,6 +21,7 @@ namespace hypha::reference_ui
 inline constexpr const char* targetSilentText = "A target is measured data with no audio. Compare it on C.";
 inline constexpr const char* overlayEmptyText = "PRESS A NUMBER TO SHOW ITS LINE";
 inline constexpr const char* shapeEmptyText = "TURN ON SONGS TO SEE THEIR SHAPE";
+inline constexpr const char* noSongsText = "NO SONGS IN THIS SET / ALL SHOWS TARGETS";  // ONE with targets only
 
 // One row of B's list as the overlay sees it.
 struct OverlayItem

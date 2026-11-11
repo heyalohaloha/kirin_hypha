@@ -213,6 +213,8 @@ const Entry entries[] = {
     { "Balance: A over the chosen window, with the mean and range of the songs and targets in it.",
       u8"Balance：選んだ窓のAと、入れた曲と目標の平均と範囲。" },
     { "TURN ON SONGS TO SEE THEIR SHAPE", u8"番号で曲を出すと形が出ます" },
+    { "NO SONGS IN THIS SET", u8"セットに曲がありません" },
+    { "ALL SHOWS TARGETS", u8"ALLで目標を見られます" },
     { "ALL SHAPE uses every song. Choose SHAPE to pick songs.", u8"ALL SHAPEは全部の曲を使います。選ぶにはSHAPEを押します。" },
     // ALL SHAPE の数を先に（「MEAN OF %1」が「ALL 20」を値に取らないように）。
     { "MEAN OF ALL %1", u8"全%1曲の平均" },

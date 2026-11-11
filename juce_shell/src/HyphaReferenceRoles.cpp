@@ -153,7 +153,9 @@ void Component::syncRoles (bool blindSession)
     songSetBox.setVisible (referenceView && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
     // 300% の B の画面は、左に曲の一覧、右に Balance。Balance の見出しの右に ONE／ALL。
-    songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
+    // 曲が無くても、ドロップした目標があれば一覧と Balance を出す（ALL で目標を比べられる。ONE の図は理由を言う）。
+    const bool targetsListed = current.targetsEnabled && ! current.targets.collection.items.empty();
+    songList.setVisible (referenceView && rolePage() && (! current.songs.empty() || targetsListed));
     overlaySwitch.setVisible (songList.isVisible());
     overlaySwitch.setChoice (current.overlay.all, current.overlay.drawing, presentationContext);
     std::vector<SongList::Row> rows;

@@ -90,6 +90,9 @@ BalanceSources balanceSources (const State& state)
     if (sources.chosen != nullptr) sources.centers = sources.chosen->centersHz;
     else if (! set.empty()) sources.centers = set.front()->centersHz;
     for (const auto* fact : set) if (fact->centersHz == sources.centers) sources.comparable.push_back (fact);
+    // 曲が無い時は目標の帯域の並びで A を描く（目標だけでも A と比べられる）。
+    if (sources.centers.empty() && state.targetsEnabled && ! state.targets.collection.items.empty())
+        sources.centers = state.targets.collection.items.front().spectrum.centersHz;
     sources.aShown = state.aKirin && state.aKirin->frames >= 30 && ! sources.centers.empty()
         && state.aKirin->centersHz.size() == sources.centers.size()
         && std::abs (state.aKirin->centersHz.back() / sources.centers.back() - 1.0) < 1.0e-3;
@@ -445,7 +448,12 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
-        text_style::drawEllipsized (g, "REFERENCE VALUES ARRIVE FROM KIRIN OS", chart.toNearestInt(), juce::Justification::centred);
+        // 曲が無い時は理由と次の手を 2 行で（1 行に入らない）。
+        auto parts = juce::StringArray::fromTokens (state.songs.empty() ? noSongsText : "REFERENCE VALUES ARRIVE FROM KIRIN OS", "/", "");
+        parts.trim();
+        auto lines = chart.toNearestInt().withSizeKeepingCentre (juce::roundToInt (chart.getWidth()), 20 * parts.size());
+        for (const auto& part : parts)
+            text_style::drawEllipsized (g, part, lines.removeFromTop (20), juce::Justification::centred);
     }
     // 凡例：A の窓（金、右に窓を選ぶ矢印）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・目標の範囲（薄い帯）。
     // ALL は A と、出している線の番号と名前（出した時の色）。

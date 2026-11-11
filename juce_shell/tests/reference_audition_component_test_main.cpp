@@ -5,7 +5,7 @@
 #include "ReferenceAWindowTest.h"
 #include "ReferenceFollowViewContract.h"
 #include "ReferenceMeasuredTargetUiTest.h"
-#include "ReferenceOverlayTest.h"
+#include "ReferenceOverlayRepairsTest.h"
 #include "../src/reference_audition/ReferenceLiveWindowLoudness.cpp"
 #include "ValidationStorageSandbox.h"
 
@@ -27,7 +27,8 @@ int main (int argc, char** argv)
     if (mode == "--missing-check-navigation-only") { hypha::tests::verifyMissingCheckNavigation(); return 0; }
     if (mode == "--missing-check-text-only") { hypha::tests::verifyMissingCheckText(); return 0; }
     hypha::tests::measured_target_ui::verify (storage.directory());
-    if (mode == "--reference-overlay-only") { hypha::tests::reference_overlay::verify(); return 0; }
+    if (mode == "--reference-overlay-only")
+    { hypha::tests::reference_overlay::verify(); hypha::tests::reference_overlay::verifyRepairs(); return 0; }
     namespace repairs = hypha::tests::reference_text_repairs;
     if (mode == "--reference-approval-only") { repairs::verifyApprovalPreview(); return 0; }
     if (mode == "--reference-v-stop-text-only") { repairs::verifyVersionStopText(); return 0; }
@@ -47,6 +48,7 @@ int main (int argc, char** argv)
     repairs::verifyCMatchFit(); repairs::verifyOnsetMeaning(); repairs::verifyCueLabels();
     hypha::tests::reference_a_window::verify();
     hypha::tests::reference_overlay::verify();
+    hypha::tests::reference_overlay::verifyRepairs();
     hypha::tests::verifyReferenceAuditionComponentContract();
     std::cout << "Reference audition component contract tests passed\n";
     return 0;

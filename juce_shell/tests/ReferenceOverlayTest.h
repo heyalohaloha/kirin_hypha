@@ -50,7 +50,7 @@ inline reference_ui::State page (int songs, int targets)
         copy.lufsI = -20.0 - index * 0.25;
         state.songFacts.push_back (copy);
     }
-    state.songId = state.songs.front().id;
+    state.songId = state.songs.empty() ? juce::String() : state.songs.front().id;
     state.targetsEnabled = true;
     for (int index = 0; index < targets; ++index) state.targets.collection.items.push_back (target (index));
     state.visualPreferences = std::make_shared<ref::VisualPreferences>();
