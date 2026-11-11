@@ -72,6 +72,7 @@ struct BalanceSources
     bool aShown = false;
     std::vector<OverlayItem> shown;  // ALL：出している線（一覧の順）
     bool linesOn = false;            // ALL：番号で出した線がある（値がまだ無い線を含む）
+    OverlayShape shape;              // ALL の SHAPE：出した線の平均と範囲
     bool rangeShown (const State& state) const noexcept { return ! state.overlay.all && comparable.size() >= 2; }  // 帯は 2 曲から
 };
 
@@ -98,6 +99,9 @@ BalanceSources balanceSources (const State& state)
             sources.linesOn = sources.linesOn || item.line != nullptr;
             if (item.line != nullptr && item.drawable()) sources.shown.push_back (std::move (item));
         }
+    using Drawing = reference_audition::BalanceOverlay::Drawing;
+    if (state.overlay.all && state.overlay.drawing == Drawing::shape) sources.shape = overlayShape (sources.shown);
+    if (state.overlay.all && state.overlay.drawing == Drawing::allShape) sources.shape = overlayShape (overlayItems (state), true);
     return sources;
 }
 
@@ -114,6 +118,18 @@ std::vector<LegendEntry> legendEntries (const BalanceSources& sources, const Sta
 {
     std::vector<LegendEntry> entries { { sources.aShown ? aWindowLegend (state.aKirin->frames) : juce::String ("A WAITING"),
                                          COL_FLORA_BR, 2.8f, AWindowControl::arrowWidth } };
+    if (state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines)
+    {
+        // SHAPE・ALL SHAPE：平均（水色の線）と範囲（帯）。数は帯に入れた曲と目標の数（ALL SHAPE は「ALL 20」）。
+        if (sources.shape.count > 0)
+        {
+            const auto count = juce::String (state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape ? "ALL " : "")
+                             + juce::String (sources.shape.count);
+            entries.push_back ({ "MEAN OF " + count, COL_SPECTRUM_DELTA, 1.6f });
+            entries.push_back ({ "RANGE OF " + count, COL_SPECTRUM_DELTA.withAlpha (0.40f), 8.0f });
+        }
+        return entries;
+    }
     if (state.overlay.all)
     {
         for (const auto& item : sources.shown)
@@ -181,6 +197,77 @@ juce::Rectangle<int> takeLegend (juce::Rectangle<float>& body, const std::vector
     const auto width = juce::roundToInt (body.getWidth()) - 18;
     const auto rows = legendRows (legendCells (entries, font, { 0, 0, width, legendRowHeight }, overlay));
     return body.removeFromBottom (static_cast<float> (legendRowHeight * rows)).reduced (9.0f, 0.0f).toNearestInt();
+}
+
+juce::Path linePath (const std::vector<double>& centers, const std::vector<float>& levels, float gain, juce::Rectangle<float> chart)
+{
+    juce::Path path;
+    for (size_t band = 0; band < centers.size() && band < levels.size(); ++band)
+    {
+        const juce::Point<float> point { xFor (centers[band], chart), yFor (levels[band] + gain, chart) };
+        if (band == 0) path.startNewSubPath (point); else path.lineTo (point);
+    }
+    return path;
+}
+
+// ALL の SHAPE・ALL SHAPE：線を 1 本ずつ描かず、帯域ごとの最小〜最大の帯と平均の線。A は金の線のまま上に。一覧の
+// 行を指している間は、その曲（目標）の線を細く上に重ねる（帯のどこにいるか）。
+void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& state, const BalanceSources& sources,
+                 presentation::Context context, bool& unmatched)
+{
+    const auto& shape = sources.shape;
+    unmatched = unmatched || shape.unmatched;
+    std::vector<ReadCurve> readings;
+    if (shape.count > 0)
+    {
+        juce::Path band;
+        for (size_t index = 0; index < shape.centers.size(); ++index)
+        {
+            const juce::Point<float> top { xFor (shape.centers[index], chart), yFor (shape.high[index], chart) };
+            if (index == 0) band.startNewSubPath (top); else band.lineTo (top);
+        }
+        for (auto index = shape.centers.size(); index-- > 0;)
+            band.lineTo (xFor (shape.centers[index], chart), yFor (shape.low[index], chart));
+        band.closeSubPath();
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.22f));
+        g.fillPath (band);
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
+        g.strokePath (linePath (shape.centers, shape.mean, 0.0f, chart), juce::PathStrokeType (1.6f));
+    }
+    if (sources.aShown)
+    {
+        g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+        readings.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb, 0.0, minimumHz, maximumHz));
+    }
+    if (shape.count > 0)
+        readings.push_back (drawnCurve ("MEAN", COL_SPECTRUM_DELTA, shape.centers, shape.mean, 0.0, minimumHz, maximumHz));
+    juce::String pointedName;
+    if (state.overlayPointed.isNotEmpty())
+        for (const auto& item : overlayItems (state))
+            if (item.id == state.overlayPointed && item.drawable())
+            {
+                const auto colour = item.line != nullptr ? overlayLineColour (item.line->colour) : COL_NORMAL;
+                const auto gain = std::isfinite (item.gainDb) ? item.gainDb : 0.0;
+                g.setColour (colour);
+                g.strokePath (linePath (*item.centers, *item.medians, static_cast<float> (gain), chart),
+                              juce::PathStrokeType (1.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                pointedName = juce::String (item.number);
+                readings.push_back (drawnCurve ("", colour, *item.centers, *item.medians, gain, minimumHz, maximumHz));
+                readings.back().name = pointedName.toRawUTF8();
+            }
+    if (! readings.empty())
+        paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
+                           [chart] (float level) { return yFor (level, chart); }, context);
+    if (shape.count == 0)
+    {
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
+        // ALL SHAPE は番号に関わらず全部：入れる物が無いのは値がまだ届いていない時だけ。
+        const bool every = state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape;
+        text_style::drawEllipsized (g, sources.linesOn || every ? "REFERENCE VALUES ARRIVE FROM KIRIN OS" : shapeEmptyText,
+                                    chart.toNearestInt(), juce::Justification::centred);
+    }
 }
 
 // ALL：A と、出している線。指している線（一覧の行、無ければ図の中の一番近い線）を太く、ほかを薄くする。
@@ -263,12 +350,15 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
                             presentation::Context context)
 {
     surface_material::paintPanel (g, bounds, 0.72f);
-    help::note (bounds, state.overlay.all ? help_text::balanceAll : help_text::balance);
+    const bool shaped = state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines;
+    help::note (bounds, ! state.overlay.all ? help_text::balance : shaped ? help_text::balanceShape : help_text::balanceAll);
     auto header = bounds.removeFromTop (26.0f).reduced (9.0f, 2.0f).toNearestInt();
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
-    text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (header.getWidth() / 3), juce::Justification::centredLeft);
-    header.removeFromRight (OverlaySwitch::width + 10);  // ONE／ALL（REF が置く部品）
+    const auto titleFont = labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization);
+    text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (juce::jmin (header.getWidth() / 3,
+                                referenceTextWidth (titleFont, "BALANCE") + 12)), juce::Justification::centredLeft);
+    header.removeFromRight (OverlaySwitch::widthFor (state.overlay.all, context) + 10);  // 描き方・ONE／ALL（REF が置く部品）
     const auto sources = balanceSources (state);
     const auto* chosen = sources.chosen;
     const auto& centers = sources.centers;
@@ -293,7 +383,8 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         unmatched = true;
         return 0.0;
     };
-    if (state.overlay.all) paintOverlay (g, chart, state, sources, context, unmatched);
+    if (shaped) paintShape (g, chart, state, sources, context, unmatched);
+    else if (state.overlay.all) paintOverlay (g, chart, state, sources, context, unmatched);
     std::vector<float> rangeLow, rangeHigh;
     if (sources.rangeShown (state))
     {
@@ -345,7 +436,11 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
                              minimumHz, maximumHz, context);
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
-    text_style::drawEllipsized (g, unmatched ? "LEVEL NOT MATCHED" : "20 Hz - 20 kHz", header, juce::Justification::centredRight);
+    // ALL の描き方の切り替えで見出しに入らない時は、図の右上に（ALL は Blauert の読みを出さないので空いている）。
+    const juce::String rangeText (unmatched ? "LEVEL NOT MATCHED" : "20 Hz - 20 kHz");
+    const bool headerFits = text_style::shownWidth (legendFont, rangeText) <= static_cast<float> (header.getWidth());
+    text_style::drawEllipsized (g, rangeText, headerFits ? header : chart.toNearestInt().removeFromTop (16).reduced (4, 0),
+                                juce::Justification::centredRight);
     if (chosen == nullptr && comparable.empty() && ! state.overlay.all)
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));

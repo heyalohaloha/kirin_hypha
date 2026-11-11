@@ -112,7 +112,7 @@ void verifySavedReferenceChoices()
     hypha::reference_audition::ReferenceComparisonSettings settings;
     settings.version = { "preset-b", "check-b", "candidate-b", "cue-b" };
     settings.check = { "preset-c", "check-c", "candidate-c", "cue-c" }; settings.aWindows.check = hypha::reference_audition::AWindowChoice::all;
-    settings.overlay.all = true; settings.overlay.lines = { { "preset-b/check-b/candidate-b", 2 }, { "target-1a", 0 } };
+    settings.overlay = { true, hypha::reference_audition::BalanceOverlay::Drawing::shape, { { "preset-b/check-b/candidate-b", 2 }, { "target-1a", 0 } } };
     settings.write (xml);
     juce::MemoryBlock bytes;
     juce::AudioProcessor::copyXmlToBinary (xml, bytes);

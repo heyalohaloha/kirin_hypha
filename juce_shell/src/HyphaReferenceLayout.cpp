@@ -113,8 +113,9 @@ void Component::resized()
     comparisonView.setBounds (observationArea);
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
     balanceBounds = area.withTrimmedTop (panelGap()).withTrimmedLeft (songList.getWidth() + 6);
-    overlaySwitch.setBounds (juce::Rectangle<int> (OverlaySwitch::width, OverlaySwitch::height)
-                                 .withPosition (balanceBounds.getRight() - 9 - OverlaySwitch::width, balanceBounds.getY() + 3));
+    const auto switchWidth = OverlaySwitch::widthFor (current.overlay.all, presentationContext);  // 描き方は ALL の時だけ
+    overlaySwitch.setBounds (juce::Rectangle<int> (switchWidth, OverlaySwitch::height)
+                                 .withPosition (balanceBounds.getRight() - 9 - switchWidth, balanceBounds.getY() + 3));
     layoutAWindowControls();
     // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
     if (statusStrip.getParentComponent() == this)

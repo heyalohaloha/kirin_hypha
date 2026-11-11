@@ -93,6 +93,13 @@ void Component::configureRoles()
         }
         applyOverlay (std::move (probe.overlay));
     };
+    // ALL の描き方（LINES・SHAPE・ALL SHAPE）。SHAPE に入れる物は番号のまま、ALL SHAPE は全部。
+    overlaySwitch.onDrawing = [this] (reference_audition::BalanceOverlay::Drawing drawing)
+    {
+        auto next = current.overlay;
+        next.drawing = drawing;
+        applyOverlay (std::move (next));
+    };
     addChildComponent (overlaySwitch);
 }
 
@@ -137,7 +144,7 @@ void Component::syncRoles (bool blindSession)
     // 300% の B の画面は、左に曲の一覧、右に Balance。Balance の見出しの右に ONE／ALL。
     songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
     overlaySwitch.setVisible (songList.isVisible());
-    overlaySwitch.setChoice (current.overlay.all, presentationContext);
+    overlaySwitch.setChoice (current.overlay.all, current.overlay.drawing, presentationContext);
     std::vector<SongList::Row> rows;
     for (const auto& item : overlayItems (current))
     {

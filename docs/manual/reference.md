@@ -164,9 +164,16 @@ the B page chooses the Reference set and the song, also while A plays.
   three rows and ends with how many more (+12). Pointing at a row, or near a line on the chart, draws that
   line stronger and the others fainter and reads A and that line at the pointer. In ALL the measured
   targets you dropped follow the songs, in the order added, at the level B would play them at (state
-  DATA); pressing one to hear it says that it has no audio. The list scrolls when its rows do not fit, and
-  moves to the chosen song. ONE or ALL and the lines shown are saved with the project (earlier versions
-  of Hypha ignore them). Below 300 % there is no Balance, so no ALL.
+  DATA); pressing one to hear it says that it has no audio. In ALL, **LINES / SHAPE / ALL SHAPE** beside
+  ONE / ALL chooses how the chart draws them, and the one that is on is lit. LINES draws each line
+  turned on. SHAPE draws, instead of those lines, their mean and a band from the lowest to the highest
+  value in each band; the numbers still choose what goes in, and the legend counts them (MEAN OF 3,
+  RANGE OF 3). ALL SHAPE builds the same mean and band from every song of the set and every target,
+  whatever the numbers say (MEAN OF ALL 20). With one item the band closes onto its line; with none,
+  the chart says to turn songs on. A stays its gold line on top, and pointing at a row draws that one
+  item's line thinly over the shape. The list scrolls when its rows do not fit, and moves to the chosen
+  song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
+  Hypha ignore them). Below 300 % there is no Balance, so no ALL.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
   set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against

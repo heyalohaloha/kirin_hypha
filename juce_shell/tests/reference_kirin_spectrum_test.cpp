@@ -68,9 +68,10 @@ void testBalanceOverlay()
     check (overlay.find ("p/c/one")->colour == 0, "its colour is free again");
     overlay.toggle ("bad id", listed);
     check (overlay.find ("bad id") == nullptr, "an ID outside the saved form is not shown");
-    overlay.all = true;
+    overlay.all = true; overlay.drawing = ref::BalanceOverlay::Drawing::allShape;
     juce::XmlElement saved ("ReferenceChoices"); overlay.write (saved);
-    check (ref::BalanceOverlay::read (saved) == overlay, "ALL, the lines and their colours round trip");
+    check (ref::BalanceOverlay::read (saved) == overlay && ref::BalanceOverlay::read (saved).drawing == ref::BalanceOverlay::Drawing::allShape,
+           "ALL, ALL SHAPE, the lines and their colours round trip");
     auto* written = saved.getChildByName ("Overlay");
     for (const auto* broken : { R"(<Line id="p/c/x" colour="0"/>)", R"(<Line id="p/c/three" colour="9"/>)",
                                 R"(<Line id="has space" colour="9"/>)", R"(<Line id="p/c/y" colour="99"/>)", R"(<Line colour="8"/>)" })

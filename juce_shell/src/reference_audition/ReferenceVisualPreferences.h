@@ -155,9 +155,14 @@ struct BalanceOverlay
         bool operator== (const Line& other) const noexcept { return id == other.id && colour == other.colour; }
     };
     static constexpr size_t maximumLines = 64;  // the list holds 16 songs and 16 targets at most
+    // ALL の描き方：出した線を 1 本ずつ（lines）、出した線の平均と最小〜最大の帯（shape）、番号に関わらずセットの
+    // 曲と目標の全部の平均と帯（allShape）。
+    enum class Drawing { lines, shape, allShape };
     bool all = false;
+    Drawing drawing = Drawing::lines;
     std::vector<Line> lines;  // in the order shown
-    bool operator== (const BalanceOverlay& other) const noexcept { return all == other.all && lines == other.lines; }
+    bool operator== (const BalanceOverlay& other) const noexcept
+    { return all == other.all && drawing == other.drawing && lines == other.lines; }
     const Line* find (const juce::String& id) const noexcept
     {
         for (const auto& line : lines) if (line.id == id) return &line;
@@ -187,9 +192,10 @@ struct BalanceOverlay
     }
     void write (juce::XmlElement& parent) const
     {
-        if (! all && lines.empty()) return;
+        if (! all && drawing == Drawing::lines && lines.empty()) return;
         auto* overlay = parent.createNewChildElement ("Overlay");
         overlay->setAttribute ("all", all);
+        if (drawing != Drawing::lines) overlay->setAttribute ("draw", drawing == Drawing::shape ? "shape" : "all_shape");
         for (const auto& line : lines)
         {
             auto* child = overlay->createNewChildElement ("Line");
@@ -203,6 +209,8 @@ struct BalanceOverlay
         const auto* overlay = parent.getChildByName ("Overlay");
         if (overlay == nullptr) return result;
         result.all = overlay->getBoolAttribute ("all");
+        const auto drawing = overlay->getStringAttribute ("draw");
+        result.drawing = drawing == "shape" ? Drawing::shape : drawing == "all_shape" ? Drawing::allShape : Drawing::lines;
         for (const auto* child : overlay->getChildWithTagNameIterator ("Line"))
         {
             const auto id = child->getStringAttribute ("id");

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <memory>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -13,6 +14,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
+#include "reference_audition/ReferenceVisualPreferences.h"
 
 // B の画面の Balance の重ね比べの部品：線の色、ONE／ALL の切り替え、一覧の番号の箱（HyphaReferenceOverlay.h）。
 namespace hypha::reference_ui
@@ -34,43 +36,87 @@ inline juce::Colour overlayLineColour (int colour)
     return colour < static_cast<int> (overlayPalette.size()) ? base : base.interpolatedWith (BG, 0.35f);
 }
 
-// ONE / ALL at the right of the Balance heading: two halves of one framed switch.
+// ONE / ALL at the right of the Balance heading: two halves of one framed switch. In ALL, how it draws
+// stands to its left as a second switch of three: LINES (each line turned on), SHAPE (their mean and range)
+// and ALL SHAPE (the mean and range of every song and target, whatever is turned on).
 class OverlaySwitch final : public juce::Component
 {
 public:
-    static constexpr int width = 96, height = 20;
+    using Drawing = reference_audition::BalanceOverlay::Drawing;
+    static constexpr int width = 96, height = 20, gap = 8;
+    static constexpr std::array<const char*, 3> drawingNames { "LINES", "SHAPE", "ALL SHAPE" };
+    // The drawing switch's parts, as wide as their words in the page's font.
+    static std::array<int, 3> drawingWidths (presentation::Context context)
+    {
+        const auto font = labelFont (context, typography::TextRole::unit, typography::Composition::information);
+        std::array<int, 3> widths {};
+        for (size_t index = 0; index < widths.size(); ++index)
+            widths[index] = juce::roundToInt (std::ceil (text_style::shownWidth (font, drawingNames[index]))) + 16;
+        return widths;
+    }
+    static int widthFor (bool all, presentation::Context context)
+    {
+        if (! all) return width;
+        const auto parts = drawingWidths (context);
+        return parts[0] + parts[1] + parts[2] + 2 + gap + width;
+    }
     OverlaySwitch()
     {
         setComponentID ("reference-overlay");
         setTitle ("ONE / ALL");
-        for (auto* half : { &one, &all })
+        static constexpr std::array<const char*, 3> ids { "reference-overlay-lines", "reference-overlay-shape", "reference-overlay-all-shape" };
+        for (size_t index = 0; index < drawing.size(); ++index)
+        {
+            drawing[index] = std::make_unique<Half> (drawingNames[index]);
+            drawing[index]->setComponentID (ids[index]);
+            drawing[index]->onClick = [this, index] { if (onDrawing) onDrawing (static_cast<Drawing> (index)); };
+        }
+        for (auto* half : halves())
         {
             half->setWantsKeyboardFocus (true);
             half->setMouseCursor (juce::MouseCursor::PointingHandCursor);
-            half->setTooltip (help_text::overlay);
-            half->onClick = [this, half] { if (onChoose) onChoose (half == &all); };
+            half->setTooltip (half == &one || half == &all ? help_text::overlay : help_text::drawing);
             addAndMakeVisible (*half);
         }
+        one.onClick = [this] { if (onChoose) onChoose (false); };
+        all.onClick = [this] { if (onChoose) onChoose (true); };
         one.setComponentID ("reference-overlay-one");
         all.setComponentID ("reference-overlay-all");
     }
     std::function<void (bool)> onChoose;
-    void setChoice (bool showsAll, presentation::Context next)
+    std::function<void (Drawing)> onDrawing;
+    void setChoice (bool showsAll, Drawing shown, presentation::Context next)
     {
-        one.context = all.context = next;
+        context = next;
+        for (auto* half : halves()) half->context = next;
         one.setToggleState (! showsAll, juce::dontSendNotification);
         all.setToggleState (showsAll, juce::dontSendNotification);
+        for (size_t index = 0; index < drawing.size(); ++index)
+        {
+            drawing[index]->setToggleState (static_cast<Drawing> (index) == shown, juce::dontSendNotification);
+            drawing[index]->setVisible (showsAll);
+        }
+        resized();
     }
     void paint (juce::Graphics& g) override
     {
         const key_light::Scope light (*this);
-        surface_material::paintPanel (g, getLocalBounds().toFloat(), 0.82f, 4.0f);
+        auto area = getLocalBounds();
+        surface_material::paintPanel (g, area.removeFromRight (width).toFloat(), 0.82f, 4.0f);
+        if (drawing[0]->isVisible())
+            surface_material::paintPanel (g, area.withTrimmedRight (gap).toFloat(), 0.82f, 4.0f);
     }
     void resized() override
     {
-        auto area = getLocalBounds().reduced (1);
-        one.setBounds (area.removeFromLeft (area.getWidth() / 2));
-        all.setBounds (area);
+        auto area = getLocalBounds();
+        auto pair = area.removeFromRight (width).reduced (1);
+        one.setBounds (pair.removeFromLeft (pair.getWidth() / 2));
+        all.setBounds (pair);
+        area.removeFromRight (gap);
+        area = area.reduced (1);
+        const auto widths = drawingWidths (context);
+        for (size_t index = 0; index < drawing.size(); ++index)
+            drawing[index]->setBounds (index + 1 == drawing.size() ? area : area.removeFromLeft (widths[index]));
     }
 
 private:
@@ -90,7 +136,10 @@ private:
             text_style::drawText (g, getName(), getLocalBounds(), juce::Justification::centred);
         }
     };
+    std::array<Half*, 5> halves() { return { &one, &all, drawing[0].get(), drawing[1].get(), drawing[2].get() }; }
     Half one { "ONE" }, all { "ALL" };
+    std::array<std::unique_ptr<Half>, 3> drawing;
+    presentation::Context context = presentation::defaultContext();
 };
 
 // A row's number in ALL: a framed box in the line's colour while its line shows, plain while it does not.

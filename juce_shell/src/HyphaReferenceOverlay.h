@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -19,6 +20,7 @@ namespace hypha::reference_ui
 // What a target row says when it is pressed to be heard, and the line's own words.
 inline constexpr const char* targetSilentText = "A target is measured data with no audio. Compare it on C.";
 inline constexpr const char* overlayEmptyText = "PRESS A NUMBER TO SHOW ITS LINE";
+inline constexpr const char* shapeEmptyText = "TURN ON SONGS TO SEE THEIR SHAPE";
 
 // One row of B's list as the overlay sees it.
 struct OverlayItem
@@ -76,5 +78,52 @@ inline std::vector<OverlayItem> overlayItems (const State& state)
     if (state.overlay.all)
         for (auto& item : items) item.line = state.overlay.find (item.id);
     return items;
+}
+
+// SHAPE：出している線（every なら番号に関わらず一覧の全部＝ALL SHAPE）の、帯域ごとの平均（dB）と最小〜最大。
+// どれも B で鳴る音量にそろえた値（そろえられない線はそのままの高さで入れ、unmatched）。値の無い線と、帯域の
+// 並びが最初の線と違う線は入れない（数えない）。
+struct OverlayShape
+{
+    std::vector<double> centers;
+    std::vector<float> mean, low, high;
+    int count = 0;
+    bool unmatched = false;
+};
+
+inline OverlayShape overlayShape (const std::vector<OverlayItem>& items, bool every = false)
+{
+    OverlayShape shape;
+    const auto sameBands = [&shape] (const std::vector<double>& centers)
+    {
+        if (centers.size() != shape.centers.size()) return false;
+        for (size_t band = 0; band < centers.size(); ++band)
+            if (! (std::abs (centers[band] / shape.centers[band] - 1.0) < 1.0e-3)) return false;
+        return true;
+    };
+    for (const auto& item : items)
+    {
+        if ((item.line == nullptr && ! every) || ! item.drawable() || item.centers->size() != item.medians->size()) continue;
+        if (shape.count == 0)
+        {
+            shape.centers = *item.centers;
+            shape.mean.assign (shape.centers.size(), 0.0f);
+            shape.low.assign (shape.centers.size(), std::numeric_limits<float>::max());
+            shape.high.assign (shape.centers.size(), std::numeric_limits<float>::lowest());
+        }
+        else if (! sameBands (*item.centers)) continue;
+        shape.unmatched = shape.unmatched || ! std::isfinite (item.gainDb);
+        const auto gain = static_cast<float> (std::isfinite (item.gainDb) ? item.gainDb : 0.0);
+        for (size_t band = 0; band < shape.centers.size(); ++band)
+        {
+            const auto level = (*item.medians)[band] + gain;
+            shape.mean[band] += level;
+            shape.low[band] = std::min (shape.low[band], level);
+            shape.high[band] = std::max (shape.high[band], level);
+        }
+        ++shape.count;
+    }
+    for (auto& level : shape.mean) level /= static_cast<float> (juce::jmax (1, shape.count));
+    return shape;
 }
 }

@@ -208,6 +208,16 @@ const Entry entries[] = {
       u8"この線をBalanceに出す・消す。Bで鳴る曲は選んだ曲のまま。" },
     { "A target is measured data with no audio. Compare it on C.", u8"目標は測った値だけで、音はありません。Cで比べられます。" },
     { "PRESS A NUMBER TO SHOW ITS LINE", u8"番号を押すと線が出ます" },
+    { "LINES: each line you turn on. SHAPE: their mean and range. ALL SHAPE: of every song and target.",
+      u8"LINES：出した線を1本ずつ。SHAPE：その平均と範囲。ALL SHAPE：全部の曲と目標の平均と範囲。" },
+    { "Balance: A over the chosen window, with the mean and range of the songs and targets in it.",
+      u8"Balance：選んだ窓のAと、入れた曲と目標の平均と範囲。" },
+    { "TURN ON SONGS TO SEE THEIR SHAPE", u8"番号で曲を出すと形が出ます" },
+    // ALL SHAPE の数を先に（「MEAN OF %1」が「ALL 20」を値に取らないように）。
+    { "MEAN OF ALL %1", u8"全%1曲の平均" },
+    { "RANGE OF ALL %1", u8"全%1曲の範囲" },
+    { "MEAN OF %1", u8"%1曲の平均" },
+    { "RANGE OF %1", u8"%1曲の範囲" },
 };
 }
 

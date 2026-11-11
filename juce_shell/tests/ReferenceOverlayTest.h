@@ -224,6 +224,8 @@ inline void verifyFullSet()
         panel.setVisible (true);
         auto state = page (16, 16);
         state.overlay.all = true;
+        state.overlay.drawing = language == i18n::Language::japanese ? ref::BalanceOverlay::Drawing::allShape
+                                                                     : ref::BalanceOverlay::Drawing::shape;
         state.overlay.lines = { { state.songs[2].id, 0 }, { state.targets.collection.items[3].id, 1 } };
         panel.setState (state);
         for (const auto& [width, height] : sizes)
@@ -276,9 +278,135 @@ inline void verifyPalette()
     require (reference_ui::overlayLineColour (16) != reference_ui::overlayLineColour (0), "the seventeenth line is told apart from the first");
 }
 
+// SHAPE: the mean and the band from the lowest to the highest of the lines turned on, at B's level.
+inline void verifyShapeValues()
+{
+    std::vector<double> centers (64);
+    for (size_t band = 0; band < centers.size(); ++band) centers[band] = 20.0 * std::pow (1000.0, double (band) / 63.0);
+    const std::vector<float> low (64, -40.0f), mid (64, -30.0f), other (64, -26.0f);
+    auto shifted = centers; shifted.back() *= 1.5;  // another band layout is not mixed in
+    const ref::BalanceOverlay::Line on { "x", 0 };
+    const auto item = [&] (const std::vector<float>& levels, double gain, const std::vector<double>* bands = nullptr)
+    {
+        reference_ui::OverlayItem result;
+        result.centers = bands != nullptr ? bands : &centers; result.medians = &levels; result.gainDb = gain; result.line = &on;
+        return result;
+    };
+    const auto three = reference_ui::overlayShape ({ item (low, 2.0), item (mid, -4.0), item (other, std::numeric_limits<double>::quiet_NaN()),
+                                                     item (mid, 0.0, &shifted) });
+    require (three.count == 3 && three.unmatched && std::abs (three.low[10] + 38.0f) < 1.0e-4f && std::abs (three.high[10] + 26.0f) < 1.0e-4f
+             && std::abs (three.mean[10] - (-38.0f - 34.0f - 26.0f) / 3.0f) < 1.0e-4f,
+             "the mean and range follow each line at its level; a line at another band layout is left out");
+    const auto one = reference_ui::overlayShape ({ item (mid, 1.0) });
+    require (one.count == 1 && one.low == one.high && one.mean == one.high && std::abs (one.mean[0] + 29.0f) < 1.0e-4f,
+             "with one line the band closes onto that line");
+    auto hidden = item (mid, 0.0); hidden.line = nullptr;
+    require (reference_ui::overlayShape ({ hidden }).count == 0, "a line turned off is not in the shape");
+    require (reference_ui::overlayShape ({ hidden, item (low, 0.0) }, true).count == 2, "ALL SHAPE takes every item, on or off");
+}
+
+inline juce::Button& drawingPart (reference_ui::Component& panel, const char* id)
+{
+    auto* part = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-overlay")->findChildWithID (id));
+    require (part != nullptr, juce::String ("the drawing switch has ") + id);
+    return *part;
+}
+
+// In ALL, LINES / SHAPE / ALL SHAPE beside ONE / ALL: one is on and it shows which.
+inline void verifyShape()
+{
+    verifyShapeValues();
+    using Drawing = ref::BalanceOverlay::Drawing;
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        reference_ui::Component panel; reference_text_repairs::sizePanel (panel, 900, 600);
+        auto state = page (4, 2);
+        panel.setState (state);
+        auto& lines = drawingPart (panel, "reference-overlay-lines");
+        auto& shape = drawingPart (panel, "reference-overlay-shape");
+        auto& every = drawingPart (panel, "reference-overlay-all-shape");
+        require (! lines.isVisible() && ! shape.isVisible() && ! every.isVisible(), "ONE has no drawing switch");
+        switchHalf (panel, "reference-overlay-all").onClick();
+        for (auto* part : { &lines, &shape, &every })
+            require (part->isVisible() && panel.getLocalBounds().contains (panel.getLocalArea (part, part->getLocalBounds()))
+                     && panel.helpAt (panel.getLocalPoint (part, part->getLocalBounds().getCentre())) == reference_ui::help_text::drawing,
+                     "ALL shows LINES / SHAPE / ALL SHAPE in the page, each saying what it draws");
+        require (lines.getToggleState() && ! shape.getToggleState() && ! every.getToggleState(), "ALL starts on LINES");
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "1 Song 1");
+        shape.onClick();
+        require (panel.state().overlay.drawing == Drawing::shape && state.visualPreferences->overlay().drawing == Drawing::shape
+                 && shape.getToggleState() && ! lines.getToggleState(), "SHAPE is on, shown on the switch and kept where the project saves it");
+        auto drawn = a_direction::drawnTexts (panel);
+        reference_text_repairs::requireWhole (drawn, "MEAN OF 4");
+        reference_text_repairs::requireWhole (drawn, "RANGE OF 4");
+        reference_text_repairs::requireWhole (drawn, "20 Hz - 20 kHz");
+        require (! drawn.contains (text_style::shownText ("1 Song 1")), "SHAPE draws no line of its own per song");
+        auto& list = listOf (panel);
+        const auto rowY = [&] (int row) { return 6.0f + 18.0f + 34.0f + static_cast<float> (row - list.firstShownRow()) * 34.0f + 17.0f; };
+        press (list, { 20.0f, rowY (1) });
+        press (list, { 20.0f, rowY (4) });  // a target joins the shape the same way
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF 4");
+        require (panel.state().overlay.find (state.targets.collection.items[0].id) != nullptr, "the numbers still choose what goes in");
+        // ALL SHAPE: every song and target, whatever the numbers say.
+        every.onClick();
+        drawn = a_direction::drawnTexts (panel);
+        reference_text_repairs::requireWhole (drawn, "MEAN OF ALL 6");
+        reference_text_repairs::requireWhole (drawn, "RANGE OF ALL 6");
+        press (list, { 20.0f, rowY (0) });
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF ALL 6");
+        require (panel.state().overlay.drawing == Drawing::allShape && every.getToggleState(), "ALL SHAPE stays on and counts every item");
+        // Pointing at a row draws that one line on top, thin, while pointed.
+        const auto before = panel.createComponentSnapshot (panel.getLocalBounds());
+        list.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 120.0f, rowY (1) }, juce::ModifierKeys(),
+                                          0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &list, &list, juce::Time(), { 120.0f, rowY (1) }, juce::Time(), 0, false));
+        const auto pointed = panel.createComponentSnapshot (panel.getLocalBounds());
+        int changed = 0;
+        for (int y = 0; y < before.getHeight(); y += 2)
+            for (int x = before.getWidth() / 2; x < before.getWidth(); x += 2) changed += before.getPixelAt (x, y) != pointed.getPixelAt (x, y) ? 1 : 0;
+        require (changed > 30, "the pointed row's line is drawn over the shape");
+        // The level warning is read whole beside the switches.
+        auto unmatched = panel.state(); unmatched.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
+        panel.setState (unmatched);
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "LEVEL NOT MATCHED");
+        unmatched.aWindowLoudness = state.aWindowLoudness;
+        panel.setState (unmatched);
+        if (const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_OVERLAY_PREVIEW", {}); preview.isNotEmpty())
+        {
+            auto stream = juce::File (preview).getChildFile (juce::String ("all-shape-")
+                + (language == i18n::Language::japanese ? "ja.png" : "en.png")).createOutputStream();
+            require (stream && juce::PNGImageFormat().writeImageToStream (panel.createComponentSnapshot (panel.getLocalBounds()), *stream),
+                     "ALL SHAPE preview");
+        }
+        // SHAPE with nothing turned on says why.
+        shape.onClick();
+        auto none = panel.state(); none.overlay.lines.clear();
+        panel.setState (none);
+        drawn = a_direction::drawnTexts (panel);
+        reference_text_repairs::requireWhole (drawn, reference_ui::shapeEmptyText);
+        require (! drawn.contains (text_style::shownText ("MEAN OF 0")), "an empty shape names no mean");
+        if (const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_OVERLAY_PREVIEW", {}); preview.isNotEmpty())
+        {
+            auto shown = panel.state(); shown.overlay.lines = { { state.songs[0].id, 0 }, { state.songs[1].id, 1 }, { state.songs[2].id, 2 } };
+            panel.setState (shown);
+            auto stream = juce::File (preview).getChildFile (juce::String ("shape-")
+                + (language == i18n::Language::japanese ? "ja.png" : "en.png")).createOutputStream();
+            require (stream && juce::PNGImageFormat().writeImageToStream (panel.createComponentSnapshot (panel.getLocalBounds()), *stream),
+                     "SHAPE preview");
+        }
+        // LINES is ALL as it was; ONE is ONE as it was.
+        lines.onClick();
+        require (panel.state().overlay.drawing == Drawing::lines, "LINES turns the shapes off");
+        switchHalf (panel, "reference-overlay-one").onClick();
+        require (! lines.isVisible() && ! shape.isVisible() && ! every.isVisible(), "ONE hides the drawing switch");
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "TARGET RANGE");
+    }
+}
+
 inline void verify()
 {
     verifyPalette();
+    verifyShape();
     verifySwitchAndColours();
     verifyFullSet();
     std::cout << "Reference Balance overlay (ONE / ALL, lines, targets, 16 + 16): PASS\n";
