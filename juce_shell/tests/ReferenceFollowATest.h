@@ -256,6 +256,49 @@ inline void testReferenceFollowA (const juce::File& sandbox)
              }) && rendered < 0, "before the song's start A plays and the reason is published");
     require (play (wait, [&] { return at (-10 * second); }) && rendered >= 10 * second, "B joins once A reaches the song's start");
 
+    // 曲の外で押した B・C は覚えて待ち、A の位置が曲に入れば押し直さずに鳴る。A・別の役・REF を離れると消える。
+    const auto outsideBoth = [&] { return reference()->followOutside == 1 && controller.snapshot().checkSelection->followOutside == 1; };
+    const auto waitingFor = [&] (int slot, const char* reason)
+    {
+        const auto state = controller.snapshot();
+        return state.pendingAudition.waiting() && state.pendingAudition.slot == slot && state.pendingAudition.reasonCode == reason
+            && state.audibleComparisonSlot == 0;
+    };
+    const auto staysA = [&] (const char* why) { for (int index = 0; index < 150; ++index) require (play (1, {}) && rendered < 0, why); };
+    controller.selectA();
+    position = songFrames + 11 * second;  // B は -10 秒ずらしで曲の終わりの後、C（ずらし 0）も曲の外
+    require (play (wait, outsideBoth), "A's position is past the end of B's and C's song");
+    require (controller.requestAudition (3, -14.0, -6.0) && play (wait, [&] { return waitingFor (3, "reference_follow_past_end"); })
+                 && play (20, {}) && rendered < 0 && controller.snapshot().pendingAudition.waiting(),
+             "a B press past the song's end is remembered, not refused, and A keeps playing");
+    controller.selectA();
+    require (! controller.snapshot().pendingAudition.waiting(), "pressing A cancels the remembered press");
+    position = 12 * second;
+    staysA ("after A cancelled it, moving into the song never starts B");
+    position = songFrames + 11 * second;
+    require (play (wait, outsideBoth) && controller.requestAudition (3, -14.0, -6.0) && play (wait, [&] { return waitingFor (3, "reference_follow_past_end"); }),
+             "B is remembered again");
+    position = 12 * second;
+    require (play (wait, [&] { return controller.snapshot().audibleComparisonSlot == 3 && at (-10 * second); }),
+             "the remembered B starts by itself once A's position is in the song");
+    controller.selectA();
+    position = songFrames + 11 * second;
+    require (play (wait, outsideBoth) && controller.requestAudition (3, -14.0, -6.0) && play (wait, [&] { return waitingFor (3, "reference_follow_past_end"); })
+                 && controller.requestAudition (2, -14.0, -6.0) && play (wait, [&] { return waitingFor (2, "reference_follow_past_end"); }),
+             "pressing C replaces the remembered B with a remembered C");
+    position = 5 * second;
+    require (play (wait, [&] { require (controller.snapshot().audibleComparisonSlot != 3, "the replaced B never starts");
+                               return controller.snapshot().audibleComparisonSlot == 2 && at (0); }),
+             "the remembered C starts once A is in the song");
+    controller.selectA();
+    position = songFrames + second;
+    require (play (wait, outsideBoth) && controller.requestAudition (3, -14.0, -6.0) && play (wait, [&] { return waitingFor (3, "reference_follow_past_end"); }),
+             "B is remembered before leaving REF");
+    controller.suspendAudition();
+    require (! controller.snapshot().pendingAudition.waiting(), "leaving REF cancels the remembered press");
+    position = 5 * second;
+    staysA ("after leaving REF, moving into the song never starts B");
+
     // 曲が替わると 0：選んだ曲が鳴らせなくても、戻した曲のずらしは 0 から。
     require (controller.nudgeFollowOffset (3, 0.3), "B has an offset before the song changes");
     const auto songs = controller.snapshot().songSets[0].songs;

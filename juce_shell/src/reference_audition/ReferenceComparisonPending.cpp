@@ -110,7 +110,8 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned) return false; }
     auto& target = slotController (slot);
     const auto now = target.snapshot();
-    if (now.auditionPages == AuditionPageState::outsideSource)
+    // FOLLOW A で A の位置が曲の外：押したことを覚えて待ち、A の位置が曲に入れば鳴らす（理由は待ちの文が言う）。
+    if (now.auditionPages == AuditionPageState::outsideSource && now.followOutside == 0)
     {
         selectA();
         const juce::ScopedLock lock (selectionLock);
@@ -129,7 +130,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
                     || now.rejectionCode == "reference_source_revalidating"
                     || now.rejectionCode == "reference_source_cache_full"
                     || now.rejectionCode == "reference_source_copy_failed"))
-            || now.matchFailure == MatchFailure::liveLevelUnavailable);
+            || now.matchFailure == MatchFailure::liveLevelUnavailable || now.followOutside != 0);
     if (! settles) return false;
     selectA();
     { const juce::ScopedLock lock (selectionLock); switchGeneration = target.requestedGeneration(); }
@@ -238,7 +239,8 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         // 待ち（確かめた写像で範囲外の位置は鳴らさない）、範囲内に入れば押し直し無しで戻す（1.1.53 と同じ）。
         // 利用者が押した初回と選択の替えは、確かめた写像の上で範囲外なら今までどおり理由を出して断る。
         // FOLLOW A の曲の外も同じ：A のまま理由を言って待ち、曲の中へ戻れば押し直し無しで戻す。
-        if (intent.resume && state.auditionPages == AuditionPageState::outsideSource)
+        // 押して待っている FOLLOW A の役も同じ（A・別の役・END・REF を離れると、ほかの待ちと同じく消える）。
+        if ((intent.resume || state.followOutside != 0) && state.auditionPages == AuditionPageState::outsideSource)
         { publish (state.transportPlaying ? Stage::checking : Stage::play, callbackLive,
                    state.followOutside != 0 ? outsideReason (state) : juce::String {}); return; }
         if (intent.resume || intent.switching) dropResume();

@@ -231,6 +231,8 @@ const Entry entries[] = {
     { "FOLLOW A: C plays the whole song from A's position. The line is C's playing position.",
       u8"FOLLOW A：CはAの位置から曲全体を再生します。線はCの再生位置。" },
     { "WHOLE SONG MATCHED TO A (ALL), FIXED", u8"曲全体をA全体に合わせて固定" },
+    { "A is past the song's end; %1 starts when A is in the song", u8"Aは曲の終わりの後。Aが曲に入ると%1が始まります" },
+    { "A is before the song's start; %1 starts when A reaches it", u8"Aは曲の頭より前。Aが届くと%1が始まります" },
     { "%1 FOLLOW A", u8"%1はAに同期" },  // 語の幅の契約に収める短い形
     { "%1 FOLLOW A %2 S", u8"%1はAに同期%2秒" },
     { "%1 PAST SONG END, A PLAYING", u8"%1は曲の終わりの後・Aを再生中" },

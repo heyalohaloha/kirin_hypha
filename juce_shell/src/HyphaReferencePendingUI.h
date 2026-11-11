@@ -11,9 +11,15 @@ inline bool settlesByItself (SourceStep step) noexcept
     return automaticStage (step) && step != SourceStep::waitingForKirinOs;  // 段階の表で上限のある段階
 }
 
+// FOLLOW A で A の位置が曲の外：押したことを覚えて、A の位置が曲に入れば鳴らす（2026-11-11）。
+inline bool waitsForSong (SourceStep step) noexcept
+{
+    return step == SourceStep::pastSongEnd || step == SourceStep::beforeSongStart;
+}
+
 inline bool canQueueSource (const State& state, bool version)
 {
-    const bool waits = settlesByItself (version ? state.versionStep : state.checkStep)
+    const bool waits = settlesByItself (version ? state.versionStep : state.checkStep) || (! version && waitsForSong (state.checkStep))
         || (state.transportPlaying ? (version && state.versionStep == SourceStep::playAnotherPassage)
                                    : (version ? state.versionArmable : state.checkArmable));
     return state.separateComparisons && state.libraryReceived && waits
@@ -23,7 +29,8 @@ inline bool canQueueSource (const State& state, bool version)
 // B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
 inline bool canQueueReference (const State& state)
 {
-    const bool waits = settlesByItself (state.referenceStep) || (!state.transportPlaying && state.referenceArmable);
+    const bool waits = settlesByItself (state.referenceStep) || waitsForSong (state.referenceStep)
+        || (!state.transportPlaying && state.referenceArmable);
     return state.separateComparisons && state.libraryReceived && waits
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }
@@ -110,10 +117,16 @@ inline juce::String versionStoppedText (const State& state)
 inline juce::String pendingAuditionText (const State& state)
 {
     if (state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::none) return {};
-    // FOLLOW A の曲の外：待っていても止まっていても、何が鳴っていてなぜかを段階の文で言う（A のまま。戻れば鳴る）。
+    // FOLLOW A の曲の外：押した役は待ち、何を待つかを言う（A のまま。A の位置が曲に入れば鳴る）。待ちでなければ段階の文。
     if (state.pendingAudition.reasonCode == "reference_follow_past_end" || state.pendingAudition.reasonCode == "reference_follow_before_start")
-        return stageLine (state.pendingAudition.reasonCode.endsWith ("end") ? SourceStep::pastSongEnd : SourceStep::beforeSongStart,
-                          state.pendingAudition.slot);
+    {
+        const bool end = state.pendingAudition.reasonCode.endsWith ("end");
+        const auto role = juce::String (roleLetter (state.pendingAudition.slot));
+        if (state.pendingAudition.waiting())
+            return end ? "A is past the song's end; " + role + " starts when A is in the song"
+                       : "A is before the song's start; " + role + " starts when A reaches it";
+        return stageLine (end ? SourceStep::pastSongEnd : SourceStep::beforeSongStart, state.pendingAudition.slot);
+    }
     if (state.pendingAudition.slot == 1 && !state.pendingAudition.waiting()) return versionStoppedText (state);
     return pendingAuditionHeading (state) + " / " + pendingAuditionReason (state)
         + (state.pendingAudition.waiting() ? "" : " / SELECT AGAIN");

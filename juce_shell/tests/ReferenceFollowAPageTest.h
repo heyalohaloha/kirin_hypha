@@ -66,14 +66,27 @@ inline void verifyReferenceFollowAPages()
     require (line == "B BEFORE SONG START, A PLAYING / KEEP PLAYING"
                  && japanese (line) == u8 (u8"Bは曲の頭より前・Aを再生中 ／ 再生を継続"),
              "before the song's start the page says A plays until B starts: " + line + " / " + japanese (line));
+    // 曲の外で押した B・C は待つ（断らない）：押せる形で、待っている間は何を待つかを言う。V は今までどおり。
+    outside.referenceStep = SourceStep::pastSongEnd; outside.checkStep = SourceStep::beforeSongStart;
+    outside.versionStep = SourceStep::outsideVersion;
+    require (reference_ui::canQueueReference (outside) && reference_ui::canQueueSource (outside, false)
+                 && ! reference_ui::canQueueSource (outside, true),
+             "a B or C press outside the song is remembered; V outside its Version is still explained");
     outside.referenceStep = SourceStep::ready;
-    for (const auto& [code, expected] : { std::pair { "reference_follow_past_end", "C PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP" },
-                                          std::pair { "reference_follow_before_start", "C BEFORE SONG START, A PLAYING / KEEP PLAYING" } })
+    for (const auto& [code, english, japaneseText] : {
+             std::tuple { "reference_follow_past_end", "A is past the song's end; C starts when A is in the song",
+                          u8"Aは曲の終わりの後。Aが曲に入るとCが始まります" },
+             std::tuple { "reference_follow_before_start", "A is before the song's start; C starts when A reaches it",
+                          u8"Aは曲の頭より前。Aが届くとCが始まります" } })
     {
         outside.pendingAudition = { 2, reference_audition::PendingAuditionView::Stage::checking, code };
-        require (reference_ui::referenceStatusLine (outside).text == expected,
-                 "a C waiting outside the song says why, not a generic wait: " + reference_ui::referenceStatusLine (outside).text);
+        const auto waiting = reference_ui::referenceStatusLine (outside);
+        require (waiting.text == english && japanese (waiting.text) == u8 (japaneseText) && waiting.kind == reference_ui::StatusKind::waiting,
+                 "a remembered C says what it waits for, in both languages: " + waiting.text + " / " + japanese (waiting.text));
     }
+    outside.pendingAudition = { 2, reference_audition::PendingAuditionView::Stage::startFailed, "reference_follow_past_end" };
+    require (reference_ui::referenceStatusLine (outside).text == "C PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP",
+             "a press that did not wait says why with the stage's line");
 
     // 押す前の MATCH の読み：FOLLOW A は曲全体の値と A の ALL の窓（B は選んでいる曲だけ、ほかの曲は押すまで出さない）。
     {
