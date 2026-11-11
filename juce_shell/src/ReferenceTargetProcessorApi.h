@@ -19,6 +19,7 @@
     bool selectReferenceCue (const juce::String&);
     bool selectReferenceVisualSlot (int); bool selectReferenceAWindow (hypha::reference_audition::AWindowTarget, hypha::reference_audition::AWindowChoice, int seconds = 10); bool resetReferenceAWindow (hypha::reference_audition::AWindowTarget);
     bool requestReferenceRecovery();
+    bool setReferenceOverlay (const hypha::reference_audition::BalanceOverlay&); // B の Balance の重ね比べ（保存し、host に知らせる）
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);

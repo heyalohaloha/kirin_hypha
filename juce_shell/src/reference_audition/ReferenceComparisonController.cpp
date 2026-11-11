@@ -397,6 +397,13 @@ bool ReferenceComparisonController::selectAWindow (AWindowTarget target, AWindow
     if (changed && stateChanged) stateChanged();
     return true;
 }
+bool ReferenceComparisonController::setOverlay (const BalanceOverlay& value)
+{
+    if (visualPreferences->overlay() == value) return false;
+    visualPreferences->setOverlay (value);
+    if (stateChanged) stateChanged();  // the host learns the project changed (it asks to save)
+    return true;
+}
 bool ReferenceComparisonController::resetAWindow (AWindowTarget target)
 {
     if (trialActive()) return false;

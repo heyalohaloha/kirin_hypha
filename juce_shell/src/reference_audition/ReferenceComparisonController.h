@@ -56,6 +56,8 @@ public:
     // 中で行うので、別のスレッドから来る restoreSettings と交差しても、復元した値を古い回答が上書きしない。
     bool selectAWindow (AWindowTarget, AWindowChoice, int seconds = 10);
     bool resetAWindow (AWindowTarget);
+    // B の Balance の重ね比べ（見せ方だけ、project に保存する）。変わったら state が変わったと知らせる。
+    bool setOverlay (const BalanceOverlay&);
     bool retryPresetSelection();
     bool retryCandidatePreparation();
     bool requestRecovery();

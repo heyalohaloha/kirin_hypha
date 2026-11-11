@@ -57,6 +57,14 @@ inline reference_ui::State page (int songs, int targets)
     return state;
 }
 
+// What the page asks the processor to save (and to tell the host about): each overlay change, once.
+struct Saved
+{
+    ref::BalanceOverlay overlay;
+    int count = 0;
+    void track (reference_ui::Component& panel) { panel.onOverlayChange = [this] (const auto& next) { overlay = next; ++count; }; }
+};
+
 inline reference_ui::SongList& listOf (reference_ui::Component& panel)
 {
     auto* list = dynamic_cast<reference_ui::SongList*> (panel.findChildWithID ("reference-song-list"));
@@ -98,10 +106,11 @@ inline void verifySwitchAndColours()
     const auto one = a_direction::drawnTexts (panel);
     reference_text_repairs::requireWhole (one, "TARGET RANGE");
     reference_text_repairs::requireWhole (one, "B CHORUS 1:02-1:24");
+    Saved saved; saved.track (panel);
     switchHalf (panel, "reference-overlay-all").onClick();
     const auto overlay = panel.state().overlay;
-    require (overlay.all && overlay.lines.size() == 4 && state.visualPreferences->overlay() == overlay,
-             "the first ALL shows the set's songs and keeps the choice where the project saves it");
+    require (overlay.all && overlay.lines.size() == 4 && saved.overlay == overlay && saved.count == 1,
+             "the first ALL shows the set's songs and asks the processor to save it (the host is told)");
     for (int index = 0; index < 4; ++index)
         require (overlay.find (state.songs[static_cast<size_t> (index)].id)->colour == index, "songs take colours in list order");
     require (list.rows().size() == 6 && list.rows()[4].target && list.rows()[5].target && list.rows()[4].title == "Drop 1"
@@ -337,6 +346,7 @@ inline void verifyShape()
         auto& shape = drawingPart (panel, "reference-overlay-shape");
         auto& every = drawingPart (panel, "reference-overlay-all-shape");
         require (! lines.isVisible() && ! shape.isVisible() && ! every.isVisible(), "ONE has no drawing switch");
+        Saved saved; saved.track (panel);
         switchHalf (panel, "reference-overlay-all").onClick();
         for (auto* part : { &lines, &shape, &every })
             require (part->isVisible() && panel.getLocalBounds().contains (panel.getLocalArea (part, part->getLocalBounds()))
@@ -345,7 +355,7 @@ inline void verifyShape()
         require (lines.getToggleState() && ! shape.getToggleState() && ! every.getToggleState(), "ALL starts on LINES");
         reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "1 Song 1");
         shape.onClick();
-        require (panel.state().overlay.drawing == Drawing::shape && state.visualPreferences->overlay().drawing == Drawing::shape
+        require (panel.state().overlay.drawing == Drawing::shape && saved.overlay.drawing == Drawing::shape
                  && shape.getToggleState() && ! lines.getToggleState(), "SHAPE is on, shown on the switch and kept where the project saves it");
         auto drawn = a_direction::drawnTexts (panel);
         reference_text_repairs::requireWhole (drawn, "MEAN OF 4");

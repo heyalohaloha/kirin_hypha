@@ -115,7 +115,8 @@ void Component::configureRoles()
 
 void Component::applyOverlay (reference_audition::BalanceOverlay next)
 {
-    if (current.visualPreferences) current.visualPreferences->setOverlay (next);
+    // 他の保存する Reference の選択と同じく processor を通す（DAW に project が変わったと知らせ、保存を促す）。
+    if (onOverlayChange) onOverlayChange (next);
     current.overlay = std::move (next);
     setState (State (current));
 }

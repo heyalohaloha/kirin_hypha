@@ -309,6 +309,7 @@ public:
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
     std::function<void(reference_audition::AWindowTarget)> onResetAWindow;
+    std::function<void(const reference_audition::BalanceOverlay&)> onOverlayChange; // 重ね比べ（保存して host に知らせる）
     std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
     std::function<void(bool)> onSetFollowA; std::function<void(int, double)> onNudgeFollow; std::function<void(int)> onResetFollow;  // B・C の流し方とずらし
     std::function<void()> onAction;

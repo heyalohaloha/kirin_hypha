@@ -31,6 +31,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onResetAWindow = [this] (auto target)
     { if (! processorRef.resetReferenceAWindow (target)) showToast ("A window was not changed"); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
+    referenceView.onOverlayChange = [this] (const auto& overlay) { processorRef.setReferenceOverlay (overlay); };
     wireReferenceRoles();
     referenceView.onSelectB = [this]
     {
