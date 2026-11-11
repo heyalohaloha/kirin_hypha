@@ -41,8 +41,14 @@ inline constexpr const char* versionMixContext = "V works best with Hypha on the
 inline constexpr const char* whole = "The whole song: A above V, peak outside and RMS inside. Select a region to compare.";
 inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.";
 
+// B の Balance の重ね比べ（HyphaReferenceOverlay.h）：ALL の図、ONE／ALL の切り替え、一覧の番号。
+inline constexpr const char* balanceAll = "Balance: A over the chosen window and the lines you show, each at the level B plays it at.";
+inline constexpr const char* overlay = "ONE: A, the chosen song and the set's range. ALL: A with the lines of the numbers you press.";
+inline constexpr const char* overlayNumber = "Shows or hides this line on Balance. B keeps playing the song you chose.";
+
 // 説明の全部（足したらここにも足す。試験は全部を両言語で確かめる：足元の行に収まる・日本語に英語が残らない）。
 inline constexpr const char* all[] { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
                                      timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands, versionBands,
-                                     integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs };
+                                     integrated, truePeak, cueBar, match, checkTabs, checkPurpose, versionTabs, versionMixContext, whole, songs,
+                                     balanceAll, overlay, overlayNumber };
 }

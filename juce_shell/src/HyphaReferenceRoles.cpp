@@ -1,9 +1,12 @@
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceOverlay.h"
 #include "HyphaReferencePreviewGain.h"
 #include "HyphaReferenceSongChoice.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceStatusModel.h"
 #include "HyphaTheme.h"
+
+#include <algorithm>
 
 // A／B／C／V の B（REF）。Kirin OS が「Hypha に出す」にした B セットの曲を鳴らす役のボタンと、
 // REFERENCE SET（順位つき、最大 3）と曲の選択。B を押すと B の画面になり、B のまま曲を選ぶとすぐ切り替わる。
@@ -53,8 +56,51 @@ void Component::configureRoles()
     };
     addChildComponent (songSetBox);
     addChildComponent (songBox);
-    songList.onChoose = [this] (const juce::String& id) { if (id != current.songId && onSelectSong) onSelectSong (id); };
+    songList.onChoose = [this] (const juce::String& id)
+    {
+        // 目標の行は音が無いので鳴らせない：理由を言う（選択も音も変えない）。
+        const bool song = std::any_of (current.songs.begin(), current.songs.end(), [&id] (const auto& option) { return option.id == id; });
+        if (! song) { if (current.targets.collection.find (id) != nullptr && onExplain) onExplain (targetSilentText); return; }
+        if (id != current.songId && onSelectSong) onSelectSong (id);
+    };
+    songList.onToggle = [this] (const juce::String& id)
+    {
+        std::vector<juce::String> listed;
+        for (const auto& item : overlayItems (current)) listed.push_back (item.id);
+        auto next = current.overlay;
+        next.toggle (id, listed);
+        applyOverlay (std::move (next));
+    };
+    songList.onPoint = [this] (const juce::String& id)
+    {
+        if (current.overlayPointed == id) return;
+        current.overlayPointed = id;
+        repaint (balanceBounds);
+    };
     addChildComponent (songList);
+    // ALL を初めて開いた時（今の一覧の線が 1 本も出ていない時）は、セットの曲を全部出す。目標は番号で足す。
+    overlaySwitch.onChoose = [this] (bool all)
+    {
+        if (current.overlay.all == all) return;
+        auto probe = current;
+        probe.overlay.all = all;
+        const auto items = overlayItems (probe);
+        if (all && std::none_of (items.begin(), items.end(), [] (const auto& item) { return item.line != nullptr; }))
+        {
+            std::vector<juce::String> listed;
+            for (const auto& item : items) listed.push_back (item.id);
+            for (const auto& item : items) if (! item.target) probe.overlay.toggle (item.id, listed);
+        }
+        applyOverlay (std::move (probe.overlay));
+    };
+    addChildComponent (overlaySwitch);
+}
+
+void Component::applyOverlay (reference_audition::BalanceOverlay next)
+{
+    if (current.visualPreferences) current.visualPreferences->setOverlay (next);
+    current.overlay = std::move (next);
+    setState (State (current));
 }
 
 // 300% 未満の C と V は薄く描き、押すと 300% に広げてその役の画面を開く（Blind と同じ動き）。
@@ -88,11 +134,26 @@ void Component::syncRoles (bool blindSession)
     // A を鳴らしたままでも替えられる（B が鳴っていれば前の曲を鳴らしたまま次の曲を準備する）。
     songSetBox.setVisible (referenceView && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
-    // 300% の B の画面は、左に曲の一覧、右に Balance。
+    // 300% の B の画面は、左に曲の一覧、右に Balance。Balance の見出しの右に ONE／ALL。
     songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
+    overlaySwitch.setVisible (songList.isVisible());
+    overlaySwitch.setChoice (current.overlay.all, presentationContext);
     std::vector<SongList::Row> rows;
-    for (size_t index = 0; index < current.songs.size(); ++index)
+    for (const auto& item : overlayItems (current))
     {
+        const auto colour = item.line != nullptr ? item.line->colour : 0;
+        if (item.target)
+        {
+            // 目標（ALL だけ）：Kirin OS の値の代わりに測った値。MATCH は線をそろえた gain（鳴らさない）。
+            const auto* target = current.targets.collection.find (item.id);
+            rows.push_back ({ item.id, item.name, target != nullptr ? target->integrated : std::numeric_limits<double>::quiet_NaN(),
+                              displayGainDb (current, item.gainDb) });
+            rows.back().target = true;
+            rows.back().shown = item.line != nullptr;
+            rows.back().colour = colour;
+            continue;
+        }
+        const auto index = static_cast<size_t> (item.number - 1);
         const auto& song = current.songs[index];
         const auto fact = index < current.songFacts.size() ? current.songFacts[index] : SongFact {};
         const bool selected = song.id == current.songId;
@@ -107,7 +168,10 @@ void Component::syncRoles (bool blindSession)
                           selected && ! playing && current.action.kind == ActionKind::lowerAAndPlay
                               && current.action.offer.slot == 3 ? current.action.offer.db : std::numeric_limits<double>::quiet_NaN(),
                           selected && ! playing && (roleSounds || current.switchingSlot == 3), fact.loaded });
+        rows.back().shown = item.line != nullptr;
+        rows.back().colour = colour;
     }
+    songList.setOverlay (current.overlay.all);
     songList.setRows (std::move (rows), presentationContext);
     songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));
     if (! referenceView) return;

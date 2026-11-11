@@ -179,6 +179,7 @@ struct State
     reference_audition::AWindowChoices aWindows; // B・C の図の A の線の窓
     reference_audition::AWindowTarget aWindowTarget; // リストの回答を結ぶ役と世代
     reference_audition::BalanceOverlay overlay;      // B の Balance の ONE／ALL と出した線（見せ方だけ）
+    juce::String overlayPointed;                     // ALL で一覧の指している行（その線を強める）
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     juce::Point<float> chartPointer { -1.0f, -1.0f };  // where the pointer reads a spectrum chart
     std::vector<float> liveSpectrumDbfs;
@@ -428,6 +429,7 @@ private:
     SideButton refButton { "B" }; // B（REF、B セットの曲）
     juce::ComboBox songSetBox, songBox;
     SongList songList; // B の画面の左の曲の一覧
+    OverlaySwitch overlaySwitch; // B の Balance の ONE／ALL（HyphaReferenceRoles.cpp・HyphaReferenceOverlay.h）
     CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
     SelectionControl checkSongBox; // いまの Check の曲
     SideButton matchButton { "MATCH" };
@@ -449,6 +451,7 @@ private:
     void configureRoles();
     void syncRoles (bool blindSession);
     bool explainReference();
+    void applyOverlay (reference_audition::BalanceOverlay);  // 見せ方だけ（編集画面を閉じても残る所へも書く）
     // C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
     // （HyphaReferenceCheckPage.cpp）。
     bool checkPage() const noexcept;

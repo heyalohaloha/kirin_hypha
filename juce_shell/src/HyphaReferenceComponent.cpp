@@ -159,6 +159,7 @@ void Component::mouseExit (const juce::MouseEvent&)
 void Component::setState (State next)
 {
     next.chartPointer = current.chartPointer;
+    next.overlayPointed = current.overlayPointed;
     current = std::move (next);
     prepareDisplayNames (current);
     setTitle (current.title);

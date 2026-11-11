@@ -40,7 +40,7 @@ the Cue in Kirin OS.
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
 seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
-with no audio to audition. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+with no audio to audition. On the B page, ALL also overlays targets with the Reference set's songs. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
 four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
 drop holds more files than there are free places, they are measured in the order dropped until the
 places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
@@ -155,6 +155,17 @@ the B page chooses the Reference set and the song, also while A plays.
   playing song shows the gain applied. The legend's TARGET RANGE is the band between the set's songs
   (p10 to p90 per band, each at the level B plays it at). It takes two songs with measured values; with
   fewer there is no band and the legend does not name one.
+  **ONE / ALL** at the top right of Balance chooses what it draws. ONE is the view above. ALL draws A
+  (gold) with the lines you show: each row's number becomes a box that shows or hides that row's line,
+  as many at once as you like. It only changes the chart; B still plays the one song you chose. The first
+  ALL shows every song of the set. A line keeps the colour it was given until you hide it, whichever
+  others you show or hide, and a box takes its line's colour. The legend names the lines shown in up to
+  three rows and ends with how many more (+12). Pointing at a row, or near a line on the chart, draws that
+  line stronger and the others fainter and reads A and that line at the pointer. In ALL the measured
+  targets you dropped follow the songs, in the order added, at the level B would play them at (state
+  DATA); pressing one to hear it says that it has no audio. The list scrolls when its rows do not fit, and
+  moves to the chosen song. ONE or ALL and the lines shown are saved with the project (earlier versions
+  of Hypha ignore them). Below 300 % there is no Balance, so no ALL.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
   set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against

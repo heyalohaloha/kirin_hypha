@@ -199,6 +199,15 @@ const Entry entries[] = {
       u8"曲全体：上がA、下がV。外側がPeak、内側がRMS。範囲を選ぶと比べる。" },
     { "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.",
       u8"Reference の曲：各曲の Cue の LUFS-I と、MATCH で鳴らす Gain。" },
+    // B の Balance の重ね比べ（HyphaReferenceOverlay.h）。
+    { "Balance: A over the chosen window and the lines you show, each at the level B plays it at.",
+      u8"Balance：選んだ窓のAと、出した線。どれもBで鳴らす音量で並べます。" },
+    { "ONE: A, the chosen song and the set's range. ALL: A with the lines of the numbers you press.",
+      u8"ONE：Aと選んだ曲とセットの範囲。ALL：Aと、番号を押して出した線。" },
+    { "Shows or hides this line on Balance. B keeps playing the song you chose.",
+      u8"この線をBalanceに出す・消す。Bで鳴る曲は選んだ曲のまま。" },
+    { "A target is measured data with no audio. Compare it on C.", u8"目標は測った値だけで、音はありません。Cで比べられます。" },
+    { "PRESS A NUMBER TO SHOW ITS LINE", u8"番号を押すと線が出ます" },
 };
 }
 
