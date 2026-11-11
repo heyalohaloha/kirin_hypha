@@ -178,6 +178,13 @@ inline void verifyReferenceStatusLine()
                                                                  i18n::Language::japanese))
                      && ! issueJapanese.contains ("PUBLICATION"),
                  "the publication notice on the B page reads as one Japanese sentence: " + issueJapanese);
+        // つないで探すのは型の無い 1 文だけ。「A %1 / %2 S」の型が別々の 2 つ（グラフの凡例）を取らない。
+        const auto ja = [] (const char* text) { return i18n::translate (text, i18n::Language::japanese); };
+        const auto legend = ja ("A LAST 18 S / C LOUDEST 30 S / TARGET RANGE");
+        require (legend == ja ("A LAST 18 S") + juce::String::fromUTF8 (u8" ／ ") + ja ("C LOUDEST 30 S")
+                               + juce::String::fromUTF8 (u8" ／ ") + ja ("TARGET RANGE")
+                     && ! legend.contains ("LAST"),
+                 "separate legend facts keep their own translations: " + legend);
     }
     // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
     playing.comparisonSlot = playing.audibleComparisonSlot = 3;

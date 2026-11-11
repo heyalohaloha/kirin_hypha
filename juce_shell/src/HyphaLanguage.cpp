@@ -245,13 +245,17 @@ juce::String translateParts (const Catalog& catalog, const juce::String& text, i
     {
         bool found = false;
         auto translated = juce::String();
-        // A status the catalog has as one "PART / PART" sentence keeps its single-spaced " / " inside a longer line
-        // whose facts are joined by "  /  " (the B page adds a publication notice to the audition line).
+        // A status the catalog has as one exact "PART / PART" sentence keeps its single-spaced " / " inside a longer
+        // line whose facts are joined by "  /  " (the B page adds a publication notice to the audition line). Only
+        // exact entries: a pattern such as "A %1 / %2 S" would take two separate facts ("A LAST 18 S / C LOUDEST 30 S").
         if (i + 1 < parts.size() && separators[i] == " / ")
-            translated = exactOrPattern (catalog, parts[i] + " / " + parts[i + 1], found, depth);
-        if (found)
-            ++i;
-        else
+            if (const auto joined = catalog.exact.find (parts[i] + " / " + parts[i + 1]); joined != catalog.exact.end())
+            {
+                translated = joined->second;
+                found = true;
+                ++i;
+            }
+        if (! found)
             translated = exactOrPattern (catalog, parts[i], found, depth);
         result += translated;
         translatedAny = translatedAny || found;
