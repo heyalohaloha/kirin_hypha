@@ -31,10 +31,25 @@ Reference has four roles, each with its own button in the same place at every si
   C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
-B and C repeat a section chosen in Kirin OS (the Cue); they do not follow A's position in the song. Only V
-follows A's position. The status line names the section that plays, for example **B CHORUS 2:53-3:07 LOOP**,
-and then how its level is held, for example **LEVEL FOLLOWS A (LAST 10 S)**. To hear another section, change
-the Cue in Kirin OS.
+**LOOP and FOLLOW A.** B and C play in one of two ways, chosen with **LOOP** and **FOLLOW A** on the B and C
+pages; one choice serves both, and the project remembers it.
+
+- **LOOP** (the default): B and C repeat a section chosen in Kirin OS (the Cue), as described above; they do
+  not follow A's position in the song. The status line names the section that plays, for example
+  **B CHORUS 2:53-3:07 LOOP**, and then how its level is held, for example **LEVEL FOLLOWS A (LAST 10 S)**. To
+  hear another section, change the Cue in Kirin OS.
+- **FOLLOW A**: B and C play the whole reference song from A's position in the DAW, so pressing A, B and C
+  switches the sound at the same position, through seeks, stops and loops. The status line says
+  **B FOLLOW A**. The offset moves the song against A when it does not line up: **+** and **-** move it by
+  0.1 s (with Shift, 0.01 s; hold to repeat), and pressing the amount returns it to 0. A positive amount plays
+  the song ahead of A. The offset returns to 0 when the song changes or when you press another role.
+  When A's position with the offset is outside the song, A plays and the status line says why, for example
+  **B PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP**; a role that was playing comes back by itself
+  when A is inside the song again.
+
+Switching while B or C plays moves it to the new position with a short crossfade (A plays for the moment the
+new position takes to load). Choosing or restoring a way never starts a role. MATCH and level following are
+the same in both ways. V always follows A's position by its content, and Blind is unchanged.
   V works best with Hypha on the 2Mix.
 
 **Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
@@ -142,7 +157,8 @@ instead.
 
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
-the B page chooses the Reference set and the song, also while A plays.
+the B page chooses the Reference set and the song, also while A plays, and switches FOLLOW A beside the song.
+At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue row.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
