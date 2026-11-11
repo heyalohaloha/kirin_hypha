@@ -78,7 +78,7 @@ void verifyVuTapProduct()
             require (processor.vuLive().enabled() && static_cast<bool> (view->onVuLiveReading),
                      "shipping editor wires and enables the physical needle provider");
             juce::AudioBuffer<float> block (2, 512); juce::MidiBuffer midi;
-            for (int iteration = 0; iteration < 160; ++iteration)
+            const auto feedBlock = [&]
             {
                 for (int ch = 0; ch < 2; ++ch) for (int frame = 0; frame < 512; ++frame)
                     block.setSample (ch, frame, ch == 0 ? .1f : -.05f);
@@ -89,7 +89,14 @@ void verifyVuTapProduct()
                     const float expected = ch == 0 ? .1f : -.05f, actual = block.getSample (ch, frame);
                     require (std::memcmp (&actual, &expected, sizeof (actual)) == 0, "VU tap leaves A bit identical");
                 }
-            }
+            };
+            for (int iteration = 0; iteration < 160; ++iteration) feedBlock();
+            // A scheduling stall on a slow host is a real callback gap: the tap rightly integrates
+            // it as zero input and the needle falls. Keep feeding continuous audio until the needle
+            // has recovered (bounded by 10 s of audio), instead of reading it right after a stall.
+            const auto settled = [&] (const auto& reading)
+            { return reading.coherent && reading.feeding && reading.channels == 2 && reading.needles[0].value > .15; };
+            for (int extra = 0; extra < 940 && ! settled (view->onVuLiveReading()); ++extra) feedBlock();
             const auto live = view->onVuLiveReading();
             require (live.coherent && live.feeding && live.channels == 2
                      && live.needles[0].value > .15, "processBlock feeds the actual live provider");
