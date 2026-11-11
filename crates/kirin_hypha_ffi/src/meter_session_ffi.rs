@@ -156,5 +156,6 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         layout_id: snapshot.layout.id().to_abi(),
         layout_reserved: [0; 7],
         measurement_epoch: snapshot.measurement_epoch,
+        song_psr: opt_f64(snapshot.song_psr),
     }
 }

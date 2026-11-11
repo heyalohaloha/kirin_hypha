@@ -72,6 +72,7 @@ inline KirinObservatoryFrame frame()
     auto& meter = result.meter;
     meter.lufs_m = -11.6; meter.lufs_s = -11.9; meter.lufs_i = -13.2; meter.lra = 6.8;
     meter.true_peak = -1.4; meter.max_true_peak = -0.6; meter.max_lufs_m = -9.8; meter.plr = 12.6;
+    meter.song_psr = 7.8; // the chorus, where the limiter holds PSR lowest
     meter.balance_db = 0.2; meter.correlation = 0.81;
     const double vu[] { -18.7, -18.3 };
     for (int channel = 0; channel < 2; ++channel)

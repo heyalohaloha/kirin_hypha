@@ -22,8 +22,9 @@ extern "C" {
  * 4 = B-958（KirinMeterSession の入力チャンネル配列 [2] -> [KIRIN_MAX_CHANNELS]）.
  * 5 = B-962（KirinMeterHistoryEntry の clip_event_count 同上 + measurement_epoch）.
  * 6 = B-981（Observatory comparison state/reason/generation/identity）.
- * 7 = KirinMeterHistoryEntry の最後の range が PLR から PSR に変わった（大きさと offset は同じ）. */
-#define KIRIN_ABI_REVISION 7u
+ * 7 = KirinMeterHistoryEntry の最後の range が PLR から PSR に変わった（大きさと offset は同じ）.
+ * 8 = KirinMeterSession の末尾に song_psr（frame の delta 以降の offset が動く）. */
+#define KIRIN_ABI_REVISION 8u
 
 typedef struct {
   uint32_t revision;                  /* KIRIN_ABI_REVISION */

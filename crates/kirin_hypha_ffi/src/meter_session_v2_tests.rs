@@ -42,9 +42,9 @@ fn live_mutex_contention_is_busy_and_does_not_touch_sized_packet() {
 #[test]
 fn coverage_layout_matches_native_consumer() {
     use std::mem::{offset_of, size_of};
-    assert_eq!(size_of::<KirinMeterSessionV2>(), 1_872);
+    assert_eq!(size_of::<KirinMeterSessionV2>(), 1_880);
     assert_eq!(offset_of!(KirinMeterSessionV2, session), 8);
-    assert_eq!(offset_of!(KirinMeterSessionV2, processed_frames), 1_848);
-    assert_eq!(offset_of!(KirinMeterSessionV2, pending_frames), 1_856);
-    assert_eq!(offset_of!(KirinMeterSessionV2, summary_status), 1_864);
+    assert_eq!(offset_of!(KirinMeterSessionV2, processed_frames), 1_856);
+    assert_eq!(offset_of!(KirinMeterSessionV2, pending_frames), 1_864);
+    assert_eq!(offset_of!(KirinMeterSessionV2, summary_status), 1_872);
 }

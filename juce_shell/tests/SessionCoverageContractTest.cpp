@@ -149,6 +149,26 @@ void verifyPlayingAndTimeCapture (KirinObservatoryFrame frame)
         text_style::ShownTextLog log;
         view.paintEntireComponent (graphics, true);
         require (log.texts().contains ("PLR"), "playing PLR card is present");
+        {
+            // TRACK reads PSR now, and under it the song's PSR; before the song has one, SONG ---.
+            view.setMeterContext (meter_context::MeterContext::trackStem);
+            const auto drawn = [&view, coverage] (double song)
+            {
+                auto withSong = coverage;
+                withSong.session.song_psr = song;
+                view.setSessionCoverage (withSong);
+                juce::Image track (juce::Image::ARGB, 900, 600, true);
+                juce::Graphics trackGraphics (track);
+                text_style::ShownTextLog trackLog;
+                view.paintEntireComponent (trackGraphics, true);
+                return trackLog.texts().joinIntoString ("|");
+            };
+            require (drawn (6.4).contains ("SONG 6.4"), "TRACK draws the song's PSR under PSR");
+            require (drawn (std::numeric_limits<double>::quiet_NaN()).contains ("SONG ---"),
+                     "the song's PSR says it is not there yet rather than vanishing");
+            view.setMeterContext (meter_context::MeterContext::twoMix);
+            view.setSessionCoverage (coverage);
+        }
         auto changed = coverage;
         changed.session.plr = 26.2;
         view.setSessionCoverage (changed);

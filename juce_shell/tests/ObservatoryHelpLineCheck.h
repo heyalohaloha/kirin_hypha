@@ -117,6 +117,7 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
                                Metric::loudnessRange, Metric::plr, Metric::truePeak, Metric::crest, Metric::psr })
         for (const auto* side : { "POST. ", "PRE. ", "POST minus PRE. " })
             texts.add (juce::String (side) + level_metrics::scopeHelp (metric), true);
+    texts.add ("POST. PSR now: peak minus short-term loudness. SONG: the whole song at its loudest part. Compare PRE and POST.", true);
     for (const auto* text : { "No active signal.", "Measurement is unavailable.", "Keep is waiting for its pair.", "Keep ready",
                               "Measurement is active.", "Keep is recording.", "A kept result is available." })
         texts.add (text, true);

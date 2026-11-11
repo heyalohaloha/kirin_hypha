@@ -11,6 +11,12 @@ timed, including which clock each host supplies.
 LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The large view adds M,
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
+Both supporting rows read PSR, TP, MAX TP, then I for a track or PLR for the mix, then LRA. TRACK
+reads CREST large and 2MIX reads I large. PSR is the dynamics heard now: the 400 ms sample peak minus the 3 s short-term loudness. Under it,
+**SONG** is one figure for the whole song since the Meter Session reset: the highest of those peaks
+minus the loudest short-term loudness. It reads the song at its loudest part, so a quiet intro does
+not raise it and a loud part that stops suddenly does not pull it down. Reset Meter Session starts it again.
+
 The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
 folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). Notifications stay
 in that established bottom status area, without covering the graphs or L/R meters. Longer text

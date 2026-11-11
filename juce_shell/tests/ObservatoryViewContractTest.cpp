@@ -227,7 +227,10 @@ void verifyRoleAtEverySize (observatory::Role role,
                 if (observatory::isCompactMeter (preset))
                     alternateWatch.current.lufs_s -= 6.0; // the compact meter reads S
                 else
-                    alternateWatch.current.crest += 5.0;
+                {
+                    alternateWatch.current.crest += 5.0; // TRACK reads CREST large
+                    alternateWatch.current.psr += 5.0;   // 2MIX reads PSR in its row
+                }
                 view.setWatchDisplay (alternateWatch, true);
                 KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
                 view.setWatchDisplay (activeWatch(), true);
