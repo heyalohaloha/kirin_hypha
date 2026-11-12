@@ -336,7 +336,15 @@ private:
                 post->serviceLiveCompare();
                 if (post->liveCompareStatus().finishing) break;
                 require (post->liveCompareStatus().postActual == 1.0f && ! post->liveCompareStatus().active, "END confirmed at unity");
+                if (mode == "restore-matched-listen" && ! lastSideChecked)
+                {   // PRE was chosen before the restore: the project keeps it, and only a LISTEN press uses it.
+                    require (post->startLiveCompare (std::nullopt, true) == StartResult::started
+                        && post->liveCompareStatus().preSelected, "the next LISTEN starts on PRE, the side last chosen");
+                    post->finishLiveCompare(); lastSideChecked = true;
+                    break;
+                }
                 require (post->beginLiveBlind() == StartResult::started, "new explicit session starts after RETURN");
+                require (! post->liveCompareStatus().preSelected, "BLIND does not start on LISTEN's side");
                 post->closeLiveBlind();
                 std::cout << "Live lifecycle: PASS " << mode << " postErrors=" << postErrors.load() << '\n';
                 passed = true;

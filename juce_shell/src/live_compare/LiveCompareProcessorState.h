@@ -193,6 +193,7 @@ struct ProcessorState
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved
     std::atomic<bool> autoAlign { true };         // INV-LC28; saved only when off
+    std::atomic<bool> listenPre { false };        // the side LISTEN last chose (INV-LC4); saved only when PRE
     std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 }, alignPeer { 0 };
     AlignmentConditions alignmentConditions; // Audio Thread only
     AlignContext alignServiced;                  // message thread: the monitor's pair and format

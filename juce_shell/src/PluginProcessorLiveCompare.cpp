@@ -83,7 +83,8 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
     }
 }
 
-hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket)
+hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket,
+                                                                            bool lastSide)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     using hypha::live_compare::StartResult;
@@ -115,7 +116,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
         return StartResult::preMultiMono;
     liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
-    liveCompare.selection.select (false);
+    liveCompare.selection.select (lastSide && liveCompare.listenPre.load (std::memory_order_acquire));
     liveCompare.observationReason.store (hypha::live_compare::RecoveryReason::none, std::memory_order_release);
     { // each session approves its own MATCH; never publish a split gain tuple
         hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
@@ -197,6 +198,9 @@ void KirinHyphaProcessorBase::selectLiveComparePre (bool pre) noexcept
         && ! liveCompare.completion.pending() && ! liveCompare.blind.command().active())
     {
         liveCompare.selection.select (pre);
+        // The next LISTEN starts here (INV-LC4). BLIND and A/B choices are not LISTEN's.
+        if (! candidateCompareActive() && liveCompare.blindStage == hypha::live_compare::BlindStage::idle)
+            liveCompare.listenPre.store (pre, std::memory_order_release);
     }
 }
 void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept

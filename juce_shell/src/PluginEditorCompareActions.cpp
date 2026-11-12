@@ -49,7 +49,7 @@ void KirinHyphaEditor::requestListenStart ()
     hypha::live_compare_ui::performAction (hypha::live_compare_ui::ActionFaultScope::duringAction,
         [this, &result, &generation, waited]
         {
-            result = processorRef.startLiveCompare (waited);
+            result = processorRef.startLiveCompare (waited, true); // on the side LISTEN last chose
             generation = processorRef.liveCompareStatus().sessionGeneration;
             liveCompareMatched = liveCompareLimited = liveCompareInterruptSeen = false;
             liveCompareActiveSeen = result == StartResult::started;
