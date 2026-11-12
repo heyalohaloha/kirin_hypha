@@ -15,8 +15,14 @@ fn content_alignment_moves_only_the_audition_address() {
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
     let alignment = function_body(ALIGN_H, "AlignUpdate update (AlignPlayback playback");
     assert!(alignment.contains("wanted != applied && weight <= 0.0f"));
-    assert!(alignment
-        .contains("(! blind || ! preSelected || ! playback.enabled || applied.verifySamples)"));
+    assert!(alignment.contains(
+        "(! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)"
+    ));
+    // A correction PRE's current run cannot serve yet (after a seek or stop) waits; PRE plays at K.
+    assert!(
+        alignment.contains("if (wanted.frames > 0 && wanted.frames > readableFrames) wanted = {};")
+    );
+    assert!(render.contains("alignment.update (align, blind, preSelected, weight, readable)"));
     assert!(render.contains(
         "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
     ));
