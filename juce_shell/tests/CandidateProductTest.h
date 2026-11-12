@@ -49,7 +49,7 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
             enterCandidateThroughEditor (post, require, [&] (juce::AudioProcessorEditor& editor)
             {
                 require (!post.candidateCompareActive(), "confirmed A/B waits for the existing RETURN");
-                for (int i = 0; i < 450 && !post.candidateCompareActive(); ++i) // RETURN rises over 2 s
+                for (int i = 0; i < 450 && !post.candidateCompareActive(); ++i) // RETURN rises over 0.5 s
                 { host.render (1, false, false); candidateTick (editor); }
             }, &beforeStart);
         }

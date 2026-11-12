@@ -40,10 +40,10 @@ private:
 };
 
 // POST's audible level while a session runs or an approved attenuation is held (INV-LC14). It
-// follows its target linearly in gain, down over 50 ms and up over 2 s for the full range, so that
-// applying an approved attenuation never clicks and returning to normal (END, RETURN) rises slowly
-// enough to react to. The steps are atomics because the message thread configures them for the
-// prepared sample rate.
+// follows its target linearly in gain, down over 50 ms and up over 0.5 s for the full range, so that
+// applying an approved attenuation never clicks and returning to normal (END, RETURN, MATCH off) is
+// heard at once without a jump. While the DAW is stopped a rise takes the 5 ms transition instead.
+// The steps are atomics because the message thread configures them for the prepared sample rate.
 class PostLevel
 {
 public:
@@ -52,15 +52,19 @@ public:
         const auto frames = [sampleRate] (double seconds)
         { return static_cast<float> (std::max (1.0, sampleRate * seconds)); };
         downStep.store (1.0f / frames (0.05), std::memory_order_relaxed);
-        upStep.store (1.0f / frames (2.0), std::memory_order_relaxed);
+        upStep.store (1.0f / frames (0.5), std::memory_order_relaxed);
+        quickStep.store (1.0f / frames (0.005), std::memory_order_relaxed);
     }
 
-    // Audio Thread: the gain for the next frame on the way to target (at most 1).
+    // Audio Thread: the gain for the next frame on the way to target (at most 1). A quick rise lasts
+    // until the target is reached, also across short blocks; any move down ends it.
     float next (float target) noexcept
     {
         if (reapplyFromUnity) { if (target < 1.0f) current = 1.0f; reapplyFromUnity = false; }
-        current = current > target ? std::max (target, current - downStep.load (std::memory_order_relaxed))
-                                   : std::min (target, current + upStep.load (std::memory_order_relaxed));
+        const bool down = current > target;
+        current = down ? std::max (target, current - downStep.load (std::memory_order_relaxed))
+                       : std::min (target, current + (quick ? quickStep : upStep).load (std::memory_order_relaxed));
+        quick = quick && ! down && current < target;
         return current;
     }
 
@@ -78,14 +82,16 @@ public:
     }
 
     void bypass() noexcept { reapplyFromUnity = true; }
+    // Audio Thread, per callback: the host is not playing, or the first block after a quiet return (INV-LC14).
+    void riseAtOnce (bool now) noexcept { quick = quick || now; }
     // Audio Thread: only while POST is inaudible (PRE fully faded in), so nothing hears the move.
     void jump (float target) noexcept { current = std::min (1.0f, target); reapplyFromUnity = false; }
     float value() const noexcept { return current; }
 
 private:
-    bool reapplyFromUnity = false; // Audio Thread only; END retains its slow upward ramp.
+    bool reapplyFromUnity = false, quick = false; // Audio Thread only; END retains its upward ramp.
     float current = 1.0f; // Audio Thread only
-    std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 96000.0f };
+    std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 24000.0f }, quickStep { 1.0f / 240.0f };
 };
 
 struct RenderReport

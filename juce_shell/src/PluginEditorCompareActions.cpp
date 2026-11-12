@@ -12,7 +12,7 @@ const char* hypha::live_compare_ui::startFailure (StartResult result) noexcept
         case StartResult::started:
         case StartResult::notPost:           return "";
         case StartResult::comparisonBusy:    return "End the current comparison first";
-        case StartResult::returnPending:     return "Ended; normal level returns with audio";
+        case StartResult::returnPending:     return "Ended; POST back to normal within 0.5 s";
         case StartResult::returnRequired:    return "Press RETURN first";
         case StartResult::notReady:          return "LISTEN could not start";
         case StartResult::noPair:            return "Choose the PRE first";

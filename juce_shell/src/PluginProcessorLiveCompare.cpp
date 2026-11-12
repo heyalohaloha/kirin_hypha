@@ -318,7 +318,7 @@ void KirinHyphaProcessorBase::kirinHostInstanceGroup (juce::uint64 group, bool v
     liveCompare.aaxGroup.assign (static_cast<std::uint64_t> (group), valid);
 }
 
-// Message thread, the explicit RETURN: POST rises back to its normal level over half a second.
+// Message thread, the explicit RETURN: POST rises back to its normal level over half a second (INV-LC14).
 void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
     finishLiveCompare();
@@ -395,6 +395,17 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
             ? hypha::live_compare::RecoveryReason::pairChanged
             : hypha::live_compare::RecoveryReason::restored); // holds POST and explicit END
     }
+    // INV-LC14: half a second without a callback means nothing sounds (the DAW stopped), so END's
+    // return finishes now; the first block after the quiet rises at once.
+    if (role == Role::Post && liveCompare.completion.pending() && hypha::live_compare::quietSince (
+            liveCompare.lastCallbackNanos.load (std::memory_order_acquire), hypha::live_compare::callbackWallNanos()))
+        if (hypha::live_compare::GainUpdate update (liveCompare.gainRevision); update)
+        {
+            liveCompare.postTarget.store (1.0f, std::memory_order_release);
+            liveCompare.postActual.store (1.0f, std::memory_order_release);
+            liveCompare.quietReturn.fetch_add (1, std::memory_order_acq_rel);
+            liveCompare.completion.complete (liveCompare.completion.command());
+        }
     if (role == Role::Post && liveCompare.completion.receipt() > liveCompare.finishServiced)
     {
         liveCompare.finishServiced = liveCompare.completion.receipt();

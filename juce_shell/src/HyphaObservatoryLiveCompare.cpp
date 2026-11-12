@@ -98,7 +98,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
             ? "RETURNING " + signedGain (-liveCompareState.postHeldTenthsDb) : juce::String ("RETURNING");
         liveReturnButton.setButtonText (pending);
         liveReturnButton.setTitle (pending);
-        liveReturnButton.setDescription ("Ended; normal level returns with audio");
+        liveReturnButton.setDescription ("Ended; POST back to normal within 0.5 s");
         liveReturnButton.setTooltip (liveReturnButton.getDescription());
         liveReturnButton.setStatusOnly (true);
         liveReturnButton.setVisible (true);
@@ -130,12 +130,12 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const juce::String postNamed = postLowered ? postLabel + " " + signedGain (state.postHeldTenthsDb) : postLabel;
     liveEndButton.setButtonText (state.finishing ? "RETURNING"
         : postLowered ? "END " + signedGain (-state.postHeldTenthsDb) : juce::String ("END"));
-    unavailable::set (liveEndButton, ! state.finishing, "Ended; normal level returns with audio");
+    unavailable::set (liveEndButton, ! state.finishing, "Ended; POST back to normal within 0.5 s");
     liveEndButton.setTitle (liveEndButton.getButtonText());
     unavailable::set (localBlindButton, state.blindAvailable && ! state.finishing,
-                      state.finishing ? "Ended; normal level returns with audio" : state.blindRefusal);
+                      state.finishing ? "Ended; POST back to normal within 0.5 s" : state.blindRefusal);
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton })
-        unavailable::set (*button, ! state.finishing, "Ended; normal level returns with audio");
+        unavailable::set (*button, ! state.finishing, "Ended; POST back to normal within 0.5 s");
     auto withBlind = [this] (juce::Array<juce::Button*> set)
     {
         if (liveCompareState.blindAvailable) set.insert (3, &localBlindButton);

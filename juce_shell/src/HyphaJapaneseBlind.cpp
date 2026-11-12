@@ -32,7 +32,7 @@ const Entry entries[] = {
     { "CAPTURING", u8"取り込み中" },
     { "WAIT", u8"待機中" },
     { "CAPTURE A", u8"Aを取り込む" },
-    { "Ended; normal level returns with audio", u8"比較を終了。音声処理が再開すると通常の音量に戻ります" },
+    { "Ended; POST back to normal within 0.5 s", u8"比較を終了。0.5秒以内に通常の音量に戻ります" },
     { "RETURNING +%1 dB", u8"戻し中 +%1 dB" },
     { "The PRE loop occurrence is not verified", u8"PREがループの何周目か確かめられていません" },
     { "Loop boundary timing is not confirmed", u8"ループの境目のタイミングは未確認です" },

@@ -190,7 +190,16 @@ private:
             case 7:
                 if (std::chrono::steady_clock::now() - endRequestedAt < std::chrono::milliseconds (250)) break;
                 require (! post->liveCompareStatus().active && post->liveCompareStatus().finishing,
-                         "message ticks without callbacks cannot manufacture an END receipt");
+                         "a callback quiet under half a second keeps END pending");
+                // INV-LC14: half a second with no callback is a stopped DAW; nothing sounds, so END finishes.
+                hypha::live_compare::testCallbackNanos.fetch_add (600'000'000);
+                stage = 9;
+                break;
+            case 9:
+                if (post->liveCompareStatus().finishing) break;
+                require (! post->liveCompareStatus().active && post->liveCompareStatus().postActual == 1.0f,
+                         "a stopped DAW finishes END without callbacks");
+                verifyReturn.store (true); // the first block after the quiet is exact POST
                 suspendAudio.store (false);
                 stage = 4;
                 break;

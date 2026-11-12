@@ -133,6 +133,16 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     if (! block.playing)
         liveCompare.contentHold.stopped();
     liveCompare.wasPlaying = block.playing;
+    // INV-LC14: a rise is heard at once while the DAW is stopped. The first block after a quiet in which
+    // the message thread finished END's return starts on POST and rises at once (nothing was heard in
+    // the quiet); that return also ends the trial's quieter-side level.
+    const auto previousCallback = liveCompare.lastCallbackNanos.load (std::memory_order_relaxed);
+    liveCompare.lastCallbackNanos.store (block.wallNanos, std::memory_order_release);
+    const auto quietReturn = liveCompare.quietReturn.load (std::memory_order_acquire);
+    const bool quietReturned = quietReturn != std::exchange (liveCompare.quietReturnSeen, quietReturn);
+    const bool quietResumed = quietReturned && hypha::live_compare::quietSince (previousCallback, block.wallNanos);
+    if (quietReturned) liveCompare.blindLevel = {};
+    liveCompare.postLevel.riseAtOnce (! block.playing || quietResumed);
     const bool contentNotice = liveCompare.contentHold.held(); // told after 3 s; never changes the output
     // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
     const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
@@ -271,7 +281,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             }
         }
         // Renderer lifetime is protected by the publication slot, including END/fault reads.
-        if (! permitted || blindRejected || ! coherent) liveCompare.renderer.silenceTransition();
+        if (! permitted || blindRejected || ! coherent || quietResumed) liveCompare.renderer.silenceTransition();
         if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
         if (! usable || outputTaken)
         {

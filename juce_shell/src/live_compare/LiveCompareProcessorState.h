@@ -90,6 +90,9 @@ struct ProcessorState
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
+    // INV-LC14: the last POST callback's wall time, and each return the message thread finished in a quiet.
+    std::atomic<std::uint64_t> lastCallbackNanos { 0 }, quietReturn { 0 };
+    std::uint64_t quietReturnSeen = 0; // Audio Thread only
     WaitNotice waitNotice;
     BlindSession blind;
     BlindPreparation blindTiming;

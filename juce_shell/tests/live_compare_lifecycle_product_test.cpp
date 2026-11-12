@@ -131,7 +131,7 @@ private:
         post->finishLiveCompare();
         require (! post->liveCompareStatus().active, "END immediately closes the logical session");
         // Do not pump messages: audio receipt must not revive the old session before retirement.
-        // PRE fades out first, then POST rises over up to 2 s, in host-sized callbacks.
+        // PRE fades out first, then POST rises over up to 0.5 s, in host-sized callbacks.
         waitWithoutMessageService ([this] { return ! post->liveCompareStatus().finishing; }, 3500);
         require (! post->liveCompareStatus().active, "audio receipt cannot reopen the closed session");
         post->selectLiveComparePre (true);

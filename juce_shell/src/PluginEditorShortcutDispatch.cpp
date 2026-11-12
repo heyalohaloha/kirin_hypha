@@ -79,7 +79,7 @@ void KirinHyphaEditor::performComparisonShortcut (Command command)
             // RETURN is offered only while POST is held down and LISTEN has ended (View::layoutHeldAttenuation).
             const auto& footer = observatoryView.liveCompareFooter();
             if (footer.postHeldTenthsDb >= 0) showActionNotice ("POST is at its normal level");
-            else if (footer.finishing) showActionNotice ("Ended; normal level returns with audio");
+            else if (footer.finishing) showActionNotice ("Ended; POST back to normal within 0.5 s");
             else if (footer.active) showActionNotice ("End the current comparison first");
             else requestNormalLevelReturn();
             break;
