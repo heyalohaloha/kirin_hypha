@@ -192,3 +192,47 @@ fn failed_atomic_rename_keeps_the_destination_and_complete_temporary_bytes() {
     );
     assert!(super::super::verify_checksum(writer.data()));
 }
+
+#[test]
+fn record_save_syncs_bytes_before_the_rename_and_a_failed_sync_still_saves() {
+    for fail in [false, true] {
+        let temporary = tempfile::tempdir().unwrap();
+        let destination = temporary.path().join("take.json");
+        let tmp = temporary.path().join("take.json.tmp");
+        let paths = super::super::WriterPaths::build(
+            temporary.path(),
+            "synthetic-project",
+            "synthetic-instance",
+            Role::Pre,
+            "2026-10-08T00:00:00Z",
+        );
+        let mut writer = PluginDataWriter {
+            paths,
+            data: data(Role::Pre),
+        };
+        let syncs = crate::atomic_file::durable::test_hook::syncs_during(fail, || {
+            writer
+                .write_atomic_with_tmp(destination.clone(), tmp.clone())
+                .unwrap();
+        });
+        assert_eq!(syncs.first(), Some(&("file", tmp.clone())));
+        assert_eq!(syncs.len(), if cfg!(unix) { 2 } else { 1 });
+        let saved: PluginDataFile =
+            serde_json::from_slice(&fs::read(&destination).unwrap()).unwrap();
+        assert!(super::super::verify_checksum(&saved));
+        assert!(!tmp.exists());
+    }
+}
+
+#[test]
+fn pair_record_files_take_the_durable_atomic_write() {
+    let temporary = tempfile::tempdir().unwrap();
+    let member = temporary.path().join("member.json");
+    let mut record = data(Role::Post);
+    let syncs = crate::atomic_file::durable::test_hook::syncs_during(true, || {
+        write_plugin_data_atomic(&member, &mut record).unwrap();
+    });
+    assert_eq!(syncs.iter().filter(|(kind, _)| *kind == "file").count(), 1);
+    let saved: PluginDataFile = serde_json::from_slice(&fs::read(&member).unwrap()).unwrap();
+    assert!(super::super::verify_checksum(&saved));
+}

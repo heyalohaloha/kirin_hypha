@@ -3361,7 +3361,7 @@ fn write_pair_commit_manifest_atomic(
         post: pair_commit_side(post_paths, post_data, "POST"),
     };
     let json = serde_json::to_vec(&manifest)?;
-    crate::atomic_file::write_bytes_atomic(manifest_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(manifest_path, &json)?;
     Ok(())
 }
 

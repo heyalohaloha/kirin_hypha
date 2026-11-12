@@ -23,8 +23,9 @@ impl PluginDataWriter {
             }
         }
         let json = encode_with_checksum(&mut self.data)?;
-        fs::write(&tmp_path, &json)?;
-        fs::rename(&tmp_path, target_path)?;
+        // The take's bytes are on disk before the rename publishes them (best effort, IO thread).
+        crate::atomic_file::durable::write(&tmp_path, &json)?;
+        crate::atomic_file::durable::rename(&tmp_path, &target_path)?;
         Ok(())
     }
 }
@@ -37,7 +38,7 @@ pub(super) fn write_plugin_data_atomic(
         refresh_record_quality(data);
     }
     let json = encode_with_checksum(data)?;
-    crate::atomic_file::write_bytes_atomic(path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(path, &json)?;
     Ok(())
 }
 

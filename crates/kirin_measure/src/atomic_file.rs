@@ -19,20 +19,29 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
+#[path = "atomic_file_durable.rs"]
+pub(crate) mod durable;
+
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_bytes_atomic_inspect(path, bytes, |_| Ok(()))
+    write_bytes_atomic_inspect(path, bytes, false, |_| Ok(()))
+}
+
+/// Record takes: also sync the bytes before the rename and the directory after it (best effort).
+pub(crate) fn write_bytes_atomic_durable(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_bytes_atomic_inspect(path, bytes, true, |_| Ok(()))
 }
 
 /// Return the written inode's metadata, not metadata from a possibly replaced destination.
 pub(crate) fn write_bytes_atomic_metadata(path: &Path, bytes: &[u8]) -> io::Result<fs::Metadata> {
-    write_bytes_atomic_inspect(path, bytes, fs::File::metadata)
+    write_bytes_atomic_inspect(path, bytes, false, fs::File::metadata)
 }
 
 fn write_bytes_atomic_inspect<T>(
     path: &Path,
     bytes: &[u8],
+    durable: bool,
     inspect: impl Fn(&fs::File) -> io::Result<T>,
 ) -> io::Result<T> {
     #[cfg(all(test, not(windows)))]
@@ -52,9 +61,15 @@ fn write_bytes_atomic_inspect<T>(
                 let result = (|| {
                     file.write_all(bytes)?;
                     file.flush()?;
+                    if durable {
+                        durable::sync_file(&file, &tmp);
+                    }
                     let written = inspect(&file)?;
                     drop(file);
                     fs::rename(&tmp, path)?;
+                    if durable {
+                        durable::sync_parent_directory(path);
+                    }
                     Ok(written)
                 })();
                 if result.is_err() {
