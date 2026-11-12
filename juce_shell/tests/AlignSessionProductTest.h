@@ -280,8 +280,8 @@ inline void heardSourcesCanRevealDuringRecheck (int channels)
 }
 
 // Pro Tools: PRE -> EQ -> a lookahead limiter (threshold -4 dB, ceiling -0.3 dBFS) -> POST, its
-// delay compensated. Music leaves most of the spectrum nearly empty and the chain's noise fills
-// it, so the content check confirms no position. LISTEN and BLIND wait at most one second of
+// delay compensated. A held chord leaves most of the spectrum nearly empty and the chain's noise
+// fills it, so the content check confirms no position. LISTEN and BLIND wait at most one second of
 // proven playback, then PRE sounds at its clock position without a notice, as with alignment
 // off. The same music without the chain, PRE early across an I/O insert, is still aligned.
 inline void unconfirmableChainPlaysPreAtItsClock (int channels)
@@ -335,7 +335,7 @@ inline void unconfirmableChainPlaysPreAtItsClock (int channels)
 
 // Pro Tools trace: a bass-heavy section through EQ3 and Maxim, BLIND begun just after POST was
 // inserted, PRE chosen at once. Two thirds of the windows are narrow; after the chain they are no
-// scaled copy, yet they only fail to judge: they raise no doubt and break no consecutive votes,
+// scaled copy, and those without a strong peak only fail to judge: no doubt, no broken votes,
 // and the broadband windows between them confirm the unchanged address while PRE is chosen.
 inline void narrowBassBlindPlaysPre (int channels)
 {

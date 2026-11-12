@@ -3,6 +3,7 @@
 #include "../../src/live_compare/LiveCompareMatch.h"
 #include "../../src/live_compare/LiveCompareOffset.h"
 #include "AaxChunkChain.h"
+#include "../ChainMusic.h"
 
 #include <chrono>
 #include <algorithm>
@@ -206,8 +207,8 @@ void verifyLiveCompareOffset()
     require (full.determined && full.lagFrames == -4096, "the product window finds 85 ms at 48 kHz");
 
     // EQ, a saturating limiter and -100 dBFS dither between PRE and POST (Pro Tools EQ and Maxim,
-    // or outboard): music leaves most bins nearly empty and the chain's noise fills them, so no
-    // window votes. INV-LC28 bounds the wait for this instead of holding POST.
+    // or outboard): a held chord leaves most bins nearly empty and the chain's noise fills them, so
+    // no window votes. INV-LC28 bounds the wait for this instead of holding POST.
     const auto chord = [] (std::int64_t n) {
         const double t = static_cast<double> (n) / 48000.0, pi = 3.14159265358979323846;
         double sum = 0.0; int partial = 0;
@@ -232,6 +233,42 @@ void verifyLiveCompareOffset()
                      "a limiter chain confirms no position; the same music unprocessed is found");
             require (e.narrow == limited, "the chord after the chain is a narrow window, not ambiguity");
         }
+
+    // Bass-heavy music through a seven-band EQ (6 and 12 dB) and a brickwall limiter (7 to 11 dB of
+    // gain reduction, with and without lookahead). Unprocessed, these windows are narrow: their
+    // position comes from the full-window sample check (agreement 1). After the chain none is a
+    // scaled copy, yet the strong peak of the rest of the spectrum finds the position, also with PRE
+    // 10 ms early or late. Unrelated music in the same chain never votes.
+    using hypha::tests::chain_music::Chain;
+    const std::int64_t from = 1068544;
+    const auto window = [&] (const std::vector<float>& x, std::int64_t at, std::int64_t frames)
+    {
+        std::vector<float> mono (static_cast<std::size_t> (frames));
+        for (std::int64_t n = 0; n < frames; ++n)
+            mono[static_cast<std::size_t> (n)] = x[static_cast<std::size_t> ((at - from + n) * 2)];
+        return mono;
+    };
+    for (const Chain chain : { Chain { 0.0, 0.0, 0 }, Chain { 6.0, 12.0, 240 }, Chain { 12.0, 12.0, 240 }, Chain { -12.0, 14.0, 0 } })
+    {
+        const auto music = hypha::tests::chain_music::render (from, 6 * 48000, chain);
+        for (std::int64_t start = from + 48000; start < from + 4 * 48000; start += 48000)
+        {
+            const auto post = window (music.post, start, offsetWindowFrames);
+            const auto pre = [&] (std::int64_t d)
+            { return window (music.pre, start - offsetSearchFrames + d, offsetWindowFrames + 2 * offsetSearchFrames); };
+            for (const std::int64_t d : { std::int64_t (0), std::int64_t (480), std::int64_t (-480) })
+            {
+                auto e = estimateOffset (post, pre (d), offsetSearchFrames);
+                e.sampleRate = 48000;
+                require (offsetCanVote (e) && e.lagFrames == -d && ! e.verifySamples, "the chain keeps the position to the sample");
+                require (chain.eqDb == 0.0 ? e.peak >= 1.0 : e.peak < 1.0,
+                         "unprocessed it is a narrow window's sample match; after the chain, a spectral peak");
+            }
+            auto unrelated = estimateOffset (post, pre (101111), offsetSearchFrames);
+            unrelated.sampleRate = 48000;
+            require (! offsetCanVote (unrelated), "unrelated music never votes");
+        }
+    }
     std::printf ("live compare offset: all checks passed\n");
 }
 }

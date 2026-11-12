@@ -156,7 +156,7 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
         y[i] = pre[i];
     transform (x, false);
     transform (y, false);
-    // A narrow spectrum needs a full-window sample check instead of a spectral peak.
+    // A narrow spectrum is first checked sample by sample: a repeated waveform has no unique peak.
     std::vector<double> energy (size / 2);
     double total = 0.0;
     for (std::size_t k = 0; k < size / 2; ++k)
@@ -167,14 +167,14 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     for (std::size_t k = 0; k <= energy.size() / 100; ++k)
         top += energy[k];
     if (total <= 0.0) return estimate;
-    if (top > 0.8 * total)
-    {
-        // After EQ or a limiter a bass-heavy window is no scaled copy and has no usable phase in
-        // its few strong bins. It says nothing about the position, so it is not ambiguity either.
-        auto copy = scaledCopyOffset (post, pre, maxLag);
-        copy.narrow = ! copy.determined;
-        return copy;
-    }
+    // After EQ or a limiter a bass-heavy window is no scaled copy, yet the rest of its spectrum
+    // (drums, room, noise) still carries the phase of the position: the peak below judges it like
+    // any window. Only a peak strong and unique enough to vote counts there; anything weaker says
+    // nothing about the position, so it is not ambiguity either.
+    const bool narrow = top > 0.8 * total;
+    if (narrow)
+        if (auto copy = scaledCopyOffset (post, pre, maxLag); copy.determined)
+            return copy;
     double meanMagnitude = 0.0;
     for (std::size_t k = 0; k < size; ++k)
     {
@@ -204,6 +204,13 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     // A peak at the edge of the search is out of range, not an offset.
     const bool inside = best > 32 && best + 32 < span;
     estimate.determined = inside && peak >= 0.05 && estimate.dominance >= 3.0;
+    if (narrow)
+    {
+        if (inside && peak >= offsetJumpPeak && estimate.dominance >= offsetJumpDominance) return estimate;
+        OffsetEstimate undetermined;
+        undetermined.narrow = true;
+        return undetermined;
+    }
     return estimate.determined ? estimate : scaledCopyOffset (post, pre, maxLag);
 }
 
