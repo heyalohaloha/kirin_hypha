@@ -19,6 +19,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static FILE_SYNC_WARNED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 static DIRECTORY_SYNC_WARNED: AtomicBool = AtomicBool::new(false);
+/// Directories whose own entry this process already synced into their parent.
+#[cfg(unix)]
+static DURABLE_DIRECTORIES: std::sync::Mutex<std::collections::BTreeSet<std::path::PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
 
 /// `fs::write`, with the bytes synced before the file is closed.
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -44,26 +48,52 @@ pub(crate) fn sync_and_rename(from: &Path, to: &Path) -> io::Result<()> {
     rename(from, to)
 }
 
-/// `fs::create_dir_all`, then on Unix each newly created directory is synced into its parent.
+/// `fs::create_dir_all`, then the directory chain is made durable (see `create_dir_all_with`).
 pub(crate) fn create_dir_all(path: &Path) -> io::Result<()> {
     create_dir_all_with(path, |dir| fs::create_dir_all(dir))
 }
 
-/// Creates the missing directories with `create`, then syncs the parent of each new one,
-/// outermost first: a crash must not lose a new directory whose files were synced (best effort).
+/// The private-mode creation used for coordination directories, made durable the same way.
+pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
+    create_dir_all_with(path, super::create_private_dir_all)
+}
+
+/// Creates `path` with `create`, then on Unix syncs each directory of its chain into its parent,
+/// outermost first, down from the nearest ancestor this process already made durable. Whoever
+/// created an ancestor (another writer may have made it without a sync), a crash then cannot lose
+/// it under synced files. Best effort: the first failed sync ends the walk and is logged.
 pub(crate) fn create_dir_all_with(
     path: &Path,
     create: impl FnOnce(&Path) -> io::Result<()>,
 ) -> io::Result<()> {
-    let missing: Vec<&Path> = path
-        .ancestors()
-        .take_while(|dir| !dir.as_os_str().is_empty() && !dir.is_dir())
-        .collect();
     create(path)?;
-    for created in missing.iter().rev() {
-        sync_parent_directory(created);
-    }
+    #[cfg(unix)]
+    make_chain_durable(path);
     Ok(())
+}
+
+#[cfg(unix)]
+fn make_chain_durable(path: &Path) {
+    let durable = || {
+        DURABLE_DIRECTORIES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    };
+    let pending: Vec<std::path::PathBuf> = {
+        let known = durable();
+        path.ancestors()
+            .take_while(|dir| {
+                !dir.as_os_str().is_empty() && dir.parent().is_some() && !known.contains(*dir)
+            })
+            .map(Path::to_path_buf)
+            .collect()
+    };
+    for directory in pending.iter().rev() {
+        if !sync_parent_directory(directory) {
+            return;
+        }
+        durable().insert(directory.clone());
+    }
 }
 
 /// Best effort: a failure is logged, never returned.
@@ -74,7 +104,8 @@ pub(crate) fn sync_file(file: &File, path: &Path) {
 }
 
 /// Best effort, after a rename: makes the new name itself survive a crash (Unix only).
-pub(crate) fn sync_parent_directory(path: &Path) {
+/// False when the sync failed (logged); true when it succeeded or the platform has none.
+pub(crate) fn sync_parent_directory(path: &Path) -> bool {
     #[cfg(unix)]
     {
         let parent = match path.parent() {
@@ -86,10 +117,12 @@ pub(crate) fn sync_parent_directory(path: &Path) {
             .and_then(|directory| sync_directory(&directory));
         if let Err(error) = synced {
             warn_once(&DIRECTORY_SYNC_WARNED, "directory", parent, &error);
+            return false;
         }
     }
     #[cfg(not(unix))]
     let _ = path;
+    true
 }
 
 fn warn_once(warned: &AtomicBool, kind: &str, path: &Path, error: &io::Error) {
@@ -234,21 +267,46 @@ mod tests {
     }
 
     #[test]
-    fn new_directories_are_synced_into_their_parents_and_a_failure_still_creates() {
-        for fail in [false, true] {
-            let root = tempfile::tempdir().unwrap();
-            let deepest = root.path().join("record_sessions/session/pre");
-            let syncs = test_hook::syncs_during(fail, || create_dir_all(&deepest).unwrap());
-            assert!(deepest.is_dir());
-            let parents = [
+    fn an_existing_ancestor_made_by_another_writer_is_synced_once_with_the_new_chain() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        // Another writer made this directory without a sync.
+        fs::create_dir_all(&project).unwrap();
+        let session = project.join("session").join("pre");
+        let syncs = test_hook::syncs_during(false, || create_dir_all(&session).unwrap());
+        let parents: Vec<_> = syncs.iter().map(|(_, path)| path.clone()).collect();
+        if cfg!(unix) {
+            assert!(syncs.iter().all(|(kind, _)| *kind == "directory"));
+            let wanted = [root.path(), &project, &project.join("session")].map(Path::to_path_buf);
+            assert!(parents.ends_with(&wanted), "{parents:?}");
+        } else {
+            assert!(syncs.is_empty());
+        }
+        let again = test_hook::syncs_during(false, || create_dir_all(&session).unwrap());
+        assert!(
+            again.is_empty(),
+            "a chain already made durable needs no sync"
+        );
+    }
+
+    #[test]
+    fn a_failed_directory_sync_still_creates_and_is_retried_later() {
+        let root = tempfile::tempdir().unwrap();
+        let deepest = root.path().join("record_sessions/session");
+        let failed = test_hook::syncs_during(true, || create_dir_all(&deepest).unwrap());
+        assert!(deepest.is_dir());
+        assert!(
+            failed.len() <= 1,
+            "the first failure ends the walk: {failed:?}"
+        );
+        let retried = test_hook::syncs_during(false, || create_private_dir_all(&deepest).unwrap());
+        if cfg!(unix) {
+            let tail = [
                 root.path().to_path_buf(),
                 root.path().join("record_sessions"),
-                root.path().join("record_sessions/session"),
             ];
-            let expected: Vec<_> = parents.iter().flat_map(|p| directory_syncs(p)).collect();
-            assert_eq!(syncs, expected);
-            let again = test_hook::syncs_during(fail, || create_dir_all(&deepest).unwrap());
-            assert!(again.is_empty(), "an existing directory needs no sync");
+            let parents: Vec<_> = retried.iter().map(|(_, path)| path.clone()).collect();
+            assert!(parents.ends_with(&tail), "{parents:?}");
         }
     }
 

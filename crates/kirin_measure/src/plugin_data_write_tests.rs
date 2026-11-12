@@ -261,6 +261,6 @@ fn a_first_pair_commit_makes_its_new_directories_durable() {
     } else {
         Vec::new()
     };
-    assert_eq!(directories, expected);
+    assert!(directories.ends_with(&expected), "{directories:?}");
     assert!(member.is_file());
 }
