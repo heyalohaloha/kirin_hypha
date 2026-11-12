@@ -230,8 +230,8 @@ fn body_is_guarded(body: &[Token]) -> bool {
     if discarded {
         return tail.len() == 1 && tail[0].is(";");
     }
+    // `.unwrap_or_default()` would run a `Default` outside the guard: only constants follow it.
     tail.is_empty()
-        || (starts_with(tail, &[".", "unwrap_or_default", "(", ")"]) && tail.len() == 4)
         || (starts_with(tail, &[".", "unwrap_or", "("])
             && closing(tail, 2) == Some(tail.len() - 1)
             && constant(&tail[3..tail.len() - 1]))

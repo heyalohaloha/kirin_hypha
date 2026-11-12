@@ -164,9 +164,13 @@ pub extern "C" fn fallback_runs_code() -> u8 { catch_unwind(|| 1).unwrap_or(comp
 pub extern "C" /* c */ fn commented /* c */ () { panic!() }
 #[no_mangle]
 pub extern "C" fn text_only() { let _ = "catch_unwind(|| ())"; }
+#[no_mangle]
+pub extern "C" fn default_runs_code() -> Snapshot { catch_unwind(|| x()).unwrap_or_default() }
+#[no_mangle]
+pub extern "C" fn method_fallback() -> u8 { catch_unwind(|| 1).unwrap_or(LIMIT.min(2)) }
 "#;
     let (entries, problems) = summary(source);
-    assert_eq!(entries.len(), 7);
+    assert_eq!(entries.len(), 9);
     assert!(entries.iter().all(|(_, guarded)| !guarded), "{entries:?}");
     assert!(entries.iter().any(|(name, _)| name == "commented"));
     assert!(problems.is_empty(), "{problems:?}");
