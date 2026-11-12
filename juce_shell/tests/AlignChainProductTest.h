@@ -1,6 +1,7 @@
 #pragma once
 #include "AlignSessionProductTest.h"
 #include "ChainMusic.h"
+#include "../src/HyphaLiveBlindComponent.h"
 
 namespace aax_analysis_product
 {
@@ -102,5 +103,59 @@ inline void chainAlignsEarlyPre (int channels)
     chain.run (60);
     require (post.liveCompareAlignFrames() == 1024 && ! post.liveCompareStatus().prolongedWait, "the alignment holds");
     chain.clean ("PRE is read 1024 frames later");
+}
+
+// A linear-phase EQ at high oversampling on a host that does not compensate POST's position: the
+// audio lies far beyond the fine search, here up to two seconds either way, through the same EQ and
+// limiter. The wide search finds it: an early PRE is read that much later; a late PRE keeps playing
+// at its clock position with the notice. Ten seconds is beyond the reach: after the one-second
+// bound PRE plays at K and LISTEN and BLIND say the delay was not measured. The estimate never
+// puts POST in PRE's place; every frame is audited at the address the renderer claims.
+inline void chainFindsLongDelays (int channels)
+{
+    using namespace hypha::live_compare;
+    const auto tracks = hypha::tests::chain_music::render (1068544 - 250000, 1400000, { 12.0, 12.0, 240, -12.0 });
+    struct Case { std::int64_t delay; bool blind; };
+    for (const Case c : { Case { 4096, false }, Case { 16384, false }, Case { 96000, false }, Case { -32768, false },
+                          Case { -96000, false }, Case { -480000, false }, Case { -480000, true } })
+    {
+        ChunkedPost chain (channels);
+        chain.music = &tracks;
+        chain.setDelay (512);
+        chain.contentK = 512 + c.delay; // positive: POST's audio is later than its position, PRE early
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the long-delay chain");
+        require ((c.blind ? post.beginLiveBlind() : post.startLiveCompare()) == StartResult::started, "the comparison starts");
+        if (c.blind)
+        {
+            chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND prepares");
+            LiveTimingFixtureAccess::assignBlind (post, true);
+            require (post.selectLiveBlind (1), "choose PRE anonymously");
+        }
+        else post.selectLiveComparePre (true);
+        if (c.delay > 0)
+            chain.until (400, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == c.delay; },
+                         "an early PRE is found far beyond the fine search and read that much later");
+        else if (c.delay > -100000)
+            chain.until (400, [&] { const auto s = post.liveCompareStatus();
+                                    return s.preAudible && s.contentHeld && s.prolongedWait && s.contentJumpLagFrames == -c.delay; },
+                         "a late PRE plays at its clock position and the notice gives the amount");
+        else
+        {
+            chain.until (90, [&] { return post.liveCompareStatus().contentUnmeasured; }, "beyond the reach, the bound ends with the label");
+            for (int i = 0; i < 120; ++i)
+            {
+                chain.chunk();
+                const auto s = post.liveCompareStatus();
+                require (s.preAudible && s.contentUnmeasured && ! s.contentHeld && post.liveCompareAlignFrames() == 0,
+                         "PRE keeps playing at its clock position while the label stays");
+            }
+            if (c.blind)
+                require (juce::String (hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, 1.0f).detail)
+                         == juce::String (hypha::live_compare_ui::unmeasuredNotice()) + " / " + hypha::live_compare_ui::chainDelayNotice(),
+                         "BLIND shows the same label for both sources");
+        }
+        chain.clean ("every PRE sample is at the address the renderer claims; unproven blocks are POST");
+    }
 }
 }

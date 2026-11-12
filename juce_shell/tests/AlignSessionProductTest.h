@@ -282,8 +282,9 @@ inline void heardSourcesCanRevealDuringRecheck (int channels)
 // Pro Tools: PRE -> EQ -> a lookahead limiter (threshold -4 dB, ceiling -0.3 dBFS) -> POST, its
 // delay compensated. A held chord leaves most of the spectrum nearly empty and the chain's noise
 // fills it, so the content check confirms no position. LISTEN and BLIND wait at most one second of
-// proven playback, then PRE sounds at its clock position without a notice, as with alignment
-// off. The same music without the chain, PRE early across an I/O insert, is still aligned.
+// proven playback, then PRE sounds at its clock position, as with alignment off, and a short label
+// says the delay was not measured (no wait, no recovery guidance). The same music without the
+// chain, PRE early across an I/O insert, is still aligned.
 inline void unconfirmableChainPlaysPreAtItsClock (int channels)
 {
     using namespace hypha::live_compare;
@@ -319,6 +320,8 @@ inline void unconfirmableChainPlaysPreAtItsClock (int channels)
         const auto status = post.liveCompareStatus();
         require (status.preAudible && !status.prolongedWait && !post.liveCompareAlignPending()
                  && status.observation != RecoveryReason::contentAmbiguous, "no wait and no notice after the bounded wait");
+        require (status.contentUnmeasured == limited && post.liveBlindStatus().contentUnmeasured == limited,
+                 "only the unconfirmed chain is labelled as not measured");
         if (blind)
         {
             require (*hypha::live_compare_ui::blindRecovery (post.liveBlindStatus(), false).instruction == 0,

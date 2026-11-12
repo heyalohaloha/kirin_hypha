@@ -199,6 +199,7 @@ try
         {
             chainConfirmsPosition (layout == "mono" ? 1 : 2);
             chainAlignsEarlyPre (layout == "mono" ? 1 : 2);
+            chainFindsLongDelays (layout == "mono" ? 1 : 2);
         }
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;
