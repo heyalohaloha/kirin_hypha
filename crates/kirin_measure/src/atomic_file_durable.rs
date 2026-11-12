@@ -44,6 +44,28 @@ pub(crate) fn sync_and_rename(from: &Path, to: &Path) -> io::Result<()> {
     rename(from, to)
 }
 
+/// `fs::create_dir_all`, then on Unix each newly created directory is synced into its parent.
+pub(crate) fn create_dir_all(path: &Path) -> io::Result<()> {
+    create_dir_all_with(path, |dir| fs::create_dir_all(dir))
+}
+
+/// Creates the missing directories with `create`, then syncs the parent of each new one,
+/// outermost first: a crash must not lose a new directory whose files were synced (best effort).
+pub(crate) fn create_dir_all_with(
+    path: &Path,
+    create: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let missing: Vec<&Path> = path
+        .ancestors()
+        .take_while(|dir| !dir.as_os_str().is_empty() && !dir.is_dir())
+        .collect();
+    create(path)?;
+    for created in missing.iter().rev() {
+        sync_parent_directory(created);
+    }
+    Ok(())
+}
+
 /// Best effort: a failure is logged, never returned.
 pub(crate) fn sync_file(file: &File, path: &Path) {
     if let Err(error) = test_hook::observe("file", path).and_then(|()| sync_bytes(file)) {
@@ -209,6 +231,25 @@ mod tests {
         assert_eq!(syncs.first(), Some(&("file", left_over.clone())));
         assert_eq!(fs::read(&target).unwrap(), b"earlier run");
         assert_eq!(fs::read(&fresh).unwrap(), b"fresh");
+    }
+
+    #[test]
+    fn new_directories_are_synced_into_their_parents_and_a_failure_still_creates() {
+        for fail in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let deepest = root.path().join("record_sessions/session/pre");
+            let syncs = test_hook::syncs_during(fail, || create_dir_all(&deepest).unwrap());
+            assert!(deepest.is_dir());
+            let parents = [
+                root.path().to_path_buf(),
+                root.path().join("record_sessions"),
+                root.path().join("record_sessions/session"),
+            ];
+            let expected: Vec<_> = parents.iter().flat_map(|p| directory_syncs(p)).collect();
+            assert_eq!(syncs, expected);
+            let again = test_hook::syncs_during(fail, || create_dir_all(&deepest).unwrap());
+            assert!(again.is_empty(), "an existing directory needs no sync");
+        }
     }
 
     #[test]

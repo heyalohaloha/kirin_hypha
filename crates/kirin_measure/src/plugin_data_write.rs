@@ -4,7 +4,6 @@ use super::{
     PluginDataWriter, WriterError,
 };
 use hmac::Mac;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 impl PluginDataWriter {
@@ -19,7 +18,7 @@ impl PluginDataWriter {
     ) -> Result<(), WriterError> {
         if let Some(parent) = target_path.parent() {
             if !parent.is_dir() {
-                fs::create_dir_all(parent)?;
+                crate::atomic_file::durable::create_dir_all(parent)?;
             }
         }
         let json = encode_with_checksum(&mut self.data)?;

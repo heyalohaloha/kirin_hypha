@@ -525,7 +525,7 @@ impl PluginDataWriter {
         pair_pre_name: Option<String>,
     ) -> Result<Self, WriterError> {
         if let Some(parent) = paths.final_path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::atomic_file::durable::create_dir_all(parent)?;
         }
         let data = PluginDataFile::new(
             installation_id,

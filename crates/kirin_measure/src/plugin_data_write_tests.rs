@@ -1,5 +1,6 @@
 use super::*;
 use crate::plugin_data::{Frame, PsbSnapshot, Role};
+use std::fs;
 use std::io;
 
 fn data(role: Role) -> PluginDataFile {
@@ -235,4 +236,31 @@ fn pair_record_files_take_the_durable_atomic_write() {
     assert_eq!(syncs.iter().filter(|(kind, _)| *kind == "file").count(), 1);
     let saved: PluginDataFile = serde_json::from_slice(&fs::read(&member).unwrap()).unwrap();
     assert!(super::super::verify_checksum(&saved));
+}
+
+#[test]
+fn a_first_pair_commit_makes_its_new_directories_durable() {
+    let temporary = tempfile::tempdir().unwrap();
+    let sessions = temporary.path().join("record_sessions");
+    let member = sessions.join("session").join("member.json");
+    let mut record = data(Role::Pre);
+    let syncs = crate::atomic_file::durable::test_hook::syncs_during(false, || {
+        write_plugin_data_atomic(&member, &mut record).unwrap();
+    });
+    let directories: Vec<_> = syncs
+        .iter()
+        .filter(|(kind, _)| *kind == "directory")
+        .map(|(_, path)| path.clone())
+        .collect();
+    let expected = if cfg!(unix) {
+        vec![
+            temporary.path().to_path_buf(),
+            sessions.clone(),
+            sessions.join("session"),
+        ]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(directories, expected);
+    assert!(member.is_file());
 }

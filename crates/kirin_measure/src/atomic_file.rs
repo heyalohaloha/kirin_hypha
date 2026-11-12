@@ -84,7 +84,11 @@ fn write_bytes_atomic_inspect<T>(
                 let Some(parent) = path.parent() else {
                     return Err(e);
                 };
-                create_private_dir_all(parent)?;
+                if durable {
+                    durable::create_dir_all_with(parent, create_private_dir_all)?;
+                } else {
+                    create_private_dir_all(parent)?;
+                }
                 retried_parent = true;
             }
             Err(e) => return Err(e),

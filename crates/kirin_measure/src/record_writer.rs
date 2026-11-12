@@ -2334,7 +2334,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
         }
     };
     if let Some(parent) = recovery_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
+        if let Err(e) = crate::atomic_file::durable::create_dir_all(parent) {
             log::warn!(
                 "[recover] failed dir create failed (orphan kept): {} ({})",
                 parent.display(),
@@ -2397,7 +2397,7 @@ fn recover_legacy_pair_pending_artifact(
         return;
     }
     if let Some(parent) = pending_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
+        if let Err(e) = crate::atomic_file::durable::create_dir_all(parent) {
             log::warn!(
                 "[recover] pair pending dir create failed (orphan kept): {} ({})",
                 parent.display(),
