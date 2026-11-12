@@ -109,8 +109,8 @@ inline void chainAlignsEarlyPre (int channels)
 // audio lies far beyond the fine search, here up to two seconds either way, through the same EQ and
 // limiter. The wide search finds it: an early PRE is read that much later; a late PRE keeps playing
 // at its clock position with the notice. Ten seconds is beyond the reach: after the one-second
-// bound PRE plays at K and LISTEN and BLIND say the delay was not measured.
-// After a stop and start, a seek back or forward, PRE's new run cannot serve a two-second
+// bound PRE plays at K and LISTEN and BLIND say the delay was not measured (BLIND also when POST is
+// lowered). After a stop and start, a seek back or forward, PRE's new run cannot serve a two-second
 // correction at once: PRE plays at its clock position as soon as the clock is proven again, and the
 // correction returns once the run reaches it (BLIND at the listener's next switch, as any new
 // address). The estimate never puts POST in PRE's place; every frame is audited at the address the
@@ -173,10 +173,19 @@ inline void chainFindsLongDelays (int channels)
                 require (s.preAudible && s.contentUnmeasured && ! s.contentHeld && post.liveCompareAlignFrames() == 0,
                          "PRE keeps playing at its clock position while the label stays");
             }
-            if (c.blind)
-                require (juce::String (hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, 1.0f).detail)
-                         == juce::String (hypha::live_compare_ui::unmeasuredNotice()) + " / " + hypha::live_compare_ui::chainDelayNotice(),
-                         "BLIND shows the same label for both sources");
+            const auto label = juce::String (hypha::live_compare_ui::unmeasuredNotice()) + " / " + hypha::live_compare_ui::chainDelayNotice();
+            for (int source : { 1, 2 })
+            {
+                if (! c.blind) break;
+                auto status = post.liveBlindStatus();
+                status.trial.selected = source;
+                // At normal level the label has the lower line; with POST lowered that line names the
+                // level and the label takes the guidance line. Either way, the same for both sources.
+                const auto normal = hypha::live_blind_ui::screenFor (status, true, 1.0f);
+                const auto lowered = hypha::live_blind_ui::screenFor (status, true, 0.5f);
+                require (normal.detail == label && lowered.instruction == label && lowered.detail != label,
+                         "BLIND shows the same label for both sources, POST lowered or not");
+            }
         }
         chain.clean ("every PRE sample is at the address the renderer claims; unproven blocks are POST");
     }
