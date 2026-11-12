@@ -17,6 +17,13 @@ double louder (double first, double second) noexcept
 
 int RuntimeV2Controller::matchWindowBlocks() const
 {
+    return matchWindowBlocksFor (followA.load (std::memory_order_acquire));
+}
+
+int RuntimeV2Controller::matchWindowBlocksFor (bool follow) const
+{
+    // FOLLOW A（B・C）は曲全体に合わせるので、A は ALL の窓（直近 10 分まで）で測る。
+    if (! versionComparison && follow) return aWindowMaximumBlocks;
     if (trackingEnabled.load (std::memory_order_acquire)) return liveWindowBlocks;
     const juce::ScopedLock lock (stateLock);
     return currentSnapshot.cueWindowBlocks;
@@ -141,7 +148,7 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
             return RematchResult::original;
         source = publishedSource;
         selectionAPeak = currentSnapshot.aMaximumTruePeakDbtp;
-        cueLevel = currentSnapshot.cueLevelAvailable;
+        cueLevel = currentSnapshot.cueLevelAvailable && ! followA.load (std::memory_order_acquire);  // FOLLOW A は曲全体
         cueLoudness = currentSnapshot.cueIntegratedLoudness;
         cuePeak = currentSnapshot.cueMaximumTruePeakDbtp;
         loudnessOffset = currentSnapshot.sourceLoudnessOffsetLu;
@@ -167,5 +174,37 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     trackingAnchorDb = required - shortfall;
     if (heldSelection.valid) heldSelection.facts.anchorGainDb = required - shortfall;
     return RematchResult::matched;
+}
+
+// 流し方を替える時の鳴っている B・C（メッセージスレッド）：新しい流し方の決まりで MATCH を決める。FOLLOW A は曲全体の値と
+// A の ALL の窓、LOOP は今までどおり（B は Cue と A の直近 10 秒で追従、C は Cue で固定）。上限・Peak で届かない量・
+// A を下げる申し出は押した時と同じ道（matchedSelection）。元の音量（合わせない役）は gain を変えない。
+RuntimeV2Controller::ModeMatch RuntimeV2Controller::matchForMode (bool follow, double aLoudness, double aSessionPeakDbtp,
+                                                                 PreparedNormalSelection& prepared) const noexcept
+{
+    std::shared_ptr<const RuntimeSource> source;
+    juce::String mode;
+    double selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable, loudnessOffset = 0.0;
+    bool cueLevel = false;
+    {
+        const juce::ScopedLock lock (stateLock);
+        mode = currentSnapshot.comparisonMode;
+        if (currentSnapshot.tracking == TrackingState::none || mode == "original") return ModeMatch::unchanged;
+        source = publishedSource;
+        selectionAPeak = currentSnapshot.aMaximumTruePeakDbtp;
+        cueLevel = currentSnapshot.cueLevelAvailable;
+        cueLoudness = currentSnapshot.cueIntegratedLoudness;
+        cuePeak = currentSnapshot.cueMaximumTruePeakDbtp;
+        loudnessOffset = currentSnapshot.sourceLoudnessOffsetLu;
+    }
+    if (source == nullptr) return ModeMatch::failed;
+    const auto levels = matchLevelsFor (follow, *source, cueLevel, cueLoudness, cuePeak, loudnessOffset);
+    const auto aPeak = louder (aSessionPeakDbtp, selectionAPeak);
+    double required = 0.0;
+    auto failure = requiredMatchGain (mode, levels, aLoudness, aPeak, required);
+    if (failure != MatchFailure::none || ! matchedSelection (mode, required, levels, aLoudness, aPeak, prepared, failure))
+        return ModeMatch::failed;
+    prepared.tracking = trackingFor (mode, follow);
+    return ModeMatch::matched;
 }
 }

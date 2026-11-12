@@ -26,22 +26,54 @@ Reference has four roles, each with its own button in the same place at every si
   Reference set (for example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
   stay usable, and while Kirin OS is publishing new sets the current ones stay.
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
-  to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
+  to listen for; its songs are the CHECK set's, or the first-ranked Reference set's when the CHECK set
+  has none (Kirin OS chooses them). The Cue is the section C plays.
   C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
-B and C repeat a section chosen in Kirin OS (the Cue); they do not follow A's position in the song. Only V
-follows A's position. The status line names the section that plays, for example **B CHORUS 2:53-3:07 LOOP**,
-and then how its level is held, for example **LEVEL FOLLOWS A (LAST 10 S)**. To hear another section, change
-the Cue in Kirin OS.
+**LOOP and FOLLOW A.** B and C play in one of two ways, chosen with **LOOP** and **FOLLOW A** on the B and C
+pages; one choice serves both, and the project remembers it.
+
+- **LOOP** (the default): B and C repeat a section chosen in Kirin OS (the Cue), as described above; they do
+  not follow A's position in the song. The status line names the section that plays, for example
+  **B CHORUS 2:53-3:07 LOOP**, and then how its level is held, for example **LEVEL FOLLOWS A (LAST 10 S)**. To
+  hear another section, change the Cue in Kirin OS.
+- **FOLLOW A**: B and C play the whole reference song from A's position in the DAW, so pressing A, B and C
+  switches the sound at the same position, through seeks, stops and loops. The status line says
+  **B FOLLOW A**. The offset moves the song against A when it does not line up: **+** and **-** move it by
+  0.1 s (with Shift, 0.01 s; hold to repeat), and pressing the amount returns it to 0. A positive amount plays
+  the song ahead of A. The offset returns to 0 when the song changes or when you press another role.
+  The level is matched once, when you press B or C: the whole song's Integrated loudness from Kirin OS
+  against A over its ALL window (up to the last 10 minutes), and then held (it does not follow A). The
+  status line says **WHOLE SONG MATCHED TO A (ALL), FIXED**. The ceiling, the shortfall at the peak limit
+  and LOWER A work as in LOOP. Before a press, B's list shows the MATCH gain only for the chosen song,
+  whose whole-song value has arrived; C's readout uses the whole song too.
+  When A's position with the offset is outside the song, A plays and the status line says why, for example
+  **B PAST SONG END, A PLAYING / MOVE A BACK OR CHOOSE LOOP**; a role that was playing comes back by itself
+  when A is inside the song again. Pressing B or C there is remembered: A keeps playing, the status line says
+  what the press waits for (**A is past the song's end; B starts when A is in the song**), and B or C starts
+  by itself once A's position enters the song, matched with A's level at the press. Pressing A or another role, or leaving REF, cancels it, as
+  with any waiting press.
+
+Switching while B or C plays moves it to the new position with a short crossfade (A plays for the moment the
+new position takes to load); the new position and its level, matched again by the new way's rule, arrive
+together, so the ceiling is never exceeded. If the level cannot be matched yet (A's level is unknown), A plays,
+the status line says what B or C waits for, and it starts once it can be matched. A level held while the DAW is
+stopped is not reused after a switch: B or C is matched again when it comes back. Choosing or restoring a
+way never starts a role. V always follows A's position by its content, and Blind is unchanged.
   V works best with Hypha on the 2Mix.
 
 **Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
 seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
-with no audio to audition. The project stores up to eight targets: 64-band p10, median and p90,
-four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count.
+with no audio to audition. On the B page, ALL also overlays targets with the Reference set's songs. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
+drop holds more files than there are free places, they are measured in the order dropped until the
+places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
+how many were not added and that removing one makes room (3 NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO
+MAKE ROOM). Hypha 1.1.55 and 1.1.56 kept up to eight: they read the first eight of a project with more,
+and saving the project there keeps only those eight.
 Comparisons normalize the loudness channel sum to A's layout; the original measurements stay intact.
 The saved A window starts with fresh K-weighting state, matching a file of that window. Audio and source paths
 are not stored, and no target is written into Kirin OS. The Kirin OS license is required; its library
@@ -136,7 +168,8 @@ instead.
 
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
-the B page chooses the Reference set and the song, also while A plays.
+the B page chooses the Reference set and the song, also while A plays, and switches FOLLOW A beside the song.
+At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue row.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
@@ -150,12 +183,31 @@ the B page chooses the Reference set and the song, also while A plays.
   playing song shows the gain applied. The legend's TARGET RANGE is the band between the set's songs
   (p10 to p90 per band, each at the level B plays it at). It takes two songs with measured values; with
   fewer there is no band and the legend does not name one.
+  **ONE / ALL** at the top right of Balance chooses what it draws. ONE is the view above. ALL draws A
+  (gold) with the lines you show: each row's number becomes a box that shows or hides that row's line,
+  as many at once as you like. It only changes the chart; B still plays the one song you chose. The first
+  ALL shows every song of the set. A line keeps the colour it was given until you hide it, whichever
+  others you show or hide, and a box takes its line's colour. The legend names the lines shown in up to
+  three rows and ends with how many more (+12). Pointing at a row, or near a line on the chart, draws that
+  line stronger and the others fainter and reads A and that line at the pointer. In ALL the measured
+  targets you dropped follow the songs, in the order added, at the level B would play them at (state
+  DATA); pressing one to hear it says that it has no audio. In ALL, **LINES / SHAPE / ALL SHAPE** beside
+  ONE / ALL chooses how the chart draws them, and the one that is on is lit. LINES draws each line
+  turned on. SHAPE draws, instead of those lines, their mean and a band from the lowest to the highest
+  value in each band; the numbers still choose what goes in, and the legend counts them (MEAN OF 3,
+  RANGE OF 3). ALL SHAPE builds the same mean and band from every song of the set and every target,
+  whatever the numbers say (MEAN OF ALL 20). With one item the band closes onto its line; with none,
+  the chart says to turn songs on. A stays its gold line on top, and pointing at a row draws that one
+  item's line thinly over the shape. The list scrolls when its rows do not fit, and moves to the chosen
+  song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
+  Hypha ignore them). Below 300 % there is no Balance, so no ALL.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
   set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
-  and the Cue's place in the song with its loop and the playing position. A Check
+  and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
+  FOLLOW A and the offset). A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
   medians on the right, with the difference on A's line — crest (TP/RMS) and loudness movement (LUFS-S around each median,

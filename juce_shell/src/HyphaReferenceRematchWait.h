@@ -29,6 +29,7 @@ inline juce::String rematchTarget (const reference_audition::Snapshot& latest)
 {
     if (latest.audibleComparisonSlot != 2) return {};
     const auto& check = latest.checkSelection ? *latest.checkSelection : latest;
-    return check.checkId + "|" + check.cueId + "|" + juce::String ((juce::int64) check.selectionGeneration);
+    return check.checkId + "|" + check.cueId + "|" + juce::String ((juce::int64) check.selectionGeneration)
+         + (latest.followA ? "|follow" : "");  // 流し方を替えたら待たせた合わせ直しを捨てる
 }
 }

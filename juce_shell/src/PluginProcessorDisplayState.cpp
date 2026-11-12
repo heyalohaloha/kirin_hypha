@@ -123,3 +123,14 @@ void KirinHyphaProcessorBase::setDisplaySettingsPreference (hypha::display_setti
     if (displaySettings.set (value))
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
+
+// B の Balance の重ね比べ（ONE／ALL・描き方・出した線）。保存する表示の選択なので、ほかの表示の選択と並べる。
+bool KirinHyphaProcessorBase::setReferenceOverlay (const hypha::reference_audition::BalanceOverlay& overlay)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr && referenceAuditionController->setOverlay (overlay);
+   #else
+    juce::ignoreUnused (overlay);
+    return false;
+   #endif
+}

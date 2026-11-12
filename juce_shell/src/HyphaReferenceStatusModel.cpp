@@ -71,7 +71,9 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         const auto range = tag + juce::String (std::abs (state.rangeShortfallDb), 1)
             + (state.rangeShortfallDb > 0.0 ? " DB UNDER A (FOLLOW LIMIT)" : " DB OVER A (FOLLOW LIMIT)");
         // 区間が無い（V、区間の分からない役）ときは今までの短い札（300% の足元で Blind のボタンの横に入る長さ）。
+        // FOLLOW A は押した時に曲全体の値と A の ALL の窓で合わせて固定する（追従しない）。
         const auto level = state.originalAudition ? tag + "ORIGINAL LEVEL"
+            : state.followA && section.isNotEmpty() && state.tracking == Tracking::fixed ? juce::String ("WHOLE SONG MATCHED TO A (ALL), FIXED")
             : rangeLimited ? range
             : state.tracking == Tracking::following ? (section.isNotEmpty() ? juce::String ("LEVEL FOLLOWS A (LAST 10 S)") : role + " FOLLOWING A (LAST 10 S)")
             : state.tracking == Tracking::fixed && state.matchProvisional && state.aWindowNeededBlocks > 0

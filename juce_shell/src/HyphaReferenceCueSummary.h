@@ -39,5 +39,8 @@ juce::String cueChartLegend (juce::Rectangle<float> chart, const juce::String& h
 juce::String cuePartLegend (const char* side, reference_audition::CuePart, double startSeconds, double endSeconds, bool range);
 // 鳴っている B・C が曲のどこを鳴らしているか（2026-11-11。B・C は A の位置を追わず Kirin OS の決めた区間を繰り返す）：
 // 「B CHORUS 2:53-3:07 LOOP」。区間の名前も時刻も分からなければ空（状態の行は役の名前で言う）。V は A の位置を追うので空。
+// FOLLOW A では区間ではなく「B FOLLOW A」（ずらしがあれば「B FOLLOW A +0.25 S」）。
 juce::String playingSection (const State&);
+// FOLLOW A の手のずらし（秒）：「+0.25 S」「-1.20 S」「0.00 S」。
+juce::String followOffsetText (double seconds);
 }

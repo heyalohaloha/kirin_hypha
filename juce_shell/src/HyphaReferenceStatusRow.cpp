@@ -14,14 +14,19 @@ namespace
 {
 // 状態の文は日英の空白付き区切りごとに、入るところまで出す（途中で「…」にしない）。区切りは大事な順に並んでいる
 // （HyphaReferenceStatusModel.cpp）。最初の区切りも入らなければ省略記号（drawEllipsized）。2026-10-05、
-// 300% で「BはAに追従中（直近10…」「…/ Aを下…」と、言いかけで切れていた。
+// 300% で「BはAに追従中（直近10…」「…/ Aを下…」と、言いかけで切れていた。括弧の中の「/」は区切りではない
+// （2026-11-12、「音量をAに合わせ中（5 / 25秒）」が「（5」で切れていた）。
 juce::String fittedSegments (const juce::String& shown, const juce::Font& font, float width)
 {
     if (text_style::shownWidth (font, shown) <= width) return shown;
     juce::String fitted;
+    int depth = 0;
     for (int slash = 1; slash + 1 < shown.length(); ++slash)
     {
-        if ((shown[slash] != '/' && shown[slash] != 0xff0f)
+        const auto previous = shown[slash - 1];
+        if (previous == '(' || previous == 0xff08) ++depth;
+        if ((previous == ')' || previous == 0xff09) && depth > 0) --depth;
+        if (depth > 0 || (shown[slash] != '/' && shown[slash] != 0xff0f)
             || shown[slash - 1] != ' ' || shown[slash + 1] != ' ') continue;
         const auto prefix = shown.substring (0, slash).trimEnd();
         if (prefix.isEmpty()) continue;

@@ -7,6 +7,13 @@
 
 namespace hypha::reference_audition
 {
+// A full collection never drops a target on its own: it says how many were not added and how to make
+// room (HyphaJapaneseReference.cpp).
+inline juce::String targetsFullIssue (int notAdded)
+{
+    return juce::String (notAdded) + " NOT ADDED: " + juce::String (static_cast<int> (TargetCollection::capacity))
+        + " TARGETS MAX / REMOVE ONE TO MAKE ROOM";
+}
 // Only project facts are shared. The worker owns each decoder and its short-lived PCM buffers.
 class TargetService final : private juce::Thread
 {
@@ -50,7 +57,7 @@ public:
         if (files.isEmpty()) return false;
         if (! isThreadRunning() && ! startThread (juce::Thread::Priority::low)) { setIssue ("MEASUREMENT UNAVAILABLE"); return false; }
         const auto slots = TargetCollection::capacity - state.collection.items.size();
-        if (slots == 0) { setIssue ("8 TARGETS MAX"); return false; }
+        if (slots == 0) { setIssue (targetsFullIssue (files.size())); return false; }
         settled.reset(); state.measuring = true; state.progress = 0.0; state.issue.clear();
         pending = Job { ++generation, files, slots };
         notify(); return true;
@@ -66,7 +73,7 @@ public:
     {
         const juce::ScopedLock guard (mutex);
         if (restoreEpoch != 0 && restoreEpoch != state.restoreEpoch) return false;
-        if (state.collection.items.size() >= TargetCollection::capacity) { setIssue ("8 TARGETS MAX"); return false; }
+        if (state.collection.items.size() >= TargetCollection::capacity) { setIssue (targetsFullIssue (1)); return false; }
         if (state.measuring) { setIssue ("MEASURING"); return false; }
         if (! target.valid()) { setIssue ("A WINDOW UNAVAILABLE"); return false; }
         state.collection.items.push_back (std::move (target)); ++state.revision; state.issue.clear(); return true;
@@ -123,12 +130,13 @@ private:
             if (! job) { wait (-1); continue; }
             std::vector<MeasuredTarget> completed;
             juce::String issue;
+            int notAdded = 0;  // files past the free slots, in the order they were dropped
             try
             {
                 for (int i = 0; i < job->files.size(); ++i)
                 {
                     if (completed.size() == job->slots)
-                    { if (issue.isEmpty()) issue = "8 TARGETS MAX"; break; }
+                    { notAdded = job->files.size() - i; break; }
                     const auto cancelled = [&] { return threadShouldExit() || generation.load() != job->generation; };
                     auto result = measureTargetFile (juce::File (job->files[i]), cancelled, [&] (double progress) {
                         { const juce::ScopedLock guard (mutex);
@@ -152,7 +160,10 @@ private:
                     for (auto& target : completed)
                         if (state.collection.items.size() < TargetCollection::capacity)
                         { state.collection.items.push_back (std::move (target)); changed = true; }
+                        else ++notAdded;
                     ++state.revision;
+                    // How many did not fit comes first; a file that could not be measured still says why.
+                    if (notAdded > 0) issue = targetsFullIssue (notAdded) + (issue.isNotEmpty() ? " / " + issue : juce::String());
                     setIssue (issue); state.measuring = false; state.progress = 0.0;
                 }
                 workerActive = false;

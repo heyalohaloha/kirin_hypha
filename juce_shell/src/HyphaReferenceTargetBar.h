@@ -71,9 +71,11 @@ public:
         state = std::move (next);
         make.context = remove.context = context;
         make.setButtonText (state.measuring ? "CANCEL" : "MAKE TARGET");
+        constexpr auto capacity = static_cast<int> (reference_audition::TargetCollection::capacity);
         const bool full = state.collection.items.size() >= reference_audition::TargetCollection::capacity;
         unavailable::set (make, state.measuring || (canMake && ! full),
-                          ! canMake ? "Play A for 3 s to make a target" : "8 targets: remove one first");
+                          ! canMake ? juce::String ("Play A for 3 s to make a target")
+                                    : juce::String (capacity) + " targets: remove one first");
         make.setTooltip (state.measuring ? "CANCEL" : canMake ? "MAKE TARGET" : "A WINDOW / 3 S");
         unavailable::set (remove, state.collection.selected.isNotEmpty(), "Choose a target to remove");
         remove.setTooltip ("REMOVE TARGET");
@@ -91,7 +93,7 @@ public:
         }
         select.setRows (std::move (rows));
         select.setTextWhenNothingSelected (state.collection.items.empty() ? juce::String ("DROP AUDIO")
-            : "TARGETS " + juce::String (static_cast<int> (state.collection.items.size())) + " / 8");
+            : "TARGETS " + juce::String (static_cast<int> (state.collection.items.size())) + " / " + juce::String (capacity));
         select.setSelectedId (chosen, juce::dontSendNotification);
         select.setTooltip (state.collection.selected.isNotEmpty() ? "DATA ONLY" : "DROP AUDIO");
         status.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));

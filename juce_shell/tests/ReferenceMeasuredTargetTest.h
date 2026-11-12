@@ -312,14 +312,34 @@ void testMeasuredTargets (const juce::File& sandbox)
     require (target::TargetCollection::read (state).items.empty(), "invalid numeric state is ignored without corrupting other state");
     bool dataOnly = false;
     target::TargetService service ({}, [&] (bool selected) { dataOnly = selected; });
-    for (int i = 0; i < 8; ++i)
+    constexpr int capacity = 16;
+    require (target::TargetCollection::capacity == capacity, "sixteen targets, as many as a Reference set has songs");
+    for (int i = 0; i < capacity; ++i)
     {
-        auto copy = measured.target; copy.id = "target-" + juce::String (i);
-        require (service.add (copy), "eight targets fit");
+        auto copy = measured.target; copy.id = "target-" + juce::String::toHexString (i);
+        require (service.add (copy), "sixteen targets fit");
     }
-    require (! service.add (captured) && ! service.importFiles ({ file.getFullPathName() })
-        && service.snapshot().collection.items.size() == 8, "all entrances enforce eight targets");
-    for (const int occupied : { 0, 6 })
+    require (! service.add (captured) && service.snapshot().issue == "1 NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO MAKE ROOM",
+             "a full collection keeps every target and says how to make room");
+    require (! service.importFiles ({ file.getFullPathName(), file.getFullPathName(), file.getFullPathName() })
+        && service.snapshot().collection.items.size() == capacity
+        && service.snapshot().issue == "3 NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO MAKE ROOM",
+        "a drop on a full collection measures nothing and says how many were not added");
+    {
+        // The saved form stays version 1 in the order added: a Hypha that kept eight reads the first eight.
+        juce::XmlElement full ("KirinHyphaState");
+        auto collection = service.snapshot().collection;
+        collection.selected = collection.items.back().id;
+        collection.write (full);
+        const auto* saved = full.getChildByName ("MeasuredTargets");
+        require (saved != nullptr && saved->getIntAttribute ("version") == 1 && saved->getNumChildElements() == capacity
+            && saved->getChildElement (0)->getStringAttribute ("id") == collection.items.front().id,
+            "sixteen targets save in the order added under the same version");
+        const auto restored = target::TargetCollection::read (full);
+        require (restored.items.size() == static_cast<size_t> (capacity) && restored.selected == collection.selected
+            && restored.items.back().id == collection.items.back().id, "sixteen targets and the chosen one restore");
+    }
+    for (const int occupied : { 0, 12 })
     {
         target::TargetCollection prior;
         prior.items.assign (round.items.begin(), round.items.end());
@@ -328,11 +348,13 @@ void testMeasuredTargets (const juce::File& sandbox)
         if (occupied == 0) prior.items.clear();
         service.restore (prior);
         juce::StringArray files;
-        for (int i = 0; i < 10; ++i) files.add (file.getFullPathName());
+        for (int i = 0; i < 20; ++i) files.add (file.getFullPathName());
         require (service.importFiles (files) && service.waitUntilIdle (30000), "an oversized drop starts and settles");
         const auto filled = service.snapshot();
-        require (filled.collection.items.size() == 8 && filled.issue == "8 TARGETS MAX",
-                 "an oversized drop fills every empty slot and reports only the excess");
+        const auto excess = 20 - (capacity - occupied);
+        require (filled.collection.items.size() == static_cast<size_t> (capacity)
+            && filled.issue == juce::String (excess) + " NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO MAKE ROOM",
+            "an oversized drop fills every empty slot in drop order and says how many were not added");
         if (occupied > 0) require (filled.collection.items.front().id == prior.items.front().id, "existing targets survive an oversized drop");
     }
     service.restore ({});

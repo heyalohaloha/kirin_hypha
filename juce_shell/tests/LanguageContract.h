@@ -128,10 +128,39 @@ inline void verifyLookup()
         KIRIN_LANGUAGE_REQUIRE (i18n::languageForSystem (system) == Language::english);
 }
 
+// A pattern's own English (every value 7) reads as that pattern's Japanese. Patterns are tried in
+// order, so a broader one must not take a narrower one's text first (2026-11-12: "%1 MATCHING A ..."
+// took "LEVEL MATCHING A ..." and the C page said "LEVELはAに合わせ中").
+inline void verifyPatternsReachable()
+{
+    juce::StringArray taken;
+    for (const auto& section : i18n::catalog::sections())
+        for (std::size_t index = 0; index < section.count; ++index)
+        {
+            auto english = utf8 (section.entries[index].english);
+            if (! english.contains ("%1")) continue;
+            auto expected = utf8 (section.entries[index].japanese)
+                .replace ("(", utf8 (u8"（")).replace (")", utf8 (u8"）"));
+            if (! expected.startsWith (utf8 (u8"MID：")) && ! expected.startsWith (utf8 (u8"SIDE：")))
+                expected = expected.replace (" / ", utf8 (u8" ／ "));
+            for (int slot = 1; slot <= 3; ++slot)
+            {
+                english = english.replace ("%" + juce::String (slot), "7");
+                expected = expected.replace ("%" + juce::String (slot), "7");
+            }
+            if (const auto actual = i18n::translate (english, i18n::Language::japanese); actual != expected)
+                taken.add (english + " -> " + actual + " (expected " + expected + ")");
+        }
+    if (! taken.isEmpty())
+        std::cerr << "Patterns not reached by their own English:\n" << taken.joinIntoString ("\n") << '\n';
+    KIRIN_LANGUAGE_REQUIRE (taken.isEmpty());
+}
+
 // Each entry has Japanese text or an explicitly retained Facts label, preserves the English
 // values, and is the only entry for its English.
 inline void verifyCatalog()
 {
+    verifyPatternsReachable();
     verifyKeepPreparationNotices();
     std::set<juce::String> seen;
     std::size_t count = 0;

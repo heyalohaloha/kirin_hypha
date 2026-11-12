@@ -124,15 +124,26 @@ namespace hypha::reference_audition
         result.transportPositionValid = latestPositionValid.load (std::memory_order_acquire);
         const bool publishedReady = ready.load (std::memory_order_acquire);
         const auto mappingBefore = mappingGeneration.load (std::memory_order_acquire);
-        const auto sourcePosition = result.transportPositionValid
-            ? mappedSourcePosition (latestHostPosition.load (std::memory_order_acquire)) : -1;
+        const bool follows = ! versionComparison && followA.load (std::memory_order_acquire);
+        const auto hostNow = latestHostPosition.load (std::memory_order_acquire);
+        const auto offsetNow = followOffset.load (std::memory_order_acquire);
+        const auto sourcePosition = result.transportPositionValid ? mappedSourcePosition (hostNow) : -1;
         const auto mappingAfter = mappingGeneration.load (std::memory_order_acquire);
+        result.followA = follows;
+        result.followOffsetSeconds = requestedConfiguration.sampleRate > 0.0
+            ? static_cast<double> (offsetNow) / requestedConfiguration.sampleRate : 0.0;
+        // FOLLOW A で A の位置＋ずらしが曲の外（同じ写像で読めたときだけ。曲の長さは開いた面の長さ）。
+        if (follows && publishedReady && result.transportPositionValid && sourcePosition < 0
+            && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter
+            && currentPages().sourceOpen() && currentPages().lengthInSamples() > 0)
+            result.followOutside = static_cast<long double> (hostNow) + static_cast<long double> (offsetNow)
+                >= static_cast<long double> (currentPages().lengthInSamples()) ? 1 : -1;
         // 押せば Cue の頭から鳴らし直す曲（restartCueAtPlayhead）は、今の位置が Cue の外でも「範囲外」にしない。
         const bool restarts = sourcePosition < 0 && restartsAtCueStart();
         // 鳴らす音の描き方（ReferenceRuntimeV2Realtime の loops || restart）と同じ：B・C の Cue は終わりで頭へ戻る。
-        result.cueWraps = ! versionComparison && (cueLoops.load (std::memory_order_acquire) || restartsAtCueStart());
+        result.cueWraps = ! versionComparison && ! follows && (cueLoops.load (std::memory_order_acquire) || restartsAtCueStart());
         result.publicationReturn = publicationReturn.load (std::memory_order_acquire);
-        result.auditionOutsideCue = publishedReady && ! versionComparison
+        result.auditionOutsideCue = publishedReady && ! versionComparison && ! follows
             && result.transportPositionValid && sourcePosition < 0 && ! restarts
             && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter
             && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
@@ -154,6 +165,8 @@ namespace hypha::reference_audition
                 result.auditionPages = AuditionPageState::sourceUnavailable;
             else if (! currentPages().sourceOpen() || currentPages().lengthInSamples() <= 0)
                 result.auditionPages = AuditionPageState::positionUnknown;
+            else if (result.followOutside != 0)  // FOLLOW A の写像は時計だけで決まるので、曲の外は確かな理由
+                result.auditionPages = AuditionPageState::outsideSource;
             else if (versionComparison && (sourcePosition < 0 || sourcePosition >= currentPages().lengthInSamples()))
                 // 内容で確かめた写像が無い間（位置合わせ前）の位置は、版を選んだ瞬間の DAW 位置を頭に置いた推測。
                 // 推測の範囲外で「範囲外」と断らず、位置合わせを待つ（1.1.53 と同じ。B-1608 の後退の直し）。
@@ -188,7 +201,7 @@ namespace hypha::reference_audition
             && (blind.ongoing() || referenceCopyProofCurrent (versionComparison,
                 copyCorrespondence.load (std::memory_order_acquire),
                 contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()));
-        if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
+        if ((versionComparison && !blindState.eligible) || result.followOutside != 0) result.auditionBuffered = false;
         if (result.bSelected && normalPageWaiting.load (std::memory_order_acquire)) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;

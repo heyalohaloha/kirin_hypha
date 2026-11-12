@@ -178,6 +178,48 @@ inline void verifyExistingComparison()
         }
     }
 }
+// A drop that does not fit says how many were not added and how to make room, whole on C's bar and as
+// the first fact of the status line where the bar has no room, in both languages.
+inline void verifyFullNotice()
+{
+    using reference_guide_contract::require;
+    const auto notice = reference_audition::targetsFullIssue (5);
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const auto shown = text_style::shownText (notice);
+        require (language == i18n::Language::english ? shown == notice
+                     : ! shown.contains ("NOT ADDED") && ! shown.contains ("REMOVE") && shown.contains ("5") && shown.contains ("16"),
+                 "the full-collection notice reads in the screen's language: " + shown);
+        for (const auto size : observatory::sizePresets)
+        {
+            reference_ui::Component panel;
+            const auto viewport = observatory::displayViewport (size.width, size.height);
+            observatory::View shell (observatory::Role::post);
+            shell.setSize (viewport.width, viewport.height); shell.setDomain (observatory::Domain::reference);
+            shell.setExternalAnalysisBodyActive (true);
+            panel.setVisible (true); panel.setPresentationContext (presentation::forEditor (viewport.width, viewport.height));
+            panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+            auto state = reference_a_window::cPage();
+            state.blindLargeScreen = size.density == observatory::Density::inspection;
+            reference_audition::TargetSnapshot targets; targets.issue = notice;
+            reference_ui::applyMeasuredTarget (state, targets, true);
+            panel.setState (state);
+            auto* bar = panel.findChildWithID ("reference-targets");
+            bool whole = false;
+            if (! panel.shortPanel())
+                for (auto* child : bar->getChildren())
+                    if (const auto* label = dynamic_cast<juce::Label*> (child); label && label->isVisible() && label->getText() == notice)
+                        whole = text_style::shownWidth (label->getFont(), shown) <= label->getWidth() - 10;
+            if (panel.shortPanel())
+            {
+                const auto line = panel.statusTextLayout (panel.footerStatusStrip().getLocalBounds());
+                whole = line.line.text == notice && line.text.startsWith (text_style::shownText (notice.upToFirstOccurrenceOf (" / ", false, false)));
+            }
+            require (whole, "the full-collection notice is shown at " + juce::String (size.width));
+        }
+    }
+}
 inline void verifySelection (const reference_audition::MeasuredTarget& target)
 {
     using reference_guide_contract::require;
@@ -298,6 +340,7 @@ inline void verify (const juce::File& sandbox)
     target.duration = 30.0; target.integrated = -18.0; target.maximumTruePeak = -2.0;
     require (target.valid(), "numeric target fixture");
     verifyExistingComparison();
+    verifyFullNotice();
     verifySelection (target);
     auto timeline = std::make_shared<ref::VisualTimeline>();
     auto spectrum = std::make_shared<ref::KirinSpectrumWindow> (*base.aKirin); spectrum->frames = 30;

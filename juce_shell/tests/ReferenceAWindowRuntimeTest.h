@@ -212,9 +212,27 @@ void testAWindowResetRing()
     }
 }
 
+// B の Balance の重ね比べは他の保存する選択と同じく、変わった時だけ state が変わったと知らせる（DAW が保存を促す）。
+void testOverlayNotifies (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("overlay-notifies");
+    require (root.createDirectory().wasOk(), "overlay fixture directory");
+    int changes = 0;
+    ref::ReferenceComparisonController controller (root, {}, {}, [&] { ++changes; });
+    ref::BalanceOverlay overlay;
+    overlay.all = true; overlay.lines = { { "set/check/song-1", 0 } };
+    require (controller.setOverlay (overlay) && changes == 1 && controller.savedSettings().overlay == overlay,
+             "an overlay change is saved and the host is told");
+    require (! controller.setOverlay (overlay) && changes == 1, "the same overlay again is not a change");
+    overlay.drawing = ref::BalanceOverlay::Drawing::allShape;
+    require (controller.setOverlay (overlay) && changes == 2 && controller.savedSettings().overlay.drawing == overlay.drawing,
+             "a drawing change is a change");
+}
+
 // 開いたリストの回答は、開いた後に役の切替・復元・形式の変更・Blind の開始があれば何も変えない。RESET も同じ。
 void testAWindowTargets (const juce::File& sandbox)
 {
+    testOverlayNotifies (sandbox);
     const auto root = sandbox.getChildFile ("a-window-targets");
     require (root.createDirectory().wasOk(), "A window fixture directory");
     ref::ReferenceComparisonController controller (root, [] (bool) { return true; });

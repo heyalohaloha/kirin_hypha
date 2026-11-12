@@ -2,6 +2,7 @@
 #include "ReferenceCopyCorrespondence.h"
 #include "ReferenceObservationTestHook.h"
 
+#include <cmath>
 #include <limits>
 
 namespace hypha::reference_audition
@@ -134,7 +135,10 @@ namespace hypha::reference_audition
                 }
             }
             else if (locked)
-                result = hostPosition >= start && hostPosition < end ? hostPosition : -1;
+            {
+                std::int64_t shifted = 0;
+                result = checkedAdd (hostPosition, offset, shifted) && shifted >= start && shifted < end ? shifted : -1;
+            }
             else
             {
                 std::int64_t delta = 0;
@@ -172,6 +176,14 @@ namespace hypha::reference_audition
         path.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
         path.pages = activePages.load (std::memory_order_acquire);
         path.pageGeneration = path.pages->openGeneration();
+        path.offset = 0;
+        // FOLLOW A（B・C）：区間の代わりに曲全体を、A の位置＋手のずらしで鳴らす。曲の長さは開いた面の長さ。
+        if (! versionComparison && followA.load (std::memory_order_relaxed))
+        {
+            path.start = 0; path.end = path.pages->lengthInSamples();
+            path.loops = false; path.locked = true;
+            path.offset = followOffset.load (std::memory_order_relaxed);
+        }
         path.gain = bLinearGain.load (std::memory_order_acquire);
         path.switchSerial = normalSwitchSerial.load (std::memory_order_acquire);
         path.mapping = generation;
@@ -195,7 +207,7 @@ namespace hypha::reference_audition
     bool RuntimeV2Controller::restartsAtCueStart() const noexcept
     {
         return ! versionComparison && ! sampleLocked.load (std::memory_order_acquire)
-            && ! cueLoops.load (std::memory_order_acquire)
+            && ! followA.load (std::memory_order_acquire) && ! cueLoops.load (std::memory_order_acquire)
             && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
     }
 
