@@ -284,29 +284,65 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer, st
 }
 
 // Two cascaded box averages of `factor` samples, then every factor-th sample: a coarse low-pass
-// that treats PRE and POST alike. Mono, the mean of the channels.
-static std::vector<float> decimate (const std::vector<float>& stereo, int factor)
+// that treats PRE and POST alike. One channel of the interleaved stereo.
+static std::vector<float> decimate (const std::vector<float>& stereo, std::size_t channel, int factor)
 {
     const auto frames = stereo.size() / 2;
+    const auto step = static_cast<std::size_t> (factor);
     std::vector<double> once (frames), twice (frames);
     double sum = 0.0;
     for (std::size_t i = 0; i < frames; ++i)
     {
-        sum += 0.5 * (static_cast<double> (stereo[i * 2]) + stereo[i * 2 + 1]);
-        if (i >= static_cast<std::size_t> (factor)) sum -= 0.5 * (static_cast<double> (stereo[(i - factor) * 2]) + stereo[(i - factor) * 2 + 1]);
+        sum += stereo[i * 2 + channel];
+        if (i >= step) sum -= stereo[(i - step) * 2 + channel];
         once[i] = sum / factor;
     }
     sum = 0.0;
     for (std::size_t i = 0; i < frames; ++i)
     {
         sum += once[i];
-        if (i >= static_cast<std::size_t> (factor)) sum -= once[i - factor];
+        if (i >= step) sum -= once[i - step];
         twice[i] = sum / factor;
     }
-    std::vector<float> out (frames / static_cast<std::size_t> (factor));
+    std::vector<float> out (frames / step);
     for (std::size_t i = 0; i < out.size(); ++i)
-        out[i] = static_cast<float> (twice[i * static_cast<std::size_t> (factor) + static_cast<std::size_t> (factor) - 1]);
+        out[i] = static_cast<float> (twice[i * step + step - 1]);
     return out;
+}
+
+// The whitened correlation of one decimated channel pair, over lags that keep `overlap` of both.
+static WideOffset wideCorrelation (const std::vector<float>& x, const std::vector<float>& y, std::int64_t overlap, int factor)
+{
+    const auto n = x.size();
+    if (rms (x) < 3.0e-4 || rms (y) < 3.0e-4) return {};
+    std::size_t size = 1;
+    while (size < 2 * n) size <<= 1;
+    std::vector<Complex> a (size), b (size);
+    for (std::size_t i = 0; i < n; ++i) { a[i] = x[i]; b[i] = y[i]; }
+    transform (a, false);
+    transform (b, false);
+    double meanMagnitude = 0.0;
+    for (std::size_t k = 0; k < size; ++k) { a[k] = std::conj (a[k]) * b[k]; meanMagnitude += std::abs (a[k]); }
+    const double floor = 1.0e-3 * meanMagnitude / static_cast<double> (size) + 1.0e-30;
+    for (auto& value : a) value /= std::abs (value) + floor;
+    transform (a, true);
+    // a[j] = sum over i of post[i] pre[i + j]: lag j for j < n, j - size beyond.
+    const auto reach = static_cast<std::int64_t> (n) - overlap;
+    const auto lagAt = [&] (std::size_t j) { return j < size / 2 ? static_cast<std::int64_t> (j) : static_cast<std::int64_t> (j) - static_cast<std::int64_t> (size); };
+    std::int64_t best = 0;
+    double peak = 0.0;
+    for (std::size_t j = 0; j < size; ++j)
+        if (std::llabs (lagAt (j)) <= reach && std::fabs (a[j].real()) > peak) { peak = std::fabs (a[j].real()); best = lagAt (j); }
+    double runnerUp = 0.0;
+    for (std::size_t j = 0; j < size; ++j)
+        if (std::llabs (lagAt (j)) <= reach && std::llabs (lagAt (j) - best) > 2)
+            runnerUp = std::max (runnerUp, std::fabs (a[j].real()));
+    WideOffset wide;
+    wide.peak = peak;
+    wide.dominance = runnerUp > 0.0 ? peak / runnerUp : std::numeric_limits<double>::infinity();
+    wide.lagFrames = best * factor;
+    wide.found = peak > 0.0 && wide.dominance >= offsetWideDominance && std::llabs (best) < reach;
+    return wide;
 }
 
 WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
@@ -333,37 +369,14 @@ WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
     copyPostHistory (view, spanStart, frames, post);
     if (! copyPreRing (ring, spanStart - view.k, frames, pre, view.preRun) || ! renderer.historyStillValid (view, spanStart))
         return {};
-    const auto x = decimate (post, factor), y = decimate (pre, factor);
-    const auto n = x.size();
-    if (rms (x) < 3.0e-4 || rms (y) < 3.0e-4) return {};
-    std::size_t size = 1;
-    while (size < 2 * n) size <<= 1;
-    std::vector<Complex> a (size), b (size);
-    for (std::size_t i = 0; i < n; ++i) { a[i] = x[i]; b[i] = y[i]; }
-    transform (a, false);
-    transform (b, false);
-    double meanMagnitude = 0.0;
-    for (std::size_t k = 0; k < size; ++k) { a[k] = std::conj (a[k]) * b[k]; meanMagnitude += std::abs (a[k]); }
-    const double floor = 1.0e-3 * meanMagnitude / static_cast<double> (size) + 1.0e-30;
-    for (auto& value : a) value /= std::abs (value) + floor;
-    transform (a, true);
-    // a[j] = sum over i of post[i] pre[i + j]: lag j for j < n, j - size beyond. Every lag keeps
-    // offsetWideOverlapSeconds of both sides, so the reach grows with the history held.
-    const auto reach = static_cast<std::int64_t> (n) - overlap / factor;
-    const auto lagAt = [&] (std::size_t j) { return j < size / 2 ? static_cast<std::int64_t> (j) : static_cast<std::int64_t> (j) - static_cast<std::int64_t> (size); };
-    std::int64_t best = 0;
-    double peak = 0.0;
-    for (std::size_t j = 0; j < size; ++j)
-        if (std::llabs (lagAt (j)) <= reach && std::fabs (a[j].real()) > peak) { peak = std::fabs (a[j].real()); best = lagAt (j); }
-    double runnerUp = 0.0;
-    for (std::size_t j = 0; j < size; ++j)
-        if (std::llabs (lagAt (j)) <= reach && std::llabs (lagAt (j) - best) > 2)
-            runnerUp = std::max (runnerUp, std::fabs (a[j].real()));
-    WideOffset wide;
-    wide.peak = peak;
-    wide.dominance = runnerUp > 0.0 ? peak / runnerUp : std::numeric_limits<double>::infinity();
-    wide.lagFrames = best * factor;
-    wide.found = peak > 0.0 && wide.dominance >= offsetWideDominance && std::llabs (best) < reach;
-    return wide;
+    // Each channel on its own, as the fine search: opposite-polarity stereo has no mono sum.
+    WideOffset best;
+    for (std::size_t channel = 0; channel < 2; ++channel)
+    {
+        const auto wide = wideCorrelation (decimate (post, channel, factor), decimate (pre, channel, factor),
+                                           overlap / factor, factor);
+        if (wide.found && (! best.found || wide.dominance > best.dominance)) best = wide;
+    }
+    return best;
 }
 }

@@ -182,4 +182,21 @@ inline void chainFindsLongDelays (int channels)
     }
 }
 
+// Opposite-polarity stereo (R = -L) has no mono sum: the wide search, like the fine one, reads each
+// channel and still finds PRE early by 32768 frames.
+inline void wideSearchReadsEachChannel (int channels)
+{
+    using namespace hypha::live_compare;
+    ChunkedPost chain (channels);
+    chain.oppositePolarity = true;
+    chain.setDelay (512);
+    chain.contentK = 512 + 32768;
+    auto& post = *chain.post;
+    selectPreparedPair (chain, "select the opposite-polarity PRE");
+    require (post.startLiveCompare() == StartResult::started, "LISTEN starts");
+    post.selectLiveComparePre (true);
+    chain.until (300, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 32768; },
+                 "opposite-polarity stereo is found beyond the fine search");
+    chain.clean ("PRE is read 32768 frames later");
+}
 }
