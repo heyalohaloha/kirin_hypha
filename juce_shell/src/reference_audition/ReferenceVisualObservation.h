@@ -43,7 +43,8 @@ private:
     std::atomic<size_t> writeIndex { 0 }, readIndex { 0 };
     std::atomic<bool> accepting { false };
     std::atomic<std::uint64_t> generation { 1 };
-    std::atomic<std::uint64_t> aWindowResets { 0 };
+    std::atomic<std::uint64_t> aWindowResets { 0 }, formatChanges { 0 };
+    std::uint64_t formatChangesDone = 0;  // 観測スレッドだけ
     std::uint64_t aWindowResetsDone = 0;  // ここから 3 つは観測スレッドだけ
     size_t aWindowBoundary = 0;           // 読みがここへ届くまでの塊は操作の前の音
     bool aWindowCatchingUp = false;
@@ -64,6 +65,9 @@ private:
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
     KirinSpectrumMeter kirinMeter;        // A を Kirin OS の Cue と同じ定義で
+    ASongMeter aSongMeter;                // C の SONG の A（kirinMeter と同じフレームを DAW の位置ごとに。RESET で消す）
+    std::uint64_t aSongRevision = 0;      // 最後に集計した aSongMeter の revision
+    double aSongNextMs = 0.0;             // 次に集計してよい時刻（長い曲の集計を 1 秒に 1 回まで）
     std::unique_ptr<TargetPeakWindow> targetPeaks;         // Numeric window edges only; existing A meters are unchanged.
     KirinSpectrumMeter pairAMeter, pairVMeter; // 位置合わせで対応した A と V（同じフレーム）
     KirinFingerprintMeter printMeter;     // A の Kirin 指紋（直近 30 秒）

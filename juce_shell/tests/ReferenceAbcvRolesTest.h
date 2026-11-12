@@ -13,6 +13,7 @@
 #include "ReferenceStageTableTest.h"
 #include "ReferenceRejectionReasonTest.h"
 #include "ReferenceFollowAPageTest.h"
+#include "ReferenceSongComparePageTest.h"
 
 namespace hypha::tests
 {
@@ -29,6 +30,7 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceStageTable();
     verifyReferenceRejectionReasons();
     verifyReferenceFollowAPages();
+    verifyReferenceSongComparePage();
     verifyReferenceSongChoice();
     verifyUnsentCheckSet();
     verifyLongSongTitleKeepsVersion();

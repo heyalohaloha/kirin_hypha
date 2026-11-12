@@ -36,6 +36,24 @@ inline juce::Colour overlayLineColour (int colour)
     return colour < static_cast<int> (overlayPalette.size()) ? base : base.interpolatedWith (BG, 0.35f);
 }
 
+// One part of a framed switch (ONE / ALL here, CUE / SONG on C): lit when chosen, its word in the page's font.
+class SwitchHalf final : public juce::Button
+{
+public:
+    explicit SwitchHalf (const juce::String& text) : juce::Button (text) {}
+    presentation::Context context = presentation::defaultContext();
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        const key_light::Scope light (*this);
+        if (getToggleState() || highlighted)
+            surface_material::paintControl (g, getLocalBounds().toFloat().reduced (1.0f), highlighted, down,
+                                            getToggleState(), COL_NORMAL, 3.0f);
+        g.setColour (getToggleState() ? COL_NORMAL : COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
+        text_style::drawText (g, getName(), getLocalBounds(), juce::Justification::centred);
+    }
+};
+
 // ONE / ALL at the right of the Balance heading: two halves of one framed switch. In ALL, how it draws
 // stands to its left as a second switch of three: LINES (each line turned on), SHAPE (their mean and range)
 // and ALL SHAPE (the mean and range of every song and target, whatever is turned on).
@@ -120,22 +138,7 @@ public:
     }
 
 private:
-    class Half final : public juce::Button
-    {
-    public:
-        explicit Half (const char* text) : juce::Button (text) {}
-        presentation::Context context = presentation::defaultContext();
-        void paintButton (juce::Graphics& g, bool highlighted, bool down) override
-        {
-            const key_light::Scope light (*this);
-            if (getToggleState() || highlighted)
-                surface_material::paintControl (g, getLocalBounds().toFloat().reduced (1.0f), highlighted, down,
-                                                getToggleState(), COL_NORMAL, 3.0f);
-            g.setColour (getToggleState() ? COL_NORMAL : COL_TEXT_SECONDARY);
-            g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-            text_style::drawText (g, getName(), getLocalBounds(), juce::Justification::centred);
-        }
-    };
+    using Half = SwitchHalf;
     std::array<Half*, 5> halves() { return { &one, &all, drawing[0].get(), drawing[1].get(), drawing[2].get() }; }
     Half one { "ONE" }, all { "ALL" };
     std::array<std::unique_ptr<Half>, 3> drawing;

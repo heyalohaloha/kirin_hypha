@@ -3,6 +3,7 @@
 #include <algorithm>
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceNotices.h"
 #include "HyphaReferenceGuide.h"
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
@@ -250,6 +251,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;
     state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
+    // C の SONG：比べる値を A FROM START と C の曲全体の範囲にする（無ければ CUE のまま理由を言う。HyphaReferenceCueSummary.h）。
+    hypha::reference_ui::applySongComparison (state, runtime.visualTimeline ? runtime.visualTimeline->aSong.get() : nullptr,
+                                              checkRole.songSpectrum, checkRole.songIntegratedLoudness);
     state.cueLoops = ! runtime.followA && (checkRole.cueLoops || checkRole.cueWraps);  // FOLLOW A は Cue を繰り返さない
     state.referenceWraps = runtime.referenceSelection != nullptr && runtime.referenceSelection->cueWraps;
     state.followA = runtime.followA;

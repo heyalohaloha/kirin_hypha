@@ -35,6 +35,7 @@ void VisualObservation::configure (double sampleRate, int channels)
     accepting.store (false, std::memory_order_release);
     configuredRate = rate; configuredChannels = channels;
     generation.fetch_add (1, std::memory_order_acq_rel);
+    formatChanges.fetch_add (1, std::memory_order_release);  // A FROM START は形式が替わった時に空にする
 }
 void VisualObservation::setPresented (bool value)
 {
@@ -75,6 +76,12 @@ void VisualObservation::publish()
     timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.aDisplayWindowBlocks, 1, aWindowMaximumBlocks));
     timeline.aTargetLoudness = targetPeaks->levels (timeline.aKirin ? timeline.aKirin->frames : 0);
     timeline.aTargetTruePeak = targetPeaks->window (timeline.aKirin ? timeline.aKirin->frames : 0);
+    // SONG の A：見ている間だけ集計する（区切りが 18,000 あると重いので 1 秒に 1 回。空になった時はすぐ）。
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    if (! timeline.binding.songWanted) timeline.aSong.reset();
+    else if (aSongMeter.revision() != aSongRevision || ! timeline.aSong)
+        if (now >= aSongNextMs || aSongMeter.slotsHeld() == 0 || ! timeline.aSong)
+        { timeline.aSong = aSongMeter.summary(); aSongRevision = aSongMeter.revision(); aSongNextMs = now + 1000.0; }
     timeline.aPairKirin = pairAMeter.window (300);
     timeline.aTicks = aTickMeter.bins();
     timeline.aTickChannels = aTickMeter.channels();
@@ -116,17 +123,19 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
     {
         if (! kirinMeter.configure (rate, block.channels, aWindowMaximumBlocks)) return;
         aTickMeter.reset(); targetPeaks->reset();
+        aSongMeter.configure (rate, block.channels);
     }
     if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
     if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
-    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); kirinExpected = -1; dirty = true; return; }
+    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); aSongMeter.interrupt(); kirinExpected = -1; dirty = true; return; }
     if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity)
-    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); }
+    { kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aTickMeter.reset(); aSongMeter.interrupt(); }  // SONG も同じ途切れで
     kirinDiscontinuity = block.discontinuity;
     if (! aWindowCatchingUp)
     {
         // Start both summaries at RESET's boundary; the continuous range history keeps its own clock.
         kirinMeter.push (block.pcm.data(), block.frames);
+        aSongMeter.push (block.pcm.data(), block.frames, block.position, block.discontinuity);
         targetPeaks->push (block.pcm.data(), block.frames, rate, block.channels);
     }
     printMeter.push (block.pcm.data(), block.frames);
@@ -210,15 +219,18 @@ void VisualObservation::run()
         runRate = rate; runChannels = channels;
         if (const auto resets = aWindowResets.load (std::memory_order_acquire); resets != aWindowResetsDone)
         {
-            aWindowResetsDone = resets; kirinMeter.reset(); targetPeaks->reset(); dirty = true;
+            aWindowResetsDone = resets; kirinMeter.reset(); targetPeaks->reset(); aSongMeter.clear(); dirty = true;
             // 今の受け口の中身はどれも押す前か押した直後の音。読みがこの位置へ届くまで A の線に入れない。
             aWindowBoundary = writeIndex.load (std::memory_order_acquire);
             aWindowCatchingUp = aWindowBoundary != readIndex.load (std::memory_order_relaxed);
         }
+        // サンプルレート・ch 数が替わった（戻っても）：A FROM START を空にする（次の塊を待たない）。
+        if (const auto formats = formatChanges.load (std::memory_order_acquire); formats != formatChangesDone)
+        { formatChangesDone = formats; aSongMeter.clear(); dirty = true; }
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aSongMeter.interrupt(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             aWindowCatchingUp = false;
@@ -279,7 +291,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); kirinMeter.reset(); targetPeaks->reset(); printMeter.reset(); aSongMeter.interrupt(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);
@@ -324,6 +336,7 @@ void VisualObservation::run()
             KIRIN_REFERENCE_COMMIT_FOR_TEST();
         }
         const auto now = juce::Time::getMillisecondCounterHiRes();
+        dirty = dirty || (timeline.binding.songWanted != bool (timeline.aSong)) || (timeline.aSong && aSongMeter.revision() != aSongRevision);
         if (dirty && now >= nextPublish) { publish(); nextPublish = now + 100.0; }
         job.reset();
         if (read == writeIndex.load (std::memory_order_acquire)) wait (next.hidden ? 100 : 10);

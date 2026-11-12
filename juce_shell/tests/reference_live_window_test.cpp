@@ -5,6 +5,7 @@
 #include "reference_runtime_test_support.h"
 #include "../src/reference_audition/ReferenceLiveWindowLoudness.h"
 #include "../src/HyphaReferenceRematchWait.h"
+#include "ReferenceASongTest.h"
 
 #include <cmath>
 
@@ -68,4 +69,5 @@ void testReferenceLiveWindow()
         require (hypha::reference_ui::rematchTarget (latest) == pressed, "showing another page while C sounds keeps the waiting MATCH");
         check->selectionGeneration = 4; require (hypha::reference_ui::rematchTarget (latest) != pressed, "another C selection drops the waiting MATCH"); }
     std::cout << "Reference live window loudness: " << window.lufs << " LUFS (ffmpeg " << ffmpegIntegrated << ") PASS\n";
+    testReferenceASong();
 }

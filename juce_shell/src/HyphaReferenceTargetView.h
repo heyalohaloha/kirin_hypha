@@ -11,6 +11,7 @@ inline void applyMeasuredTarget (State& state, reference_audition::TargetSnapsho
     const auto* target = state.targets.collection.find (state.targets.collection.selected);
     state.targetSelected = licensed && target != nullptr && state.comparisonSlot == 2;
     if (! state.targetSelected) return;
+    state.song = { state.song.chosen };  // 目標は CUE／SONG を持たない（選択は覚えたまま）
     state.aKirin = state.visualTimeline ? state.visualTimeline->aKirin : nullptr;
     const auto levels = state.visualTimeline ? reference_audition::targetWindowLevels (*state.visualTimeline)
                                             : reference_audition::LiveWindowLoudness {};
