@@ -1,14 +1,18 @@
 //! Native-fixture observations. This module is absent from shipping static libraries.
 use super::KirinHyphaEngine;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// Read the keepalive counter without relying on elapsed wall time.
 /// # Safety
 /// `handle` must be null or live, with no concurrent destruction.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_test_heartbeat(handle: *mut KirinHyphaEngine) -> u32 {
-    unsafe { handle.as_ref() }.map_or(0, |engine| {
-        engine.heartbeat.load(std::sync::atomic::Ordering::Relaxed)
-    })
+    catch_unwind(AssertUnwindSafe(|| {
+        unsafe { handle.as_ref() }.map_or(0, |engine| {
+            engine.heartbeat.load(std::sync::atomic::Ordering::Relaxed)
+        })
+    }))
+    .unwrap_or(0)
 }
 
 /// Read oversized-input drops without requiring a first measurement publication.
@@ -16,7 +20,10 @@ pub unsafe extern "C" fn kirin_hypha_test_heartbeat(handle: *mut KirinHyphaEngin
 /// `handle` must be null or live, with no concurrent destruction.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_test_oversized_drops(handle: *mut KirinHyphaEngine) -> u64 {
-    unsafe { handle.as_ref() }.map_or(0, KirinHyphaEngine::oversized_drop_count)
+    catch_unwind(AssertUnwindSafe(|| {
+        unsafe { handle.as_ref() }.map_or(0, KirinHyphaEngine::oversized_drop_count)
+    }))
+    .unwrap_or(0)
 }
 
 /// Observe both analysis queues between callbacks, on their sole producer's thread.
@@ -28,10 +35,13 @@ pub unsafe extern "C" fn kirin_hypha_test_oversized_drops(handle: *mut KirinHyph
 pub unsafe extern "C" fn kirin_hypha_test_analysis_input_drained(
     handle: *mut KirinHyphaEngine,
 ) -> bool {
-    let Some(engine) = (unsafe { handle.as_ref() }) else {
-        return false;
-    };
-    unsafe { engine.spectrum_runtime.input_drained_for_test() }
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(engine) = (unsafe { handle.as_ref() }) else {
+            return false;
+        };
+        unsafe { engine.spectrum_runtime.input_drained_for_test() }
+    }))
+    .unwrap_or(false)
 }
 
 #[test]
@@ -58,12 +68,15 @@ pub unsafe extern "C" fn kirin_hypha_test_wait_analysis_input(
     handle: *mut KirinHyphaEngine,
     timeout_millis: u32,
 ) -> bool {
-    let Some(engine) = (unsafe { handle.as_ref() }) else {
-        return false;
-    };
-    engine
-        .spectrum_runtime
-        .wait_for_input_for_test(std::time::Duration::from_millis(timeout_millis.into()))
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(engine) = (unsafe { handle.as_ref() }) else {
+            return false;
+        };
+        engine
+            .spectrum_runtime
+            .wait_for_input_for_test(std::time::Duration::from_millis(timeout_millis.into()))
+    }))
+    .unwrap_or(false)
 }
 
 /// Await one existing exchange worker tick after analysis publication, outside processBlock.
@@ -75,19 +88,22 @@ pub unsafe extern "C" fn kirin_hypha_test_wait_analysis_exchange(
     timeout_millis: u32,
     await_endpoint: bool,
 ) -> bool {
-    let Some(engine) = (unsafe { handle.as_ref() }) else {
-        return false;
-    };
-    let ticket = engine
-        .spectrum
-        .request_exchange_tick_for_test()
-        .or_else(|| await_endpoint.then(|| engine.spectrum.request_endpoint_tick_for_test()));
-    ticket.is_none_or(|ticket| {
-        engine.spectrum.wait_exchange_tick_for_test(
-            ticket,
-            std::time::Duration::from_millis(timeout_millis.into()),
-        )
-    })
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(engine) = (unsafe { handle.as_ref() }) else {
+            return false;
+        };
+        let ticket = engine
+            .spectrum
+            .request_exchange_tick_for_test()
+            .or_else(|| await_endpoint.then(|| engine.spectrum.request_endpoint_tick_for_test()));
+        ticket.is_none_or(|ticket| {
+            engine.spectrum.wait_exchange_tick_for_test(
+                ticket,
+                std::time::Duration::from_millis(timeout_millis.into()),
+            )
+        })
+    }))
+    .unwrap_or(false)
 }
 
 #[test]

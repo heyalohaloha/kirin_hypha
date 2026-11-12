@@ -46,7 +46,10 @@ pub unsafe extern "C" fn kirin_reference_analysis_same(
     a: *const ReferenceAnalysisOwner,
     b: *const ReferenceAnalysisOwner,
 ) -> bool {
-    !a.is_null() && !b.is_null() && unsafe { (&*a).same_owner(&*b) }
+    catch_unwind(AssertUnwindSafe(|| {
+        !a.is_null() && !b.is_null() && unsafe { (&*a).same_owner(&*b) }
+    }))
+    .unwrap_or(false)
 }
 /// # Safety
 /// Uniquely owned opaque handle or null. No concurrent access through this handle.

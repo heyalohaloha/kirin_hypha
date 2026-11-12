@@ -1,6 +1,8 @@
 mod aax_distribution;
 mod ci_usage_guard;
 mod diagnose_watch;
+#[cfg(test)]
+mod ffi_unwind_guard;
 mod gen_signals;
 mod install;
 mod macos_codesign;
