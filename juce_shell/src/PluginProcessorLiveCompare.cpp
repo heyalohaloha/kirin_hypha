@@ -121,6 +121,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
         hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
         if (! update) return StartResult::notReady;
         liveCompare.gain.store (1.0f, std::memory_order_release);
+        liveCompare.listenBasePost = liveCompare.postTarget.load (std::memory_order_acquire); // MATCH off returns here
     }
     mapping->requestPcm();
     // Each opened reader owns one demand reference; closing another POST cannot clear it.
@@ -177,6 +178,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
     liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.matchRetained.store (false, std::memory_order_release);
+    liveCompare.matchOff.store (false, std::memory_order_release);
     if (liveCompare.blindStage != hypha::live_compare::BlindStage::idle
         && liveCompare.blindStage != hypha::live_compare::BlindStage::finishing)
         liveCompare.blindStage = hypha::live_compare::BlindStage::invalidated;
@@ -205,6 +207,7 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
         if (! update) return;
         liveCompare.matched.store (false, std::memory_order_release);
         liveCompare.matchRetained.store (false, std::memory_order_release);
+        liveCompare.matchOff.store (false, std::memory_order_release);
         liveCompare.gain.store (linear, std::memory_order_release);
     }
 }
@@ -282,6 +285,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
     liveCompare.matched.store (true, std::memory_order_release);
     liveCompare.matchRetained.store (true, std::memory_order_release);
+    liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
     return {};
 }
 
@@ -456,4 +460,5 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
 }
 
 #include "live_compare/LiveCompareProcessorStatus.h"
+#include "live_compare/LiveCompareMatchToggle.h"
 #include "live_compare/CandidateProcessorControl.h"

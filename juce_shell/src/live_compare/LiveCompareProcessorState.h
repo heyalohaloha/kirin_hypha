@@ -54,6 +54,7 @@ struct LiveBlindStatus
 struct Status
 {
     bool finishing = false, matched = false, matchLimited = false, matchReady = false, matchHeld = false;
+    bool matchOff = false; // MATCH turned off in this LISTEN; MATCH turns the same match on again
     float postActual = 1.0f;
     std::uint64_t sessionGeneration = 0;
     bool active = false;
@@ -122,6 +123,18 @@ struct ProcessorState
     std::atomic<bool> timingReentryPending { false };
     std::atomic<bool> matched { false }, matchLimited { false };
     std::atomic<bool> matchRetained { false }; // fixed gains remain, independently of current proof
+    // MATCH on/off: what MATCH off kept for MATCH on, and POST's level when this LISTEN began (message
+    // thread only). A new MATCH, END and a new LISTEN forget it.
+    struct MatchMemory
+    {
+        float pre = 1.0f, post = 1.0f, ceiling = 1.0f;
+        bool limited = false, matched = false;
+        std::uint32_t run = 0;
+        std::uint64_t generation = 0;
+        GainIdentity identity;
+    } matchMemory;
+    float listenBasePost = 1.0f;
+    std::atomic<bool> matchOff { false };
     std::atomic<std::uint32_t> matchRun { 0 };
     std::atomic<float> postActual { 1.0f };
     BlindStage blindStage = BlindStage::idle; // message thread only

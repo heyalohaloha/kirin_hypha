@@ -18,6 +18,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
         && liveCompare.matchGeneration.load (std::memory_order_acquire) == status.sessionGeneration
         && liveCompare.matchRun.load (std::memory_order_acquire) == liveCompare.playbackRun.load (std::memory_order_acquire);
     status.matchHeld = permitted && gains.coherent && gains.retained && ! status.matched;
+    status.matchOff = permitted && liveCompare.matchOff.load (std::memory_order_acquire);
     status.matchLimited = gains.limited;
     status.matchReady = permitted && hypha::live_compare::currentGainReceipt (liveCompare, gains);
     // Logical ownership ends at END; the independent ring lease outlives it until RT receipt.
@@ -58,6 +59,6 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     if (gains.revision != liveCompare.gainRevision.load (std::memory_order_acquire))
         status.matched = status.matchReady = status.matchHeld = false;
     if (permission != liveCompare.authority.ticket() || ! liveCompare.authority.permitted())
-        status.active = status.preSelected = status.preAudible = status.matched = status.matchReady = status.matchHeld = false;
+        status.active = status.preSelected = status.preAudible = status.matched = status.matchReady = status.matchHeld = status.matchOff = false;
     return status;
 }

@@ -88,12 +88,15 @@ void KirinHyphaEditor::requestListenSelect (bool pre)
     refreshLiveCompare();
 }
 
+// MATCH on/off (INV-LC13): with a MATCH in this LISTEN a press turns it off and the next press turns the
+// same match on. MATCH again and AUTO stay in MENU and on the AUTO key. With no MATCH yet it measures.
 void KirinHyphaEditor::requestListenMatch ()
 {
-    if (liveCompareMatched)
-        chooseLiveCompareFollow();
-    else
-        matchLiveCompare();
+    const auto status = processorRef.liveCompareStatus();
+    if (! status.active || ! (status.matched || status.matchHeld || status.matchOff)) { matchLiveCompare(); return; }
+    const bool turned = processorRef.setLiveCompareMatchOn (status.matchOff);
+    refreshLiveCompare();
+    showToast (! turned ? "MATCH failed; try again" : status.matchOff ? "MATCH on" : "MATCH off: original levels");
 }
 
 void KirinHyphaEditor::requestListenEnd ()
@@ -120,7 +123,7 @@ void KirinHyphaEditor::requestListenAutoMenu()
 {
     const auto status = processorRef.liveCompareStatus();
     if (! status.active || status.finishing) { showToast ("LISTEN is not active"); return; }
-    if (! status.matched && ! status.matchHeld) { showToast ("MATCH first"); return; }
+    if (! status.matched && ! status.matchHeld && ! status.matchOff) { showToast ("MATCH first"); return; }
     chooseLiveCompareFollow();
 }
 #endif

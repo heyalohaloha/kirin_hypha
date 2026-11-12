@@ -15,6 +15,7 @@ struct LiveCompareFooter
     bool preWaiting = false;
     bool matched = false, matchHeld = false; // fixed gain exists; held needs reconfirmation
     bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
+    bool matchOff = false;     // MATCH turned off in this LISTEN; a press turns the same MATCH on
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
     int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
     bool contentHeld = false;  // INV-LC10: a content timing notice; PRE still sounds at K
@@ -28,6 +29,7 @@ struct LiveCompareFooter
             && entryRefusal == other.entryRefusal && blindRefusal == other.blindRefusal && active == other.active
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchHeld == other.matchHeld && matchLimited == other.matchLimited
+            && matchOff == other.matchOff
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
             && contentHeld == other.contentHeld && following == other.following
             && compensationOff == other.compensationOff && recoveryHelp == other.recoveryHelp;

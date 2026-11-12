@@ -136,7 +136,17 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
                                      reasonFor (liveCompareEntryRefusal (false)));
     else
     {
-        menu.addItem (41, "MATCH", ! live.finishing);
+        // MATCH on/off (INV-LC13): ticked while on; MATCH again and AUTO sit beside it.
+        const bool matchOn = live.matched || live.matchHeld;
+        menu.addItem (41, "MATCH", ! live.finishing, matchOn);
+        if (matchOn || live.matchOff)
+        {
+            menu.addItem (46, "MATCH again", ! live.finishing);
+            if (liveCompareAuto.on) menu.addItem (47, "Stop AUTO", ! live.finishing);
+            else hypha::unavailable::addItem (menu, 47, processorRef.candidateCompareActive() ? "AUTO: follow B within 0.5 dB"
+                : "AUTO: follow POST within 0.5 dB", ! live.finishing && matchOn && ! live.matchLimited,
+                live.matchOff ? "AUTO needs MATCH on" : live.matchLimited ? "AUTO needs a MATCH without TP LIMIT" : "");
+        }
         menu.addItem (42, processorRef.candidateCompareActive() ? "A" : "PRE", ! live.finishing);
         menu.addItem (43, processorRef.candidateCompareActive() ? "B" : "POST", ! live.finishing);
     }
@@ -151,6 +161,7 @@ bool KirinHyphaEditor::handleLiveCompareMenu (int result)
 {
     // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
     if (result == 45) { showCandidateCompareMenu(); return true; }
+    if (result == 46 || result == 47) { handleLiveCompareFollowChoice (result == 46 ? 1 : liveCompareAuto.on ? 2 : 3); return true; }
     if (result < 40 || result > 44) return false;
     if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
     if (result == 40) requestListenStart();

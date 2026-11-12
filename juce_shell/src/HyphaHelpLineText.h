@@ -52,13 +52,13 @@ inline constexpr std::array<Shortened, 10> row {{
 }};
 
 // The footer's own controls: only the status at the left of the footer is theirs.
-inline constexpr std::array<Shortened, 16> footer {{
+inline constexpr std::array<Shortened, 18> footer {{
     { "Stereo shape over 80 ms: vertical is shared sound, horizontal is difference. BAL and CORR use 3 s.",
       "80 ms: vertical shared, horizontal difference" },
     { "Match A to B loudness over the latest four seconds", "Match A to B over the latest 4 s" },
-    { "Press MATCH to match again or start AUTO (A follows B)", "Press MATCH to rematch or start AUTO" },
-    { "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO", "AUTO: A follows B. Press for MATCH or stop AUTO" },
-    { "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again", "MATCH at TP ceiling. Press to measure again" },
+    { "MATCH is on. Press MATCH to turn it off; MATCH again and AUTO are in MENU", "MATCH is on. Press MATCH to turn it off" },
+    { "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to turn MATCH off; MATCH again and AUTO are in MENU", "AUTO: A follows B. Press to turn MATCH off" },
+    { "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to turn MATCH off; MATCH again is in MENU", "MATCH at TP ceiling. Press to turn it off" },
     { "Finish Keep / Record before PRE / POST Blind", "Finish Keep / Record before Blind" },
     { "Switch between PRE and POST while playing. Comparison continues when this window closes",
       "Switch PRE and POST while the song plays" },
@@ -66,11 +66,13 @@ inline constexpr std::array<Shortened, 16> footer {{
     { "End Blind Compare and return to live A. / END returns to A", "End Blind Compare and return to live A." },
     { "Start a separate Version Blind trial. Check Preset settings and facts are hidden.",
       "Start a separate Version Blind trial." },
-    { "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO",
-      "AUTO: PRE follows POST loudness. Press to rematch" },
-    { "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
+    { "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to turn MATCH off; MATCH again and AUTO are in MENU",
+      "AUTO: PRE follows POST. Press to turn MATCH off" },
+    { "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to turn MATCH off; MATCH again is in MENU",
       "MATCH stopped at the true-peak ceiling" },
-    { "Press to MATCH again or to let PRE follow POST (AUTO)", "Press to MATCH again or follow (AUTO)" },
+    { "MATCH is on. Press to turn it off; MATCH again and AUTO are in MENU", "MATCH is on. Press to turn it off" },
+    { "MATCH is off: PRE and POST play at their own levels. Press to turn the same MATCH on", "MATCH is off. Press to turn it on" },
+    { "MATCH is off: A and B play at their own levels. Press MATCH to turn the same MATCH on", "MATCH is off. Press MATCH to turn it on" },
     { "Match PRE to POST loudness over the latest four seconds", "Match PRE to POST over the latest 4 s" },
     { "Listen to PRE, the input of this chain, at the level MATCH set", "Listen to PRE at the MATCH level" },
     { "Listen to PRE, the input of this chain. MATCH levels it to POST", "Listen to PRE, the input of this chain" },

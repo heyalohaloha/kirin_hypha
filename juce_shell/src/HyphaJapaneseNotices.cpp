@@ -132,6 +132,8 @@ const Entry entries[] = {
     { "MATCH failed; try again", u8"MATCHをやり直してください" },
     { "MATCH over 24 dB", u8"MATCHの差が24 dBを超えています" },
     { "MATCH: POST %1", u8"MATCH：POST %1" },
+    { "MATCH off: original levels", u8"MATCHを外しました（元の音量）" },
+    { "MATCH on", u8"MATCHに戻しました" },
     { "POST back to normal", u8"POSTを通常の音量に戻しました" },
     { "Press RETURN first", u8"先にRETURNを押してください" },
     { "Returning POST to normal, then LISTEN", u8"POSTを通常に戻してからLISTENします" },

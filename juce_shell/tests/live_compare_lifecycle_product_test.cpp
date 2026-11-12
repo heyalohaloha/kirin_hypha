@@ -65,7 +65,8 @@ public:
     }
     ~Lifecycle() override { stopTimer(); running.store (false); audio.join(); }
     bool passed = false;
-    bool staleChecked = false;
+    bool staleChecked = false, toggled = false, lastSideChecked = false;
+    float matchedPost = 1.0f;
 
 private:
     template <typename Predicate> void waitWithoutMessageService (Predicate&& ready, int timeoutMs = 350)
@@ -262,6 +263,18 @@ private:
                 break;
             case 5:
                 if (! post->liveCompareStatus().matchReady) break;
+                if (mode == "restore-matched-listen" && ! toggled)
+                {   // MATCH on/off (INV-LC13): off returns PRE and POST to their levels when LISTEN began.
+                    const auto on = post->liveCompareStatus();
+                    matchedGain = on.gain; matchedPost = on.postTarget;
+                    require (matchedPost < 1.0f && post->setLiveCompareMatchOn (false), "MATCH turns off");
+                    const auto off = post->liveCompareStatus();
+                    require (off.matchOff && off.gain == 1.0f && off.postTarget == 1.0f && ! off.matched && ! off.matchHeld
+                        && ! off.matchReady, "MATCH off: PRE at its own level, POST back, nothing for BLIND to reuse");
+                    require (! post->setLiveCompareMatchOn (false), "a second off changes nothing");
+                    toggled = true; stage = 10;
+                    break;
+                }
                 if (mode == "restore-matched-listen")
                 {
                     post->selectLiveComparePre (true);
@@ -332,6 +345,17 @@ private:
                 break;
             case 9:
                 if (post->liveCompareStatus().preAudible && ratio.load() > 0.99f) closeWithFade();
+                break;
+            case 10: // POST rises back within half a second, then MATCH on restores the same match
+                if (post->liveCompareStatus().postActual < 1.0f) break;
+                require (post->setLiveCompareMatchOn (true), "MATCH turns on");
+                require (! post->liveCompareStatus().matchOff && post->liveCompareStatus().gain == matchedGain
+                    && post->liveCompareStatus().postTarget == matchedPost, "MATCH on: the same gain and lowered POST");
+                stage = 11;
+                break;
+            case 11:
+                if (post->liveCompareStatus().postActual > matchedPost || ! post->liveCompareStatus().matchReady) break;
+                stage = 5; // the same MATCH is ready again: continue with PRE
                 break;
             default: break;
         }

@@ -189,18 +189,20 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     livePostButton.setTooltip (livePostButton.getDescription());
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
     const juce::String matchHelp = state.following
-        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO"
+        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to turn MATCH off; MATCH again and AUTO are in MENU"
         : state.matchLimited
-        ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
-        : state.matched ? "Press to MATCH again or to let PRE follow POST (AUTO)"
-                        : "Match PRE to POST loudness over the latest four seconds";
+        ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to turn MATCH off; MATCH again is in MENU"
+        : state.matched ? "MATCH is on. Press to turn it off; MATCH again and AUTO are in MENU"
+        : state.matchOff ? "MATCH is off: PRE and POST play at their own levels. Press to turn the same MATCH on"
+                         : "Match PRE to POST loudness over the latest four seconds";
     liveMatchButton.setButtonText (state.following ? "AUTO" : state.matchLimited ? "TP LIMIT" : "MATCH");
     const juce::String candidateMatchHelp = state.following
-        ? "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO"
+        ? "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to turn MATCH off; MATCH again and AUTO are in MENU"
         : state.matchLimited
-        ? "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again"
-        : state.matched ? "Press MATCH to match again or start AUTO (A follows B)"
-                        : "Match A to B loudness over the latest four seconds";
+        ? "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to turn MATCH off; MATCH again is in MENU"
+        : state.matched ? "MATCH is on. Press MATCH to turn it off; MATCH again and AUTO are in MENU"
+        : state.matchOff ? "MATCH is off: A and B play at their own levels. Press MATCH to turn the same MATCH on"
+                         : "Match A to B loudness over the latest four seconds";
     liveMatchButton.setTitle (state.candidate ? liveMatchButton.getButtonText() : "MATCH");
     liveMatchButton.setDescription (state.candidate ? candidateMatchHelp : matchHelp);
     liveMatchButton.setTooltip (liveMatchButton.getDescription());
