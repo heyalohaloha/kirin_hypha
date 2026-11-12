@@ -35,6 +35,15 @@ pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Rename a file an earlier run left behind: its bytes may still be only in the cache.
+pub(crate) fn sync_and_rename(from: &Path, to: &Path) -> io::Result<()> {
+    match open_for_sync(from) {
+        Ok(file) => sync_file(&file, from),
+        Err(error) => warn_once(&FILE_SYNC_WARNED, "file", from, &error),
+    }
+    rename(from, to)
+}
+
 /// Best effort: a failure is logged, never returned.
 pub(crate) fn sync_file(file: &File, path: &Path) {
     if let Err(error) = test_hook::observe("file", path).and_then(|()| sync_bytes(file)) {
@@ -73,6 +82,17 @@ fn warn_once(warned: &AtomicBool, kind: &str, path: &Path, error: &io::Error) {
             path.display()
         );
     }
+}
+
+#[cfg(unix)]
+fn open_for_sync(path: &Path) -> io::Result<File> {
+    File::open(path)
+}
+
+#[cfg(not(unix))]
+fn open_for_sync(path: &Path) -> io::Result<File> {
+    // FlushFileBuffers needs write access; this neither truncates nor changes the bytes.
+    fs::OpenOptions::new().write(true).open(path)
 }
 
 #[cfg(target_vendor = "apple")]
@@ -178,14 +198,17 @@ mod tests {
     #[test]
     fn failed_sync_never_stops_the_save() {
         let root = tempfile::tempdir().unwrap();
+        let left_over = root.path().join("pending.json.tmp");
+        fs::write(&left_over, b"earlier run").unwrap();
+        let target = root.path().join("pending.json");
         let fresh = root.path().join("fresh.json.tmp");
-        let target = root.path().join("fresh.json");
         let syncs = test_hook::syncs_during(true, || {
+            sync_and_rename(&left_over, &target).unwrap();
             write(&fresh, b"fresh").unwrap();
-            rename(&fresh, &target).unwrap();
         });
-        assert_eq!(syncs.first(), Some(&("file", fresh.clone())));
-        assert_eq!(fs::read(&target).unwrap(), b"fresh");
+        assert_eq!(syncs.first(), Some(&("file", left_over.clone())));
+        assert_eq!(fs::read(&target).unwrap(), b"earlier run");
+        assert_eq!(fs::read(&fresh).unwrap(), b"fresh");
     }
 
     #[test]
@@ -208,6 +231,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let missing = root.path().join("missing.tmp");
         assert!(rename(&missing, &root.path().join("x.json")).is_err());
+        assert!(sync_and_rename(&missing, &root.path().join("y.json")).is_err());
     }
 
     #[test]
