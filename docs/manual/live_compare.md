@@ -221,7 +221,8 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   read earlier, so it keeps playing where the clocks put it, and after three seconds the status
   line says so, for example **PRE 2.31 ms late / Check delay compensation**. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
-  and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
+  and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop (right after one, until enough new audio has
+  passed for a correction of seconds, PRE plays where the clocks put it rather than POST) and
   follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
   shows the difference instead (**PRE 2.31 ms early**, **late**). An intentional delay, reverb or
   heavy processing can look the same, and silence cannot establish a position. Repeated audio uses a check of each current block, with a short notice; a nonmatching block uses POST immediately. Only the
