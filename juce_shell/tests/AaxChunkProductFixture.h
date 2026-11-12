@@ -1,5 +1,6 @@
 #pragma once
 #include "AaxAnalysisProductFixture.h"
+#include "ChainMusic.h"
 #include <string_view>
 
 // LISTEN and BLIND through the real processors with an I/O insert between PRE and POST, in the
@@ -133,6 +134,7 @@ public:
     bool requireContentPosition = false, tonal = false, oppositePolarity = false;
     bool chord = false, limited = false; // music-like PRE; POST through EQ, a limiter and dither
     bool bass = false; // a strong bass line under swelling noise: two thirds of the windows are narrow
+    const hypha::tests::chain_music::Tracks* music = nullptr; // PRE music; POST through its EQ and limiter
     // Content changes by content clock, so PRE's one chunk written ahead already holds them.
     std::int64_t quietUntil = std::numeric_limits<std::int64_t>::min();
     std::int64_t chordFrom = std::numeric_limits<std::int64_t>::max(), chordUntil = std::numeric_limits<std::int64_t>::max();
@@ -161,6 +163,7 @@ private:
     float signal (std::int64_t clock, int channel) const
     {
         if (clock < quietUntil || channel == silentChannel) return 0.0f;
+        if (music != nullptr) return music->preAt (clock, channel);
         if (oppositePolarity) return channel == 0 ? noise (clock, 0) : -noise (clock, 0);
         if (tonal) return static_cast<float> (0.1 * std::sin (static_cast<double> (clock % 48) * (2.0 * 3.14159265358979323846 / 48.0) + channel));
         if (bass)
@@ -186,6 +189,7 @@ private:
     {
         const auto at = clock - contentK + (unrelatedPost ? 123457 : 0) - (channel == 1 ? rightContentShift : 0);
         const int from = swappedChannels ? 1 - channel : channel;
+        if (music != nullptr) return at < quietUntil ? 0.0f : music->postAt (at, from);
         if (! limited) return postScale * signal (at, from);
         // A gentle high cut, a saturating limiter's gain reduction and -100 dBFS dither: the noise
         // fills the empty part of the spectrum, so the content check finds no position.

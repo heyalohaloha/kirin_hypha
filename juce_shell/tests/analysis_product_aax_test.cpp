@@ -1,5 +1,6 @@
 #include "AaxAnalysisProductFixture.h"
 #include "AaxChunkProductTest.h"
+#include "AlignChainProductTest.h"
 
 using namespace aax_analysis_product;
 
@@ -174,7 +175,8 @@ try
     require (argc == 3, "channel layout and scenario must be explicit");
     const juce::String layout (argv[1]), scenario (argv[2]);
     require (layout == "mono" || layout == "stereo", "supported channel layout");
-    if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery")
+    if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery"
+        || scenario == "alignment_chain")
     {
         ReferenceValidationStorageSandbox sandbox;
         hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
@@ -192,6 +194,11 @@ try
             waitingBlindResumesAtItsClock (layout == "mono" ? 1 : 2);
             heardSourcesCanRevealDuringRecheck (layout == "mono" ? 1 : 2);
             unconfirmableChainPlaysPreAtItsClock (layout == "mono" ? 1 : 2);
+        }
+        if (scenario == "alignment_chain")
+        {
+            chainConfirmsPosition (layout == "mono" ? 1 : 2);
+            chainAlignsEarlyPre (layout == "mono" ? 1 : 2);
         }
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;
