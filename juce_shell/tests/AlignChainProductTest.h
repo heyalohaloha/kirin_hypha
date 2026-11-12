@@ -109,15 +109,19 @@ inline void chainAlignsEarlyPre (int channels)
 // audio lies far beyond the fine search, here up to two seconds either way, through the same EQ and
 // limiter. The wide search finds it: an early PRE is read that much later; a late PRE keeps playing
 // at its clock position with the notice. Ten seconds is beyond the reach: after the one-second
-// bound PRE plays at K and LISTEN and BLIND say the delay was not measured. The estimate never
-// puts POST in PRE's place; every frame is audited at the address the renderer claims.
+// bound PRE plays at K and LISTEN and BLIND say the delay was not measured.
+// After a stop and start, a seek back or forward, PRE's new run cannot serve a two-second
+// correction at once: PRE plays at its clock position as soon as the clock is proven again, and the
+// correction returns once the run reaches it (BLIND at the listener's next switch, as any new
+// address). The estimate never puts POST in PRE's place; every frame is audited at the address the
+// renderer claims.
 inline void chainFindsLongDelays (int channels)
 {
     using namespace hypha::live_compare;
     const auto tracks = hypha::tests::chain_music::render (1068544 - 250000, 1400000, { 12.0, 12.0, 240, -12.0 });
     struct Case { std::int64_t delay; bool blind; };
-    for (const Case c : { Case { 4096, false }, Case { 16384, false }, Case { 96000, false }, Case { -32768, false },
-                          Case { -96000, false }, Case { -480000, false }, Case { -480000, true } })
+    for (const Case c : { Case { 4096, false }, Case { 16384, false }, Case { 96000, false }, Case { 96000, true },
+                          Case { -32768, false }, Case { -96000, false }, Case { -480000, false }, Case { -480000, true } })
     {
         ChunkedPost chain (channels);
         chain.music = &tracks;
@@ -133,14 +137,33 @@ inline void chainFindsLongDelays (int channels)
             require (post.selectLiveBlind (1), "choose PRE anonymously");
         }
         else post.selectLiveComparePre (true);
+        // BLIND moves PRE's address only while the listener is away from PRE.
+        const auto corrected = [&] (int chunks, const char* why)
+        {
+            if (c.blind)
+            {
+                chain.run (chunks);
+                require (post.selectLiveBlind (2) && (chain.run (6), post.selectLiveBlind (1)), "switch away and back");
+                chunks = 60;
+            }
+            chain.until (chunks, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == c.delay; }, why);
+        };
         if (c.delay > 0)
-            chain.until (400, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == c.delay; },
-                         "an early PRE is found far beyond the fine search and read that much later");
-        else if (c.delay > -100000)
+            corrected (c.blind ? 240 : 400, "an early PRE is found far beyond the fine search and read that much later");
+        if (c.delay >= 96000)
+            for (int move = 0; move < 3; ++move)
+            {
+                if (move == 0) { chain.setPlaying (false); chain.run (8); chain.setPlaying (true); }
+                else chain.seek (move == 1 ? chain.transport / 2 : chain.transport + 480000);
+                chain.until (40, [&] { return post.liveCompareStatus().preAudible; }, "PRE plays again soon after the transport moved");
+                require (post.liveCompareAlignFrames() == 0, "until PRE's new run reaches the correction, PRE plays at K");
+                corrected (c.blind ? 110 : 200, "the correction returns once PRE's run reaches it");
+            }
+        if (c.delay < 0 && c.delay > -100000)
             chain.until (400, [&] { const auto s = post.liveCompareStatus();
                                     return s.preAudible && s.contentHeld && s.prolongedWait && s.contentJumpLagFrames == -c.delay; },
                          "a late PRE plays at its clock position and the notice gives the amount");
-        else
+        else if (c.delay < 0)
         {
             chain.until (90, [&] { return post.liveCompareStatus().contentUnmeasured; }, "beyond the reach, the bound ends with the label");
             for (int i = 0; i < 120; ++i)
@@ -158,4 +181,5 @@ inline void chainFindsLongDelays (int channels)
         chain.clean ("every PRE sample is at the address the renderer claims; unproven blocks are POST");
     }
 }
+
 }

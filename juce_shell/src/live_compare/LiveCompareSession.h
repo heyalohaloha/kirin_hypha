@@ -268,7 +268,10 @@ public:
         }
         float* scratch[] = { left.get(), right.get() };
         align.context = alignOwner (align.context, ring);
-        const auto aligned = alignment.update (align, blind, preSelected, weight);
+        std::int64_t mapped = 0, readable = std::numeric_limits<std::int64_t>::max(); // INV-LC28: PRE's run reaches this far back
+        if (consumer.calibrated() && checkedClockSubtract (block.clock, consumer.offset(), mapped))
+            checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
+        const auto aligned = alignment.update (align, blind, preSelected, weight, readable);
         const bool alignFading = aligned.fading;
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);

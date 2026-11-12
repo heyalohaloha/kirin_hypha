@@ -187,7 +187,11 @@ public:
     std::int64_t displayed (AlignContext forContext) const noexcept { return shown.read (forContext).frames; }
     // A new address may not jump under PRE: it waits for PRE to be silent, which LISTEN brings
     // about with the usual fades and a Blind trial leaves to the listener's own switching.
-    AlignUpdate update (AlignPlayback playback, bool blind, bool preSelected, float& weight) noexcept
+    // readableFrames: the largest correction PRE's current run can serve at this block. A longer one
+    // (seconds, after a seek, stop or new start) is kept but not used until PRE has written that far:
+    // meanwhile PRE plays at K, as with alignment off, never POST for want of the correction.
+    AlignUpdate update (AlignPlayback playback, bool blind, bool preSelected, float& weight,
+                        std::int64_t readableFrames = std::numeric_limits<std::int64_t>::max()) noexcept
     {
         if (playback.context != context)
         {
@@ -197,11 +201,13 @@ public:
         }
         AlignUpdate result;
         result.revision = readiness.generation();
-        const auto wanted = playback.enabled
+        auto wanted = playback.enabled
             ? requested.read (context, applied, result.revision, &result.current,
                               appliedRevision == result.revision) : AlignValue {};
+        const bool unreadable = applied.frames > 0 && applied.frames > readableFrames; // BLIND may leave it while PRE is silent
+        if (wanted.frames > 0 && wanted.frames > readableFrames) wanted = {};
         if (wanted != applied && weight <= 0.0f
-            && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples)) adopt (wanted);
+            && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)) adopt (wanted);
         result.fading = wanted != applied && ! blind;
         if (playback.verify && result.current && appliedRevision != result.revision && weight <= 0.0f)
             adopt (wanted); // only a freshly confirmed clock mapping can move BLIND here
