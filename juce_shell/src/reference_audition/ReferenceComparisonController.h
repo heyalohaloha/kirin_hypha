@@ -58,6 +58,7 @@ public:
     bool resetAWindow (AWindowTarget);
     // B の Balance の重ね比べ（見せ方だけ、project に保存する）。変わったら state が変わったと知らせる。
     bool setOverlay (const BalanceOverlay&);
+    bool setCheckSong (bool);  // C の比べる値（CUE／SONG）。保存し、host に知らせる
     bool retryPresetSelection();
     bool retryCandidatePreparation();
     bool requestRecovery();

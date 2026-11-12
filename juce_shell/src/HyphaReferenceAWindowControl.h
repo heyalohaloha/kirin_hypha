@@ -86,12 +86,15 @@ public:
         setTitle (titleFor (choice));
     }
     Choice chosen() const noexcept { return choice; }
+    // C の SONG：A は DAW の頭から（窓を選ばない）。リストは RESET A WINDOW だけ（A FROM START も消える）。
+    void setFromStart (bool value) { if (fromStart != value) { fromStart = value; setTitle (titleFor (choice)); } }
     void setTarget (Target next) noexcept { target = next; }
     Target currentTarget() const noexcept { return target; }
 
     juce::PopupMenu makeMenu() const
     {
         juce::PopupMenu menu;
+        if (fromStart) { menu.addSectionHeader ("A FROM START"); menu.addItem (resetItem, "RESET A WINDOW"); return menu; }
         menu.addSectionHeader ("A WINDOW");
         for (const auto option : reference_audition::aWindowOptions)
             menu.addItem (itemFor (option), reference_audition::aWindowLabel (option), true, option == choice);
@@ -139,7 +142,7 @@ public:
         const juce::Component::SafePointer<AWindowControl> safe (this);
         const auto opened = target;
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMinimumWidth (getWidth())
-                                .withItemThatMustBeVisible (choice == Choice::custom ? secondsItem : itemFor (choice)),
+                                .withItemThatMustBeVisible (fromStart ? resetItem : choice == Choice::custom ? secondsItem : itemFor (choice)),
                             [safe, opened] (int item) { if (safe != nullptr) safe->choose (opened, item); });
     }
 
@@ -169,11 +172,12 @@ private:
         secondsEntry->setVisible (false);
         secondsEntry = nullptr;
     }
-    juce::String titleFor (Choice option) const { return juce::String ("A window: ")
+    juce::String titleFor (Choice option) const { return fromStart ? juce::String ("A FROM START") : juce::String ("A window: ")
         + (option == Choice::custom ? juce::String (seconds) + " S" : juce::String (reference_audition::aWindowLabel (option))); }
 
     Choice choice = Choice::seconds10;
     int seconds = 10;
+    bool fromStart = false;
     Target target;
     juce::Component::SafePointer<juce::CallOutBox> secondsEntry;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AWindowControl)

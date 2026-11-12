@@ -57,6 +57,14 @@ struct RuntimeSourceRanges
             if (range.startSample == start && range.endSample == end) return &range;
         return nullptr;
     }
+    // 曲全体の範囲（頭から終わりまで。Kirin OS 1.6.1 から全曲に 1 つ）。範囲は開始の順なので先頭とは限らない
+    // （同じ 0 から始まる短い範囲の後のこともある）。古い Kirin OS の ranges には無いことがある（null）。
+    const RuntimeRangeValues* wholeSong() const
+    {
+        for (const auto& range : ranges)
+            if (range.startSample == 0 && range.endSample >= totalSampleFrames) return &range;
+        return nullptr;
+    }
 };
 
 // Cue の範囲が曲のどの部分か。サビ候補は自動区間の回と同じ範囲かで見分ける（Cue の名前は利用者の言語に

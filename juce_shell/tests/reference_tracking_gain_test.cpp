@@ -13,6 +13,7 @@
 #include "../src/reference_audition/ReferenceTrackingGain.h"
 #include "../src/HyphaReferenceRematchWait.h"
 #include "ReferenceTrackingLimitsTest.h"
+#include "ReferenceSongRangesTest.h"
 
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
@@ -483,6 +484,7 @@ void matchesMonoCue (const juce::File& sandbox)
 void testReferenceCueMatch (const juce::File& sandbox)
 {
     readsKirinOsCueLevel (sandbox);
+    testSongRanges (sandbox);
     matchesAndFollows (sandbox);
     matchesMonoCue (sandbox);
     std::cout << "Reference Cue MATCH and tracking PASS\n";

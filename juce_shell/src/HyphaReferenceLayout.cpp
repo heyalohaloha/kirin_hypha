@@ -166,6 +166,7 @@ void Component::layoutAWindowControls()
     {
         auto& control = aWindowControls[index];
         control.setChoice (current.aWindows.of (current.comparisonSlot), current.aWindows.secondsOf (current.comparisonSlot));
+        control.setFromStart (! songList.isVisible() && current.song.shown);  // C の SONG の図は A FROM START
         control.setTarget (current.aWindowTarget);
         control.setBounds (areas[index]);
         control.setVisible (! areas[index].isEmpty());
