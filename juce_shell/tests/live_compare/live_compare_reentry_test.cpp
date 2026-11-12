@@ -294,8 +294,8 @@ void blindPreparationDistinguishesStartupWaitFromARevokedProof()
              "synthetic DC reset is reported as the actual host notification");
     state.callbackGap = true;
     require (state.reason() == RecoveryReason::callbackGap, "a real simultaneous gap outranks DC notification");
-    state = {}; state.contentHeld = true;
-    require (state.reason() == RecoveryReason::contentChanged, "content hold carries its observed cause");
+    state = {};
+    require (state.reason() == RecoveryReason::none, "a content timing notice is never an interruption (INV-LC10)");
     preparation.begin (admission);
     preparation.observe (preparation.command(), true, state.reason(), admission);
     state = {}; state.playing = false;
@@ -303,15 +303,14 @@ void blindPreparationDistinguishesStartupWaitFromARevokedProof()
     require (preparation.failure() == RecoveryReason::none, "blocked startup timing is never falsely marked established");
     for (auto expected : { RecoveryReason::bypassed, RecoveryReason::offline, RecoveryReason::formatChanged,
                            RecoveryReason::outputTaken, RecoveryReason::stopped, RecoveryReason::projectClockMissing,
-                           RecoveryReason::clockMissing, RecoveryReason::callbackGap, RecoveryReason::compensationOff,
-                           RecoveryReason::contentChanged })
+                           RecoveryReason::clockMissing, RecoveryReason::callbackGap, RecoveryReason::compensationOff })
     {
         state = {};
         state.bypassed = expected == RecoveryReason::bypassed; state.offline = expected == RecoveryReason::offline;
         state.usable = expected != RecoveryReason::formatChanged; state.outputTaken = expected == RecoveryReason::outputTaken;
         state.playing = expected != RecoveryReason::stopped; state.projectValid = expected != RecoveryReason::projectClockMissing;
         state.clockValid = expected != RecoveryReason::clockMissing; state.callbackGap = expected == RecoveryReason::callbackGap;
-        state.compensationOff = expected == RecoveryReason::compensationOff; state.contentHeld = expected == RecoveryReason::contentChanged;
+        state.compensationOff = expected == RecoveryReason::compensationOff;
         preparation.begin (admission); preparation.observe (preparation.command(), true, RecoveryReason::none, admission);
         preparation.observe (preparation.command(), false, state.reason(), admission);
         require (preparation.failure() == (endsComparison (expected) ? expected : RecoveryReason::none), "only authority losses terminate preparation");

@@ -67,8 +67,7 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
             if (result == StartResult::preUnavailable) showToast (hypha::live_compare_ui::preUnavailableNotice());
             showCandidateMenu();
         }
-        else showToast (result == StartResult::contentHeld ? "Timing changed: check chain delay (POST)"
-                      : result == StartResult::returnPending ? "Ended; normal level returns with audio"
+        else showToast (result == StartResult::returnPending ? "Ended; normal level returns with audio"
                       : result == StartResult::returnRequired ? "Press RETURN first"
                       : result == StartResult::comparisonBusy ? "End the current comparison first"
                                                             : "BLIND COMPARE COULD NOT START");

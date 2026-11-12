@@ -106,7 +106,9 @@ offline render、host bypass、他の試聴の出力は加工しない。この�
 設定変更の直後の短い区間に時計で検出できない誤対応があり得ることも示す。中身の推定でPREが早いと分かった
 ときは、Kを時計の証明のまま保ち、試聴のPREの読み位置だけを別の値でその量だけ遅らせて示す（INV-LC28、
 既定で有効、MENUで切れる）。中身で確かめられない間のPOSTは時計で確かめた再生の1秒までとし、その後はKの位置で
-PREを鳴らす（LISTEN・BLIND・A/Bとも）。強い推定が遅れや跳びを示し続ける間だけPOSTを保つ（INV-LC10、INV-LC28）。
+PREを鳴らす（LISTEN・BLIND・A/Bとも）。強い推定がPREの遅れや跳びを示しても、POSTへ替えずKの位置でPREを鳴らし続け、
+3秒以上続くときは測れた量とチェーン・DAWの遅延補正を確かめる案内を短い札で示す。BLINDではどちらがPREかを漏らさず、
+RESULTではPOSTを鳴らしたとは言わずにずれていた可能性を示す。時計で確かめられないblockは従来どおりPOST（INV-LC10、INV-LC28）。
 （技術契約: `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）
 PREの増幅が比較ceilingを超えるMATCHでは、利用者の明示承認の後だけ、PREを原音量に保ってPOSTの出力を
 差だけ固定減衰できる（Local Blindと同じ方式）。減衰は試聴の終了後も、利用者が明示して通常の音量へ

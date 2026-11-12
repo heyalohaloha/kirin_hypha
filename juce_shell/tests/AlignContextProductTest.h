@@ -39,24 +39,34 @@ inline void alignmentRechecksPromptly (int channels)
         require (post.liveCompareStatus().preSelected && !post.liveCompareStatus().contentHeld,
                  "delay recheck keeps the choice and recovers automatically");
         chain.clean ("rechecking never jumps PRE's read address under audible PRE");
-        chain.setDelay (1024); // PRE would need unwritten future audio: keep exact POST
+        chain.requireContentPosition = false; // INV-LC10: from here PRE is read at K, not at the content position
+        chain.setDelay (1024); // PRE would need unwritten future audio: PRE sounds at K and is told (INV-LC10)
         chain.run (190);
-        require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
-                 "a confirmed late PRE cannot release the alignment wait");
         const auto late = post.liveCompareStatus();
-        require (late.observation == RecoveryReason::preLate && post.liveContentTimingObservation().lagFrames == 512,
-                 "confirmed late PRE publishes its measured delay instead of a calibration wait");
+        require (late.preAudible && late.preSelected && !late.preWaiting && post.liveCompareAlignFrames() == 0
+                 && !post.liveCompareAlignPending(), "a confirmed late PRE sounds at its clock position, not POST");
+        require (late.contentHeld && late.contentJumpLagFrames == 512 && late.prolongedWait
+                 && late.observation != RecoveryReason::preLate && post.liveContentTimingObservation().lagFrames == 512,
+                 "a confirmed late PRE publishes its measured delay as a notice past three seconds");
         const auto guidance = hypha::live_compare_ui::namedPresentation (late);
         require (guidance.reason == RecoveryReason::preLate && guidance.action == hypha::live_compare_ui::RecoveryAction::none
-                 && juce::String (guidance.instruction).contains ("Check chain delay and DAW compensation"),
-                 "uncorrectable timing asks to check the chain instead of waiting longer");
+                 && juce::String (guidance.instruction) == hypha::live_compare_ui::chainDelayNotice(),
+                 "uncorrectable timing asks to check the chain and names no output");
         auto ended = late;
         ended.active = ended.preSelected = ended.preWaiting = ended.prolongedWait = false;
         require (*hypha::live_compare_ui::namedPresentation (ended).instruction == 0,
                  "a past late-PRE observation cannot keep a remedy after normal END");
+        // The clock rules are unchanged: a seek the clock cannot prove yet plays exact POST, then
+        // PRE returns at K under the same notice (the oracle in clean() checks every frame).
+        chain.seek (chain.transport + 96000);
+        chain.settled (90, "after a seek PRE returns at its clock position while the late notice stands");
+        require (post.liveCompareAlignFrames() == 0 && post.liveCompareStatus().preSelected,
+                 "the seek keeps the selection and reads PRE at K");
         chain.setDelay (512);
-        chain.until (90, [&] { return post.liveCompareStatus().preAudible; }, "a correct mapping resumes the same PRE");
-        chain.clean ("the uncorrectable interval never plays the wrong PRE");
+        chain.until (90, [&] { return post.liveCompareStatus().preAudible && !post.liveCompareStatus().contentHeld; },
+                     "a correct mapping ends the notice with the same PRE");
+        chain.requireContentPosition = true;
+        chain.clean ("the late interval plays only PRE at proven clock positions or exact POST");
     }
 }
 
@@ -82,16 +92,15 @@ inline void zeroAlignmentRechecksAmbiguousAudio (int channels)
     chain.run (150);
     require (post.liveCompareStatus().preAudible && !post.liveCompareStatus().prolongedWait && !post.liveCompareAlignPending()
              && post.liveCompareAlignFrames() == 0, "after the bounded wait PRE sounds at the new clock position");
-    // A confident late PRE found after the wait is a delay to fix: POST again while it lasts.
+    // A confident late PRE found after the wait is told; PRE keeps its clock position (INV-LC10).
     chain.unrelatedPost = false;
     chain.contentK = -1024;
-    chain.until (90, [&] { return !post.liveCompareStatus().preAudible
-                                  && post.liveCompareStatus().observation == RecoveryReason::preLate; },
-                 "a confident late PRE found after the wait returns LISTEN to POST");
+    chain.until (90, [&] { return post.liveCompareStatus().contentHeld; },
+                 "a confident late PRE found after the wait raises the notice");
     chain.run (100);
-    require (!post.liveCompareStatus().preAudible && post.liveCompareAlignPending()
-             && post.liveContentTimingObservation().lagFrames == 512,
-             "while strong windows keep showing the delay, late PRE never sounds");
+    require (post.liveCompareStatus().preAudible && !post.liveCompareAlignPending() && post.liveCompareAlignFrames() == 0
+             && post.liveCompareStatus().contentHeld && post.liveContentTimingObservation().lagFrames == 512,
+             "while strong windows keep showing the delay, PRE keeps sounding at K with the notice");
     chain.contentK = 512;
     chain.until (90, [&] { return post.liveCompareAlignFrames() == 1024 && post.liveCompareStatus().preAudible; },
                  "fresh strong evidence moves the selected PRE through the usual fades");
@@ -210,27 +219,27 @@ inline void disabledAlignmentStillMonitorsContent (int channels)
     chain.contentK = 1536;
     chain.until (300, [&] { return post.liveCompareStatus().contentHeld; },
                  "OFF retains strong content-change detection after K changes");
-    require (post.liveCompareStatus().preSelected, "publishing a content hold preserves the explicit choice");
-    chain.chunk (false); // the first real callback after the non-RT monitor publishes the hold
-    require (!post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
-             "the first callback after a confirmed content jump uses POST while preserving the choice");
-    // INV-LC10: only confident windows keep a hold. While strong windows keep showing the jump,
-    // shifted PRE never sounds; a limiter-like chain gives none, so PRE returns a second later.
+    require (post.liveCompareStatus().preSelected, "publishing a content notice preserves the explicit choice");
+    chain.chunk (false); // the first real callback after the non-RT monitor publishes the notice
+    require (post.liveCompareStatus().preAudible && post.liveCompareStatus().preSelected,
+             "the first callback after a confirmed content jump keeps PRE at its clock position (INV-LC10)");
+    // Only confident windows keep the notice; it never changes the output. A limiter-like chain
+    // gives none, so the notice ends a second later.
     chain.run (100);
-    require (post.liveCompareStatus().contentHeld && !post.liveCompareStatus().preAudible,
-             "a confident jump that persists keeps POST past the bounded wait");
+    require (post.liveCompareStatus().contentHeld && post.liveCompareStatus().preAudible,
+             "a confident jump that persists keeps the notice while PRE sounds");
     chain.chordFrom = chain.unwritten();
     chain.limited = true;
     chain.until (200, [&] { return !post.liveCompareStatus().contentHeld && post.liveCompareStatus().preAudible; },
-                 "windows that confirm nothing release the hold after one second");
+                 "windows that confirm nothing end the notice after one second");
     require (post.liveCompareAlignFrames() == 0 && post.liveCompareStatus().preSelected,
-             "released PRE plays at its clock position with the same selection");
+             "PRE plays at its clock position with the same selection throughout");
     chain.chordUntil = chain.unwritten();
     chain.limited = false;
-    chain.until (300, [&] { return post.liveCompareStatus().contentHeld; }, "the same confident jump holds again");
+    chain.until (300, [&] { return post.liveCompareStatus().contentHeld; }, "the same confident jump is told again");
     chain.contentK = 512;
     chain.until (300, [&] { return !post.liveCompareStatus().contentHeld && post.liveCompareStatus().preAudible; },
-                 "OFF monitoring returns automatically when the content baseline returns");
+                 "OFF monitoring ends the notice when the content baseline returns");
     chain.clean ("OFF monitoring leaves each sample on its selected verified clock path");
 }
 

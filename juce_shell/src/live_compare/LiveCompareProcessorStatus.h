@@ -44,8 +44,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
         status.reason = liveCompare.authority.generation() == liveCompare.pairRevocationGeneration.load (std::memory_order_acquire)
             ? Reason::pairChanged : Reason::restored;
     status.observation = liveCompare.observationReason.load (std::memory_order_acquire);
-    status.timingUnavailable = ! status.contentHeld
-        && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable
+    status.timingUnavailable = (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable
             || status.observation == Reason::reaperDelayUnverified || status.observation == Reason::reaperLoopTooShort);
     status.loopBlock = analysisPairingLoopBlock();
     status.reaperRestriction = nativeHostContext.reaper.restriction();

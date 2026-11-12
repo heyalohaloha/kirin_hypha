@@ -325,8 +325,8 @@ public:
             weight = 0.0f; // the previous address is unverified: never fade through it
             report.preWaiting = preSelected;
             report.alignWaiting = true;
-            report.reason = sampleMismatch ? RecoveryReason::contentAmbiguous : alignment.readiness.late() ? RecoveryReason::preLate
-                : alignment.readiness.ambiguous() ? RecoveryReason::contentAmbiguous : RecoveryReason::calibrating;
+            report.reason = sampleMismatch || alignment.readiness.ambiguous() ? RecoveryReason::contentAmbiguous
+                                                                              : RecoveryReason::calibrating;
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
             post.apply (io, channels, block.frames, postTarget);
             report.stableSource = report.gainSettled = settled;
@@ -429,9 +429,6 @@ public:
     std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }
-    void reportAlignLate (std::uint64_t measured) noexcept { alignment.readiness.late (measured); }
-    // Message thread: a confident late PRE found after the bounded wait asks for a fresh check.
-    void recheckAlign() noexcept { alignment.readiness.recheck(); }
     void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignment.readiness.ambiguous (measured); }
     AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignment.requestFor (context); }
     std::int64_t alignFrames (AlignContext context) const noexcept { return alignment.displayed (context); }

@@ -123,7 +123,8 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
         texts.add (text, true);
     for (const auto* text : {
              "Compensation off: enable it (POST)",
-             "Timing changed: check chain delay (POST)",
+             "PRE 9999.99 ms late / Check delay compensation",
+             "PRE 9999.99 ms early / Check delay compensation",
              "Timing unavailable; check PRE and play (POST)",
              "Listen to PRE, the input of this chain, at the level MATCH set",
              "Listen to PRE, the input of this chain. MATCH levels it to POST",

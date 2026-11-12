@@ -136,7 +136,6 @@ fn live_action_boundary_separates_old_history_from_new_success_faults() {
         "Verdict::accepted",
         "state.interrupted",
         "state.observation",
-        "contentHeld",
         "compensationOff",
     ] {
         assert!(
@@ -166,7 +165,7 @@ fn live_action_boundary_separates_old_history_from_new_success_faults() {
         "observed OR unobserved old retained ceiling",
         "opening OR closing AUTO follow stop",
         "unresolved guard even when MATCH and epoch never changed",
-        "retained MATCH may wait; safety blockers still refuse AUTO",
+        "retained MATCH may wait and a content notice is no blocker; safety blockers still refuse AUTO",
         "generation-bound action rejects a replaced scope",
         "same-scope menu positive control",
         "a new guard discovered by closing refresh",

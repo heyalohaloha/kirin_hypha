@@ -205,11 +205,10 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
     juce::ignoreUnused (now);
     const auto observed = processorRef.liveContentTimingObservation();
     const auto alignedMs = processorRef.liveCompareAlignMs();
-    liveCompareWarning = status.prolongedWait && status.contentHeld
-        ? "Timing changed: check chain delay (POST)"
-        : status.active && status.observation == hypha::live_compare::RecoveryReason::preLate
-            ? offsetText (observed.lagFrames, observed.sampleRate, processorRef.candidateCompareActive())
-                + " / " + hypha::live_compare_ui::chainDelayNotice()
+    // INV-LC10: past 3 s a strong estimate the clock cannot act on is told with its amount; PRE plays.
+    const auto notice = offsetText (status.contentJumpLagFrames, observed.sampleRate, processorRef.candidateCompareActive());
+    liveCompareWarning = status.active && status.prolongedWait && status.contentHeld
+        ? (notice.isEmpty() ? juce::String() : notice + " / ") + hypha::live_compare_ui::chainDelayNotice()
         : status.active && processorRef.candidateAlignUnconfirmed() ? hypha::live_compare_ui::candidateUnconfirmedNotice()
         : status.active && status.verdict == hypha::live_compare::Verdict::accepted
             && processorRef.liveCompareAlignPending() ? (processorRef.candidateCompareActive() ? "Aligning A" : "Aligning PRE")
@@ -278,7 +277,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
     liveCompareStory.clear();
     if (*presentation.instruction != 0)
     {
-        if (presentation.reason != hypha::live_compare::RecoveryReason::preLate)
+        if (! status.contentHeld || juce::String (presentation.instruction) != hypha::live_compare_ui::chainDelayNotice())
             liveCompareWarning = presentation.instruction;
         const auto why = presentation.reason != hypha::live_compare::RecoveryReason::none ? presentation.reason
                                                                                          : status.observation;
@@ -333,7 +332,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
     footer.blindRefusal = liveCompareEntryRefusal (true);
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = false; // selected PRE remains selected during quiet timing recovery
-    footer.contentHeld = status.active && status.contentHeld;
+    footer.contentHeld = status.active && status.contentHeld; // INV-LC10 notice; PRE still sounds
     footer.compensationOff = status.active && status.compensationOff;
     footer.recoveryHelp = presentation.instruction;
     footer.matched = status.active && (liveCompareMatched || status.matchHeld);

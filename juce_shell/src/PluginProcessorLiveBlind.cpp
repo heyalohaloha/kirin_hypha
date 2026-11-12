@@ -131,6 +131,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     ++liveCompare.blindPreparation;
     liveCompare.blindMeasuredEnd = 0;
     liveCompare.blindMatchSince = callbackWallNanos();
+    liveCompare.blindContentNoticeMs = 0.0;
     liveCompare.blindWaiting = MatchFailure::notProven;
     liveCompare.blindStage = BlindStage::preparing;
     // Every explicit trial owns a new timing admission. A current named MATCH tuple is kept,
@@ -176,7 +177,8 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     if (! status.active || status.finishing) return;
     if (liveCompare.blindTimingReceipt.load (std::memory_order_acquire)
         != liveCompare.blindTimingRequest.load (std::memory_order_acquire)) return;
-    if (status.compensationOff || status.contentHeld || status.verdict != Verdict::accepted)
+    // A content timing notice (INV-LC10) is told, never waited on: preparation continues.
+    if (status.compensationOff || status.verdict != Verdict::accepted)
     {
         liveCompare.blindWaiting = MatchFailure::notProven;
         return;
@@ -284,13 +286,18 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.prolongedWait = state.prolongedWait || status.signalWait;
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
+    status.contentLagFrames = state.contentJumpLagFrames;
+    status.contentNoticeMs = liveCompare.blindContentNoticeMs;
+    // A notice standing since before this trial still has its amount for RESULT.
+    if (status.contentNoticeMs == 0.0 && status.contentHeld && liveCompare.contentJumpFacts.sampleRate > 0.0)
+        status.contentNoticeMs = static_cast<double> (status.contentLagFrames) * 1000.0 / liveCompare.contentJumpFacts.sampleRate;
     status.compensationOff = state.compensationOff;
     status.loopBlock = state.loopBlock;
     status.reaperRestriction = state.reaperRestriction;
-    status.timingUnavailable = state.timingUnavailable && ! status.contentHeld
+    status.timingUnavailable = state.timingUnavailable
         && status.stage != BlindStage::active && status.stage != BlindStage::idle
         && status.stage != BlindStage::finishing;
-    status.clockUnavailable = state.clockUnavailable && ! status.contentHeld
+    status.clockUnavailable = state.clockUnavailable
         && status.stage != BlindStage::active && status.stage != BlindStage::idle
         && status.stage != BlindStage::finishing;
     if ((status.stage == BlindStage::preparing || status.stage == BlindStage::settling || status.stage == BlindStage::approval)

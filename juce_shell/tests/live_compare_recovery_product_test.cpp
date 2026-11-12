@@ -119,15 +119,15 @@ static void verifyHoldAfterEnd()
     juce::MidiBuffer midi;
     const auto process = [&]
     { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; wallClock.advanceBlock (512, 48000); processor.serviceLiveCompare(); };
-    LiveTimingFixtureAccess::holdContent (processor, -3000);
+    LiveTimingFixtureAccess::noticeContent (processor, -3000);
     processor.finishLiveCompare(); process();
     using namespace live_compare_ui;
     require (processor.isPlaying() && ! processor.liveCompareStatus().finishing, "END acknowledged during playback");
     require (processor.liveCompareStatus().contentHeld
-        && namedPresentation (processor.liveCompareStatus()).action == RecoveryAction::stopPlay,
-        "END leaves the current hold and actionable stop/play instruction");
+        && namedPresentation (processor.liveCompareStatus()).action == RecoveryAction::none,
+        "after END a content timing notice asks for nothing");
     clock.playing = false; process();
-    require (! processor.liveCompareStatus().contentHeld, "actual stopped callback clears content hold");
+    require (! processor.liveCompareStatus().contentHeld, "actual stopped callback clears the content notice");
     clock.playing = true; process();
     require (processor.liveBlindStatus().stage == live_compare::BlindStage::idle,
              "playback restart never resurrects the invalidated trial");

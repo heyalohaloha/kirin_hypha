@@ -94,7 +94,7 @@ private:
         else if (mode == "seek" || oddMode() || mode == "preparing-seek" || (mode == "failure-named" && restarted)) seek.store (true);
         else if (mode == "clock" || mode == "clock-blind" || mode == "preparing-clock" || mode == "failure-named") clockHole.store (true);
         else if (mode == "compensation" || mode == "preparing-dc") post->kirinHostDelayCompensationStateChanged (false);
-        else if (mode == "preparing-content") LiveTimingFixtureAccess::holdContent (*post, 3000);
+        else if (mode == "preparing-content") LiveTimingFixtureAccess::noticeContent (*post, 3000);
         else if (mode == "restore" || mode == "restore-blind")
         { juce::MemoryBlock saved; post->getStateInformation (saved); post->setStateInformation (saved.getData(), static_cast<int> (saved.getSize())); }
         else if (mode == "end") post->finishLiveCompare();
@@ -197,7 +197,7 @@ private:
                     if (mode == "preparing-dc") post->kirinHostDelayCompensationStateChanged (true);
                     if (mode == "preparing-content")
                     {
-                        require (status.contentHeld && status.active, "an unresolved content hold retains preparation");
+                        require (status.contentHeld && status.active, "an unresolved content notice retains preparation");
                         post->finishLiveCompare(); stage = 9; break;
                     }
                     stage = 12; break;
