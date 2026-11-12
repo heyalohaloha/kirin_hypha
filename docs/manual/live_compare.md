@@ -212,7 +212,11 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   usually still confirm it, bass-heavy passages included: the rest of the spectrum shows the
   position. Initial silence, a held tone, very heavy processing or outboard between PRE and POST
   may not confirm a read position: POST plays for at most one second
-  of proven playback, then PRE plays where the clocks put it, as with alignment off. A later
+  of proven playback, then PRE plays where the clocks put it, as with alignment off, and the
+  status line says **Delay unmeasured / Check delay compensation** until a
+  later check confirms the position. Hypha also looks several seconds either way for a delay the
+  DAW does not compensate, such as a linear-phase EQ at high oversampling: an early PRE found that
+  way is read that much later, a late one is told as below. A later
   confirmed early PRE is still aligned through the usual fades. A confirmed late PRE cannot be
   read earlier, so it keeps playing where the clocks put it, and after three seconds the status
   line says so, for example **PRE 2.31 ms late / Check delay compensation**. When PRE is early, as with a
