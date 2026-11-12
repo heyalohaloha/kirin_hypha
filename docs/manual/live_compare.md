@@ -208,8 +208,10 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
   two seconds of settled playback Hypha also compares the audio itself. Initial alignment and
   a changed clock mapping are checked every 100 ms using fresh, validated audio windows;
-  **Aligning PRE** shows that this check is incomplete. Initial silence, a held tone, a limiter or
-  outboard between PRE and POST may not confirm a read position: POST plays for at most one second
+  **Aligning PRE** shows that this check is incomplete. An EQ and a limiter between PRE and POST
+  usually still confirm it, bass-heavy passages included: the rest of the spectrum shows the
+  position. Initial silence, a held tone, very heavy processing or outboard between PRE and POST
+  may not confirm a read position: POST plays for at most one second
   of proven playback, then PRE plays where the clocks put it, as with alignment off. A later
   confirmed early PRE is still aligned through the usual fades. A confirmed late PRE cannot be
   read earlier, so it keeps playing where the clocks put it, and after three seconds the status
@@ -238,7 +240,8 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   peaks caused by processing do not create a notice, and do not keep one: after one second of
   playback without a strong estimate that still shows the change, it ends. A late PRE under
   0.25 ms is not treated as a delay and plays as it is. A bass-heavy window that the chain has
-  changed is skipped rather than counted as doubt.
+  changed is judged by the same strong peak; when that peak is weak, the window is skipped rather
+  than counted as doubt.
 - While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume
   automatically. A brief interruption is quiet; a condition lasting three seconds gets guidance.
 - If the chosen PRE is one channel of a multi-mono plug-in in Pro Tools, LISTEN does not start
