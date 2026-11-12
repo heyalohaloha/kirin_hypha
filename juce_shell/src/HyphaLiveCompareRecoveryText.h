@@ -117,7 +117,7 @@ inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperCha
 
 // INV-LC10: a strong estimate the clock cannot act on. PRE (A) still sounds at K, so the notice
 // names no output and, in BLIND, does not depend on the source selected.
-inline const char* chainDelayNotice() noexcept { return "Check chain delay and DAW compensation"; }
+inline const char* chainDelayNotice() noexcept { return "Check delay compensation"; }
 inline Reason contentNoticeReason (std::int64_t lagFrames) noexcept
 { return lagFrames > 0 ? Reason::preLate : Reason::contentChanged; }
 inline const char* positionNotice (bool candidate) noexcept

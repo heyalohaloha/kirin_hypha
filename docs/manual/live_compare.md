@@ -213,7 +213,7 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   of proven playback, then PRE plays where the clocks put it, as with alignment off. A later
   confirmed early PRE is still aligned through the usual fades. A confirmed late PRE cannot be
   read earlier, so it keeps playing where the clocks put it, and after three seconds the status
-  line says so, for example **PRE 2.31 ms late / Check chain delay and DAW compensation**. When PRE is early, as with a
+  line says so, for example **PRE 2.31 ms late / Check delay compensation**. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop and
   follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
