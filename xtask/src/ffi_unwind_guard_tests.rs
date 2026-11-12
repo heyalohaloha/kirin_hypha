@@ -1,7 +1,9 @@
+use super::scope::{rust_sources, shipping_crates, workspace_metadata};
 use super::*;
+use std::path::Path;
 
-fn root() -> PathBuf {
-    normalize(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
+fn root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
 fn summary(source: &str) -> (Vec<(String, bool)>, Vec<String>) {
@@ -19,32 +21,25 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
     let root = root();
     let cmake = std::fs::read_to_string(root.join("juce_shell/CMakeLists.txt")).expect("CMake");
     assert!(cmake.contains("build --release -p kirin_hypha_ffi"));
-    let crates = shipping_crates(&root);
-    assert!(crates
-        .iter()
-        .any(|dir| dir.ends_with("crates/kirin_hypha_ffi")));
-    assert!(crates
-        .iter()
-        .any(|dir| dir.ends_with("crates/kirin_measure")));
+    let crates = shipping_crates(&workspace_metadata(root)).unwrap();
+    for name in ["kirin_hypha_ffi", "kirin_measure"] {
+        assert!(
+            crates.iter().any(|c| c.name == name),
+            "{name} is not scanned"
+        );
+    }
     let mut names = Vec::new();
     let mut failures = Vec::new();
-    for dir in &crates {
-        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest");
-        assert!(
-            !manifest.contains("nih_plug"),
-            "{} links nih-plug",
-            dir.display()
-        );
-        assert!(
-            !manifest.contains("capi"),
-            "{} enables a C API",
-            dir.display()
-        );
+    for dir in crates.iter().map(|c| &c.dir) {
         let mut files = Vec::new();
         rust_sources(&dir.join("src"), &mut files);
-        for file in files {
-            let source = std::fs::read_to_string(&file).expect("UTF-8 source");
-            let scan = scan(&source);
+        let sources: Vec<_> = files
+            .iter()
+            .map(|file| std::fs::read_to_string(file).expect("UTF-8 source"))
+            .collect();
+        let macros: Vec<String> = sources.iter().flat_map(|s| defined_macros(s)).collect();
+        for (file, source) in files.iter().zip(&sources) {
+            let scan = scan_with(source, &macros);
             for entry in scan.entries {
                 if !entry.guarded {
                     failures.push(format!("{}:{} {}", file.display(), entry.line, entry.name));
@@ -79,12 +74,9 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
 
 #[test]
 fn the_legacy_nih_plug_crates_are_outside_the_shipping_graph() {
-    let crates = shipping_crates(&root());
+    let crates = shipping_crates(&workspace_metadata(root())).unwrap();
     for legacy in ["hypha_pre", "hypha_post", "hypha_gui"] {
-        assert!(
-            !crates.iter().any(|dir| dir.ends_with(legacy)),
-            "{legacy} ships"
-        );
+        assert!(!crates.iter().any(|c| c.name == legacy), "{legacy} ships");
     }
 }
 
@@ -117,6 +109,11 @@ macro_rules! entry { ($name:ident) => {
     pub extern "C" fn $name() { let _ = catch_unwind(|| ()); }
 } }
 entry!(generated);
+crate::entry!(qualified);
+thread_local! { static CELL: u8 = const { 0 }; }
+const _: () = std::assert!(1 == 1);
+mod tests { include!("sibling_tests.rs"); }
+fn body_macros() { log::warn!("x"); let _ = format!("{}", 1); }
 type Callback = unsafe extern "C" fn(u32) -> bool;
 const S: &str = "#[no_mangle] pub extern \"C\" fn in_string() {}";
 // #[no_mangle] pub extern "C" fn in_comment() {}
@@ -187,43 +184,12 @@ fn exports_the_scanner_cannot_see_fail() {
         "fn catch_unwind<F>(f: F) {}",
         "use crate::fake as AssertUnwindSafe;",
         "macro_rules! catch_unwind { () => {} }",
+        "use plugin::nih_export_vst3 as register;\nregister!(Plugin);",
+        "impl Plugin { register!(); }",
+        "include!(\"../generated/exports.rs\");",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/exports.rs\"));",
     ] {
         let (_, problems) = summary(source);
         assert!(!problems.is_empty(), "accepted: {source}");
     }
-}
-
-#[test]
-fn the_scope_follows_workspace_path_dependencies() {
-    let root = tempfile_root();
-    let write = |path: &str, text: &str| {
-        let path = root.join(path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, text).unwrap();
-    };
-    write(
-        "Cargo.toml",
-        "[workspace.dependencies]\ncore = { path = \"crates/core\" }\nserde = \"1\"\n[patch]\n",
-    );
-    write(
-        "crates/kirin_hypha_ffi/Cargo.toml",
-        "[dependencies]\ncore = { workspace = true }\nserde = { workspace = true }\n\
-         [target.'cfg(windows)'.dependencies]\nlocal = { path = \"../local\" }\n\
-         [dev-dependencies]\ntest_only = { path = \"../test_only\" }\n",
-    );
-    write("crates/core/Cargo.toml", "[dependencies]\n");
-    write("crates/local/Cargo.toml", "[dependencies]\n");
-    let mut found: Vec<_> = shipping_crates(&root)
-        .iter()
-        .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
-        .collect();
-    found.sort();
-    assert_eq!(found, ["core", "kirin_hypha_ffi", "local"]);
-    std::fs::remove_dir_all(&root).unwrap();
-}
-
-fn tempfile_root() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("ffi-unwind-scope-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    root
 }

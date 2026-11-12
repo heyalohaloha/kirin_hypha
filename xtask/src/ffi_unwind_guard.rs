@@ -6,18 +6,13 @@
 //! `catch_unwind(..)` of a closure (or of a function path), either discarded with `let _ = ..;` or
 //! followed by `.unwrap_or(<constant>)`. Nothing else in the body runs outside the guard.
 //!
-//! Scope: the JUCE product links one Rust artifact, the `kirin_hypha_ffi` staticlib
-//! (`juce_shell/CMakeLists.txt` builds `-p kirin_hypha_ffi`), so the scanned crates are that crate
-//! and its workspace path dependencies. The legacy nih-plug crates (PRE/POST/GUI) are kept only to
-//! verify the old VST3 identity and state; they are not linked into the JUCE binaries, and their
-//! `nih_export_vst3!` exports come from vendored nih-plug code that this rule cannot guard. The
-//! check fails if a shipping crate starts depending on nih-plug, exports a symbol the scanner does
-//! not see as a guarded entry (`#[no_mangle]`/`export_name` elsewhere), invokes an export macro, or
-//! shadows `catch_unwind`. Third-party crates are out of scope; the vendored ebur128 C API stays
-//! behind its `capi` feature, which no shipping manifest enables.
+//! The scanned crates are the ones linked into the shipping product (see `ffi_unwind_scope.rs`).
+//! There the check also fails on an export the scanner cannot see as a guarded entry
+//! (`#[no_mangle]`/`export_name` elsewhere), an export macro, an item-level macro invocation that
+//! is neither a local `macro_rules!` nor a std allowlisted one, or a shadowed `catch_unwind`.
 
-use std::path::{Path, PathBuf};
-
+#[path = "ffi_unwind_scope.rs"]
+mod scope;
 #[cfg(test)]
 #[path = "ffi_unwind_guard_tests.rs"]
 mod tests;
@@ -276,7 +271,23 @@ fn constant(tokens: &[Token]) -> bool {
             })
 }
 
+#[cfg(test)]
 fn scan(source: &str) -> Scan {
+    scan_with(source, &[])
+}
+
+/// The `macro_rules!` names one source defines; a crate's macros may be invoked in its other files.
+fn defined_macros(source: &str) -> Vec<String> {
+    let tokens = tokens(source);
+    tokens
+        .windows(3)
+        .filter(|w| w[0].is("macro_rules") && w[1].is("!"))
+        .map(|w| w[2].text.to_string())
+        .collect()
+}
+
+/// Scans one source; `crate_macros` are the `macro_rules!` names defined anywhere in its crate.
+fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
     let tokens = tokens(source);
     let line = |at: usize| source[..at].matches('\n').count() + 1;
     let mut scan = Scan::default();
@@ -295,21 +306,7 @@ fn scan(source: &str) -> Scan {
         if !keyword.is("fn") || name.kind != Kind::Ident {
             continue; // `extern crate`, `extern "C" {}`, or a function pointer type
         }
-        let mut nesting = 0;
-        let mut body = None;
-        for index in next + 2..tokens.len() {
-            match tokens[index].text {
-                "(" | "[" | "<" => nesting += 1,
-                ")" | "]" | ">" => nesting -= 1,
-                ";" if nesting <= 0 => break,
-                "{" if nesting <= 0 => {
-                    body = closing(&tokens, index).map(|close| (index + 1, close));
-                    break;
-                }
-                _ => {}
-            }
-        }
-        let Some((open, close)) = body else {
+        let Some((open, close)) = body_after(&tokens, next + 2) else {
             continue; // a declaration without a body
         };
         entry_fns.push(next);
@@ -319,12 +316,28 @@ fn scan(source: &str) -> Scan {
             guarded: body_is_guarded(&tokens[open..close]),
         });
     }
-    let macros: Vec<&str> = tokens
+    let mut macros: Vec<&str> = tokens
         .windows(3)
         .filter(|w| w[0].is("macro_rules") && w[1].is("!"))
         .map(|w| w[2].text)
         .collect();
+    macros.extend(crate_macros.iter().map(String::as_str));
+    let bodies = code_bodies(&tokens);
     for (at, token) in tokens.iter().enumerate() {
+        let invoked = token.kind == Kind::Ident
+            && !token.is("macro_rules")
+            && tokens.get(at + 1).is_some_and(|t| t.is("!"))
+            && tokens
+                .get(at + 2)
+                .is_some_and(|t| t.is("(") || t.is("[") || t.is("{"));
+        let item_level = !bodies.iter().any(|body| body.contains(&at));
+        if invoked && item_level && !allowed_item_macro(&tokens, at, &macros) {
+            scan.problems.push(format!(
+                "line {}: item-level macro {}",
+                line(token.start),
+                token.text
+            ));
+        }
         let next = tokens.get(at + 1);
         if token.kind == Kind::Ident
             && token.text.contains("export")
@@ -370,6 +383,59 @@ fn scan(source: &str) -> Scan {
     scan
 }
 
+/// Token ranges where a macro cannot add an item to the module: function and `macro_rules!` bodies
+/// (a template is scanned in place).
+fn code_bodies(tokens: &[Token]) -> Vec<std::ops::Range<usize>> {
+    let mut bodies = Vec::new();
+    for (at, token) in tokens.iter().enumerate() {
+        let named = tokens.get(at + 1).is_some_and(|t| t.kind == Kind::Ident);
+        let body = if token.is("fn") && named {
+            body_after(tokens, at + 2)
+        } else if token.is("macro_rules") && tokens.get(at + 3).is_some_and(|t| t.is("{")) {
+            closing(tokens, at + 3).map(|close| (at + 4, close))
+        } else {
+            None
+        };
+        bodies.extend(body.map(|(open, close)| open..close));
+    }
+    bodies
+}
+
+/// A local `macro_rules!` (its template is scanned), or `thread_local!`, `assert!` and an
+/// `include!` of a sibling file, optionally as `std::`/`core::` paths. Anything else could expand
+/// to an export the scanner cannot see, whatever name it is imported under.
+fn allowed_item_macro(tokens: &[Token], at: usize, macros: &[&str]) -> bool {
+    let qualified = at >= 2 && tokens[at - 1].is("::");
+    let prefix = qualified.then(|| tokens[at - 2].text);
+    let name = tokens[at].text;
+    match (prefix, name) {
+        (None | Some("crate" | "$crate"), _) if macros.contains(&name) => true,
+        (None | Some("std" | "core"), "thread_local" | "assert") => true,
+        (None | Some("std" | "core"), "include") => {
+            let argument = tokens.get(at + 3);
+            argument.is_some_and(|t| {
+                t.kind == Kind::Literal && !t.text.contains('/') && !t.text.contains('\\')
+            }) && tokens.get(at + 4).is_some_and(|t| t.is(")"))
+        }
+        _ => false,
+    }
+}
+
+/// The braces of the body after a signature that starts at `from`, or `None` when `;` ends it.
+fn body_after(tokens: &[Token], from: usize) -> Option<(usize, usize)> {
+    let mut nesting = 0;
+    for index in from..tokens.len() {
+        match tokens[index].text {
+            "(" | "[" | "<" => nesting += 1,
+            ")" | "]" | ">" => nesting -= 1,
+            ";" if nesting <= 0 => return None,
+            "{" if nesting <= 0 => return closing(tokens, index).map(|close| (index + 1, close)),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// `#[name`, `#[path::name` or `#![name`: an attribute, possibly a procedural macro that exports.
 fn attribute_name(tokens: &[Token], mut at: usize) -> bool {
     while at >= 2 && tokens[at - 1].is("::") && tokens[at - 2].kind == Kind::Ident {
@@ -393,81 +459,4 @@ fn attached(tokens: &[Token], attribute: usize, entry_fns: &[usize]) -> bool {
         }
     }
     false
-}
-
-/// `kirin_hypha_ffi` and every workspace path crate it links (not dev or build dependencies).
-fn shipping_crates(root: &Path) -> Vec<PathBuf> {
-    let manifest = |dir: &Path| std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest");
-    let root = &normalize(root);
-    let workspace = manifest(root);
-    let mut pending = vec![root.join("crates/kirin_hypha_ffi")];
-    let mut found: Vec<PathBuf> = Vec::new();
-    while let Some(dir) = pending.pop() {
-        if found.contains(&dir) {
-            continue;
-        }
-        let text = manifest(&dir);
-        let mut section = String::new();
-        for line in text.lines().map(str::trim) {
-            if line.starts_with('[') {
-                section = line.to_string();
-                continue;
-            }
-            let linked = section == "[dependencies]"
-                || section.starts_with("[target.") && section.ends_with(".dependencies]");
-            let Some((name, spec)) = line.split_once('=').filter(|_| linked) else {
-                continue;
-            };
-            let (spec, base) = if spec.contains("workspace = true") {
-                let spec = dependency_spec(&workspace, name.trim()).unwrap_or_default();
-                (spec, root.as_path())
-            } else {
-                (spec.to_string(), dir.as_path())
-            };
-            if let Some(path) = spec
-                .split("path = \"")
-                .nth(1)
-                .and_then(|p| p.split('"').next())
-            {
-                pending.push(normalize(&base.join(path)));
-            }
-        }
-        found.push(dir);
-    }
-    found
-}
-
-/// A `{ workspace = true }` dependency's spec in the root manifest; its path is root-relative.
-fn dependency_spec(workspace: &str, name: &str) -> Option<String> {
-    let table = workspace.split("[workspace.dependencies]").nth(1)?;
-    let line = table
-        .lines()
-        .take_while(|l| !l.starts_with('['))
-        .find(|l| l.split('=').next().map(str::trim) == Some(name))?;
-    Some(line.split_once('=')?.1.to_string())
-}
-
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for part in path.components() {
-        match part {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other),
-        }
-    }
-    out
-}
-
-fn rust_sources(directory: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(directory).expect("source directory") {
-        let path = entry.expect("source entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
 }
