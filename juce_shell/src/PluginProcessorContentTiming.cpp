@@ -28,7 +28,7 @@ hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareO
     const auto timeline = liveCompare.timelineGeneration.load (std::memory_order_acquire);
     const auto context = liveCompare.alignContext();
     const auto revision = liveCompare.renderer.alignRevision();
-    auto estimate = hypha::live_compare::measureOffset (*mapping->ring(), liveCompare.renderer);
+    auto estimate = hypha::live_compare::measureOffset (*mapping->ring(), liveCompare.renderer, liveCompare.offsetCenter);
     estimate.stopGeneration = stop;
     estimate.timelineGeneration = timeline;
     estimate.alignContext = context;
@@ -41,6 +41,19 @@ hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareO
         || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0) { estimate.determined = false; estimate.windowReady = false; }
     liveCompare.offsetFacts = estimate;
     return estimate;
+}
+
+// Message thread, INV-LC7: a wide, coarse search proposes where the fine search looks; it is no
+// evidence itself. The same lock, session and ring checks as the fine search.
+hypha::live_compare::WideOffset KirinHyphaProcessorBase::searchLiveCompareWideOffset()
+{
+    const juce::ScopedTryLock formatLock (handleLock);
+    if (! formatLock.isLocked() || formatChangeHeld.load (std::memory_order_acquire)) return {};
+    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)) return {};
+    const auto* mapping = liveCompare.ring.control();
+    if (mapping == nullptr || mapping->ring() == nullptr
+        || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0) return {};
+    return hypha::live_compare::searchWideOffset (*mapping->ring(), liveCompare.renderer);
 }
 
 // INV-LC10: a status-line notice only. PRE keeps sounding at K; the clock rules alone choose POST.
@@ -102,13 +115,19 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.offsetFacts = {};
         liveCompare.contentMonitorNext = 0;
         liveCompare.contentWindow = {};
+        liveCompare.offsetCenter = 0;
+        liveCompare.wideSearchNext = 0;
+        liveCompare.contentUnmeasured.store (false, std::memory_order_release);
     }
     const auto revision = liveCompare.renderer.alignRevision();
     if (revision != liveCompare.contentAlignRevision)
     {
         liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
+        liveCompare.contentUnmeasured.store (false, std::memory_order_release);
         liveCompare.contentAlignRevision = revision;
+        liveCompare.offsetCenter = 0;
+        liveCompare.wideSearchNext = 0;
         liveCompare.contentMonitor = {};
         liveCompare.contentStep = {};
         liveCompare.contentMonitorNext = 0;
@@ -120,6 +139,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     {
         liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
+        if (! state.active) liveCompare.contentUnmeasured.store (false, std::memory_order_release);
         liveCompare.contentMonitor = {};
         liveCompare.contentStep = {};
         liveCompare.contentMonitorRun = run;
@@ -127,14 +147,32 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentWindow = {};
     }
     const auto now = hypha::live_compare::callbackWallNanos();
-    if (alignConfirmationExpired (state, now)) liveCompare.renderer.requestAlign ({}, context, revision);
+    // The bound ended without a confirmed position: PRE plays at K, and LISTEN and BLIND say that the
+    // delay was not measured instead of staying silent (A/B already says its A is unconfirmed).
+    if (alignConfirmationExpired (state, now))
+    {
+        liveCompare.renderer.requestAlign ({}, context, revision);
+        liveCompare.contentUnmeasured.store (! candidateCompareActive(), std::memory_order_release);
+    }
     if (!state.active || state.compensationOff || state.verdict != hypha::live_compare::Verdict::accepted
         || now < liveCompare.contentMonitorNext) return;
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (hypha::live_compare::beforeContentEstimateForTest != nullptr)
         hypha::live_compare::beforeContentEstimateForTest();
    #endif
-    const auto estimate = measureLiveCompareOffset();
+    auto estimate = measureLiveCompareOffset();
+    // A delay beyond the fine search (a linear-phase EQ, an uncompensated host) finds no peak there.
+    // At most once a second, a wide search may move the fine search to a new center; only the fine
+    // search's own strong peaks count, at the new center as anywhere.
+    if (estimate.windowReady && ! hypha::live_compare::offsetCanVote (estimate) && now >= liveCompare.wideSearchNext)
+    {
+        liveCompare.wideSearchNext = now + 1'000'000'000;
+        if (const auto wide = searchLiveCompareWideOffset(); wide.found && wide.lagFrames != liveCompare.offsetCenter)
+        {
+            liveCompare.offsetCenter = wide.lagFrames;
+            estimate = measureLiveCompareOffset();
+        }
+    }
     // The Audio Thread may have advanced K after the checks above but before acquisition.
     // Scope the votes to the estimate actually copied, never the earlier service snapshot.
     if (estimate.windowReady && (estimate.alignRevision != liveCompare.contentAlignRevision
@@ -167,6 +205,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     }
     const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
     if (step.settled) liveCompare.contentStep = step;
+    if (step.settled) liveCompare.contentUnmeasured.store (false, std::memory_order_release);
     const bool aligned = step.settled && alignLiveCompare (step, estimate);
     // A strong estimate that PRE is late, early past the ring, or jumped from the run's baseline is
     // told, never sounded as POST: PRE keeps its clock position K (plus a correction confirmed

@@ -77,6 +77,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.detail = explanation;
     // The rise on END is named before anything else (INV-LC14).
     if (live && !revealed && repeatingAudio && ! (returnDb > 0.05)) screen.detail = "Repeated audio: checked per block";
+    // INV-LC28: the same words for both sources; PRE kept playing at its clock position.
+    if (live && current.contentUnmeasured && ! (returnDb > 0.05))
+        screen.detail = juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice();
     const char* firstA = current.candidate ? "1: A" : "1: PRE";
     const char* firstB = current.candidate ? "1: B" : "1: POST";
     const char* secondA = current.candidate ? "2: A" : "2: PRE";

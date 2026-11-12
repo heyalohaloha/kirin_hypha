@@ -32,6 +32,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.gain = gains.pre;
     status.postTarget = gains.coherent ? gains.post : status.postActual;
     status.contentHeld = liveCompare.contentHold.held();
+    status.contentUnmeasured = liveCompare.contentUnmeasured.load (std::memory_order_acquire);
     if (status.contentHeld)
         status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
     status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);

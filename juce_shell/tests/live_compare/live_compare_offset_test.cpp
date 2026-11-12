@@ -88,11 +88,44 @@ static void chunkedPostKeepsItsWindows()
     }
 }
 
+// A chain delay the host does not compensate, beyond the +/-170 ms fine search: a linear-phase EQ
+// at high oversampling, PRE early or late by up to two seconds. The wide search proposes a center
+// from the history both sides hold; the fine search there finds the delay to the sample. Before
+// enough history exists it proposes nothing, and it never reads outside PRE's run or ring.
+static void wideDelaysAreFound()
+{
+    using namespace aax_chunk_test;
+    for (const std::int64_t delay : { std::int64_t (4096), std::int64_t (16384), std::int64_t (32768), std::int64_t (96000) })
+        for (const bool early : { true, false })
+        {
+            Options options;
+            options.k = 512; options.postCarriesPre = true;
+            options.contentK = early ? 512 + delay : 512 - delay;
+            Chain chain (options);
+            chain.run (40);
+            require (! searchWideOffset (chain.sharedRing(), chain.postRenderer()).found, "too little history proposes nothing");
+            chain.run (200);
+            const auto lag = early ? -delay : delay;
+            const auto fine = measureOffset (chain.sharedRing(), chain.postRenderer());
+            require (delay < offsetSearchFrames ? offsetCanVote (fine) && fine.lagFrames == lag : ! offsetCanVote (fine),
+                     "the fine search alone reaches only +/-170 ms");
+            const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+            std::printf ("wide delay %s %lld: center %lld (peak %.3f, dominance %.1f)\n", early ? "early" : "late",
+                         static_cast<long long> (delay), static_cast<long long> (wide.lagFrames), wide.peak, wide.dominance);
+            require (wide.found && std::llabs (wide.lagFrames - lag) <= 32, "the wide search proposes the delay");
+            auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+            there.sampleRate = 48000;
+            require (offsetCanVote (there) && there.lagFrames == lag && there.window.center == wide.lagFrames,
+                     "the fine search at that center finds it to the sample");
+        }
+}
+
 namespace hypha::tests
 {
 void verifyLiveCompareOffset()
 {
     chunkedPostKeepsItsWindows();
+    wideDelaysAreFound();
     const auto broadband = [] (std::int64_t n) { return noise (n); };
     for (const std::int64_t d : { std::int64_t (0), std::int64_t (240), std::int64_t (-700), std::int64_t (900) })
     {

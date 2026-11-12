@@ -118,6 +118,9 @@ inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperCha
 // INV-LC10: a strong estimate the clock cannot act on. PRE (A) still sounds at K, so the notice
 // names no output and, in BLIND, does not depend on the source selected.
 inline const char* chainDelayNotice() noexcept { return "Check delay compensation"; }
+// INV-LC28: the bounded wait ended without a confirmed position; PRE (A) plays at K. Never the source.
+// Shown as "<this> / <chainDelayNotice()>", short enough for the 300% footer.
+inline const char* unmeasuredNotice() noexcept { return "Delay unmeasured"; }
 inline Reason contentNoticeReason (std::int64_t lagFrames) noexcept
 { return lagFrames > 0 ? Reason::preLate : Reason::contentChanged; }
 inline const char* positionNotice (bool candidate) noexcept

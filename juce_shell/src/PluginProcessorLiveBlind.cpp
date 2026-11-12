@@ -286,6 +286,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.prolongedWait = state.prolongedWait || status.signalWait;
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
+    status.contentUnmeasured = state.contentUnmeasured;
     status.contentLagFrames = state.contentJumpLagFrames;
     status.contentNoticeMs = liveCompare.blindContentNoticeMs;
     // A notice standing since before this trial still has its amount for RESULT.

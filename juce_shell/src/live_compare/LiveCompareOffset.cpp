@@ -214,7 +214,7 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     return estimate.determined ? estimate : scaledCopyOffset (post, pre, maxLag);
 }
 
-OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
+OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer, std::int64_t center)
 {
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (beforeOffsetWindowForTest != nullptr) beforeOffsetWindowForTest();
@@ -222,12 +222,18 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
     const auto view = renderer.historyView();
     if (view.samples == nullptr || ! view.kValid)
         return {};
+    if (std::llabs (center) > offsetWideFrames (ring.header.sampleRate.load (std::memory_order_relaxed)))
+        return {};
+    // The search runs from center - lag to center + lag. A later PRE (center > 0) needs the POST
+    // window that much earlier, so that PRE has already written its match; an earlier one needs
+    // PRE's run to reach back that far. copyPreRing checks both bounds again after the copy.
     const auto lag = offsetSearchFrames;
     const auto preStart = ring.header.runStart.load (std::memory_order_acquire);
     std::int64_t postEnd = 0, mappedStart = 0, retainedStart = 0, available = 0;
-    if (! checkedClockSubtract (view.end, lag, postEnd)
+    if (! checkedClockSubtract (view.end, lag + std::max<std::int64_t> (0, center), postEnd)
         || ! checkedClockAdd (preStart, view.k, mappedStart)
         || ! checkedClockAdd (mappedStart, lag, mappedStart)
+        || ! checkedClockSubtract (mappedStart, center, mappedStart)
         || ! checkedClockSubtract (view.end, view.frames - 1, retainedStart)) return {};
     const auto availableStart = std::max ({ view.start, retainedStart, mappedStart });
     if (! checkedClockSubtract (postEnd, availableStart, available)) return {};
@@ -236,6 +242,7 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
     const auto postStart = postEnd - frames;
     std::int64_t readStart = 0;
     if (! checkedClockSubtract (postStart, view.k, readStart)
+        || ! checkedClockAdd (readStart, center, readStart)
         || ! checkedClockSubtract (readStart, lag, readStart)) return {};
     std::vector<float> post (static_cast<std::size_t> (frames) * 2);
     std::vector<float> pre (static_cast<std::size_t> (frames + 2 * lag) * 2);
@@ -267,11 +274,96 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
         };
         estimate = estimateOffset (sum (post), sum (pre), lag);
     }
-    estimate.window = { postEnd, view.proof, view.preRun };
+    if (estimate.determined) estimate.lagFrames += center;
+    estimate.window = { postEnd, view.proof, view.preRun, center };
     estimate.windowReady = true;
     estimate.clockK = view.k;
     estimate.blockFrames = view.blockFrames;
     estimate.sampleRate = rate;
     return estimate;
+}
+
+// Two cascaded box averages of `factor` samples, then every factor-th sample: a coarse low-pass
+// that treats PRE and POST alike. Mono, the mean of the channels.
+static std::vector<float> decimate (const std::vector<float>& stereo, int factor)
+{
+    const auto frames = stereo.size() / 2;
+    std::vector<double> once (frames), twice (frames);
+    double sum = 0.0;
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        sum += 0.5 * (static_cast<double> (stereo[i * 2]) + stereo[i * 2 + 1]);
+        if (i >= static_cast<std::size_t> (factor)) sum -= 0.5 * (static_cast<double> (stereo[(i - factor) * 2]) + stereo[(i - factor) * 2 + 1]);
+        once[i] = sum / factor;
+    }
+    sum = 0.0;
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        sum += once[i];
+        if (i >= static_cast<std::size_t> (factor)) sum -= once[i - factor];
+        twice[i] = sum / factor;
+    }
+    std::vector<float> out (frames / static_cast<std::size_t> (factor));
+    for (std::size_t i = 0; i < out.size(); ++i)
+        out[i] = static_cast<float> (twice[i * static_cast<std::size_t> (factor) + static_cast<std::size_t> (factor) - 1]);
+    return out;
+}
+
+WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
+{
+    const auto view = renderer.historyView();
+    if (view.samples == nullptr || ! view.kValid) return {};
+    const auto rate = static_cast<double> (ring.header.sampleRate.load (std::memory_order_relaxed));
+    if (! (rate >= 8000.0 && rate <= 768000.0)) return {};
+    const int factor = std::max (1, static_cast<int> (std::lround (rate / 3000.0)));
+    // POST's history and PRE's run over the same positions through K: one correlation finds a PRE
+    // that is early and one that is late. The span is the latest history both sides hold.
+    std::int64_t preFirst = 0, preLast = 0, retainedStart = 0;
+    if (! checkedClockAdd (ring.header.runStart.load (std::memory_order_acquire), view.k, preFirst)
+        || ! checkedClockAdd (ring.header.writeEnd.load (std::memory_order_acquire), view.k, preLast)
+        || ! checkedClockSubtract (view.end, view.frames - 1, retainedStart)) return {};
+    const auto spanEnd = std::min (view.end, preLast);
+    // At most half the ring, so that PRE's writer never reaches the oldest copied frame.
+    const auto longest = std::min (offsetWideFrames (rate), static_cast<std::int64_t> (ringCapacityFrames / 2));
+    const auto spanStart = std::max ({ view.start, retainedStart, preFirst, spanEnd - longest });
+    const auto overlap = static_cast<std::int64_t> (rate * offsetWideOverlapSeconds);
+    if (spanEnd - spanStart < overlap + offsetWindowFrames) return {};
+    const auto frames = spanEnd - spanStart;
+    std::vector<float> post (static_cast<std::size_t> (frames) * 2), pre (static_cast<std::size_t> (frames) * 2);
+    copyPostHistory (view, spanStart, frames, post);
+    if (! copyPreRing (ring, spanStart - view.k, frames, pre, view.preRun) || ! renderer.historyStillValid (view, spanStart))
+        return {};
+    const auto x = decimate (post, factor), y = decimate (pre, factor);
+    const auto n = x.size();
+    if (rms (x) < 3.0e-4 || rms (y) < 3.0e-4) return {};
+    std::size_t size = 1;
+    while (size < 2 * n) size <<= 1;
+    std::vector<Complex> a (size), b (size);
+    for (std::size_t i = 0; i < n; ++i) { a[i] = x[i]; b[i] = y[i]; }
+    transform (a, false);
+    transform (b, false);
+    double meanMagnitude = 0.0;
+    for (std::size_t k = 0; k < size; ++k) { a[k] = std::conj (a[k]) * b[k]; meanMagnitude += std::abs (a[k]); }
+    const double floor = 1.0e-3 * meanMagnitude / static_cast<double> (size) + 1.0e-30;
+    for (auto& value : a) value /= std::abs (value) + floor;
+    transform (a, true);
+    // a[j] = sum over i of post[i] pre[i + j]: lag j for j < n, j - size beyond. Every lag keeps
+    // offsetWideOverlapSeconds of both sides, so the reach grows with the history held.
+    const auto reach = static_cast<std::int64_t> (n) - overlap / factor;
+    const auto lagAt = [&] (std::size_t j) { return j < size / 2 ? static_cast<std::int64_t> (j) : static_cast<std::int64_t> (j) - static_cast<std::int64_t> (size); };
+    std::int64_t best = 0;
+    double peak = 0.0;
+    for (std::size_t j = 0; j < size; ++j)
+        if (std::llabs (lagAt (j)) <= reach && std::fabs (a[j].real()) > peak) { peak = std::fabs (a[j].real()); best = lagAt (j); }
+    double runnerUp = 0.0;
+    for (std::size_t j = 0; j < size; ++j)
+        if (std::llabs (lagAt (j)) <= reach && std::llabs (lagAt (j) - best) > 2)
+            runnerUp = std::max (runnerUp, std::fabs (a[j].real()));
+    WideOffset wide;
+    wide.peak = peak;
+    wide.dominance = runnerUp > 0.0 ? peak / runnerUp : std::numeric_limits<double>::infinity();
+    wide.lagFrames = best * factor;
+    wide.found = peak > 0.0 && wide.dominance >= offsetWideDominance && std::llabs (best) < reach;
+    return wide;
 }
 }
