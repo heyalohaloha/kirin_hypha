@@ -209,6 +209,7 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
     const auto notice = offsetText (status.contentJumpLagFrames, observed.sampleRate, processorRef.candidateCompareActive());
     liveCompareWarning = status.active && status.prolongedWait && status.contentHeld
         ? (notice.isEmpty() ? juce::String() : notice + " / ") + hypha::live_compare_ui::chainDelayNotice()
+        : status.active && status.contentNotRemeasured ? hypha::live_compare_ui::notRemeasuredNotice()
         : status.active && processorRef.candidateAlignUnconfirmed() ? hypha::live_compare_ui::candidateUnconfirmedNotice()
         : status.active && status.verdict == hypha::live_compare::Verdict::accepted
             && processorRef.liveCompareAlignPending() ? (processorRef.candidateCompareActive() ? "Aligning A" : "Aligning PRE")

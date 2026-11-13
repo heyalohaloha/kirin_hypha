@@ -159,6 +159,21 @@ inline void chainFindsLongDelays (int channels)
                 require (post.liveCompareAlignFrames() == 0, "until PRE's new run reaches the correction, PRE plays at K");
                 corrected (c.blind ? 110 : 200, "the correction returns once PRE's run reaches it");
             }
+        if (c.delay == 96000 && ! c.blind)
+        {
+            // A kept correction of seconds that PRE's new run cannot serve when the next session's
+            // bound ends is dropped (INV-LC28): K and the label, until the search finds it again.
+            post.finishLiveCompare();
+            chain.until (60, [&] { const auto s = post.liveCompareStatus(); return ! s.active && ! s.finishing; }, "LISTEN ends");
+            chain.setPlaying (false); chain.run (8); chain.setPlaying (true);
+            require (post.startLiveCompare() == StartResult::started, "LISTEN starts again");
+            post.selectLiveComparePre (true);
+            chain.until (90, [&] { const auto s = post.liveCompareStatus(); return s.contentUnmeasured || s.contentNotRemeasured; },
+                         "the next session's bound ends");
+            require (post.liveCompareStatus().contentUnmeasured && post.liveCompareAlignFrames() == 0,
+                     "a kept correction PRE's new run cannot serve yet is dropped");
+            corrected (400, "measured again, the correction returns");
+        }
         if (c.delay < 0 && c.delay > -100000)
             chain.until (400, [&] { const auto s = post.liveCompareStatus();
                                     return s.preAudible && s.contentHeld && s.prolongedWait && s.contentJumpLagFrames == -c.delay; },

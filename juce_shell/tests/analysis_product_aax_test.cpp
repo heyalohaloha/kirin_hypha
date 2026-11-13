@@ -1,6 +1,7 @@
 #include "AaxAnalysisProductFixture.h"
 #include "AaxChunkProductTest.h"
 #include "AlignChainProductTest.h"
+#include "AlignOutboardProductTest.h"
 
 using namespace aax_analysis_product;
 
@@ -176,7 +177,7 @@ try
     const juce::String layout (argv[1]), scenario (argv[2]);
     require (layout == "mono" || layout == "stereo", "supported channel layout");
     if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery"
-        || scenario == "alignment_chain")
+        || scenario == "alignment_chain" || scenario == "alignment_outboard")
     {
         ReferenceValidationStorageSandbox sandbox;
         hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
@@ -204,6 +205,7 @@ try
             wideSearchWeighsEveryCandidate (layout == "mono" ? 1 : 2);
             wideSearchFollowsHypotheses (layout == "mono" ? 1 : 2);
         }
+        if (scenario == "alignment_outboard") outboardKeepsTheConfirmedCorrection (layout == "mono" ? 1 : 2);
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;
     }

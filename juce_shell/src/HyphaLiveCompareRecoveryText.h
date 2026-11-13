@@ -121,6 +121,8 @@ inline const char* chainDelayNotice() noexcept { return "Check delay compensatio
 // INV-LC28: the bounded wait ended without a confirmed position; PRE (A) plays at K. Never the source.
 // Shown as "<this> / <chainDelayNotice()>", short enough for the 300% footer.
 inline const char* unmeasuredNotice() noexcept { return "Delay unmeasured"; }
+// INV-LC28: the bound ended unconfirmed; PRE (A) plays at K plus the correction confirmed before.
+inline const char* notRemeasuredNotice() noexcept { return "Delay not re-measured"; }
 inline Reason contentNoticeReason (std::int64_t lagFrames) noexcept
 { return lagFrames > 0 ? Reason::preLate : Reason::contentChanged; }
 inline const char* positionNotice (bool candidate) noexcept

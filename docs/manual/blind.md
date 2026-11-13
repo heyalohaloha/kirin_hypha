@@ -42,7 +42,8 @@ is late or has jumped never switches a source to POST: PRE keeps its clock posit
 lasts three seconds reads the same for both sources, and RESULT says by how much PRE may have been
 off, after the note on any POST that really stood in, even while the notice is still up. If no position is measured within the first second, PRE plays at
 its clock position and the same line, **Delay unmeasured / Check delay compensation**, appears for
-both sources. Source buttons show your selection, while internal played receipts count only the source that
+both sources. When an earlier LISTEN or BLIND with the same pair and format confirmed a correction,
+PRE plays with it instead and both sources show **Delay not re-measured**. Source buttons show your selection, while internal played receipts count only the source that
 actually sounded.
 
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.

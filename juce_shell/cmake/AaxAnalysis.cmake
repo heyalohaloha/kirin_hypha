@@ -51,7 +51,7 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
     target_include_directories(KirinAaxAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinAaxAnalysisProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
     foreach(layout stereo mono)
-        foreach(scenario alignment_restart alignment_publication alignment_recovery alignment_chain)
+        foreach(scenario alignment_restart alignment_publication alignment_recovery alignment_chain alignment_outboard)
             set(name kirin_aax_${layout}_${scenario}_product)
             add_test(NAME ${name} COMMAND KirinAaxAnalysisProductTests ${layout} ${scenario})
             set_tests_properties(${name} PROPERTIES TIMEOUT 120)

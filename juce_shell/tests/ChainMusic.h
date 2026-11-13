@@ -193,4 +193,120 @@ inline Tracks render (std::int64_t from, std::int64_t frames, Chain chain, Textu
         for (auto& v : tracks.post) v = static_cast<float> (v * std::pow (10.0, chain.trimDb / 20.0));
     return tracks;
 }
+// Test only. Kick, snare and hats alone: a transient-rich source.
+inline std::vector<float> drums (std::int64_t from, std::int64_t frames)
+{
+    std::vector<float> out (static_cast<std::size_t> (frames) * 2);
+    double snare = 0, hatIn = 0, hat = 0;
+    for (std::int64_t n = 0; n < frames; ++n)
+    {
+        const auto clock = from + n;
+        const double t = static_cast<double> (clock) / rate, inBeat = std::fmod (t, 0.5), inEighth = std::fmod (t, 0.25);
+        const auto beat = static_cast<std::int64_t> (t / 0.5);
+        const double kick = 0.9 * std::sin (2 * pi * (50.0 * inBeat + 3.0 * (1 - std::exp (-inBeat * 40.0)))) * std::exp (-inBeat * 9.0);
+        snare += 0.35 * (hash (static_cast<std::uint64_t> (clock) * 3 + 1) - snare);
+        const double snap = beat % 2 == 1 ? 0.8 * std::exp (-inBeat * 22.0) * (snare + 0.4 * std::sin (2 * pi * 185.0 * inBeat)) : 0.0;
+        const double noise = hash (static_cast<std::uint64_t> (clock) * 3 + 2);
+        hat = 0.95 * (hat + noise - hatIn); hatIn = noise;
+        const double hats = 0.45 * std::exp (-inEighth * 60.0) * hat;
+        out[static_cast<std::size_t> (n) * 2] = static_cast<float> (0.55 * (kick + snap + hats));
+        out[static_cast<std::size_t> (n) * 2 + 1] = static_cast<float> (0.55 * (kick + snap + 0.8 * hats));
+    }
+    return out;
+}
+
+// A full, already compressed 2-mix with a steady beat: the band plus a clap, a sixteenth shaker, a
+// second pad and a voice, through a bus limiter. `loopFrames` > 0 repeats its first loopFrames
+// sample for sample, as loop-based productions do: every beat looks like the next.
+inline std::vector<float> denseMix (std::int64_t from, std::int64_t frames, std::int64_t loopFrames = 0)
+{
+    const auto cell = loopFrames > 0 ? std::min (frames, loopFrames) : frames;
+    auto out = music (from, cell, Texture::band);
+    double shakeIn = 0, shake = 0, clap = 0;
+    const double roots[] = { 55.0, 43.65, 49.0, 41.2 };
+    for (std::int64_t n = 0; n < cell; ++n)
+    {
+        const auto clock = from + n;
+        const double t = static_cast<double> (clock) / rate, inBeat = std::fmod (t, 0.5), in16 = std::fmod (t, 0.125);
+        const auto beat = static_cast<std::int64_t> (t / 0.5);
+        const double noise = hash (static_cast<std::uint64_t> (clock) * 13 + 5);
+        shake = 0.9 * (shake + noise - shakeIn); shakeIn = noise;
+        const double shaker = 0.3 * std::exp (-in16 * 70.0) * shake * (static_cast<std::int64_t> (t / 0.125) % 2 != 0 ? 0.6 : 1.0);
+        clap += 0.5 * (hash (static_cast<std::uint64_t> (clock) * 13 + 7) - clap);
+        const double claps = beat % 2 == 1 ? 0.5 * std::exp (-inBeat * 30.0) * clap : 0.0;
+        const double root = roots[(beat / 4) % 4];
+        double pad = 0, voice = 0;
+        for (const double ratio : { 2.0, 3.0, 4.0, 5.04 })
+            for (int h = 1; h <= 5; ++h)
+                pad += std::sin (2 * pi * root * ratio * 1.003 * h * t + 0.7 * h) / (h * h * 1.5);
+        const double f0 = root * 8.0 * (beat % 8 < 4 ? 1.0 : 1.335) * (1.0 + 0.004 * std::sin (2 * pi * 5.2 * t));
+        for (int h = 1; h <= 12; ++h) voice += std::sin (2 * pi * f0 * h * t) / h * (h >= 3 && h <= 6 ? 1.6 : 0.6);
+        voice *= 0.06 * (0.5 + 0.5 * std::sin (2 * pi * 0.125 * t + 1.0));
+        out[static_cast<std::size_t> (n) * 2] += static_cast<float> (0.55 * (shaker + claps + 0.05 * pad + voice));
+        out[static_cast<std::size_t> (n) * 2 + 1] += static_cast<float> (0.55 * (0.8 * shaker + claps + 0.06 * pad + 0.9 * voice));
+    }
+    limit (out, 9.0, 48);
+    out.resize (static_cast<std::size_t> (frames) * 2);
+    for (std::int64_t n = cell; n < frames; ++n)
+        for (std::size_t c = 0; c < 2; ++c)
+            out[static_cast<std::size_t> (n) * 2 + c] = out[static_cast<std::size_t> (n % cell) * 2 + c];
+    return out;
+}
+
+// Analog outboard between PRE and POST, as a transformer-coupled variable-mu tube compressor: input
+// transformer (15 Hz high-pass, a minimum-phase low shelf), a first-order allpass (low-frequency
+// phase shift), slow program-dependent gain (linked, 2 ms attack, 0.6 s release), soft saturation
+// with even harmonics, output transformer (15 Hz high-pass, 20 kHz roll-off) and hiss.
+struct Outboard
+{
+    double rideDb = 6.0, driveDb = 6.0, shelfDb = 2.0, allpassHz = 50.0, noiseDb = -84.0;
+};
+
+inline void outboard (std::vector<float>& x, Outboard o)
+{
+    const auto frames = x.size() / 2;
+    const double attack = 1.0 - std::exp (-1.0 / (0.002 * rate)), release = 1.0 - std::exp (-1.0 / (0.6 * rate));
+    const double tangent = std::tan (pi * o.allpassHz / rate), c = (tangent - 1) / (tangent + 1);
+    const double roll = 1.0 - std::exp (-2 * pi * 20000.0 / rate);
+    const double drive = std::pow (10.0, o.driveDb / 20.0), hiss = std::pow (10.0, o.noiseDb / 20.0);
+    Biquad in[2] = { Biquad::make (0, 15, 0.6, 0), Biquad::make (0, 15, 0.6, 0) };
+    Biquad shelf[2] = { Biquad::make (2, 80, 0.707, o.shelfDb), Biquad::make (2, 80, 0.707, o.shelfDb) };
+    Biquad out[2] = { Biquad::make (0, 15, 0.6, 0), Biquad::make (0, 15, 0.6, 0) };
+    double env = 0.0, allIn[2] = {}, allOut[2] = {}, low[2] = {};
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        double v[2];
+        for (std::size_t ch = 0; ch < 2; ++ch)
+        {
+            const double s = shelf[ch].process (in[ch].process (x[i * 2 + ch]));
+            v[ch] = c * s + allIn[ch] - c * allOut[ch];
+            allIn[ch] = s; allOut[ch] = v[ch];
+        }
+        const double level = std::max (std::fabs (v[0]), std::fabs (v[1]));
+        env += (level > env ? attack : release) * (level - env);
+        const double gain = std::pow (10.0, -o.rideDb * std::min (1.0, env / 0.6) / 20.0);
+        for (std::size_t ch = 0; ch < 2; ++ch)
+        {
+            const double g = gain * v[ch] * drive;
+            low[ch] += roll * (out[ch].process ((std::tanh (g) + 0.04 * g * g) / drive) - low[ch]);
+            x[i * 2 + ch] = static_cast<float> (low[ch] + hiss * hash (i * 4 + ch + 99));
+        }
+    }
+}
+
+// PRE: drums before `drumsUntil`, the dense mix from there; POST: the same through the outboard.
+inline Tracks renderOutboard (std::int64_t from, std::int64_t frames, std::int64_t drumsUntil, Outboard o,
+                              std::int64_t loopFrames = 0)
+{
+    Tracks tracks;
+    tracks.from = from;
+    tracks.pre = denseMix (from, frames, loopFrames);
+    const auto beat = drums (from, frames);
+    for (std::int64_t n = 0; n < frames && from + n < drumsUntil; ++n)
+        for (std::size_t c = 0; c < 2; ++c)
+            tracks.pre[static_cast<std::size_t> (n) * 2 + c] = beat[static_cast<std::size_t> (n) * 2 + c];
+    tracks.post = tracks.pre;
+    outboard (tracks.post, o);
+    return tracks;
+}
 }

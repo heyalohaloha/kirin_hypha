@@ -118,6 +118,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.offsetCenter = 0;
         liveCompare.wideSearchNext = 0;
         liveCompare.contentUnmeasured.store (false, std::memory_order_release);
+        liveCompare.contentNotRemeasured.store (false, std::memory_order_release);
     }
     const auto revision = liveCompare.renderer.alignRevision();
     if (revision != liveCompare.contentAlignRevision)
@@ -125,6 +126,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
         liveCompare.contentUnmeasured.store (false, std::memory_order_release);
+        liveCompare.contentNotRemeasured.store (false, std::memory_order_release);
         liveCompare.contentAlignRevision = revision;
         liveCompare.offsetCenter = 0;
         liveCompare.wideSearchNext = 0;
@@ -139,7 +141,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     {
         liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
-        if (! state.active) liveCompare.contentUnmeasured.store (false, std::memory_order_release);
+        if (! state.active) { liveCompare.contentUnmeasured.store (false); liveCompare.contentNotRemeasured.store (false); }
         liveCompare.contentMonitor = {};
         liveCompare.contentStep = {};
         liveCompare.contentMonitorRun = run;
@@ -148,11 +150,23 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     }
     const auto now = hypha::live_compare::callbackWallNanos();
     // The bound ended without a confirmed position: PRE plays at K, and LISTEN and BLIND say that the
-    // delay was not measured instead of staying silent (A/B already says its A is unconfirmed).
+    // delay was not measured instead of staying silent (A/B already says its A is unconfirmed). A
+    // correction confirmed before for this pair, format and PRE owner plays instead, told as not
+    // re-measured; one that PRE's run cannot serve yet is dropped (INV-LC28).
     if (alignConfirmationExpired (state, now))
     {
-        liveCompare.renderer.requestAlign ({}, context, revision);
-        liveCompare.contentUnmeasured.store (! candidateCompareActive(), std::memory_order_release);
+        auto kept = liveCompare.alignKeptFor == context ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
+        const auto view = liveCompare.renderer.historyView();
+        const auto* mapping = liveCompare.ring.control();
+        std::int64_t mapped = 0, reach = 0;
+        if (kept.frames != 0 && (mapping == nullptr || mapping->ring() == nullptr || ! view.kValid
+            || ! hypha::live_compare::checkedClockSubtract (view.end - view.blockFrames, view.k, mapped)
+            || ! hypha::live_compare::checkedClockSubtract (mapped, mapping->ring()->header.runStart.load (std::memory_order_acquire), reach)
+            || reach < kept.frames)) kept = {};
+        liveCompare.alignKept = kept;
+        liveCompare.renderer.requestAlign (kept, context, revision);
+        liveCompare.contentUnmeasured.store (kept.frames == 0 && ! candidateCompareActive(), std::memory_order_release);
+        liveCompare.contentNotRemeasured.store (kept.frames != 0, std::memory_order_release);
     }
     if (!state.active || state.compensationOff || state.verdict != hypha::live_compare::Verdict::accepted
         || now < liveCompare.contentMonitorNext) return;
@@ -205,7 +219,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     }
     const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
     if (step.settled) liveCompare.contentStep = step;
-    if (step.settled) liveCompare.contentUnmeasured.store (false, std::memory_order_release);
+    if (step.settled) { liveCompare.contentUnmeasured.store (false); liveCompare.contentNotRemeasured.store (false); }
     const bool aligned = step.settled && alignLiveCompare (step, estimate);
     // A strong estimate that PRE is late, early past the ring, or jumped from the run's baseline is
     // told, never sounded as POST: PRE keeps its clock position K (plus a correction confirmed
@@ -257,7 +271,11 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
     const auto agreement = std::floor (step.sampleRate * hypha::live_compare::offsetAgreementSeconds);
     if (liveCompare.renderer.alignPending() || value.verifySamples != requested.verifySamples || value.frames == 0 || current == 0
         || static_cast<double> (std::llabs (settled - current)) > agreement)
+    {
         liveCompare.renderer.requestAlign (value, estimate.alignContext, estimate.alignRevision);
+        liveCompare.alignKept = value; // confirmed: later sessions and K start from it (in memory only)
+        liveCompare.alignKeptFor = estimate.alignContext;
+    }
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
     return ! unreadable || slightlyLate;
 }

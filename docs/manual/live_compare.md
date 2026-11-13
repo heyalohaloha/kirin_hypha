@@ -223,7 +223,12 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop (right after one, until enough new audio has
   passed for a correction of seconds, PRE plays where the clocks put it rather than POST) and
-  follows a change. With **Align PRE automatically** off, or when PRE is late, the status line
+  follows a change. It also stays, in memory only, for later LISTEN and BLIND sessions and a new
+  clock mapping with the same pair, format and PRE: when audio that confirms no position follows
+  (a dense loop through outboard, for example), PRE plays with that amount after the first second
+  and the status line says **Delay not re-measured** until new audio confirms a position. A
+  different pair or format, a restored session, or an amount PRE cannot serve yet (seconds, right
+  after a start) drops it. With **Align PRE automatically** off, or when PRE is late, the status line
   shows the difference instead (**PRE 2.31 ms early**, **late**). An intentional delay, reverb or
   heavy processing can look the same, and silence cannot establish a position. Repeated audio uses a check of each current block, with a short notice; a nonmatching block uses POST immediately. Only the
   audition's read position moves: the clock proof, MATCH, A, the meters and Record stay as they are.
@@ -231,7 +236,8 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   A seek, stop or timing interruption alone does not move it under the same selected source.
   When the clock mapping changes, an unverified correction uses POST until fresh content
   confirms the new read position, including when the previous correction was zero, for at most
-  one second of proven playback; then PRE plays at its clock position. A publication
+  one second of proven playback; then PRE plays at its clock position plus the correction
+  confirmed before (**Delay not re-measured**), or at its clock position alone if there was none. A publication
   collision alone keeps the trial's fixed read position. Recheck guidance is the same for both
   anonymous sources; neither source earns a listening receipt from substitute POST.
   PRE then returns with the same selection and approved gain;

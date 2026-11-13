@@ -42,6 +42,7 @@ struct LiveBlindStatus
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
     bool contentUnmeasured = false; // INV-LC28: the bounded wait ended unconfirmed; PRE plays at K, told
+    bool contentNotRemeasured = false; // INV-LC28: PRE plays at K plus the kept correction, told
     std::int64_t contentLagFrames = 0; // INV-LC10 notice: positive when PRE is late
     double contentNoticeMs = 0.0;      // the last notice in this trial, for the RESULT only
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
@@ -75,6 +76,7 @@ struct Status
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
     bool contentHeld = false; // INV-LC10: a strong estimate the clock cannot act on; PRE still sounds at K
     bool contentUnmeasured = false; // INV-LC28: no position confirmed by the bound; PRE plays at K, told
+    bool contentNotRemeasured = false; // INV-LC28: no position confirmed by the bound; the kept correction plays
     std::int64_t contentJumpLagFrames = 0; // the settled offset of that notice; zero without one
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off
     RecoveryReason reason = RecoveryReason::none; // retained first failure, never a current blocker
@@ -174,6 +176,11 @@ struct ProcessorState
     double blindContentNoticeMs = 0.0;            // message thread: the last notice since this BLIND began
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
     std::atomic<bool> contentUnmeasured { false };    // LISTEN/BLIND: the bound ended without a position
+    std::atomic<bool> contentNotRemeasured { false }; // the bound ended without a position; the kept correction plays
+    // INV-LC28, message thread, in memory only: the last confirmed correction and the pair, format and
+    // PRE owner it belongs to. A new session or K plays it after the bound instead of K alone.
+    hypha::live_compare::AlignValue alignKept;
+    hypha::live_compare::AlignContext alignKeptFor;
     std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
     std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second
     OffsetWindow contentWindow;

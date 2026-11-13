@@ -140,6 +140,7 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
              "Finish Keep / Record before PRE / POST Blind", "Match levels and compare while the song plays" })
         texts.add (text, false);
     texts.add (juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice(), false);
+    texts.add (live_compare_ui::notRemeasuredNotice(), false);
 }
 
 // The width the line has for its text: the whole footer row, and the status up to the first footer control.

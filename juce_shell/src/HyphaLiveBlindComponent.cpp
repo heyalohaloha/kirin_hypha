@@ -79,9 +79,11 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     if (live && !revealed && repeatingAudio && ! (returnDb > 0.05)) screen.detail = "Repeated audio: checked per block";
     // INV-LC28: the same words for both sources; PRE kept playing at its clock position. A lowered
     // level keeps its own line (named first), so the label takes the plain guidance line instead.
-    if (live && current.contentUnmeasured)
+    if (live && (current.contentUnmeasured || current.contentNotRemeasured))
     {
-        const auto label = juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice();
+        const auto label = current.contentUnmeasured
+            ? juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice()
+            : juce::String (live_compare_ui::notRemeasuredNotice());
         if (! (returnDb > 0.05)) screen.detail = label;
         else if (! screen.guidanceShown && (! revealed || instruction == "Sources revealed; keep comparing")) screen.instruction = label;
     }
