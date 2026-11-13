@@ -222,8 +222,10 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   line says so, for example **PRE 2.31 ms late / Check delay compensation**. When PRE is early, as with a
   plug-in between that under-reports its latency, Hypha reads the audition's PRE that much later
   and says so, for example **PRE 2.31 ms aligned**; the amount stays through seek, stop and loop (right after one, until enough new audio has
-  passed for a correction of seconds, PRE plays where the clocks put it rather than POST) and
-  follows a change. It also stays, in memory only, for later LISTEN and BLIND sessions and a new
+  passed for a correction of seconds, PRE plays where the clocks put it rather than POST; a
+  correction of up to a second waits as POST, for at most one second in all however often you seek
+  before PRE plays with it, then PRE plays where the clocks put it with **Delay unmeasured** until
+  enough audio has passed) and follows a change. It also stays, in memory only, for later LISTEN and BLIND sessions and a new
   clock mapping with the same pair, format and PRE: when audio that confirms no position follows
   (a dense loop through outboard, for example), PRE plays with that amount after the first second
   and the status line says **Delay not re-measured** until new audio confirms a position. A
