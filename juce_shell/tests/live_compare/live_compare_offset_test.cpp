@@ -147,7 +147,7 @@ static void wideDelaysAreFound()
         options.contentK = 512 + first;
         options.rightContentShift = 128768 - 2 * first; // the other channel at 96000 or 32768
         Chain chain (options);
-        for (const int chunks : { 110, 130 }) // about 2.3 s of history, then 5.1 s
+        for (const int chunks : { 110, 130, 170 }) // about 2.3 s of history, 5.1 s, then past the full 8 s reach
         {
             chain.run (chunks);
             const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
@@ -156,6 +156,44 @@ static void wideDelaysAreFound()
                          wide.found ? 1 : 0, static_cast<long long> (wide.lagFrames));
             require (! wide.found, "channels delayed differently propose no center");
         }
+    }
+    // Correlated stereo (PRE's right is its left 128 samples later, a spaced pair): the straight pairs
+    // agree on two seconds; the crossed pairs and the sum peak about 128 away, explained by PRE's own
+    // channels, never a contradiction.
+    for (const bool early : { true, false })
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true; options.preRightFromLeft = 128;
+        options.contentK = early ? 512 + 96000 : 512 - 96000;
+        Chain chain (options);
+        chain.run (240);
+        const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+        const auto lag = early ? -96000 : 96000;
+        std::printf ("wide correlated stereo %s: found %d center %lld\n", early ? "early" : "late", wide.found ? 1 : 0,
+                     static_cast<long long> (wide.lagFrames));
+        require (wide.found && std::llabs (wide.lagFrames - lag) <= 32, "correlated stereo finds its delay");
+        auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+        there.sampleRate = 48000;
+        require (offsetCanVote (there) && there.lagFrames == lag, "the fine search there finds it to the sample");
+    }
+    // PRE's right is silent and POST's right carries an offset: that channel never informs. It holds
+    // the proposal back only while the history is shorter than the full reach (its delay might not be
+    // reachable yet); then the left channel's two seconds are proposed.
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true; options.preRightSilent = true; options.postRightDc = 0.01f;
+        options.contentK = 512 + 96000;
+        Chain chain (options);
+        chain.run (240); // about 5.1 s
+        require (! searchWideOffset (chain.sharedRing(), chain.postRenderer()).found,
+                 "an uninformative channel waits while the history is short of the full reach");
+        chain.run (170); // about 8.7 s
+        const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+        std::printf ("wide uninformative right: found %d center %lld\n", wide.found ? 1 : 0, static_cast<long long> (wide.lagFrames));
+        require (wide.found && std::llabs (wide.lagFrames + 96000) <= 32, "at the full reach the informative channel proposes");
+        auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+        there.sampleRate = 48000;
+        require (offsetCanVote (there) && there.lagFrames == -96000, "the fine search there finds it to the sample");
     }
 }
 

@@ -402,28 +402,31 @@ WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
             preSpectra[2].bins[k] = 0.5 * ((preSpectra[0].content ? preSpectra[0].bins[k] : Complex())
                                            + (preSpectra[1].content ? preSpectra[1].bins[k] : Complex()));
     }
-    // The dominance rule across the candidates: for each POST channel the strongest peak must be
-    // offsetWideDominance times any other at another position, and every POST channel that carries
-    // content must find its peak, at the same position. A channel delayed otherwise, or so far that
-    // the history does not reach it yet, proposes nothing for both instead of the other's delay.
-    WideOffset proposal;
-    for (std::size_t channel = 0; channel < 2; ++channel)
+    // INV-LC7, the mapping hypotheses in order: straight (L-L, R-R), exchanged (L-R, R-L), then each
+    // POST channel against PRE's sum. Ambiguity is judged inside each pair's own correlation: a POST
+    // channel with content informs a hypothesis when its pair has a dominant peak, and votes for that
+    // position. Two informative channels at different positions contradict: nothing, never a later
+    // hypothesis. The first hypothesis with an informative channel decides. A channel that informs
+    // nothing neither votes nor vetoes, except that it holds the proposal back while the span is still
+    // short of the full reach: its delay may simply not be reachable yet.
+    const WideSpectrum postSpectra[2] { wideSpectrum (decimate (post, 0, factor), size),
+                                        wideSpectrum (decimate (post, 1, factor), size) };
+    const bool fullReach = frames >= longest;
+    constexpr std::size_t hypotheses[3][2] { { 0, 1 }, { 1, 0 }, { 2, 2 } };
+    for (const auto& sources : hypotheses)
     {
-        const auto postSpectrum = wideSpectrum (decimate (post, channel, factor), size);
-        if (! postSpectrum.content) continue;
-        WideOffset candidates[3], best;
-        for (std::size_t source = 0; source < 3; ++source)
+        WideOffset proposal;
+        bool silent = false;
+        for (std::size_t channel = 0; channel < 2; ++channel)
         {
-            candidates[source] = wideCorrelation (postSpectrum, preSpectra[source], n, overlap / factor, factor);
-            if (candidates[source].found && (! best.found || candidates[source].peak > best.peak)) best = candidates[source];
+            if (! postSpectra[channel].content) continue;
+            const auto wide = wideCorrelation (postSpectra[channel], preSpectra[sources[channel]], n, overlap / factor, factor);
+            if (! wide.found) { silent = true; continue; }
+            if (proposal.found && std::llabs (proposal.lagFrames - wide.lagFrames) > 2 * factor) return {};
+            if (! proposal.found || wide.peak > proposal.peak) proposal = wide;
         }
-        if (! best.found) return {};
-        for (const auto& wide : candidates)
-            if (std::llabs (wide.lagFrames - best.lagFrames) > 2 * factor && wide.peak * offsetWideDominance > best.peak)
-                return {};
-        if (proposal.found && std::llabs (proposal.lagFrames - best.lagFrames) > 2 * factor) return {};
-        if (! proposal.found || best.peak > proposal.peak) proposal = best;
+        if (proposal.found) return silent && ! fullReach ? WideOffset {} : proposal;
     }
-    return proposal;
+    return {};
 }
 }

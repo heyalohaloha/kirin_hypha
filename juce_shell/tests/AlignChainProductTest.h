@@ -248,4 +248,33 @@ inline void wideSearchWeighsEveryCandidate (int channels)
     }
     chain.clean ("every PRE sample is at its clock position");
 }
+
+// The wide search's mapping hypotheses (INV-LC7). Correlated stereo (PRE's right is its left 128
+// samples later) delayed two seconds is found by its straight pairs; the crossed pairs' displaced
+// peaks contradict nothing. A channel that never informs (PRE's right silent, POST's right an
+// offset) holds the proposal back only until the history covers the full reach: PRE plays at its
+// clock position with the label meanwhile, then at the left channel's two seconds.
+inline void wideSearchFollowsHypotheses (int channels)
+{
+    using namespace hypha::live_compare;
+    if (channels < 2) return;
+    for (const bool haas : { true, false })
+    {
+        ChunkedPost chain (channels);
+        if (haas) chain.haasFrames = 128;
+        else { chain.silentChannel = 1; chain.postRightDc = 0.01f; }
+        chain.setDelay (512);
+        chain.contentK = 512 + 96000;
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the two-second PRE");
+        require (post.startLiveCompare() == StartResult::started, "LISTEN starts");
+        post.selectLiveComparePre (true);
+        int chunks = 0;
+        chain.until (520, [&] { ++chunks; return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 96000; },
+                     haas ? "correlated stereo is found two seconds away" : "an uninformative channel waits at most for the full reach");
+        std::printf ("wide hypotheses %s: aligned after %d chunks\n", haas ? "correlated stereo" : "uninformative right", chunks);
+        if (! haas) require (chunks > 300, "the uninformative channel held the proposal while the history was short");
+        chain.clean ("PRE is read 96000 frames later");
+    }
+}
 }

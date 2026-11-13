@@ -60,13 +60,13 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
 OffsetEstimate measureOffset (const Ring&, const PostRenderer&, std::int64_t center = 0);
 
 // A chain delay the host does not compensate can exceed the fine search: a linear-phase EQ at high
-// oversampling holds tens of thousands of samples. The wide search correlates each of POST's channels
-// with PRE's left, right and their sum, over up to the last
-// offsetWideHistorySeconds of POST's history and PRE's run at about 3 kHz (whitened, as above), and
-// reaches as far as both sides overlap by offsetWideOverlapSeconds. Every POST channel with content
-// must find one dominant peak, at the same position; contradictory or missing evidence proposes
-// nothing. It only proposes a center: the fine search there, with its own peak, agreement and
-// dominance rules, is the evidence.
+// oversampling holds tens of thousands of samples. The wide search correlates POST with PRE under the
+// mapping hypotheses in order (straight, exchanged, each POST channel against PRE's sum), over up to the
+// last offsetWideHistorySeconds of POST's history and PRE's run at about 3 kHz (whitened, as above), and
+// reaches as far as both sides overlap by offsetWideOverlapSeconds. The first hypothesis in which a
+// channel's own pair has a dominant peak decides; two such channels at different positions propose
+// nothing. A channel without one only waits for the full reach. It only proposes a center: the fine
+// search there, with its own peak, agreement and dominance rules, is the evidence.
 constexpr double offsetWideHistorySeconds = 8.0, offsetWideOverlapSeconds = 1.0, offsetWideDominance = 3.0;
 inline std::int64_t offsetWideFrames (double rate) noexcept
 { return rate > 0.0 && rate <= 768000.0 ? static_cast<std::int64_t> (rate * offsetWideHistorySeconds) : 0; }

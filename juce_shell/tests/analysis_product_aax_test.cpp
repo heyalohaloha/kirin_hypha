@@ -202,6 +202,7 @@ try
             chainFindsLongDelays (layout == "mono" ? 1 : 2);
             wideSearchReadsEachChannel (layout == "mono" ? 1 : 2);
             wideSearchWeighsEveryCandidate (layout == "mono" ? 1 : 2);
+            wideSearchFollowsHypotheses (layout == "mono" ? 1 : 2);
         }
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;

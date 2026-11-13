@@ -70,6 +70,9 @@ struct Options
     std::int64_t contentK = 0;
     std::int64_t rightContentShift = 0; // POST's right channel this many samples later still
     bool swapChannels = false;          // POST's left carries PRE's right and its right PRE's left
+    std::int64_t preRightFromLeft = 0;  // PRE's right is its left this many samples later (a spaced pair)
+    bool preRightSilent = false;        // PRE's right is silent
+    float postRightDc = 0.0f;           // POST's right adds this DC (an outboard's offset)
     bool candidate = false;             // A/B: alignment is verified and withdrawals fade
 };
 
@@ -146,6 +149,11 @@ public:
     std::vector<std::array<std::int64_t, 4>> log;
 
 private:
+    float source (std::int64_t clock, int c) const noexcept
+    {
+        if (c == 1 && options.preRightSilent) return 0.0f;
+        return c == 1 && options.preRightFromLeft != 0 ? pcm (clock - options.preRightFromLeft, 0) : pcm (clock, c);
+    }
     std::int64_t wrapped (std::int64_t position) const noexcept
     { return options.loopFrames > 0 && position >= options.loopFrames ? position % options.loopFrames : position; }
 
@@ -178,7 +186,7 @@ private:
             b.wallNanos = wall; b.thread = 1;
             for (int i = 0; i < b.frames; ++i)
                 for (int c = 0; c < 2; ++c)
-                    input[static_cast<std::size_t> (c)][static_cast<std::size_t> (i)] = pcm (b.clock + i, c);
+                    input[static_cast<std::size_t> (c)][static_cast<std::size_t> (i)] = source (b.clock + i, c);
             const float* in[] { input[0].data(), input[1].data() };
             if (options.named) prePosition.apply (b, rate);
             feeder.feed (*ring, b, in, 2);
@@ -202,8 +210,9 @@ private:
         for (int c = 0; c < 2; ++c)
             for (int f = 0; f < b.frames; ++f)
                 output[static_cast<std::size_t> (c)][static_cast<std::size_t> (f)]
-                    = options.postCarriesPre ? pcm (b.clock - options.contentK + f - (c == 1 ? options.rightContentShift : 0),
-                                                    options.swapChannels ? 1 - c : c) : postSample;
+                    = options.postCarriesPre ? source (b.clock - options.contentK + f - (c == 1 ? options.rightContentShift : 0),
+                                                       options.swapChannels ? 1 - c : c) + (c == 1 ? options.postRightDc : 0.0f)
+                                             : postSample;
         float* out[] { output[0].data(), output[1].data() };
         decision = {};
         report = renderer.render (*ring, key, rate, b, out, 2, preSelected, 1.0f, level, 1.0f, 1.0f,
@@ -225,7 +234,7 @@ private:
                 ++proven;
                 for (int c = 0; c < 2; ++c)
                     for (int f = 0; f < b.frames; ++f)
-                        if (output[static_cast<std::size_t> (c)][static_cast<std::size_t> (f)] != pcm (decision.preStart + f, c)) ++wrongPcm;
+                        if (output[static_cast<std::size_t> (c)][static_cast<std::size_t> (f)] != source (decision.preStart + f, c)) ++wrongPcm;
             }
         }
         else if (firstAcceptChunk >= 0) ++dropouts;
