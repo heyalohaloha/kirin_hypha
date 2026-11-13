@@ -9,7 +9,8 @@
 //! The scanned crates are the ones linked into the shipping product (see `ffi_unwind_scope.rs`).
 //! There the check also fails on an export the scanner cannot see as a guarded entry
 //! (`#[no_mangle]`/`export_name` elsewhere), an export macro, an item-level macro invocation that
-//! is neither a local `macro_rules!` nor a std allowlisted one, or a shadowed `catch_unwind`.
+//! is neither a local `macro_rules!` nor a std allowlisted one, an import that puts another macro
+//! under one of those names, or a shadowed `catch_unwind`.
 
 #[path = "ffi_unwind_scope.rs"]
 mod scope;
@@ -338,6 +339,12 @@ fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
                 token.text
             ));
         }
+        if token.is("use") && imports_under_allowed_name(&tokens[at + 1..], &macros) {
+            scan.problems.push(format!(
+                "line {}: import under an allowed macro name",
+                line(token.start)
+            ));
+        }
         let next = tokens.get(at + 1);
         if token.kind == Kind::Ident
             && token.text.contains("export")
@@ -419,6 +426,26 @@ fn allowed_item_macro(tokens: &[Token], at: usize, macros: &[&str]) -> bool {
         }
         _ => false,
     }
+}
+
+/// A `use` tree that could put another macro under an allowed name: a rename to it
+/// (`use x::emit as thread_local;`), or an import of it whose path starts outside std and the crate.
+fn imports_under_allowed_name(after_use: &[Token], macros: &[&str]) -> bool {
+    let end = after_use.iter().position(|t| t.is(";"));
+    let tree = &after_use[..end.unwrap_or(after_use.len())];
+    let trusted = ["std", "core", "crate", "$crate", "self", "super"];
+    let trusted_root = tree.first().is_some_and(|t| trusted.contains(&t.text));
+    let precise_capture = tree.first().is_some_and(|t| t.is("<")); // `impl Trait + use<'a>`
+    !precise_capture
+        && tree.iter().enumerate().any(|(i, t)| {
+            let allowed =
+                ["thread_local", "assert", "include"].contains(&t.text) || macros.contains(&t.text);
+            let raw = i >= 2 && tree[i - 1].is("#") && tree[i - 2].is("r");
+            let before = i.checked_sub(if raw { 3 } else { 1 });
+            t.kind == Kind::Ident
+                && allowed
+                && (!trusted_root || before.is_some_and(|b| tree[b].is("as")))
+        })
 }
 
 /// The braces of the body after a signature that starts at `from`, or `None` when `;` ends it.

@@ -110,6 +110,9 @@ macro_rules! entry { ($name:ident) => {
 } }
 entry!(generated);
 crate::entry!(qualified);
+use crate::entry;
+use std::{thread_local, fmt::Debug as _};
+fn captures<'a>(x: &'a u8) -> impl Sized + use<'a> { thread_local! { static C: u8 = 0; } x }
 thread_local! { static CELL: u8 = const { 0 }; }
 const _: () = std::assert!(1 == 1);
 mod tests { include!("sibling_tests.rs"); }
@@ -186,6 +189,12 @@ fn exports_the_scanner_cannot_see_fail() {
         "macro_rules! catch_unwind { () => {} }",
         "use plugin::nih_export_vst3 as register;\nregister!(Plugin);",
         "impl Plugin { register!(); }",
+        "use plugin::emit as thread_local;\nthread_local!(Plugin);",
+        "pub use plugin::{emit as r#assert};",
+        "use plugin::thread_local;",
+        "use ::plugin::{other, include};",
+        "use crate::emit as include;",
+        "macro_rules! entry { () => {} }\nuse plugin::emit as entry;",
         "include!(\"../generated/exports.rs\");",
         "include!(concat!(env!(\"OUT_DIR\"), \"/exports.rs\"));",
     ] {

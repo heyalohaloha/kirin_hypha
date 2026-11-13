@@ -10,7 +10,8 @@
 //! state. They are not linked into the JUCE binaries, and their `nih_export_vst3!` exports come
 //! from vendored nih-plug code that this rule cannot guard, so a shipping crate may not depend on
 //! nih-plug. Third-party crates are out of scope; a shipping crate may not enable a dependency's
-//! `capi` feature (the vendored ebur128 keeps its C API behind it).
+//! `capi` feature (the vendored ebur128 keeps its C API behind it), neither where it declares the
+//! dependency nor through one of its own features.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -62,6 +63,18 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
             continue;
         }
         let name = package["name"].as_str().unwrap_or_default();
+        // A feature can enable a dependency's feature too (`dep/capi`, `dep?/capi`).
+        for (feature, enables) in package["features"].as_object().into_iter().flatten() {
+            let enables = enables.as_array().into_iter().flatten();
+            if let Some(capi) = enables
+                .filter_map(Value::as_str)
+                .find(|f| f.contains("capi"))
+            {
+                return Err(format!(
+                    "{name} enables a C API in feature {feature} ({capi})"
+                ));
+            }
+        }
         for dependency in package["dependencies"].as_array().into_iter().flatten() {
             if !dependency["kind"].is_null() {
                 continue; // dev and build dependencies are not linked into the product
@@ -199,6 +212,21 @@ mod tests {
                 ),
             ),
             ("outside", outside),
+            (
+                "feature",
+                package(
+                    "kirin_hypha_ffi",
+                    "[dependencies]\nlibz = \"1\"\n[features]\ndefault = [\"libz/capi\"]\n",
+                ),
+            ),
+            (
+                "weak-feature",
+                package(
+                    "kirin_hypha_ffi",
+                    "[dependencies]\nlibz = { version = \"1\", optional = true }\n\
+                     [features]\nextra = [\"libz?/capi\"]\n",
+                ),
+            ),
         ] {
             let root = fake_workspace(
                 name,
