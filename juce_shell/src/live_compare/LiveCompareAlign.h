@@ -204,6 +204,7 @@ public:
             shown.publishDisplay ({}, context);
             newSession();
         }
+        reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;
         result.revision = readiness.generation();
         auto wanted = playback.enabled
@@ -226,7 +227,10 @@ public:
         return result;
     }
     // A new session or context: its first hold has the whole bound again.
-    void newSession() noexcept { readiness.newContext(); held = 0; unserved.store (false); }
+    void newSession() noexcept
+    { readiness.newContext(); held = 0; unserved.store (false); reach.store (std::numeric_limits<std::int64_t>::max()); }
+    // The largest correction PRE's run served at POST's latest block; the maximum while unknown.
+    std::int64_t servable() const noexcept { return reach.load (std::memory_order_relaxed); }
     // The hold ended before PRE's run served the correction: PRE plays at K until it does.
     bool unservedCorrection() const noexcept { return unserved.load(); }
     AlignValue value() const noexcept { return applied; }
@@ -251,6 +255,7 @@ private:
     AlignValue applied; // Audio Thread only
     std::int64_t held = 0; // Audio Thread only: POST frames held for the correction since PRE last served it
     std::atomic<bool> unserved { false };
+    std::atomic<std::int64_t> reach { std::numeric_limits<std::int64_t>::max() };
 };
 
 // The last valid host identities survive gaps and repeated observations. This is only an
@@ -298,6 +303,18 @@ public:
             changed = preSide.observe (peer.block) || changed;
         }
         return changed;
+    }
+    // The conditions a kept A/B correction was confirmed under (INV-LC28): equal or not, nothing more.
+    std::uint64_t fingerprint() const noexcept
+    {
+        std::uint64_t hash = 1469598103934665603ull;
+        const auto mix = [&hash] (std::uint64_t value) noexcept { hash = (hash ^ value) * 1099511628211ull; };
+        for (const auto* side : { &preSide, &postSide })
+        {
+            mix (side->presentationKnown); mix (side->presentationSource); mix (side->presentation);
+            mix (side->chainKnown); mix (side->chainA); mix (side->chainB); mix (side->delay);
+        }
+        return hash;
     }
 private:
     std::uint64_t session = 0, ownerA = 0, ownerB = 0;

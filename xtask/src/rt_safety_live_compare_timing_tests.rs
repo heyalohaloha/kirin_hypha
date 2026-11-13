@@ -30,7 +30,7 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(!alignment.contains("held = 0"));
     assert_eq!(ALIGN_H.matches("held = 0;").count(), 3); // the member, a new session, PRE accepted
     assert!(ALIGN_H.contains("if (applied.frames > 0) { held = 0; unserved.store (false); }"));
-    assert!(ALIGN_H.contains("void newSession() noexcept { readiness.newContext(); held = 0;"));
+    assert!(ALIGN_H.contains("{ readiness.newContext(); held = 0; unserved.store (false);"));
     assert!(
         render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied();")
     );

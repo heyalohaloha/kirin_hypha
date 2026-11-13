@@ -181,6 +181,11 @@ struct ProcessorState
     // PRE owner it belongs to. A new session or K plays it after the bound instead of K alone.
     hypha::live_compare::AlignValue alignKept;
     hypha::live_compare::AlignContext alignKeptFor;
+    // Whether A/B confirmed it, for which peer (PRE2) and under which host conditions (reported latency,
+    // insert chain, maximum delay, compensation): another start of that candidate needs the same ones.
+    bool alignKeptCandidate = false;
+    std::uint64_t alignKeptPeer = 0, alignKeptConditions = 0, alignKeptCompensation = 0;
+    std::atomic<std::uint64_t> alignConditions { 0 }; // Audio Thread: the A/B host conditions' fingerprint
     std::uint64_t keptMissSince = 0; // message thread: the first read of the kept position that missed
     std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
     std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second

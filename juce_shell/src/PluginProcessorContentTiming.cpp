@@ -154,8 +154,14 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     // delay was not measured instead of staying silent (A/B already says its A is unconfirmed). A
     // correction confirmed before for this pair, format and PRE owner plays instead, told as not
     // re-measured (INV-LC28). A snapshot that cannot be read now is read again on the next service,
-    // for at most keptReadNanos; one that PRE's run cannot serve yet is dropped.
-    auto kept = liveCompare.alignKeptFor == context ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
+    // for at most keptReadNanos; one that PRE's run cannot serve yet is dropped. LISTEN / BLIND and A/B
+    // never use each other's; A/B uses one only for the same candidate under the same host conditions.
+    const bool candidate = candidateCompareActive();
+    const bool sameHost = ! candidate || (liveCompare.alignKeptPeer == liveCompare.alignPeer.load (std::memory_order_acquire)
+        && liveCompare.alignKeptConditions == liveCompare.alignConditions.load (std::memory_order_acquire)
+        && liveCompare.alignKeptCompensation == liveCompare.compensationRevision.load (std::memory_order_acquire));
+    auto kept = liveCompare.alignKeptFor == context && liveCompare.alignKeptCandidate == candidate && sameHost
+        ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
     if (! alignConfirmationExpired (state, now)) liveCompare.keptMissSince = 0;
     else if (keptReadable (kept, now))
     {
@@ -273,6 +279,10 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         {
             liveCompare.alignKept = value; // confirmed: later sessions and K start from it (in memory only)
             liveCompare.alignKeptFor = estimate.alignContext;
+            liveCompare.alignKeptCandidate = candidateCompareActive();
+            liveCompare.alignKeptPeer = liveCompare.alignPeer.load (std::memory_order_acquire);
+            liveCompare.alignKeptConditions = liveCompare.alignConditions.load (std::memory_order_acquire);
+            liveCompare.alignKeptCompensation = liveCompare.compensationRevision.load (std::memory_order_acquire);
         }
     }
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
@@ -299,21 +309,19 @@ bool KirinHyphaProcessorBase::alignConfirmationExpired (const hypha::live_compar
     return now >= liveCompare.alignConfirmStart && now - liveCompare.alignConfirmStart >= confirmationWaitNanos;
 }
 
-// INV-LC28: whether PRE's run serves the kept correction at POST's latest block. False only to read
-// again (a snapshot changed under the read), for at most keptReadNanos; an unreadable or still
+// INV-LC28: whether PRE's run serves the kept correction at POST's latest block, as that block's
+// renderer found it (LISTEN, BLIND and A/B alike: A/B records no history while B settles). False only
+// to read again (no proven clock mapping yet), for at most keptReadNanos; an unreadable or still
 // unknown position then clears `kept`, so the bound falls back to K.
 bool KirinHyphaProcessorBase::keptReadable (hypha::live_compare::AlignValue& kept, std::uint64_t now) noexcept
 {
     if (kept.frames == 0) return true;
-    auto view = liveCompare.renderer.historyView();
+    auto reach = liveCompare.renderer.alignReach();
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
-    if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest()) view = {};
+    if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest())
+        reach = std::numeric_limits<std::int64_t>::max();
    #endif
-    const auto* mapping = liveCompare.ring.control();
-    std::int64_t mapped = 0, reach = 0;
-    const bool known = mapping != nullptr && mapping->ring() != nullptr && view.samples != nullptr && view.kValid
-        && hypha::live_compare::checkedClockSubtract (view.end - view.blockFrames, view.k, mapped)
-        && hypha::live_compare::checkedClockSubtract (mapped, mapping->ring()->header.runStart.load (std::memory_order_acquire), reach);
+    const bool known = reach != std::numeric_limits<std::int64_t>::max();
     if (! known && (liveCompare.keptMissSince == 0 || now - liveCompare.keptMissSince < keptReadNanos))
     {
         if (liveCompare.keptMissSince == 0) liveCompare.keptMissSince = now;
