@@ -181,6 +181,7 @@ struct ProcessorState
     // PRE owner it belongs to. A new session or K plays it after the bound instead of K alone.
     hypha::live_compare::AlignValue alignKept;
     hypha::live_compare::AlignContext alignKeptFor;
+    std::uint64_t keptMissSince = 0; // message thread: the first read of the kept position that missed
     std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
     std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second
     OffsetWindow contentWindow;

@@ -109,8 +109,14 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         requireHeard (chain, "BLIND 2-mix PRE after a switch", 150, Heard::kept, true);
         post.closeLiveBlind();
         chain.until (60, [&] { return ! post.liveCompareStatus().active && ! post.liveCompareStatus().finishing; }, "BLIND ends");
+        // A history read that misses right at the bound (its snapshot changed) is read again.
+        static int misses = 0;
+        misses = 2;
+        keptViewMissForTest = [] { return misses > 0 && misses-- > 0; };
         startListen (chain, "LISTEN starts again");
         requireHeard (chain, "LISTEN again on the 2-mix", 150, Heard::kept);
+        keptViewMissForTest = nullptr;
+        require (misses == 0, "the kept position was read again after the misses");
         chain.setPlaying (false); chain.run (8); chain.setPlaying (true);
         requireHeard (chain, "LISTEN 2-mix after stop/start", 150, Heard::kept);
         chain.seek (chain.transport / 2);
@@ -120,6 +126,12 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         chain.leaveLoop();
         chain.setDelay (512 + 256); chain.contentK = 512 + 256 + uncompensated;
         requireHeard (chain, "LISTEN 2-mix after a new K", 150, Heard::kept);
+        // A read that keeps missing ends in K and the label within a short while.
+        finishListen (chain);
+        keptViewMissForTest = [] { return true; };
+        startListen (chain, "LISTEN starts with the history unreadable");
+        requireHeard (chain, "LISTEN with the kept read missing", 150, Heard::unmeasured);
+        keptViewMissForTest = nullptr;
         // A pair change ends the kept correction: the next session is a first one.
         finishListen (chain);
         post.clearPairCandidate();
@@ -157,5 +169,34 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         startListen (chain, "LISTEN starts on the 2-mix");
         requireHeard (chain, "first LISTEN on the 2-mix", 300, Heard::unmeasured);
     }
+}
+// A match on a repeated waveform proves no unique position (INV-LC28): it is never kept. A later
+// session on audio that confirms nothing plays PRE at K with the label, never POST behind rechecks.
+inline void periodicMatchIsNotKept (int channels)
+{
+    using namespace hypha::live_compare;
+    ChunkedPost chain (channels);
+    chain.tonal = true;
+    auto& post = *chain.post;
+    selectPreparedPair (chain, "select the periodic PRE");
+    startListen (chain, "LISTEN starts on periodic audio");
+    chain.until (120, [&] { return post.liveCompareStatus().preAudible && post.liveContentTimingObservation().verifySamples
+                                   && post.liveCompareAlignFrames() > 0; }, "periodic audio is aligned and checked per block");
+    finishListen (chain);
+    chain.tonal = false;
+    chain.unrelatedPost = true;
+    startListen (chain, "LISTEN starts on audio that confirms nothing");
+    int audible = 0, unmeasured = 0, notRemeasured = 0;
+    for (int i = 0; i < 200; ++i)
+    {
+        chain.chunk();
+        const auto s = post.liveCompareStatus();
+        audible += s.preAudible ? 1 : 0; unmeasured += s.contentUnmeasured ? 1 : 0; notRemeasured += s.contentNotRemeasured ? 1 : 0;
+    }
+    std::printf ("outboard periodic then unmeasurable: audible %d unmeasured %d not re-measured %d align %lld\n", audible,
+                 unmeasured, notRemeasured, static_cast<long long> (post.liveCompareAlignFrames()));
+    require (audible > 100 && unmeasured > 100 && notRemeasured == 0 && post.liveCompareAlignFrames() == 0,
+             "a periodic match is not kept: PRE plays at K with the label");
+    chain.clean ("PRE plays only proven clock positions");
 }
 }

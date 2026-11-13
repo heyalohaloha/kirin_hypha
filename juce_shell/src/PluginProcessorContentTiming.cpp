@@ -4,6 +4,7 @@ namespace
 {
 // INV-LC28 / INV-LC10: fresh windows vote well within it (100 ms apart, two needed).
 constexpr std::uint64_t confirmationWaitNanos = 1'000'000'000;
+constexpr std::uint64_t keptReadNanos = 500'000'000; // INV-LC28: a kept correction's read retries
 }
 
 void KirinHyphaProcessorBase::invalidateLiveComparePair() noexcept
@@ -152,17 +153,12 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     // The bound ended without a confirmed position: PRE plays at K, and LISTEN and BLIND say that the
     // delay was not measured instead of staying silent (A/B already says its A is unconfirmed). A
     // correction confirmed before for this pair, format and PRE owner plays instead, told as not
-    // re-measured; one that PRE's run cannot serve yet is dropped (INV-LC28).
-    if (alignConfirmationExpired (state, now))
+    // re-measured (INV-LC28). A snapshot that cannot be read now is read again on the next service,
+    // for at most keptReadNanos; one that PRE's run cannot serve yet is dropped.
+    auto kept = liveCompare.alignKeptFor == context ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
+    if (! alignConfirmationExpired (state, now)) liveCompare.keptMissSince = 0;
+    else if (keptReadable (kept, now))
     {
-        auto kept = liveCompare.alignKeptFor == context ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
-        const auto view = liveCompare.renderer.historyView();
-        const auto* mapping = liveCompare.ring.control();
-        std::int64_t mapped = 0, reach = 0;
-        if (kept.frames != 0 && (mapping == nullptr || mapping->ring() == nullptr || ! view.kValid
-            || ! hypha::live_compare::checkedClockSubtract (view.end - view.blockFrames, view.k, mapped)
-            || ! hypha::live_compare::checkedClockSubtract (mapped, mapping->ring()->header.runStart.load (std::memory_order_acquire), reach)
-            || reach < kept.frames)) kept = {};
         liveCompare.alignKept = kept;
         liveCompare.renderer.requestAlign (kept, context, revision);
         liveCompare.contentUnmeasured.store (kept.frames == 0 && ! candidateCompareActive(), std::memory_order_release);
@@ -273,8 +269,11 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         || static_cast<double> (std::llabs (settled - current)) > agreement)
     {
         liveCompare.renderer.requestAlign (value, estimate.alignContext, estimate.alignRevision);
-        liveCompare.alignKept = value; // confirmed: later sessions and K start from it (in memory only)
-        liveCompare.alignKeptFor = estimate.alignContext;
+        if (! value.verifySamples) // a repeated waveform proves no unique position: never kept
+        {
+            liveCompare.alignKept = value; // confirmed: later sessions and K start from it (in memory only)
+            liveCompare.alignKeptFor = estimate.alignContext;
+        }
     }
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
     return ! unreadable || slightlyLate;
@@ -298,6 +297,31 @@ bool KirinHyphaProcessorBase::alignConfirmationExpired (const hypha::live_compar
     if (state.verdict != hypha::live_compare::Verdict::accepted) return false;
     if (liveCompare.alignConfirmStart == 0) liveCompare.alignConfirmStart = now;
     return now >= liveCompare.alignConfirmStart && now - liveCompare.alignConfirmStart >= confirmationWaitNanos;
+}
+
+// INV-LC28: whether PRE's run serves the kept correction at POST's latest block. False only to read
+// again (a snapshot changed under the read), for at most keptReadNanos; an unreadable or still
+// unknown position then clears `kept`, so the bound falls back to K.
+bool KirinHyphaProcessorBase::keptReadable (hypha::live_compare::AlignValue& kept, std::uint64_t now) noexcept
+{
+    if (kept.frames == 0) return true;
+    auto view = liveCompare.renderer.historyView();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest()) view = {};
+   #endif
+    const auto* mapping = liveCompare.ring.control();
+    std::int64_t mapped = 0, reach = 0;
+    const bool known = mapping != nullptr && mapping->ring() != nullptr && view.samples != nullptr && view.kValid
+        && hypha::live_compare::checkedClockSubtract (view.end - view.blockFrames, view.k, mapped)
+        && hypha::live_compare::checkedClockSubtract (mapped, mapping->ring()->header.runStart.load (std::memory_order_acquire), reach);
+    if (! known && (liveCompare.keptMissSince == 0 || now - liveCompare.keptMissSince < keptReadNanos))
+    {
+        if (liveCompare.keptMissSince == 0) liveCompare.keptMissSince = now;
+        return false;
+    }
+    liveCompare.keptMissSince = 0;
+    if (! known || reach < kept.frames) kept = {};
+    return true;
 }
 
 bool KirinHyphaProcessorBase::candidateAlignUnconfirmed() const noexcept

@@ -205,7 +205,11 @@ try
             wideSearchWeighsEveryCandidate (layout == "mono" ? 1 : 2);
             wideSearchFollowsHypotheses (layout == "mono" ? 1 : 2);
         }
-        if (scenario == "alignment_outboard") outboardKeepsTheConfirmedCorrection (layout == "mono" ? 1 : 2);
+        if (scenario == "alignment_outboard")
+        {
+            outboardKeepsTheConfirmedCorrection (layout == "mono" ? 1 : 2);
+            periodicMatchIsNotKept (layout == "mono" ? 1 : 2);
+        }
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;
     }

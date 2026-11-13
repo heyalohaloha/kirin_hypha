@@ -33,6 +33,7 @@ void serviceLiveContentTiming();
 bool alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step&, const hypha::live_compare::OffsetEstimate&) noexcept;
 bool liveCompareAlignPending() const noexcept;
 bool alignConfirmationExpired (const hypha::live_compare::Status&, std::uint64_t now) noexcept;
+bool keptReadable (hypha::live_compare::AlignValue& kept, std::uint64_t now) noexcept;
 bool candidateAlignUnconfirmed() const noexcept;
 bool liveCompareAutoAlign() const noexcept; // INV-LC28, on unless the user turned it off
 void setLiveCompareAutoAlign (bool enabled) noexcept;
