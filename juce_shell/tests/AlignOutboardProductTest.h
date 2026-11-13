@@ -13,7 +13,7 @@ namespace aax_analysis_product
 // What the listener hears, block by block: how far PRE sounds earlier than POST's matching audio.
 struct HeardRow
 {
-    int audible = 0, early = 0, late = 0, unmeasured = 0, notRemeasured = 0;
+    int audible = 0, early = 0, late = 0, unmeasured = 0, notRemeasured = 0, firstAudible = -1;
     std::int64_t maxEarly = 0, lastAlign = 0;
 };
 
@@ -31,6 +31,7 @@ inline HeardRow heardOver (ChunkedPost& chain, int chunks, bool blind = false)
         if (s.contentUnmeasured) ++row.unmeasured;
         if (s.contentNotRemeasured && (! blind || post.liveBlindStatus().contentNotRemeasured)) ++row.notRemeasured;
         if (! s.preAudible) continue;
+        if (row.firstAudible < 0) row.firstAudible = i;
         ++row.audible;
         const auto early = chain.contentK - (chain.k + align);
         if (early > 1) ++row.early;
@@ -43,7 +44,7 @@ inline HeardRow heardOver (ChunkedPost& chain, int chunks, bool blind = false)
 // kept: PRE at K plus the kept correction in every audible block, told as not re-measured;
 // otherwise within the confirming session (no label) or, with nothing kept, at K with the label.
 enum class Heard { confirmed, kept, unmeasured };
-inline void requireHeard (ChunkedPost& chain, const char* what, int chunks, Heard heard, bool blind = false)
+inline HeardRow requireHeard (ChunkedPost& chain, const char* what, int chunks, Heard heard, bool blind = false)
 {
     const auto r = heardOver (chain, chunks, blind);
     std::printf ("outboard %-30s audible %4d early %4d late %3d unmeasured %4d not re-measured %4d PRE early max %lld align %lld\n",
@@ -54,6 +55,7 @@ inline void requireHeard (ChunkedPost& chain, const char* what, int chunks, Hear
         : r.audible > 0 && r.early == 0 && r.late == 0 && r.lastAlign == 1065 && r.unmeasured == 0
             && (heard == Heard::kept ? r.notRemeasured > 0 : r.notRemeasured == 0);
     require (ok, what);
+    return r;
 }
 
 inline void finishListen (ChunkedPost& chain)
@@ -114,7 +116,7 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         misses = 2;
         keptViewMissForTest = [] { return misses > 0 && misses-- > 0; };
         startListen (chain, "LISTEN starts again");
-        requireHeard (chain, "LISTEN again on the 2-mix", 150, Heard::kept);
+        const auto readable = requireHeard (chain, "LISTEN again on the 2-mix", 150, Heard::kept);
         keptViewMissForTest = nullptr;
         require (misses == 0, "the kept position was read again after the misses");
         chain.setPlaying (false); chain.run (8); chain.setPlaying (true);
@@ -126,12 +128,17 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         chain.leaveLoop();
         chain.setDelay (512 + 256); chain.contentK = 512 + 256 + uncompensated;
         requireHeard (chain, "LISTEN 2-mix after a new K", 150, Heard::kept);
-        // A read that keeps missing ends in K and the label within a short while.
+        // A read that keeps missing ends in K and the label 0.5 s after the bound: PRE is heard at most
+        // that much later than with a readable kept position (a retry of 1.5 s fails here).
         finishListen (chain);
         keptViewMissForTest = [] { return true; };
         startListen (chain, "LISTEN starts with the history unreadable");
-        requireHeard (chain, "LISTEN with the kept read missing", 150, Heard::unmeasured);
+        const auto missing = requireHeard (chain, "LISTEN with the kept read missing", 150, Heard::unmeasured);
         keptViewMissForTest = nullptr;
+        const auto later = missing.firstAudible - readable.firstAudible;
+        std::printf ("outboard kept read missing: PRE heard %d chunks (%.2f s) later than with the read\n", later, later * 1024.0 / 48000.0);
+        require (missing.firstAudible >= 0 && readable.firstAudible >= 0 && later > 0
+                 && later * ChunkedPost::chunkFrames <= 48000 * 6 / 10, "the retries end within 0.5 s of the bound");
         // A pair change ends the kept correction: the next session is a first one.
         finishListen (chain);
         post.clearPairCandidate();
