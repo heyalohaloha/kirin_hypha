@@ -86,8 +86,6 @@ template<class Require> void verifyCandidateRecoveryPriority (Require require)
     named.clockUnavailable = blind.clockUnavailable = false;
     named.observation = blind.observation = RecoveryReason::contentAmbiguous;
     check ("Position unconfirmed; B plays", "Position unconfirmed; B plays");
-    named.observation = blind.observation = RecoveryReason::preLate;
-    check ("Position unconfirmed; B plays", "Position unconfirmed; B plays"); // the short wait never blames the chain
     named.observation = blind.observation = RecoveryReason::stopped;
     check ("DAW stopped: play to resume (POST)", "DAW stopped: play to resume (POST)");
     for (const auto reason : { RecoveryReason::ceiling, RecoveryReason::nonFinite })

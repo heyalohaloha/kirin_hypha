@@ -113,86 +113,61 @@ inline void publicationKeepsConfirmedAudio (int channels)
     }
 }
 
-inline void waitingBlindCanDisableAlignment (int channels)
+// INV-LC10: a confident late PRE never holds a BLIND trial on POST. Either source sounds at its
+// clock position, both earn receipts and REVEAL, alignment stays ON, and past three seconds the
+// notice names the chain delay with the same words for either assignment. RESULT tells the estimate.
+inline void lateBlindSoundsAtItsClock (int channels)
 {
     using namespace hypha::live_compare;
-    using hypha::tests::editor_product::RefreshBlind;
-    // A confident late PRE is a delay to fix: the trial keeps POST and offers ALIGN OFF.
-    for (bool late : { true })
+    hypha::blind_ui::Screen screens[2];
+    for (bool firstPre : { false, true })
     {
-        hypha::blind_ui::Screen waitingScreens[2];
-        for (bool firstPre : { false, true })
-        {
-            ChunkedPost chain (channels);
-            chain.unrelatedPost = !late;
-            auto& post = *chain.post;
-            selectPreparedPair (chain, "select timing-recovery PRE");
-            require (post.beginLiveBlind() == StartResult::started, "timing-recovery BLIND starts with default ON");
-            chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
-                         "the same section prepares BLIND");
-            LiveTimingFixtureAccess::assignBlind (post, firstPre);
-            require (post.selectLiveBlind (1), "select the first source while alignment waits");
-            if (late) chain.setDelay (1024); // change the clock mapping before either source earns a receipt
-            chain.run (190);
-            const auto expected = late ? RecoveryReason::preLate : RecoveryReason::contentAmbiguous;
-            require (post.liveBlindStatus().observation == expected, "the real input reaches the requested timing failure");
-            require (post.liveCompareAlignPending() && post.liveBlindStatus().trial.played == 0 && !post.revealLiveBlind(),
-                     "unconfirmed timing earns no anonymous receipt before the explicit OFF operation");
-            const auto before = post.liveBlindStatus();
-            waitingScreens[firstPre ? 1 : 0] = hypha::live_blind_ui::screenFor (before, true, post.liveCompareStatus().postActual);
-            const auto gain = post.liveCompareStatus().gain;
-            auto editor = std::unique_ptr<KirinHyphaEditor> (dynamic_cast<KirinHyphaEditor*> (post.createEditorIfNeeded()));
-            require (editor != nullptr, "recovery uses the shipping editor");
-            editor->setVisible (true);
-            (editor.get()->*privateMember (RefreshBlind {}))();
-            auto* button = dynamic_cast<juce::Button*> (hypha::tests::editor_product::find (*editor, "live-blind-align-off"));
-            auto* end = hypha::tests::editor_product::find (*editor, "live-blind-end");
-            require (button != nullptr && end != nullptr, "the waiting screen contains the explicit OFF operation and END");
-            for (const auto language : { hypha::i18n::Language::english, hypha::i18n::Language::japanese })
-            {
-                hypha::i18n::ScopedLanguage localized (language);
-                for (const auto width : { 300, 375, 450, 600, 900 })
-                {
-                    editor->setSize (width, width * 2 / 3);
-                    (editor.get()->*privateMember (RefreshBlind {}))();
-                    bool visible = true;
-                    for (auto* ancestor = static_cast<juce::Component*> (button); ancestor != nullptr; ancestor = ancestor->getParentComponent())
-                        visible = visible && ancestor->isVisible();
-                    if (!visible || !button->isEnabled() || button->getBounds().intersects (end->getBounds()))
-                    {
-                        const auto* screen = dynamic_cast<hypha::live_blind_ui::Component*> (button->getParentComponent());
-                        std::cerr << "OFF reachability: width " << width << " language " << static_cast<int> (language)
-                                  << " visible " << button->isVisible() << " showing " << button->isShowing()
-                                  << " enabled " << button->isEnabled() << " bounds " << button->getBounds().toString()
-                                  << " END " << end->getBounds().toString();
-                        if (screen) std::cerr << " shown " << screen->screen().alignOffShown
-                            << " wait " << screen->state().prolongedWait << " observation " << static_cast<int> (screen->state().observation);
-                        std::cerr << '\n';
-                    }
-                    require (visible && button->isEnabled() && !button->getBounds().intersects (end->getBounds()),
-                             "OFF is reachable without moving END at every size and language");
-                    require (button->getParentComponent()->getComponentAt (button->getBounds().getCentre()) == button,
-                             "the visible OFF button receives its own click");
-                }
-            }
-            button->onClick(); // actual UI callback changes the processor's existing saved preference
-            require (!post.liveCompareAutoAlign(), "the waiting-screen operation explicitly disables automatic alignment");
-            chain.run (12);
-            const auto after = post.liveBlindStatus();
-            require (after.trial.epoch == before.trial.epoch && after.trial.firstPre == before.trial.firstPre
-                     && after.trial.selected == before.trial.selected && post.liveCompareStatus().gain == gain,
-                     "OFF preserves this trial, assignment, selected source and approved gain");
-            require (post.selectLiveBlind (2), "the second source stays selectable on the same material");
-            chain.run (12);
-            require (post.liveBlindStatus().trial.played == 3 && post.revealLiveBlind(),
-                     "explicit OFF allows both actual sources and REVEAL without changing material or restarting");
-            require (post.liveBlindStatus().trial.firstPre == firstPre, "REVEAL confirms that OFF preserved the true anonymous assignment");
-            chain.clean ("explicit OFF still uses only proven clock addresses");
-            post.editorBeingDeleted (editor.get());
-            editor.reset();
-        }
-        require (waitingScreens[0] == waitingScreens[1], "timing recovery reveals no anonymous assignment");
+        ChunkedPost chain (channels);
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select late-PRE BLIND");
+        require (post.beginLiveBlind() == StartResult::started, "late-PRE BLIND starts with default ON");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
+                     "the same section prepares BLIND");
+        LiveTimingFixtureAccess::assignBlind (post, firstPre);
+        require (post.selectLiveBlind (1), "select the first source");
+        chain.setDelay (1024); // PRE would need unwritten future audio: it sounds at K and is told
+        chain.run (190);
+        const auto waited = post.liveBlindStatus();
+        require (waited.contentHeld && waited.contentLagFrames == 512 && waited.prolongedWait
+                 && waited.observation != RecoveryReason::preLate && !post.liveCompareAlignPending()
+                 && post.liveCompareAlignFrames() == 0 && post.liveCompareAutoAlign(),
+                 "a confirmed late PRE is told past three seconds; alignment stays ON and waits for nothing");
+        require (post.liveCompareStatus().preAudible == firstPre && waited.trial.played == 1,
+                 "the selected source sounds at its clock position and earns its receipt");
+        auto& screen = screens[firstPre ? 1 : 0];
+        screen = hypha::live_blind_ui::screenFor (waited, true, post.liveCompareStatus().postActual);
+        require (screen.guidanceShown && !screen.alignOffShown && screen.recovery == hypha::live_compare_ui::chainDelayNotice()
+                 && screen.cause == hypha::live_compare_ui::cause (RecoveryReason::preLate),
+                 "the notice names the chain delay, not an output or ALIGN OFF");
+        require (post.selectLiveBlind (2), "the second source stays selectable on the same material");
+        chain.run (12);
+        require (post.liveBlindStatus().trial.played == 3 && post.revealLiveBlind(),
+                 "both actual sources and REVEAL without OFF, another section or a restart");
+        require (post.liveBlindStatus().trial.firstPre == firstPre, "REVEAL confirms the true anonymous assignment");
+        // REVEAL with the chain unchanged: the notice still stands, and RESULT states its amount after
+        // the short POST that really stood in while the new clock mapping was checked.
+        const auto standing = post.liveBlindStatus();
+        const auto estimate = "Audio estimate: PRE may have been " + juce::String (512.0 * 1000.0 / 48000.0, 2) + " ms off";
+        const auto expected = (standing.trial.usedPostFallback && standing.trial.fallbackForTiming
+                                  && ! standing.trial.fallbackForCeiling
+                              ? juce::String ("POST was used briefly when timing was unavailable / ") : juce::String()) + estimate;
+        const auto atReveal = hypha::live_blind_ui::screenFor (standing, true, post.liveCompareStatus().postActual);
+        require (standing.contentHeld && standing.prolongedWait && !atReveal.guidanceShown && atReveal.instruction == expected,
+                 "RESULT states the measured estimate while the notice is still up");
+        chain.setDelay (512); // the chain is fixed: the notice ends and RESULT keeps what was estimated
+        chain.until (200, [&] { const auto now = post.liveBlindStatus(); return !now.contentHeld && !now.prolongedWait; },
+                     "a correct mapping ends the notice in the revealed trial");
+        const auto told = hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, post.liveCompareStatus().postActual);
+        require (told.instruction.endsWith (estimate) && (! standing.trial.usedPostFallback || told.instruction.contains (" / ")),
+                 "RESULT keeps the disclosed substitute and the estimate after the notice ends");
+        chain.clean ("a late PRE uses only proven clock addresses or exact POST");
     }
+    require (screens[0] == screens[1], "the late-PRE notice reveals no anonymous assignment");
 }
 
 // Unconfirmable content never holds a trial on POST past the bounded wait: both sources sound at
@@ -412,7 +387,7 @@ inline void verifyAlignSessions (int channels)
     hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
     restartingConfirmsNewContent (channels);
     publicationKeepsConfirmedAudio (channels);
-    waitingBlindCanDisableAlignment (channels);
+    lateBlindSoundsAtItsClock (channels);
     waitingBlindResumesAtItsClock (channels);
     heardSourcesCanRevealDuringRecheck (channels);
     unconfirmableChainPlaysPreAtItsClock (channels);

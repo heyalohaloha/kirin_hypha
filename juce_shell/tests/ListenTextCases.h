@@ -109,8 +109,9 @@ inline std::vector<Notice> notices()
         for (const auto* side : { " early", " late" }) add (juce::String ("PRE ") + offset + " ms" + side);
     for (const auto* offset : { "0.02", "170.67", "9999.99" })
     {
-        Status state; state.active = state.preSelected = state.prolongedWait = true;
-        state.observation = RecoveryReason::preLate;
+        // INV-LC10: the content timing notice; PRE still sounds at K.
+        Status state; state.active = state.preSelected = state.prolongedWait = state.contentHeld = true;
+        state.contentJumpLagFrames = 1;
         add (juce::String ("PRE ") + offset + " ms late / " + live_compare_ui::namedPresentation (state).instruction, state);
     }
     for (int n = 0; n <= static_cast<int> (live_compare_ui::AutoReadiness::blocked); ++n)
@@ -142,6 +143,13 @@ inline std::vector<BlindCase> blindCases()
     }
     { LiveBlindStatus state; state.stage = BlindStage::preparing;
       state.signalWait = state.prolongedWait = true; add (state, true, 1.0f); }
+    // RESULT while a content notice still stands, and an A/B RESULT with both facts (INV-LC10).
+    for (bool candidate : { false, true })
+    { LiveBlindStatus state; state.candidate = candidate; state.stage = BlindStage::active; state.lowerPostDb = -24.0;
+      state.contentHeld = state.prolongedWait = true; state.contentLagFrames = 1; state.contentNoticeMs = 9999.99;
+      state.trial.active = state.trial.revealed = true; state.trial.played = 3;
+      state.trial.usedPostFallback = state.trial.fallbackForTiming = state.trial.fallbackForCeiling = candidate;
+      add (state, true, 1.0f); add (state, true, 0.0630957f); }
     // A to B BLIND adds the chain to the END line; the longest level is 24 dB.
     for (auto stage : { BlindStage::approval, BlindStage::active, BlindStage::finishing, BlindStage::invalidated })
     { LiveBlindStatus state; state.candidate = true; state.stage = stage; state.lowerPostDb = -24.0;
@@ -163,6 +171,7 @@ inline std::vector<BlindCase> blindCases()
                         : mode == 6 ? LoopPairingBlock::aaxLoop : LoopPairingBlock::none;
         state.prolongedWait = mode < 10;
         state.trial.revealed = mode == 7 || mode >= 11;
+        state.contentNoticeMs = mode == 7 || mode >= 11 ? 9999.99 : 0.0; // RESULT: substitute and estimate, longest amount
         state.trial.usedPostFallback = mode >= 11;
         state.trial.fallbackForTiming = mode == 11 || mode == 13;
         state.trial.fallbackForCeiling = mode >= 12;

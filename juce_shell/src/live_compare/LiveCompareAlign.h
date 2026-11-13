@@ -161,12 +161,10 @@ public:
     bool pending() const noexcept { return confirmed.load() != revision.load(); }
     void recheck() noexcept { if (! pending()) revision.fetch_add (1); }
     void confirm (std::uint64_t measured) noexcept { confirmed.store (measured); }
-    void late (std::uint64_t measured) noexcept { lateRevision.store (measured); }
     void ambiguous (std::uint64_t measured) noexcept { ambiguousRevision.store (measured); }
     bool ambiguous() const noexcept { return pending() && revision.load() != 0 && ambiguousRevision.load() == revision.load(); }
-    bool late() const noexcept { return pending() && revision.load() != 0 && lateRevision.load() == revision.load(); }
 private:
-    std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, lateRevision { 0 }, ambiguousRevision { 0 };
+    std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
     bool started = false, haveK = false, wasEnabled = true; // Audio Thread only
     std::int64_t previousK = 0;

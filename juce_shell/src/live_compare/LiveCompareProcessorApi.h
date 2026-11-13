@@ -38,7 +38,7 @@ void setLiveCompareAutoAlign (bool enabled) noexcept;
 std::int64_t liveCompareAlignFrames() const noexcept; // frames PRE is read later than K alone says
 double liveCompareAlignMs() const noexcept;           // the same, at the rate the ring counts in
 hypha::live_compare::OffsetMonitor::Step liveContentTimingObservation() const noexcept;
-bool holdLiveCompareForContentJump (const hypha::live_compare::OffsetEstimate&) noexcept;
+bool noticeLiveCompareContentTiming (const hypha::live_compare::OffsetEstimate&) noexcept;
 void kirinHostTimelineReset (bool transportKnown, bool playing) override;
 std::uint32_t liveComparePlaybackRun() const noexcept;
 hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);

@@ -50,23 +50,32 @@ int verifyTimingAvailability (Require require)
                 ++cases;
             }
             LiveTimingFixtureAccess::compensationDisabled (post, false);
-            LiveTimingFixtureAccess::timingObservation (post, RecoveryReason::loopClockUnavailable, authority);
-            LiveTimingFixtureAccess::holdContent (post);
+            LiveTimingFixtureAccess::timingObservation (post, RecoveryReason::none, authority);
+            LiveTimingFixtureAccess::noticeContent (post);
             const auto held = post.liveCompareStatus();
-            require (! held.timingUnavailable
+            require (held.contentHeld && ! held.timingUnavailable
                 && hypha::live_compare_ui::namedPresentation (held).action == hypha::live_compare_ui::RecoveryAction::none,
-                     "short content hold stays quiet");
+                     "a short content timing notice stays quiet");
             for (auto phase : { BlindStage::preparing, BlindStage::approval, BlindStage::settling })
             {
                 LiveTimingFixtureAccess::blindWaiting (post, phase);
                 const auto blind = post.liveBlindStatus();
                 const auto screen = hypha::live_blind_ui::screenFor (blind, true, 1.0f);
                 require (!blind.timingUnavailable && !screen.guidanceShown,
-                         "content hold does not interrupt the current preparation");
+                         "a content notice does not interrupt the current preparation");
                 auto prolonged = blind; prolonged.prolongedWait = true;
                 const auto longScreen = hypha::live_blind_ui::screenFor (prolonged, true, 1.0f);
-                require (longScreen.guidanceShown && longScreen.recovery == "Timing changed: check chain delay (POST)",
-                         "long content loss explains the chain delay without demanding END");
+                require (longScreen.guidanceShown && longScreen.recovery == hypha::live_compare_ui::chainDelayNotice()
+                    && longScreen.cause == hypha::live_compare_ui::cause (RecoveryReason::preLate)
+                    && ! longScreen.recovery.contains ("POST") && ! longScreen.alignOffShown,
+                         "a long late-PRE notice names the chain delay, no output and no END");
+                // A clock restriction that really plays POST outranks the notice.
+                LiveTimingFixtureAccess::timingObservation (post, RecoveryReason::loopClockUnavailable, authority);
+                auto restricted = post.liveBlindStatus(); restricted.prolongedWait = true;
+                require (restricted.timingUnavailable && restricted.contentHeld
+                    && hypha::live_blind_ui::screenFor (restricted, true, 1.0f).recovery != hypha::live_compare_ui::chainDelayNotice(),
+                         "the clock's POST reason is told before the content notice");
+                LiveTimingFixtureAccess::timingObservation (post, RecoveryReason::none, authority);
                 ++cases;
             }
             juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);

@@ -58,7 +58,8 @@ template <typename Status>
 AutoReadiness autoReadiness (const Status& state, std::uint64_t generation) noexcept
 {
     if (! currentNamedAction (state, generation, false)) return AutoReadiness::stale;
-    if (state.interrupted || state.contentHeld || state.compensationOff) return AutoReadiness::blocked;
+    // A content timing notice (INV-LC10) leaves PRE sounding: AUTO keeps following through it.
+    if (state.interrupted || state.compensationOff) return AutoReadiness::blocked;
     if (state.matchLimited) return AutoReadiness::limited;
     using Reason = live_compare::RecoveryReason;
     switch (state.observation)

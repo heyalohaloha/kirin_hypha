@@ -74,7 +74,7 @@ int main()
     Clock clock; pre.setPlayHead (&clock); hypha::tests::prepareFixtureProcessor (pre, 96000, 512);
     hypha::live_compare::OffsetEstimate e;
     e.determined = true; e.sampleRate = 96000; e.peak = 0.4; e.dominance = 20;
-    require (! pre.holdLiveCompareForContentJump (e), "PRE can never acquire a POST content hold");
+    require (! pre.noticeLiveCompareContentTiming (e), "PRE can never acquire a POST content hold");
     juce::AudioBuffer<float> buffer (2, 512), original (2, 512);
     juce::MidiBuffer midi;
     for (int mode = 0; mode < 4; ++mode)

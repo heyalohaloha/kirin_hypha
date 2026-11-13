@@ -250,10 +250,14 @@ public:
     }
     BalanceOverlay overlay() const { const juce::ScopedLock lock (mutex); return balanceOverlay; }
     void setOverlay (BalanceOverlay value) { const juce::ScopedLock lock (mutex); balanceOverlay = std::move (value); }
+    // C の画面の CUE／SONG（比べる値。鳴らし方の LOOP／FOLLOW A とは別）。SONG は C の曲全体と A を DAW の頭から。
+    bool checkSong() const { const juce::ScopedLock lock (mutex); return song; }
+    void setCheckSong (bool value) { const juce::ScopedLock lock (mutex); song = value; }
 private:
     mutable juce::CriticalSection mutex;
     VisualViewChoice choice;
     AWindowChoices windows;
     BalanceOverlay balanceOverlay;
+    bool song = false;
 };
 }

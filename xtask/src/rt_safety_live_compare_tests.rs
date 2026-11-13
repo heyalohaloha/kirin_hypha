@@ -437,8 +437,8 @@ fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
         "void KirinHyphaProcessorBase::processLiveCompare",
     );
     assert!(rt.contains("block.afterGap = true;"));
-    assert!(rt.contains("preSelected && ! contentHeld && ! compensationOff"));
-    assert!(rt.contains("(contentHeld || compensationOff)"));
+    assert!(rt.contains("preSelected && ! compensationOff"));
+    assert!(rt.contains("(preSelected && compensationOff && ! report.guardTripped)"));
     let content = include_str!("../../juce_shell/src/PluginProcessorContentTiming.cpp");
     let monitor = function_body(
         content,

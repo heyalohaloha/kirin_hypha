@@ -48,17 +48,18 @@ int main()
         status.postTarget = 1.0f;
     }
     status.contentHeld = true; status.reason = RecoveryReason::none;
-    require (namedPresentation (status).action == RecoveryAction::stopPlay, "current hold survives acknowledged END");
+    require (namedPresentation (status).action == RecoveryAction::none, "after END a content timing notice has no remedy");
     LiveBlindStatus stopped;
     stopped.reason = RecoveryReason::contentChanged; stopped.contentHeld = true;
-    require (blindRecovery (stopped, true).action == RecoveryAction::stopPlay, "invalidated content hold requires DAW stop/play");
+    require (blindRecovery (stopped, true).action == RecoveryAction::endBlind, "an invalidated trial needs END, not a content notice");
     stopped.contentHeld = false;
     require (blindRecovery (stopped, true).action == RecoveryAction::endBlind
         && blindRecovery (stopped, true).reason == RecoveryReason::contentChanged,
         "resolved blocker changes the action, never rewrites history");
     status.active = true; status.prolongedWait = true; status.timingUnavailable = true;
-    require (namedPresentation (status).action == RecoveryAction::stopPlay,
-             "a content hold keeps its explicit stop remedy even on an uncertified host");
+    require (namedPresentation (status).action == RecoveryAction::none
+        && std::string (namedRecovery (status)) != chainDelayNotice(),
+             "unavailable timing, which plays POST, outranks a content notice (INV-LC10)");
     status.contentHeld = false;
     require (namedPresentation (status).action == RecoveryAction::none,
              "unsupported timing never promises automatic admission");

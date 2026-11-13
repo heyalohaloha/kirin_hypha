@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include "ReferenceKirinSpectrum.h"
+#include "ReferenceASong.h"
 #include "ReferenceLiveWindowLoudness.h"
 #include "ReferenceKirinFingerprint.h"
 #include <limits>
@@ -30,6 +31,7 @@ struct VisualBinding
     int cueLengthBlocks = 100;   // その役の Cue の長さ（100 ms のブロック数。MATCH の下限 10 秒を掛けない）
     // 図の A の線の窓（観測スレッドが集計に使う）。見せ方だけなので key に入れず、変えても測ったものは捨てない。
     int aDisplayWindowBlocks = 100;
+    bool songWanted = false;     // C の画面の SONG：A を DAW の頭から溜めた値の集計を出す（溜めるのはいつも）
     double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN(); // 鳴っている Cue の位置（ループは折り返す）
 };
 struct VisualPairBin
@@ -44,6 +46,7 @@ struct VisualTimeline
     std::shared_ptr<const KirinSpectrumWindow> aKirin; // A の直近の窓（Kirin OS の Cue と同じ定義。長さは binding.aDisplayWindowBlocks）
     LiveWindowLoudness aTargetLoudness; // Fresh-filter Integrated of exactly aKirin's ticks.
     double aTargetTruePeak = std::numeric_limits<double>::quiet_NaN(); // Zero-extended TP of exactly aKirin's ticks.
+    std::shared_ptr<const ASongSummary> aSong; // C の SONG の A（DAW の位置ごと。binding.songWanted の間だけ集計する）
     // 2026-10-04：範囲の帯。A の直近 10 分までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aTicks;
     int aTickChannels = 0;

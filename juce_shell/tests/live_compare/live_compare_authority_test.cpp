@@ -221,11 +221,12 @@ void actionNoticeBoundary()
             case 10: blocked.compensationOff = true; break;
             default: break;
         }
-        require (currentAutoAction (blocked, 7) == (blocker == 5 || blocker == 6),
-                 "retained MATCH may wait; safety blockers still refuse AUTO");
+        // A content timing notice (case 9) keeps PRE sounding at K, so AUTO keeps following (INV-LC10).
+        require (currentAutoAction (blocked, 7) == (blocker == 5 || blocker == 6 || blocker == 9),
+                 "retained MATCH may wait and a content notice is no blocker; safety blockers still refuse AUTO");
     }
     std::cout << "Live action boundary: PASS " << causalCases + 1
-              << " causal interleavings, 11 current blockers, old-code masking negative control\n";
+              << " causal interleavings, 10 current blockers and a content notice, old-code masking negative control\n";
 }
 }
 

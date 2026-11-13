@@ -4,8 +4,9 @@
 
 namespace hypha::live_compare
 {
-// A hold belongs to explicit stop evidence, not to a callback timeout or a seek. A delayed
-// message-thread estimate cannot reinstate a hold after the host has already stopped.
+// INV-LC10: the content timing notice. It never changes the output; it belongs to explicit stop
+// evidence, not to a callback timeout or a seek. A delayed message-thread estimate cannot
+// reinstate a notice after the host has already stopped.
 class ContentHold
 {
 public:

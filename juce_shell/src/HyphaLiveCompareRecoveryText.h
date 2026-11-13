@@ -115,7 +115,11 @@ inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperCha
     return {};
 }
 
-inline const char* chainDelayNotice() noexcept { return "Check chain delay and DAW compensation; POST plays"; }
+// INV-LC10: a strong estimate the clock cannot act on. PRE (A) still sounds at K, so the notice
+// names no output and, in BLIND, does not depend on the source selected.
+inline const char* chainDelayNotice() noexcept { return "Check delay compensation"; }
+inline Reason contentNoticeReason (std::int64_t lagFrames) noexcept
+{ return lagFrames > 0 ? Reason::preLate : Reason::contentChanged; }
 inline const char* positionNotice (bool candidate) noexcept
 { return candidate ? "Position unconfirmed; B plays" : "Position unconfirmed; POST plays"; }
 inline const char* candidateUnconfirmedNotice() noexcept { return "Position unconfirmed; A plays"; }
@@ -142,10 +146,6 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
         return { reason, RecoveryAction::checkLevels, "Check chain levels; resumes automatically (POST)" };
     if (!stopped && state.observation == Reason::contentAmbiguous)
         return { Reason::contentAmbiguous, RecoveryAction::none, positionNotice (state.candidate) };
-    if (!stopped && state.observation == Reason::preLate)
-        return { Reason::preLate, RecoveryAction::none, state.candidate ? positionNotice (true) : chainDelayNotice() };
-    if (state.contentHeld)
-        return { Reason::contentChanged, RecoveryAction::stopPlay, "Timing changed: check chain delay (POST)" };
     // An uncertified AAX host looping a range observes an unidentifiable loop too; loop playback off
     // restores the linear proof, so this actionable remedy comes before the host boundaries below.
     if (reason == Reason::cycleUnverified || (! stopped && state.loopBlock == live_compare::LoopPairingBlock::auCycle))
@@ -169,6 +169,8 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
     if (state.observation == Reason::loopTooShort
         || state.observation == Reason::loopClockUnavailable)
         return { reason, RecoveryAction::none, "Timing unavailable; check PRE and play (POST)" };
+    if (! stopped && state.contentHeld)
+        return { contentNoticeReason (state.contentLagFrames), RecoveryAction::none, chainDelayNotice() };
     if (! stopped)
     {
         if (state.candidate) return { reason, RecoveryAction::checkPre, candidateRecoveryText (false, false) };
@@ -198,9 +200,6 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
     if (state.active && !state.interrupted && state.observation == Reason::contentAmbiguous)
         return { Reason::contentAmbiguous, RecoveryAction::none, "Position unconfirmed; POST plays" };
-    if (state.active && !state.interrupted && state.observation == Reason::preLate)
-        return { Reason::preLate, RecoveryAction::none, "Check chain delay and DAW compensation; POST plays" };
-    if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: check chain delay (POST)");
     // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
     // off restores the linear proof: this actionable remedy comes before any host boundary below.
     if (state.active && state.loopBlock == live_compare::LoopPairingBlock::auCycle
@@ -249,6 +248,8 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     }
     if (state.active && state.matchHeld && ! state.interrupted)
         return result (RecoveryAction::selectPre, "Timing unavailable; check PRE and play (POST)");
+    if (state.active && state.contentHeld)
+        return { contentNoticeReason (state.contentJumpLagFrames), RecoveryAction::none, chainDelayNotice() };
     return {};
 }
 inline const char* namedRecovery (const live_compare::Status& state) noexcept
@@ -269,8 +270,7 @@ inline RecoveryPresentation currentNamedPresentation (const live_compare::Status
 inline RecoveryPresentation candidateNamedPresentation (const live_compare::Status& state,
     RecoveryPresentation current, bool candidate, bool hostInactive, bool bypassed) noexcept
 {
-    if (candidate && (current.reason == Reason::contentAmbiguous || current.reason == Reason::preLate)
-        && current.action == RecoveryAction::none)
+    if (candidate && current.reason == Reason::contentAmbiguous && current.action == RecoveryAction::none)
         current.instruction = positionNotice (true);
     if (!candidate || !state.active || state.finishing || state.interrupted || !state.prolongedWait
         || state.verdict == live_compare::Verdict::accepted) return current;

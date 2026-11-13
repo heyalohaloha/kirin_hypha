@@ -173,9 +173,11 @@ void ScreenComponent::resized()
     // Waiting/interruption screens give the cause and next step their actual localized height.
     // Normal source buttons keep their established layout; no font is compressed or shrunk.
     title.setBounds (area.removeFromTop (shown.guidanceShown ? needed (title) : compact ? 24 : 40));
-    status.setBounds ((!shown.guidanceShown || status.isVisible())
-        ? area.removeFromTop (shown.guidanceShown ? needed (status) : compact ? 30 : 48)
-        : juce::Rectangle<int>());
+    // A RESULT with two facts takes the lines it needs; a text that fits keeps the fixed height
+    // (needed() adds 2 px of slack, so a tight single line does not move the sources).
+    const auto fixedStatus = compact ? 30 : 48;
+    const auto statusHeight = shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
+    status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
     detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
     end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));

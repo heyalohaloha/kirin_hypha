@@ -179,14 +179,23 @@ inline void verify()
     named.prolongedWait = true;
     for (bool held : { false, true })
     {
-        named.contentHeld = held;
+        named.contentHeld = held; named.contentJumpLagFrames = held ? 96 : 0;
         const auto notice = live_compare_ui::currentNamedPresentation (named);
-        require (held ? notice.action == live_compare_ui::RecoveryAction::stopPlay
-            : notice.action == live_compare_ui::RecoveryAction::none
+        require (notice.action == live_compare_ui::RecoveryAction::none
                 && juce::String (notice.instruction) == host_availability::timingText(),
-            "long content loss explains delay; unavailable clocks do not promise progress");
+            "the clock's unavailable timing outranks a content notice and does not promise progress");
     }
-    named.contentHeld = false;
+    // Alone, a long content notice names the chain delay; PRE sounds, so no output or action.
+    named.timingUnavailable = named.preWaiting = false;
+    const auto notice = live_compare_ui::currentNamedPresentation (named);
+    require (notice.reason == live_compare::RecoveryReason::preLate && notice.action == live_compare_ui::RecoveryAction::none
+        && juce::String (notice.instruction) == live_compare_ui::chainDelayNotice(),
+             "a long late-PRE notice names the chain delay without an output");
+    named.contentJumpLagFrames = -96;
+    require (live_compare_ui::currentNamedPresentation (named).reason == live_compare::RecoveryReason::contentChanged,
+             "a notice that is not a late PRE is a timing change");
+    named.contentHeld = false; named.contentJumpLagFrames = 0;
+    named.timingUnavailable = named.preWaiting = true;
     named.active = false;
     require (juce::String (live_compare_ui::currentNamedPresentation (named).instruction).isEmpty(),
              "END removes a stale timing hold notice at normal POST level");

@@ -30,6 +30,7 @@ struct ReferenceComparisonSettings
     BalanceOverlay overlay;                     // B の Balance の ONE／ALL と出した線（前の版は読み飛ばす）
     int viewedSlot = 2;
     bool followA = false;                       // B・C の流し方：FOLLOW A（無ければ LOOP、既定）
+    bool checkSong = false;                     // C の比べる値：SONG（無ければ CUE、既定）
     // 2026-10-04：A の取り込み（ACapture）と以前の Balance の表示は書かず、古い版が残したものは読み飛ばす。
     void write (juce::XmlElement& parent) const
     {
@@ -38,6 +39,7 @@ struct ReferenceComparisonSettings
         xml->setAttribute ("version", 1);
         xml->setAttribute ("viewed_slot", viewedSlot);
         xml->setAttribute ("playback", followA ? "follow_a" : "loop");
+        if (checkSong) xml->setAttribute ("check_values", "song");
         const auto append = [xml] (const char* name, const ReferenceChoice& choice) {
             auto* child = xml->createNewChildElement (name);
             child->setAttribute ("preset", choice.presetId);
@@ -76,6 +78,7 @@ struct ReferenceComparisonSettings
         const auto viewed = xml->getIntAttribute ("viewed_slot", 2);
         result.viewedSlot = viewed == 1 || viewed == 3 ? viewed : 2;
         result.followA = xml->getStringAttribute ("playback") == "follow_a";  // 前の版の state と知らない値は LOOP
+        result.checkSong = xml->getStringAttribute ("check_values") == "song";  // 前の版の state と知らない値は CUE
         return result;
     }
 };

@@ -43,7 +43,8 @@ hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareO
     return estimate;
 }
 
-bool KirinHyphaProcessorBase::holdLiveCompareForContentJump (const hypha::live_compare::OffsetEstimate& estimate) noexcept
+// INV-LC10: a status-line notice only. PRE keeps sounding at K; the clock rules alone choose POST.
+bool KirinHyphaProcessorBase::noticeLiveCompareContentTiming (const hypha::live_compare::OffsetEstimate& estimate) noexcept
 {
     const juce::ScopedTryLock formatLock (handleLock);
     if (! formatLock.isLocked() || formatChangeHeld.load (std::memory_order_acquire)) return false;
@@ -55,13 +56,15 @@ bool KirinHyphaProcessorBase::holdLiveCompareForContentJump (const hypha::live_c
         || estimate.stopGeneration != liveCompare.contentHold.generation()) return false;
     liveCompare.contentJumpFacts = estimate;
     liveCompare.contentJumpLagFrames.store (estimate.lagFrames, std::memory_order_relaxed);
-    liveCompare.holdEvidenceAt = hypha::live_compare::callbackWallNanos(); // before RT can see the hold
+    liveCompare.holdEvidenceAt = hypha::live_compare::callbackWallNanos(); // before the status can see it
+    if (liveCompare.blindStage != hypha::live_compare::BlindStage::idle && estimate.sampleRate > 0.0)
+        liveCompare.blindContentNoticeMs = static_cast<double> (estimate.lagFrames) * 1000.0 / estimate.sampleRate;
     liveCompare.contentHold.hold (estimate.stopGeneration);
     return liveCompare.contentHold.held();
 }
 
 // Host notification, possibly off the message/audio thread. AU Reset is also used for seek:
-// only an explicit, successfully read stopped transport ends a hold. Never infer stop from a
+// only an explicit, successfully read stopped transport ends a notice. Never infer stop from a
 // render timeout, a reset alone, a clock discontinuity, bypass, or a playing position change.
 void KirinHyphaProcessorBase::kirinHostTimelineReset (bool transportKnown, bool playing)
 {
@@ -78,9 +81,9 @@ void KirinHyphaProcessorBase::kirinHostTimelineReset (bool transportKnown, bool 
     liveCompare.hostResetGeneration.fetch_add (1, std::memory_order_release);
 }
 
-// The processor owns the content warning across window closure and live Blind. A changed
+// The processor owns the content notice across window closure and live Blind. A changed
 // spectrum alone never votes. Two strong estimates returning to the original baseline clear
-// the hold; timing/PCM validation still independently gates every subsequent PRE block.
+// the notice; timing/PCM validation alone gates every PRE block.
 void KirinHyphaProcessorBase::serviceLiveContentTiming()
 {
     const juce::ScopedTryLock formatLock (handleLock);
@@ -103,7 +106,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     const auto revision = liveCompare.renderer.alignRevision();
     if (revision != liveCompare.contentAlignRevision)
     {
-        liveCompare.alignConfirmStart = liveCompare.alignLateAt = 0;
+        liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
         liveCompare.contentAlignRevision = revision;
         liveCompare.contentMonitor = {};
@@ -115,7 +118,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     const auto run = liveComparePlaybackRun();
     if (!state.active || state.compensationOff || run != liveCompare.contentMonitorRun)
     {
-        liveCompare.alignConfirmStart = liveCompare.alignLateAt = 0;
+        liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
         liveCompare.contentMonitor = {};
         liveCompare.contentStep = {};
@@ -165,15 +168,19 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
     if (step.settled) liveCompare.contentStep = step;
     const bool aligned = step.settled && alignLiveCompare (step, estimate);
+    // A strong estimate that PRE is late, early past the ring, or jumped from the run's baseline is
+    // told, never sounded as POST: PRE keeps its clock position K (plus a correction confirmed
+    // before) in LISTEN, BLIND and A/B. With alignment on, a settled window that cannot be aligned
+    // is such an estimate; with it off, only a jump is news, the offset itself is shown as a fact.
+    const bool notice = ! aligned && (step.jumped || (step.settled && liveCompareAutoAlign()));
     if (aligned) liveCompare.contentHold.clear (estimate.stopGeneration);
-    if (step.jumped && ! aligned) holdLiveCompareForContentJump (estimate);
-    if (step.recovered && estimate.timelineGeneration == liveCompare.timelineGeneration.load (std::memory_order_acquire))
+    if (step.recovered && ! notice
+        && estimate.timelineGeneration == liveCompare.timelineGeneration.load (std::memory_order_acquire))
         liveCompare.contentHold.clear (estimate.stopGeneration);
-    // A hold stands only on confident evidence: two agreeing strong windows that still show the
-    // jump, neither aligned nor back at the baseline, renew it, so shifted PRE never sounds while
-    // that evidence lasts. Weak or ambiguous windows (a limiter, outboard, quiet audio) cannot
-    // keep it: after one second of proven playback without a renewal PRE returns at its last
-    // confirmed position for this clock mapping (K, plus a correction confirmed before the jump).
+    if (notice) noticeLiveCompareContentTiming (estimate); // renewed without a gap the 3 s timer would see
+    // The notice stands only on confident evidence: two agreeing strong windows that still show
+    // it renew it. Weak or ambiguous windows (a limiter, outboard, quiet audio) cannot keep it:
+    // after one second of proven playback without a renewal the notice ends.
     if (state.contentHeld && step.settled && ! step.recovered && ! aligned) liveCompare.holdEvidenceAt = now;
     if (state.contentHeld && liveCompare.contentHold.held() && now >= liveCompare.holdEvidenceAt
         && now - liveCompare.holdEvidenceAt >= confirmationWaitNanos)
@@ -183,7 +190,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
 // INV-LC28: PRE early by a settled amount is read that much later. Silence and an undetermined
 // window never get here, so they change nothing. In a Blind trial the renderer keeps the address
 // until the listener switches away from PRE. A known changed mapping instead keeps POST
-// sounding until fresh evidence permits the new address; the selection and gain survive.
+// sounding, for at most one second, until fresh evidence permits the new address.
 bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step& step,
                                                 const hypha::live_compare::OffsetEstimate& estimate) noexcept
 {
@@ -197,25 +204,13 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         || estimate.stopGeneration != liveCompare.contentHold.generation()) return false;
     auto value = hypha::live_compare::alignValue (step.lagFrames);
     value.verifySamples = step.verifySamples;
-    const bool candidate = candidateCompareActive();
     // Below the jump threshold a late PRE is no latency proof (INV-LC10): it sounds as it is.
     const bool slightlyLate = step.lagFrames > 1
         && step.lagFrames < std::ceil (step.sampleRate * hypha::live_compare::offsetJumpSeconds);
-    if (value.frames == 0 && (step.lagFrames < -1 || step.lagFrames > 1))
-    {
-        if (! candidate && ! slightlyLate)
-        {
-            if (step.lagFrames > 1)
-            {
-                // Found after the bounded wait, a confident late PRE returns LISTEN and BLIND to POST.
-                if (! liveCompare.renderer.alignPending()) liveCompare.renderer.recheckAlign();
-                liveCompare.renderer.reportAlignLate (liveCompare.renderer.alignRevision());
-                liveCompare.alignLateAt = hypha::live_compare::callbackWallNanos();
-            }
-            return false;
-        }
-        value = {}; // A/B or slightly late: nothing earlier exists to read, so PRE sounds as it is
-    }
+    // Nothing earlier exists to read for a late PRE, nor past the ring for a far early one: PRE
+    // sounds at its clock position K in LISTEN, BLIND and A/B, and the caller tells the listener.
+    const bool unreadable = value.frames == 0 && (step.lagFrames < -1 || step.lagFrames > 1);
+    if (unreadable) value = {};
     // An estimate within its own agreement of the value in use moves nothing: no fade for that.
     const auto requested = liveCompare.renderer.alignRequested (estimate.alignContext);
     const auto current = requested.frames;
@@ -225,7 +220,7 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         || static_cast<double> (std::llabs (settled - current)) > agreement)
         liveCompare.renderer.requestAlign (value, estimate.alignContext, estimate.alignRevision);
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
-    return candidate || slightlyLate || value.frames != 0 || std::llabs (step.lagFrames) <= 1;
+    return ! unreadable || slightlyLate;
 }
 
 // LISTEN, BLIND and A/B are comparisons the listener asked for, so PRE (A) never waits on a
@@ -234,8 +229,7 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
 // After one second of proven playback PRE sounds at its clock position K, as with alignment off;
 // every block still needs the clock and PCM proof. Later strong evidence that PRE is early still
 // moves the read position through the usual fades. A confident late PRE (two strong windows,
-// 0.25 ms or more) is a delay to fix, not a wait: LISTEN and BLIND keep POST while each new
-// confident window renews it, so delayed PRE never sounds there; A/B plays a late A as it is.
+// 0.25 ms or more) is never a wait: it sounds at K and the status line says so (INV-LC10).
 bool KirinHyphaProcessorBase::alignConfirmationExpired (const hypha::live_compare::Status& state,
                                                         std::uint64_t now) noexcept
 {
@@ -246,9 +240,7 @@ bool KirinHyphaProcessorBase::alignConfirmationExpired (const hypha::live_compar
     }
     if (state.verdict != hypha::live_compare::Verdict::accepted) return false;
     if (liveCompare.alignConfirmStart == 0) liveCompare.alignConfirmStart = now;
-    const auto from = candidateCompareActive() ? liveCompare.alignConfirmStart
-                                               : std::max (liveCompare.alignConfirmStart, liveCompare.alignLateAt);
-    return now >= from && now - from >= confirmationWaitNanos;
+    return now >= liveCompare.alignConfirmStart && now - liveCompare.alignConfirmStart >= confirmationWaitNanos;
 }
 
 bool KirinHyphaProcessorBase::candidateAlignUnconfirmed() const noexcept

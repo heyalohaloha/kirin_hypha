@@ -37,8 +37,11 @@ Live Blind compares different moments within one continuous playback; it does no
 sample ranges, an ABX identification test, or proof of better sound. A confirmed loop may continue
 the same trial across timing interruptions. Each unverified block plays POST, and fresh proof
 returns to the same hidden assignment without END or reselection. A fallback is never counted
-as hearing PRE; REVEAL adds one short note if a PRE interval used POST. Source buttons show your
-selection, while internal played receipts count only the source that actually sounded.
+as hearing PRE; REVEAL adds one short note if a PRE interval used POST. An audio estimate that PRE
+is late or has jumped never switches a source to POST: PRE keeps its clock position, a notice that
+lasts three seconds reads the same for both sources, and RESULT says by how much PRE may have been
+off, after the note on any POST that really stood in, even while the notice is still up. Source buttons show your selection, while internal played receipts count only the source that
+actually sounded.
 
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
 Existing attenuation stays held; an END already requested continues to actual normal level.

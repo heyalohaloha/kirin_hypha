@@ -100,7 +100,7 @@ void KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& sta
         stopLiveCompareAuto (status.matchLimited ? "AUTO stopped at the TP limit" : "AUTO stopped: press MATCH again");
         return;
     }
-    if (status.contentHeld || status.compensationOff || ! status.matchReady
+    if (status.compensationOff || ! status.matchReady
         || status.observation != hypha::live_compare::RecoveryReason::none
         || status.verdict != hypha::live_compare::Verdict::accepted || now < a.nextAt)
         return;
