@@ -60,9 +60,9 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
 OffsetEstimate measureOffset (const Ring&, const PostRenderer&, std::int64_t center = 0);
 
 // A chain delay the host does not compensate can exceed the fine search: a linear-phase EQ at high
-// oversampling holds tens of thousands of samples. The wide search correlates, each channel on its
-// own, up to the last
-// offsetWideHistorySeconds of POST's history with PRE's run at about 3 kHz (whitened, as above) and
+// oversampling holds tens of thousands of samples. The wide search correlates each of POST's channels
+// with PRE's left, right and their sum, over up to the last
+// offsetWideHistorySeconds of POST's history and PRE's run at about 3 kHz (whitened, as above), and
 // reaches as far as both sides overlap by offsetWideOverlapSeconds. Every POST channel with content
 // must find one dominant peak, at the same position; contradictory or missing evidence proposes
 // nothing. It only proposes a center: the fine search there, with its own peak, agreement and

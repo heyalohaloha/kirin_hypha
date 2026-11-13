@@ -384,22 +384,43 @@ WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
     copyPostHistory (view, spanStart, frames, post);
     if (! copyPreRing (ring, spanStart - view.k, frames, pre, view.preRun) || ! renderer.historyStillValid (view, spanStart))
         return {};
-    // Each channel on its own, as the fine search: opposite-polarity stereo has no mono sum.
+    // Each of POST's channels against PRE's left, right and their sum: opposite-polarity stereo has no
+    // sum, exchanged channels no peak channel by channel, crossfeed only in the sum. The decimation is
+    // linear, so the sum's transform is the sum of the channels' transforms.
     const auto preLeft = decimate (pre, 0, factor), preRight = decimate (pre, 1, factor);
+    std::vector<float> preSum (preLeft.size());
+    for (std::size_t i = 0; i < preSum.size(); ++i) preSum[i] = 0.5f * (preLeft[i] + preRight[i]);
     const auto n = preLeft.size();
     std::size_t size = 1;
     while (size < 2 * n) size <<= 1;
-    const WideSpectrum preSpectra[2] { wideSpectrum (preLeft, size), wideSpectrum (preRight, size) };
-    // Every POST channel that carries content must find one dominant peak, at the same position. A
-    // channel delayed otherwise, or so far that the history does not reach it yet, proposes nothing
-    // for both instead of the other's delay.
+    WideSpectrum preSpectra[3] { wideSpectrum (preLeft, size), wideSpectrum (preRight, size), {} };
+    preSpectra[2].content = rms (preSum) >= 3.0e-4;
+    if (preSpectra[2].content)
+    {
+        preSpectra[2].bins.resize (size);
+        for (std::size_t k = 0; k < size; ++k)
+            preSpectra[2].bins[k] = 0.5 * ((preSpectra[0].content ? preSpectra[0].bins[k] : Complex())
+                                           + (preSpectra[1].content ? preSpectra[1].bins[k] : Complex()));
+    }
+    // The dominance rule across the candidates: for each POST channel the strongest peak must be
+    // offsetWideDominance times any other at another position, and every POST channel that carries
+    // content must find its peak, at the same position. A channel delayed otherwise, or so far that
+    // the history does not reach it yet, proposes nothing for both instead of the other's delay.
     WideOffset proposal;
     for (std::size_t channel = 0; channel < 2; ++channel)
     {
         const auto postSpectrum = wideSpectrum (decimate (post, channel, factor), size);
         if (! postSpectrum.content) continue;
-        const auto best = wideCorrelation (postSpectrum, preSpectra[channel], n, overlap / factor, factor);
+        WideOffset candidates[3], best;
+        for (std::size_t source = 0; source < 3; ++source)
+        {
+            candidates[source] = wideCorrelation (postSpectrum, preSpectra[source], n, overlap / factor, factor);
+            if (candidates[source].found && (! best.found || candidates[source].peak > best.peak)) best = candidates[source];
+        }
         if (! best.found) return {};
+        for (const auto& wide : candidates)
+            if (std::llabs (wide.lagFrames - best.lagFrames) > 2 * factor && wide.peak * offsetWideDominance > best.peak)
+                return {};
         if (proposal.found && std::llabs (proposal.lagFrames - best.lagFrames) > 2 * factor) return {};
         if (! proposal.found || best.peak > proposal.peak) proposal = best;
     }

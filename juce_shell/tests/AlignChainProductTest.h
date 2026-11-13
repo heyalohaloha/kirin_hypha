@@ -209,13 +209,27 @@ inline void wideSearchReadsEachChannel (int channels)
     chain.clean ("PRE is read 32768 frames later");
 }
 
-// Channels delayed differently (32768 and 96000 frames) contradict each other: PRE plays at its clock
-// position with the label, never one channel's delay for both, also while the history reaches only
-// the nearer one.
+// Exchanged channels (independent stereo through an L/R swap), PRE early by two seconds: each POST
+// channel against PRE's other one finds it. Channels delayed differently (32768 and 96000 frames)
+// contradict each other: PRE plays at its clock position with the label, never one channel's delay
+// for both, also while the history reaches only the nearer one.
 inline void wideSearchWeighsEveryCandidate (int channels)
 {
     using namespace hypha::live_compare;
     if (channels < 2) return;
+    {
+        ChunkedPost swapped (channels);
+        swapped.swappedChannels = true;
+        swapped.setDelay (512);
+        swapped.contentK = 512 + 96000;
+        auto& listen = *swapped.post;
+        selectPreparedPair (swapped, "select the exchanged PRE");
+        require (listen.startLiveCompare() == StartResult::started, "LISTEN starts");
+        listen.selectLiveComparePre (true);
+        swapped.until (400, [&] { return listen.liveCompareStatus().preAudible && listen.liveCompareAlignFrames() == 96000; },
+                       "exchanged channels are found two seconds away");
+        swapped.clean ("PRE is read 96000 frames later");
+    }
     ChunkedPost chain (channels);
     chain.setDelay (512);
     chain.contentK = 512 + 32768;

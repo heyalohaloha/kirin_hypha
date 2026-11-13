@@ -118,8 +118,28 @@ static void wideDelaysAreFound()
             require (offsetCanVote (there) && there.lagFrames == lag && there.window.center == wide.lagFrames,
                      "the fine search at that center finds it to the sample");
         }
-    // Channels delayed differently by comparable, independent material contradict each other: no
-    // center, never one channel's delay for both, also while the history reaches only the nearer one.
+    // Exchanged channels (independent stereo through an L/R swap) have no peak channel by channel:
+    // each POST channel against PRE's other one finds a two-second delay either way. Channels delayed
+    // differently by comparable, independent material contradict each other: no center, never one
+    // channel's delay for both, also while the history reaches only the nearer one.
+    for (const bool early : { true, false })
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true; options.swapChannels = true;
+        options.contentK = early ? 512 + 96000 : 512 - 96000;
+        Chain chain (options);
+        chain.run (240);
+        const auto started = std::chrono::steady_clock::now();
+        const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+        const auto elapsed = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - started).count();
+        const auto lag = early ? -96000 : 96000;
+        std::printf ("wide swapped %s: center %lld (peak %.3f, dominance %.1f) in %.1f ms\n", early ? "early" : "late",
+                     static_cast<long long> (wide.lagFrames), wide.peak, wide.dominance, elapsed);
+        require (wide.found && std::llabs (wide.lagFrames - lag) <= 32, "the crossed pairs find exchanged channels");
+        auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+        there.sampleRate = 48000;
+        require (offsetCanVote (there) && there.lagFrames == lag, "the fine search there finds them to the sample");
+    }
     for (const std::int64_t first : { std::int64_t (32768), std::int64_t (96000) })
     {
         Options options;
