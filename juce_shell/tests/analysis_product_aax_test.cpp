@@ -201,6 +201,7 @@ try
             chainConfirmsPosition (layout == "mono" ? 1 : 2);
             chainAlignsEarlyPre (layout == "mono" ? 1 : 2);
             chainFindsLongDelays (layout == "mono" ? 1 : 2);
+            shortCorrectionHoldIsBounded (layout == "mono" ? 1 : 2);
             wideSearchReadsEachChannel (layout == "mono" ? 1 : 2);
             wideSearchWeighsEveryCandidate (layout == "mono" ? 1 : 2);
             wideSearchFollowsHypotheses (layout == "mono" ? 1 : 2);

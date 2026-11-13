@@ -19,16 +19,25 @@ fn content_alignment_moves_only_the_audition_address() {
         "(! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)"
     ));
     // A correction PRE's current run cannot serve yet (after a seek or stop): one of up to the 1 s
-    // bound waits as POST for that long; a longer one plays PRE at K.
+    // bound waits as POST, for at most that bound of playback in all, however often the run restarts
+    // before serving it (the held frames reset only once PRE plays the correction); a longer one,
+    // or one whose hold has ended, plays PRE at K.
     assert!(alignment.contains(
-        "result.deferred = playback.enabled && wanted.frames > readableFrames && wanted.frames <= shortFrames;"
+        "result.deferred = beyond && wanted.frames <= shortFrames && held + counted <= shortFrames;"
     ));
-    assert!(alignment.contains(
-        "if (wanted.frames > 0 && wanted.frames > readableFrames && ! result.deferred) wanted = {};"
-    ));
+    assert!(alignment.contains("if (result.deferred) held += counted;"));
+    assert!(alignment.contains("if (beyond && ! result.deferred) wanted = {};"));
+    assert!(!alignment.contains("held = 0"));
+    assert_eq!(ALIGN_H.matches("held = 0;").count(), 3); // the member, a new session, PRE accepted
+    assert!(ALIGN_H.contains("if (applied.frames > 0) { held = 0; unserved.store (false); }"));
+    assert!(ALIGN_H.contains("void newSession() noexcept { readiness.newContext(); held = 0;"));
+    assert!(
+        render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied();")
+    );
     assert!(render.contains(
-        "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate))"
+        "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),"
     ));
+    assert!(render.contains("block.playing ? block.frames : 0);"));
     assert!(render.contains("! aligned.current || aligned.deferred"));
     assert!(render.contains(
         "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
@@ -38,7 +47,7 @@ fn content_alignment_moves_only_the_audition_address() {
         alignment.contains("requested.read (context, applied, result.revision, &result.current,")
     );
     assert!(alignment.contains("appliedRevision == result.revision"));
-    assert!(function_body(SESSION_H, "void prepare (").contains("alignment.readiness.newContext()"));
+    assert!(function_body(SESSION_H, "void prepare (").contains("alignment.newSession()"));
     assert!(render.contains(
         "consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value())"
     ));

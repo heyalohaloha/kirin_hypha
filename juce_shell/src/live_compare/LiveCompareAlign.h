@@ -190,17 +190,19 @@ public:
     // about with the usual fades and a Blind trial leaves to the listener's own switching.
     // readableFrames: the largest correction PRE's current run can serve at this block. A longer one
     // (after a seek, stop or new start) is kept but not used until PRE has written that far. One of up
-    // to shortFrames (the 1 s bound) waits as POST for that long; a longer one (seconds) plays PRE at K
-    // meanwhile, as with alignment off, never POST for seconds for want of the correction.
+    // to shortFrames (the 1 s bound) waits as POST, for at most shortFrames of playback with PRE
+    // selected in all, however often seeks, stops or loop wraps restart the run before it serves the
+    // correction; then, as a longer one (seconds) at once, PRE plays at K meanwhile, as with alignment
+    // off, never POST for want of the correction. playedFrames: this block's frames while playing.
     AlignUpdate update (AlignPlayback playback, bool blind, bool preSelected, float& weight,
                         std::int64_t readableFrames = std::numeric_limits<std::int64_t>::max(),
-                        std::int64_t shortFrames = 0) noexcept
+                        std::int64_t shortFrames = 0, std::int64_t playedFrames = 0) noexcept
     {
         if (playback.context != context)
         {
             applied = {}; weight = 0.0f; context = playback.context;
             shown.publishDisplay ({}, context);
-            readiness.newContext();
+            newSession();
         }
         AlignUpdate result;
         result.revision = readiness.generation();
@@ -208,17 +210,32 @@ public:
             ? requested.read (context, applied, result.revision, &result.current,
                               appliedRevision == result.revision) : AlignValue {};
         const bool unreadable = applied.frames > 0 && applied.frames > readableFrames; // BLIND may leave it while PRE is silent
-        result.deferred = playback.enabled && wanted.frames > readableFrames && wanted.frames <= shortFrames;
-        if (wanted.frames > 0 && wanted.frames > readableFrames && ! result.deferred) wanted = {};
+        const auto correction = wanted;
+        const bool beyond = playback.enabled && wanted.frames > 0 && wanted.frames > readableFrames;
+        const auto counted = preSelected ? playedFrames : 0;
+        result.deferred = beyond && wanted.frames <= shortFrames && held + counted <= shortFrames;
+        if (result.deferred) held += counted;
+        else if (beyond && wanted.frames <= shortFrames) unserved.store (true); // told as unmeasured meanwhile
+        if (beyond && ! result.deferred) wanted = {};
         if (wanted != applied && weight <= 0.0f
             && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)) adopt (wanted);
         result.fading = wanted != applied && ! blind;
         if (playback.verify && result.current && appliedRevision != result.revision && weight <= 0.0f)
             adopt (wanted); // only a freshly confirmed clock mapping can move BLIND here
+        if (correction.frames == 0) unserved.store (false);
         return result;
     }
+    // A new session or context: its first hold has the whole bound again.
+    void newSession() noexcept { readiness.newContext(); held = 0; unserved.store (false); }
+    // The hold ended before PRE's run served the correction: PRE plays at K until it does.
+    bool unservedCorrection() const noexcept { return unserved.load(); }
     AlignValue value() const noexcept { return applied; }
-    void publishApplied() noexcept { shown.publishDisplay (applied, context); }
+    // An accepted block at a correction: PRE's run serves it, so a later restart may hold again.
+    void publishApplied() noexcept
+    {
+        shown.publishDisplay (applied, context);
+        if (applied.frames > 0) { held = 0; unserved.store (false); }
+    }
     void confirmApplied (std::uint64_t revision) noexcept { appliedRevision = revision; }
     AlignReadiness readiness;
 private:
@@ -232,6 +249,8 @@ private:
     std::uint64_t appliedRevision = 0; // Audio Thread: contention never grants a new address
     AlignContext context; // Audio Thread only
     AlignValue applied; // Audio Thread only
+    std::int64_t held = 0; // Audio Thread only: POST frames held for the correction since PRE last served it
+    std::atomic<bool> unserved { false };
 };
 
 // The last valid host identities survive gaps and repeated observations. This is only an

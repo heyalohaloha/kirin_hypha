@@ -139,7 +139,7 @@ public:
         projectKnown.store (false, std::memory_order_relaxed);
         matchOffsetValid.store (false, std::memory_order_relaxed);
         consumer.reset();
-        alignment.readiness.newContext(); // each new session confirms its own content, retaining only the value
+        alignment.newSession(); // each new session confirms its own content, retaining only the value
         weight = 0.0f;
     }
 
@@ -271,7 +271,8 @@ public:
         std::int64_t mapped = 0, readable = std::numeric_limits<std::int64_t>::max(); // INV-LC28: PRE's run reaches this far back
         if (consumer.calibrated() && checkedClockSubtract (block.clock, consumer.offset(), mapped))
             checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
-        const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate));
+        const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),
+                                          block.playing ? block.frames : 0);
         const bool alignFading = aligned.fading;
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
@@ -432,6 +433,7 @@ public:
     std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }
+    bool alignUnserved() const noexcept { return alignment.unservedCorrection(); }
     void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignment.readiness.ambiguous (measured); }
     AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignment.requestFor (context); }
     std::int64_t alignFrames (AlignContext context) const noexcept { return alignment.displayed (context); }

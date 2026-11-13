@@ -206,6 +206,62 @@ inline void chainFindsLongDelays (int channels)
     }
 }
 
+// INV-LC28: a correction of up to the one-second bound that PRE's new run cannot serve yet holds POST
+// for at most that bound in all, however often the run restarts: seeks closer together than the
+// correction never let PRE's run reach the corrected address. Then PRE plays at K with "Delay
+// unmeasured" until a run reaches it, and the correction returns without a new hold. Held blocks are
+// those PRE waits in with the clock proven again (only the run is short). In a loop shorter than the
+// correction PRE's run continues across the wraps on this engine clock: a short hold, then the
+// correction plays in the loop.
+inline void shortCorrectionHoldIsBounded (int channels)
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t correction = 38400; // 0.8 s
+    const auto tracks = hypha::tests::chain_music::render (1068544 - 250000, 1400000, { 12.0, 12.0, 240, -12.0 });
+    for (const bool loop : { false, true })
+    {
+        ChunkedPost chain (channels);
+        chain.music = &tracks;
+        chain.setDelay (512);
+        chain.contentK = 512 + correction;
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the chain with a short correction");
+        require (post.startLiveCompare() == StartResult::started, "LISTEN starts");
+        post.selectLiveComparePre (true);
+        chain.until (400, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == correction; },
+                     "an early PRE is found and read 0.8 s later");
+        if (loop) { chain.seek (0); chain.enterLoop (27 * ChunkedPost::chunkFrames); } // 0.58 s
+        int held = 0, unmeasured = 0, audibleAtK = 0, corrected = 0;
+        for (int i = 0; i < 12 * 19; ++i) // 4.9 s; without the loop, a seek every 0.4 s
+        {
+            if (! loop && i % 19 == 0) chain.seek (chain.transport + 48000);
+            chain.chunk();
+            const auto s = post.liveCompareStatus();
+            if (s.preWaiting && s.observation == RecoveryReason::beforeRun) ++held;
+            if (s.contentUnmeasured) ++unmeasured;
+            if (s.preAudible && post.liveCompareAlignFrames() == 0) ++audibleAtK;
+            if (s.preAudible && post.liveCompareAlignFrames() == correction) ++corrected;
+        }
+        std::printf ("short correction %s: held %d chunks (%.2f s), PRE at K %d chunks, at the correction %d, unmeasured %d\n",
+                     loop ? "in a 0.58 s loop" : "with seeks every 0.4 s", held, held * 1024.0 / 48000.0, audibleAtK, corrected, unmeasured);
+        require (held > 0 && held * ChunkedPost::chunkFrames <= 48000, "POST holds for at most one second in all");
+        if (loop) // on the engine clock PRE's run continues across the wraps: the correction plays in the loop
+        {
+            require (corrected >= 60 && audibleAtK == 0 && unmeasured == 0, "the loop plays PRE at the correction");
+            chain.clean ("every PRE sample is at the address the renderer claims; held blocks are POST");
+            continue;
+        }
+        require (audibleAtK >= 60 && unmeasured >= audibleAtK, "then PRE plays at K and LISTEN says the delay was not measured");
+        int returnHeld = 0;
+        chain.until (200, [&] { const auto s = post.liveCompareStatus();
+                                returnHeld += s.preWaiting && s.observation == RecoveryReason::beforeRun ? 1 : 0;
+                                return s.preAudible && ! s.contentUnmeasured && post.liveCompareAlignFrames() == correction; },
+                     "once a run reaches it, the correction returns");
+        require (returnHeld == 0, "the correction returns without a new hold");
+        chain.clean ("every PRE sample is at the address the renderer claims; held blocks are POST");
+    }
+}
+
 // Opposite-polarity stereo (R = -L) has no mono sum: the wide search, like the fine one, reads each
 // channel and still finds PRE early by 32768 frames.
 inline void wideSearchReadsEachChannel (int channels)
