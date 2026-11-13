@@ -271,7 +271,7 @@ public:
         std::int64_t mapped = 0, readable = std::numeric_limits<std::int64_t>::max(); // INV-LC28: PRE's run reaches this far back
         if (consumer.calibrated() && checkedClockSubtract (block.clock, consumer.offset(), mapped))
             checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
-        const auto aligned = alignment.update (align, blind, preSelected, weight, readable);
+        const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate));
         const bool alignFading = aligned.fading;
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
@@ -322,7 +322,7 @@ public:
         const bool sampleMismatch = align.enabled && alignment.value().verifySamples
             && ! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0);
         if (align.verify && sampleMismatch) alignment.readiness.recheck();
-        if (align.verify && align.enabled && (alignment.readiness.pending() || ! aligned.current
+        if (align.verify && align.enabled && (alignment.readiness.pending() || ! aligned.current || aligned.waiting
             || aligned.revision != alignment.readiness.generation() || sampleMismatch))
         {
             weight = 0.0f; // the previous address is unverified: never fade through it

@@ -174,6 +174,7 @@ struct AlignUpdate
 {
     bool fading = false; // a new address waits for PRE to fade out
     bool current = false; // the request answers the present clock mapping
+    bool waiting = false; // a short correction PRE's new run does not serve yet: POST until it does
     std::uint64_t revision = 0;
 };
 
@@ -188,10 +189,12 @@ public:
     // A new address may not jump under PRE: it waits for PRE to be silent, which LISTEN brings
     // about with the usual fades and a Blind trial leaves to the listener's own switching.
     // readableFrames: the largest correction PRE's current run can serve at this block. A longer one
-    // (seconds, after a seek, stop or new start) is kept but not used until PRE has written that far:
-    // meanwhile PRE plays at K, as with alignment off, never POST for want of the correction.
+    // (after a seek, stop or new start) is kept but not used until PRE has written that far. One of up
+    // to shortFrames (the 1 s bound) waits as POST for that long; a longer one (seconds) plays PRE at K
+    // meanwhile, as with alignment off, never POST for seconds for want of the correction.
     AlignUpdate update (AlignPlayback playback, bool blind, bool preSelected, float& weight,
-                        std::int64_t readableFrames = std::numeric_limits<std::int64_t>::max()) noexcept
+                        std::int64_t readableFrames = std::numeric_limits<std::int64_t>::max(),
+                        std::int64_t shortFrames = 0) noexcept
     {
         if (playback.context != context)
         {
@@ -205,7 +208,8 @@ public:
             ? requested.read (context, applied, result.revision, &result.current,
                               appliedRevision == result.revision) : AlignValue {};
         const bool unreadable = applied.frames > 0 && applied.frames > readableFrames; // BLIND may leave it while PRE is silent
-        if (wanted.frames > 0 && wanted.frames > readableFrames) wanted = {};
+        result.waiting = playback.enabled && wanted.frames > readableFrames && wanted.frames <= shortFrames;
+        if (wanted.frames > 0 && wanted.frames > readableFrames && ! result.waiting) wanted = {};
         if (wanted != applied && weight <= 0.0f
             && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)) adopt (wanted);
         result.fading = wanted != applied && ! blind;
