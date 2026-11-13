@@ -159,9 +159,9 @@ mod tests {
         // Band 16 = 1000 Hz should have the highest mean SPL
         let n = result.n_frames;
         let mut band_means = [0.0f64; N_BANDS];
-        for frame in 0..n {
-            for (band, mean) in band_means.iter_mut().enumerate() {
-                *mean += result.spl[frame][band];
+        for frame in result.spl.iter().take(n) {
+            for (mean, spl) in band_means.iter_mut().zip(frame.iter()) {
+                *mean += *spl;
             }
         }
         for m in band_means.iter_mut() {
@@ -186,12 +186,11 @@ mod tests {
         let signal = vec![1e-20; REQUIRED_FS as usize]; // 1 second silence
         let result = compute(&signal);
         // All SPL values should be very negative (near floor)
-        for frame in 0..result.n_frames {
-            for band in 0..N_BANDS {
+        for frame in result.spl.iter().take(result.n_frames) {
+            for (band, spl) in frame.iter().enumerate().take(N_BANDS) {
                 assert!(
-                    result.spl[frame][band] < 0.0,
-                    "Silence SPL should be negative, got {} at band {band}",
-                    result.spl[frame][band]
+                    *spl < 0.0,
+                    "Silence SPL should be negative, got {spl} at band {band}"
                 );
             }
         }
