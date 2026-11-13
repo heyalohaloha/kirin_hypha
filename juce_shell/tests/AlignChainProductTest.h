@@ -208,4 +208,30 @@ inline void wideSearchReadsEachChannel (int channels)
                  "opposite-polarity stereo is found beyond the fine search");
     chain.clean ("PRE is read 32768 frames later");
 }
+
+// Channels delayed differently (32768 and 96000 frames) contradict each other: PRE plays at its clock
+// position with the label, never one channel's delay for both, also while the history reaches only
+// the nearer one.
+inline void wideSearchWeighsEveryCandidate (int channels)
+{
+    using namespace hypha::live_compare;
+    if (channels < 2) return;
+    ChunkedPost chain (channels);
+    chain.setDelay (512);
+    chain.contentK = 512 + 32768;
+    chain.rightContentShift = 96000 - 32768;
+    auto& post = *chain.post;
+    selectPreparedPair (chain, "select the contradictory PRE");
+    require (post.startLiveCompare() == StartResult::started, "LISTEN starts");
+    post.selectLiveComparePre (true);
+    chain.until (90, [&] { return post.liveCompareStatus().contentUnmeasured; }, "the bound ends with the label");
+    for (int i = 0; i < 400; ++i)
+    {
+        chain.chunk();
+        const auto s = post.liveCompareStatus();
+        require (s.preAudible && s.contentUnmeasured && post.liveCompareAlignFrames() == 0,
+                 "contradictory channels move nothing: PRE plays at its clock position with the label");
+    }
+    chain.clean ("every PRE sample is at its clock position");
+}
 }

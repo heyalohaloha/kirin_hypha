@@ -68,6 +68,7 @@ struct Options
     bool preDemand = true;              // false: PRE publishes its clock and no PCM
     bool postCarriesPre = false;        // POST's input is PRE's audio contentK samples later
     std::int64_t contentK = 0;
+    std::int64_t rightContentShift = 0; // POST's right channel this many samples later still
     bool candidate = false;             // A/B: alignment is verified and withdrawals fade
 };
 
@@ -200,7 +201,8 @@ private:
         for (int c = 0; c < 2; ++c)
             for (int f = 0; f < b.frames; ++f)
                 output[static_cast<std::size_t> (c)][static_cast<std::size_t> (f)]
-                    = options.postCarriesPre ? pcm (b.clock - options.contentK + f, c) : postSample;
+                    = options.postCarriesPre ? pcm (b.clock - options.contentK + f - (c == 1 ? options.rightContentShift : 0), c)
+                                             : postSample;
         float* out[] { output[0].data(), output[1].data() };
         decision = {};
         report = renderer.render (*ring, key, rate, b, out, 2, preSelected, 1.0f, level, 1.0f, 1.0f,

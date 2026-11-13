@@ -310,19 +310,34 @@ static std::vector<float> decimate (const std::vector<float>& stereo, std::size_
     return out;
 }
 
-// The whitened correlation of one decimated channel pair, over lags that keep `overlap` of both.
-static WideOffset wideCorrelation (const std::vector<float>& x, const std::vector<float>& y, std::int64_t overlap, int factor)
+// One decimated signal, zero-padded and transformed once for every pair it takes part in. About
+// -70 dBFS RMS or less carries no content: it neither proposes nor needs to agree.
+struct WideSpectrum
 {
-    const auto n = x.size();
-    if (rms (x) < 3.0e-4 || rms (y) < 3.0e-4) return {};
-    std::size_t size = 1;
-    while (size < 2 * n) size <<= 1;
-    std::vector<Complex> a (size), b (size);
-    for (std::size_t i = 0; i < n; ++i) { a[i] = x[i]; b[i] = y[i]; }
-    transform (a, false);
-    transform (b, false);
+    std::vector<Complex> bins;
+    bool content = false;
+};
+
+static WideSpectrum wideSpectrum (const std::vector<float>& x, std::size_t size)
+{
+    WideSpectrum spectrum;
+    spectrum.content = rms (x) >= 3.0e-4;
+    if (! spectrum.content) return spectrum;
+    spectrum.bins.assign (size, Complex());
+    for (std::size_t i = 0; i < x.size(); ++i) spectrum.bins[i] = x[i];
+    transform (spectrum.bins, false);
+    return spectrum;
+}
+
+// The whitened correlation of one decimated pair of n samples, over lags that keep `overlap` of both.
+static WideOffset wideCorrelation (const WideSpectrum& post, const WideSpectrum& pre, std::size_t n,
+                                   std::int64_t overlap, int factor)
+{
+    if (! post.content || ! pre.content) return {};
+    const auto size = post.bins.size();
+    std::vector<Complex> a (size);
     double meanMagnitude = 0.0;
-    for (std::size_t k = 0; k < size; ++k) { a[k] = std::conj (a[k]) * b[k]; meanMagnitude += std::abs (a[k]); }
+    for (std::size_t k = 0; k < size; ++k) { a[k] = std::conj (post.bins[k]) * pre.bins[k]; meanMagnitude += std::abs (a[k]); }
     const double floor = 1.0e-3 * meanMagnitude / static_cast<double> (size) + 1.0e-30;
     for (auto& value : a) value /= std::abs (value) + floor;
     transform (a, true);
@@ -370,13 +385,24 @@ WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
     if (! copyPreRing (ring, spanStart - view.k, frames, pre, view.preRun) || ! renderer.historyStillValid (view, spanStart))
         return {};
     // Each channel on its own, as the fine search: opposite-polarity stereo has no mono sum.
-    WideOffset best;
+    const auto preLeft = decimate (pre, 0, factor), preRight = decimate (pre, 1, factor);
+    const auto n = preLeft.size();
+    std::size_t size = 1;
+    while (size < 2 * n) size <<= 1;
+    const WideSpectrum preSpectra[2] { wideSpectrum (preLeft, size), wideSpectrum (preRight, size) };
+    // Every POST channel that carries content must find one dominant peak, at the same position. A
+    // channel delayed otherwise, or so far that the history does not reach it yet, proposes nothing
+    // for both instead of the other's delay.
+    WideOffset proposal;
     for (std::size_t channel = 0; channel < 2; ++channel)
     {
-        const auto wide = wideCorrelation (decimate (post, channel, factor), decimate (pre, channel, factor),
-                                           overlap / factor, factor);
-        if (wide.found && (! best.found || wide.dominance > best.dominance)) best = wide;
+        const auto postSpectrum = wideSpectrum (decimate (post, channel, factor), size);
+        if (! postSpectrum.content) continue;
+        const auto best = wideCorrelation (postSpectrum, preSpectra[channel], n, overlap / factor, factor);
+        if (! best.found) return {};
+        if (proposal.found && std::llabs (proposal.lagFrames - best.lagFrames) > 2 * factor) return {};
+        if (! proposal.found || best.peak > proposal.peak) proposal = best;
     }
-    return best;
+    return proposal;
 }
 }

@@ -63,8 +63,10 @@ OffsetEstimate measureOffset (const Ring&, const PostRenderer&, std::int64_t cen
 // oversampling holds tens of thousands of samples. The wide search correlates, each channel on its
 // own, up to the last
 // offsetWideHistorySeconds of POST's history with PRE's run at about 3 kHz (whitened, as above) and
-// reaches as far as both sides overlap by offsetWideOverlapSeconds. It only proposes a center: the
-// fine search there, with its own peak, agreement and dominance rules, is the evidence.
+// reaches as far as both sides overlap by offsetWideOverlapSeconds. Every POST channel with content
+// must find one dominant peak, at the same position; contradictory or missing evidence proposes
+// nothing. It only proposes a center: the fine search there, with its own peak, agreement and
+// dominance rules, is the evidence.
 constexpr double offsetWideHistorySeconds = 8.0, offsetWideOverlapSeconds = 1.0, offsetWideDominance = 3.0;
 inline std::int64_t offsetWideFrames (double rate) noexcept
 { return rate > 0.0 && rate <= 768000.0 ? static_cast<std::int64_t> (rate * offsetWideHistorySeconds) : 0; }

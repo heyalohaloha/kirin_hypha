@@ -118,6 +118,25 @@ static void wideDelaysAreFound()
             require (offsetCanVote (there) && there.lagFrames == lag && there.window.center == wide.lagFrames,
                      "the fine search at that center finds it to the sample");
         }
+    // Channels delayed differently by comparable, independent material contradict each other: no
+    // center, never one channel's delay for both, also while the history reaches only the nearer one.
+    for (const std::int64_t first : { std::int64_t (32768), std::int64_t (96000) })
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true;
+        options.contentK = 512 + first;
+        options.rightContentShift = 128768 - 2 * first; // the other channel at 96000 or 32768
+        Chain chain (options);
+        for (const int chunks : { 110, 130 }) // about 2.3 s of history, then 5.1 s
+        {
+            chain.run (chunks);
+            const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+            std::printf ("wide contradictory channels %lld/%lld after %d chunks: found %d (center %lld)\n",
+                         static_cast<long long> (first), static_cast<long long> (128768 - first), chunks,
+                         wide.found ? 1 : 0, static_cast<long long> (wide.lagFrames));
+            require (! wide.found, "channels delayed differently propose no center");
+        }
+    }
 }
 
 namespace hypha::tests
