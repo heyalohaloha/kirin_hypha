@@ -18,11 +18,18 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(alignment.contains(
         "(! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)"
     ));
-    // A correction PRE's current run cannot serve yet (after a seek or stop) waits; PRE plays at K.
-    assert!(
-        alignment.contains("if (wanted.frames > 0 && wanted.frames > readableFrames) wanted = {};")
-    );
-    assert!(render.contains("alignment.update (align, blind, preSelected, weight, readable)"));
+    // A correction PRE's current run cannot serve yet (after a seek or stop): one of up to the 1 s
+    // bound waits as POST for that long; a longer one plays PRE at K.
+    assert!(alignment.contains(
+        "result.deferred = playback.enabled && wanted.frames > readableFrames && wanted.frames <= shortFrames;"
+    ));
+    assert!(alignment.contains(
+        "if (wanted.frames > 0 && wanted.frames > readableFrames && ! result.deferred) wanted = {};"
+    ));
+    assert!(render.contains(
+        "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate))"
+    ));
+    assert!(render.contains("! aligned.current || aligned.deferred"));
     assert!(render.contains(
         "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
     ));

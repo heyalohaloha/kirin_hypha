@@ -174,7 +174,7 @@ struct AlignUpdate
 {
     bool fading = false; // a new address waits for PRE to fade out
     bool current = false; // the request answers the present clock mapping
-    bool waiting = false; // a short correction PRE's new run does not serve yet: POST until it does
+    bool deferred = false; // a short correction PRE's new run does not serve yet: POST until it does
     std::uint64_t revision = 0;
 };
 
@@ -208,8 +208,8 @@ public:
             ? requested.read (context, applied, result.revision, &result.current,
                               appliedRevision == result.revision) : AlignValue {};
         const bool unreadable = applied.frames > 0 && applied.frames > readableFrames; // BLIND may leave it while PRE is silent
-        result.waiting = playback.enabled && wanted.frames > readableFrames && wanted.frames <= shortFrames;
-        if (wanted.frames > 0 && wanted.frames > readableFrames && ! result.waiting) wanted = {};
+        result.deferred = playback.enabled && wanted.frames > readableFrames && wanted.frames <= shortFrames;
+        if (wanted.frames > 0 && wanted.frames > readableFrames && ! result.deferred) wanted = {};
         if (wanted != applied && weight <= 0.0f
             && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)) adopt (wanted);
         result.fading = wanted != applied && ! blind;
