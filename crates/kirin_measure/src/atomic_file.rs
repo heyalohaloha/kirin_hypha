@@ -215,10 +215,11 @@ fn pause_atomic_write_if_requested(path: &Path) {
 ///
 /// A unique sibling is fully written first, then hard-linked to the final name. `hard_link` is
 /// the commit barrier: concurrent publishers cannot replace an existing fact. An equal retry is
-/// idempotent; different bytes at the same identity are rejected.
+/// idempotent; different bytes at the same identity are rejected. Keep archives and Drop
+/// acceptances are written this way, so the directories and the published name are made durable.
 pub fn write_bytes_immutable(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
-        create_private_dir_all(parent)?;
+        durable::create_private_dir_all(parent)?;
     }
     let tmp = unique_tmp_path(path)?;
     let mut options = OpenOptions::new();
@@ -231,21 +232,24 @@ pub fn write_bytes_immutable(path: &Path, bytes: &[u8]) -> io::Result<()> {
         file.sync_all()?;
         drop(file);
         match fs::hard_link(&tmp, path) {
-            Ok(()) => Ok(()),
+            Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                if fs::read(path)? == bytes {
-                    Ok(())
-                } else {
-                    Err(io::Error::new(
+                if fs::read(path)? != bytes {
+                    return Err(io::Error::new(
                         io::ErrorKind::AlreadyExists,
                         "immutable fact already exists with different bytes",
-                    ))
+                    ));
                 }
             }
-            Err(error) => Err(error),
+            Err(error) => return Err(error),
         }
+        Ok(())
     })();
     let _ = fs::remove_file(&tmp);
+    if result.is_ok() {
+        // Whoever linked it, the name survives a crash, the temporary one does not (best effort).
+        durable::sync_parent_directory(path);
+    }
     result
 }
 
@@ -416,6 +420,24 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read(&path).unwrap(), b"first");
         assert!(tmp_entries(&root).is_empty());
+    }
+
+    #[test]
+    fn an_immutable_fact_in_new_directories_is_durable() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        let archive = root.join("capture_generation").join("archive");
+        let path = archive.join("generation.json");
+        let syncs = durable::test_hook::syncs_during(false, || {
+            write_bytes_immutable(&path, b"fact").unwrap();
+        });
+        let parents: Vec<_> = syncs.into_iter().map(|(_, parent)| parent).collect();
+        if cfg!(unix) {
+            let tail = [root.clone(), root.join("capture_generation"), archive];
+            assert!(parents.ends_with(&tail), "{parents:?}");
+        } else {
+            assert!(parents.is_empty());
+        }
     }
 
     #[test]

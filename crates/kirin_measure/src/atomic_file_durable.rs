@@ -1,7 +1,8 @@
 //! Durable Record saves: a take's bytes reach the disk before the rename publishes them.
 //!
-//! Only the IO thread's Record and plugin_data saves use this. The Audio Thread never does, and
-//! the frequent watch-state heartbeat keeps the plain atomic write. A failed sync never stops a
+//! Only the IO thread's Record and plugin_data saves and the non-RT immutable facts (Keep archives,
+//! Drop acceptances, Local Blind transfers) use this. The Audio Thread never does, and the
+//! frequent watch-state heartbeat keeps the plain atomic write. A failed sync never stops a
 //! save or a measurement: the write and rename still happen, and the first failure is logged.
 //!
 //! - macOS: `F_BARRIERFSYNC` orders the file's bytes before its rename, and the rename before any
