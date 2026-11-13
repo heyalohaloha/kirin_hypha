@@ -22,6 +22,16 @@ pub(super) struct ShippingCrate {
     pub(super) dir: PathBuf,
 }
 
+/// Whether one feature value turns on a feature named exactly `capi`: a plain feature, or the
+/// feature part of `name/feature` and `name?/feature`. `dep:name` only enables an optional
+/// dependency, so names that merely contain the letters (`dep:capillary`) are fine.
+fn enables_capi(value: &str) -> bool {
+    if value.starts_with("dep:") {
+        return false;
+    }
+    value.rsplit('/').next() == Some("capi")
+}
+
 /// The workspace as Cargo reads it, without resolving or downloading dependencies.
 pub(super) fn workspace_metadata(root: &Path) -> Value {
     let output = std::process::Command::new(env!("CARGO"))
@@ -66,10 +76,7 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
         // A feature can enable a dependency's feature too (`dep/capi`, `dep?/capi`).
         for (feature, enables) in package["features"].as_object().into_iter().flatten() {
             let enables = enables.as_array().into_iter().flatten();
-            if let Some(capi) = enables
-                .filter_map(Value::as_str)
-                .find(|f| f.contains("capi"))
-            {
+            if let Some(capi) = enables.filter_map(Value::as_str).find(|f| enables_capi(f)) {
                 return Err(format!(
                     "{name} enables a C API in feature {feature} ({capi})"
                 ));
@@ -86,10 +93,7 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
                 ));
             }
             let features = dependency["features"].as_array().into_iter().flatten();
-            if features
-                .filter_map(Value::as_str)
-                .any(|f| f.contains("capi"))
-            {
+            if features.filter_map(Value::as_str).any(enables_capi) {
                 return Err(format!("{name} enables the C API of {dependency_name}"));
             }
             let Some(path) = dependency["path"].as_str() else {
@@ -227,6 +231,13 @@ mod tests {
                      [features]\nextra = [\"libz?/capi\"]\n",
                 ),
             ),
+            (
+                "own-feature",
+                package(
+                    "kirin_hypha_ffi",
+                    "[features]\ndefault = [\"capi\"]\ncapi = []\n",
+                ),
+            ),
         ] {
             let root = fake_workspace(
                 name,
@@ -250,5 +261,30 @@ mod tests {
             );
             std::fs::remove_dir_all(&root).unwrap();
         }
+    }
+
+    #[test]
+    fn names_that_only_contain_capi_are_accepted() {
+        let ffi = package(
+            "kirin_hypha_ffi",
+            "[dependencies]\ncapillary = { version = \"1\", optional = true }\n\
+             libz = { version = \"1\", features = [\"capitals\"] }\n\
+             [features]\ndefault = [\"dep:capillary\", \"capillary?/capi_docs\", \"libz/mcapi\", \"capital\"]\n\
+             capital = []\n",
+        );
+        let root = fake_workspace(
+            "benign",
+            &[
+                (
+                    "Cargo.toml",
+                    "[workspace]\nmembers = [\"crates/kirin_hypha_ffi\"]\nresolver = \"2\"\n",
+                ),
+                ("crates/kirin_hypha_ffi/Cargo.toml", ffi.as_str()),
+                ("crates/kirin_hypha_ffi/src/lib.rs", ""),
+            ],
+        );
+        let shipping = shipping_crates(&workspace_metadata(&root));
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(shipping.is_ok(), "{shipping:?}");
     }
 }
