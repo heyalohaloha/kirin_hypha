@@ -63,10 +63,10 @@ pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
 }
 
 /// Creates `path` with `create`, then on Unix syncs directories of its chain into their parents,
-/// outermost first: every directory this call created, and every other one up to the nearest that
-/// this process already synced with the same identity. Whoever created an ancestor (another writer
-/// may have made it without a sync), a crash then cannot lose it under synced files. Best effort:
-/// the first failed sync ends the walk and is logged.
+/// outermost first: every directory this call created, every one this process has not synced with
+/// its present identity, and every one moved into such a new directory. Whoever created or replaced
+/// an ancestor (another writer may have done it without a sync), a crash then cannot lose it under
+/// synced files. Best effort: the first failed sync ends the walk and is logged.
 pub(crate) fn create_dir_all_with(
     path: &Path,
     create: impl FnOnce(&Path) -> io::Result<()>,
@@ -88,7 +88,12 @@ fn chain(path: &Path) -> impl Iterator<Item = &Path> {
         .take_while(|dir| !dir.as_os_str().is_empty() && dir.parent().is_some())
 }
 
-/// `created`: how many of the deepest directories of the chain this call created.
+/// `created`: how many of the deepest directories of the chain this call created. Every level is
+/// checked, outermost first (a stat each): a directory this call created, one never synced or
+/// synced with another identity (made again, a symlink pointed elsewhere), and one whose parent is
+/// such a new directory (moved into it) has its entry synced into its parent. A directory is
+/// remembered only after its sync succeeded; the first failure forgets it and ends the walk, so the
+/// next call tries again. An unchanged chain needs no sync.
 #[cfg(unix)]
 fn make_chain_durable(path: &Path, created: usize) {
     use std::os::unix::fs::MetadataExt;
@@ -97,21 +102,22 @@ fn make_chain_durable(path: &Path, created: usize) {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     };
-    let mut pending = Vec::new();
-    for (depth, directory) in chain(path).enumerate() {
+    let directories: Vec<_> = chain(path).collect();
+    let mut parent_new = false;
+    for (depth, directory) in directories.into_iter().enumerate().rev() {
         let identity = fs::metadata(directory).ok().map(|m| (m.dev(), m.ino()));
-        if depth >= created && identity.is_some() && durable().get(directory) == identity.as_ref() {
-            break;
+        let new =
+            depth < created || identity.is_none() || durable().get(directory) != identity.as_ref();
+        if new || parent_new {
+            if !sync_parent_directory(directory) {
+                durable().remove(directory);
+                return;
+            }
+            if let Some(identity) = identity {
+                durable().insert(directory.to_path_buf(), identity);
+            }
         }
-        pending.push((directory, identity));
-    }
-    for (directory, identity) in pending.into_iter().rev() {
-        if !sync_parent_directory(directory) {
-            return;
-        }
-        if let Some(identity) = identity {
-            durable().insert(directory.to_path_buf(), identity);
-        }
+        parent_new = new;
     }
 }
 
@@ -376,6 +382,51 @@ mod tests {
         let syncs = test_hook::syncs_during(false, || create_dir_all(&project).unwrap());
         let parents = [root.path().to_path_buf(), link];
         assert_eq!(syncs, parents.map(|parent| ("directory", parent)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_sync_of_a_directory_made_again_is_retried() {
+        use std::os::unix::fs::MetadataExt;
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let session = project.join("session");
+        create_dir_all(&session).unwrap();
+        fs::remove_dir(&session).unwrap();
+        // Made again with a reused inode, and that sync fails: it is not remembered as synced.
+        test_hook::syncs_during(true, || {
+            create_dir_all_with(&session, |dir| {
+                fs::create_dir_all(dir)?;
+                let reused = fs::metadata(dir)?;
+                let mut known = DURABLE_DIRECTORIES.lock().unwrap();
+                known.insert(dir.to_path_buf(), (reused.dev(), reused.ino()));
+                Ok(())
+            })
+            .unwrap()
+        });
+        let retried = test_hook::syncs_during(false, || create_dir_all(&session).unwrap());
+        assert_eq!(retried, directory_syncs(&project));
+        assert!(test_hook::syncs_during(false, || create_dir_all(&session).unwrap()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_replaced_ancestor_under_an_unchanged_directory_is_synced() {
+        let root = tempfile::tempdir().unwrap();
+        let generation = root.path().join("capture_generation");
+        let archive = generation.join("archive");
+        let take = archive.join("take");
+        create_dir_all(&take).unwrap();
+        // Another writer moves the archive aside, makes its parent again and moves it back.
+        let aside = root.path().join("aside");
+        fs::rename(&archive, &aside).unwrap();
+        fs::rename(&generation, root.path().join("old_generation")).unwrap();
+        fs::create_dir(&generation).unwrap();
+        fs::rename(&aside, &archive).unwrap();
+        let syncs = test_hook::syncs_during(false, || create_dir_all(&take).unwrap());
+        let parents = [root.path().to_path_buf(), generation];
+        assert_eq!(syncs, parents.map(|parent| ("directory", parent)));
+        assert!(test_hook::syncs_during(false, || create_dir_all(&take).unwrap()).is_empty());
     }
 
     #[test]
