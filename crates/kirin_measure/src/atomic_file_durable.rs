@@ -19,10 +19,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static FILE_SYNC_WARNED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 static DIRECTORY_SYNC_WARNED: AtomicBool = AtomicBool::new(false);
-/// Directories whose own entry this process already synced into their parent.
+/// Directories whose own entry this process already synced into their parent, by path, with the
+/// identity (device, inode) the path had then. A directory deleted and made again, or a symlink
+/// pointed elsewhere, has another identity and is synced again.
 #[cfg(unix)]
-static DURABLE_DIRECTORIES: std::sync::Mutex<std::collections::BTreeSet<std::path::PathBuf>> =
-    std::sync::Mutex::new(std::collections::BTreeSet::new());
+static DURABLE_DIRECTORIES: std::sync::Mutex<
+    std::collections::BTreeMap<std::path::PathBuf, (u64, u64)>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// `fs::write`, with the bytes synced before the file is closed.
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -58,41 +61,56 @@ pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
     create_dir_all_with(path, super::create_private_dir_all)
 }
 
-/// Creates `path` with `create`, then on Unix syncs each directory of its chain into its parent,
-/// outermost first, down from the nearest ancestor this process already made durable. Whoever
-/// created an ancestor (another writer may have made it without a sync), a crash then cannot lose
-/// it under synced files. Best effort: the first failed sync ends the walk and is logged.
+/// Creates `path` with `create`, then on Unix syncs directories of its chain into their parents,
+/// outermost first: every directory this call created, and every other one up to the nearest that
+/// this process already synced with the same identity. Whoever created an ancestor (another writer
+/// may have made it without a sync), a crash then cannot lose it under synced files. Best effort:
+/// the first failed sync ends the walk and is logged.
 pub(crate) fn create_dir_all_with(
     path: &Path,
     create: impl FnOnce(&Path) -> io::Result<()>,
 ) -> io::Result<()> {
+    #[cfg(unix)]
+    let created = chain(path)
+        .take_while(|dir| fs::symlink_metadata(dir).is_err())
+        .count();
     create(path)?;
     #[cfg(unix)]
-    make_chain_durable(path);
+    make_chain_durable(path, created);
     Ok(())
 }
 
+/// The directories of `path`, deepest first, without the root and an empty relative prefix.
 #[cfg(unix)]
-fn make_chain_durable(path: &Path) {
+fn chain(path: &Path) -> impl Iterator<Item = &Path> {
+    path.ancestors()
+        .take_while(|dir| !dir.as_os_str().is_empty() && dir.parent().is_some())
+}
+
+/// `created`: how many of the deepest directories of the chain this call created.
+#[cfg(unix)]
+fn make_chain_durable(path: &Path, created: usize) {
+    use std::os::unix::fs::MetadataExt;
     let durable = || {
         DURABLE_DIRECTORIES
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     };
-    let pending: Vec<std::path::PathBuf> = {
-        let known = durable();
-        path.ancestors()
-            .take_while(|dir| {
-                !dir.as_os_str().is_empty() && dir.parent().is_some() && !known.contains(*dir)
-            })
-            .map(Path::to_path_buf)
-            .collect()
-    };
-    for directory in pending.iter().rev() {
+    let mut pending = Vec::new();
+    for (depth, directory) in chain(path).enumerate() {
+        let identity = fs::metadata(directory).ok().map(|m| (m.dev(), m.ino()));
+        if depth >= created && identity.is_some() && durable().get(directory) == identity.as_ref() {
+            break;
+        }
+        pending.push((directory, identity));
+    }
+    for (directory, identity) in pending.into_iter().rev() {
         if !sync_parent_directory(directory) {
             return;
         }
-        durable().insert(directory.clone());
+        if let Some(identity) = identity {
+            durable().insert(directory.to_path_buf(), identity);
+        }
     }
 }
 
@@ -308,6 +326,55 @@ mod tests {
             let parents: Vec<_> = retried.iter().map(|(_, path)| path.clone()).collect();
             assert!(parents.ends_with(&tail), "{parents:?}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_made_again_at_a_synced_path_is_synced_again() {
+        use std::os::unix::fs::MetadataExt;
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let session = project.join("session");
+        create_dir_all(&session).unwrap();
+        // Another writer replaced it without a sync. The old one stays, so its inode is not reused.
+        fs::rename(&session, root.path().join("old")).unwrap();
+        fs::create_dir(&session).unwrap();
+        let replaced = test_hook::syncs_during(false, || create_dir_all(&session).unwrap());
+        assert_eq!(replaced, directory_syncs(&project));
+        assert!(test_hook::syncs_during(false, || create_dir_all(&session).unwrap()).is_empty());
+        // This call makes it again on a filesystem that reuses the inode: still synced.
+        fs::remove_dir(&session).unwrap();
+        let remade = test_hook::syncs_during(false, || {
+            create_dir_all_with(&session, |dir| {
+                fs::create_dir_all(dir)?;
+                let reused = fs::metadata(dir)?;
+                let mut known = DURABLE_DIRECTORIES.lock().unwrap();
+                known.insert(dir.to_path_buf(), (reused.dev(), reused.ino()));
+                Ok(())
+            })
+            .unwrap()
+        });
+        assert_eq!(remade, directory_syncs(&project));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_pointed_at_another_directory_is_synced_again() {
+        let root = tempfile::tempdir().unwrap();
+        let (first, second) = (root.path().join("first"), root.path().join("second"));
+        fs::create_dir_all(first.join("project")).unwrap();
+        // Another writer made the new target's project without a sync.
+        fs::create_dir_all(second.join("project")).unwrap();
+        let link = root.path().join("records");
+        std::os::unix::fs::symlink(&first, &link).unwrap();
+        let project = link.join("project");
+        create_dir_all(&project).unwrap();
+        assert!(test_hook::syncs_during(false, || create_dir_all(&project).unwrap()).is_empty());
+        fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&second, &link).unwrap();
+        let syncs = test_hook::syncs_during(false, || create_dir_all(&project).unwrap());
+        let parents = [root.path().to_path_buf(), link];
+        assert_eq!(syncs, parents.map(|parent| ("directory", parent)));
     }
 
     #[test]
