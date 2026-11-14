@@ -216,9 +216,9 @@ reportで事後に期待値を変更して通すことはできない。
 
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
 `--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の
-箇条が約束で、各約束をStudio One、Logic Pro、REAPER、Pro Tools、Cubase、Ableton Liveの全6 DAWの実host行で検証し、CI行はその補足とする。
+箇条が約束で、各約束をStudio One、Logic Pro、REAPER、Pro Tools、Cubase、Ableton Live、Cakewalkの全7 DAWの実host行で検証し、CI行はその補足とする。
 OSで異なる可能性のある約束は`platformSensitive`に列挙してmacOSとWindowsの両方で確かめ、それ以外は1 OSで確かめる。
-host行の`os`は`macos`または`windows`とし、同じ約束とDAWの重複は`platformSensitive`の異なるOS間だけ許す（Logic Proは`macos`のみ）。
+host行の`os`は`macos`または`windows`とし、同じ約束とDAWの重複は`platformSensitive`の異なるOS間だけ許す（Logic Proは`macos`のみ、Cakewalkは`windows`のみ）。
 OS差の候補：ファイル・path・保存先、PRE/POST転送（macOSはatomic file、Windowsは共有メモリ）、文字・font・表示倍率、keyboard・mouse、audio機器・driver・timing、installer・plug-in folder、format差（AUはmacOSのみ）。
 host行は`promise`に一つ、または`promises`に複数の約束の文をそのまま書ける（CI行は`promise`に一つ）。
 host行は`daw`と`chain`も名指しする。ファイルと公開ノートのhash、全行・期待値を受入条件へ凍結する。
@@ -234,6 +234,7 @@ CIの標準の期待は`{ "passed": true }`。追加の数値条件には実測o
   { "id": "pro-tools", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AAX"], "daw": "Pro Tools", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
   { "id": "cubase", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Cubase", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
   { "id": "live", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Ableton Live", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  { "id": "cakewalk", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["Windows/x86_64/VST3"], "daw": "Cakewalk", "os": "windows", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
   { "id": "pair-recovery", "kind": "ci", "promise": "PRE and POST pair again after a restart.", "hosts": [],
     "depth": "deep", "oracle": "pair-recovery-parity", "expected": { "passed": true } }
 ] }

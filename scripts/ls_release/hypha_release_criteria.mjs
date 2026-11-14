@@ -6,9 +6,10 @@ import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
 export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v2';
 export const OWNER_DECISION_SCHEMA = 'hypha-owner-acceptance-decision-v1';
 export const OWNER_DEFERRED = 'OWNER_DEFERRED';
-export const REQUIRED_DAWS = ['Studio One', 'Logic Pro', 'REAPER', 'Pro Tools', 'Cubase', 'Ableton Live'];
+export const REQUIRED_DAWS = ['Studio One', 'Logic Pro', 'REAPER', 'Pro Tools', 'Cubase', 'Ableton Live', 'Cakewalk'];
 const dawKey = value => value.toLowerCase().replace(/\s+/g, '');
-const dawAliases = new Map([['logic', 'Logic Pro'], ['live', 'Ableton Live']]);
+const dawAliases = new Map([['logic', 'Logic Pro'], ['live', 'Ableton Live'],
+  ['cakewalkbybandlab', 'Cakewalk'], ['cakewalksonar', 'Cakewalk'], ['sonar', 'Cakewalk']]);
 const canonicalDaw = value => dawAliases.get(dawKey(value)) || REQUIRED_DAWS.find(daw => dawKey(daw) === dawKey(value));
 const shippingStep = 'Test shipping source contract';
 export const CI_ORACLES = {
@@ -88,6 +89,7 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       if (!daw) throw new Error(`Fix row ${row.id} names an unknown DAW: ${row.daw}`);
       if (!['macos', 'windows'].includes(row.os)) throw new Error(`Fix row ${row.id} needs os macos or windows`);
       if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
+      if (daw === 'Cakewalk' && row.os !== 'windows') throw new Error(`Fix row ${row.id}: Cakewalk requires windows`);
       for (const promise of names) {
         if (!coverage.has(promise)) coverage.set(promise, new Map());
         const daws = coverage.get(promise);
