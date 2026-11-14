@@ -39,11 +39,10 @@ private:
     Publisher publisher;
 };
 
-// POST's audible level while a session runs or an approved attenuation is held (INV-LC14). It
-// follows its target linearly in gain, down over 50 ms and up over 0.5 s for the full range, so that
-// applying an approved attenuation never clicks and returning to normal (END, RETURN, MATCH off) is
-// heard at once without a jump. While the DAW is stopped a rise takes the 5 ms transition instead.
-// The steps are atomics because the message thread configures them for the prepared sample rate.
+// POST's audible level while a session runs or an approved attenuation is held (INV-LC14). It follows its target
+// linearly in gain, down over 50 ms and up over 0.5 s for the full range, so that applying an approved attenuation
+// never clicks and returning to normal (END, RETURN, MATCH off) is heard at once without a jump. While the DAW is
+// stopped a rise takes the 5 ms transition instead. The steps are atomics: the message thread sets them per rate.
 class PostLevel
 {
 public:
@@ -114,11 +113,10 @@ struct RenderReport
     AudibleSource audibleSource = AudibleSource::none;
 };
 
-// POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
-// proven and passes the guard. Returning to PRE fades symmetrically over proven samples; losing the
-// proof switches to POST at the block start and never uses unproven PRE samples. The approved gain
-// applies to the PRE copy, ramped when it changes while PRE sounds; an approved POST attenuation
-// applies to POST, in and out of a session.
+// POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is proven and passes
+// the guard. Returning to PRE fades symmetrically over proven samples; losing the proof switches to POST at the
+// block start and never uses unproven PRE samples. The approved gain applies to the PRE copy, ramped when it
+// changes while PRE sounds; an approved POST attenuation applies to POST, in and out of a session.
 class PostRenderer
 {
 public:
@@ -149,8 +147,7 @@ public:
         weight = 0.0f;
     }
 
-    bool adoptInitialTiming (const Ring& ring, const BlockClock& block,
-                             const TimingEvidence& evidence) noexcept
+    bool adoptInitialTiming (const Ring& ring, const BlockClock& block, const TimingEvidence& evidence) noexcept
     { return consumer.adoptInitialTiming (ring, block, evidence); }
     bool needsNewAdmission() const noexcept { return consumer.needsNewAdmission(); }
     void renewNamedTiming() noexcept // Audio Thread, only after NamedReentry grant
@@ -160,8 +157,7 @@ public:
         invalidateHistory(); // no old measurement/approval window survives re-entry
         projectKnown.store (false, std::memory_order_release);
     }
-    void revokeTiming() noexcept
-    { weight = 0.0f; consumer.revoke(); invalidateHistory(); }
+    void revokeTiming() noexcept { weight = 0.0f; consumer.revoke(); invalidateHistory(); }
 
     // MATCH (non-RT) reads the POST input history, contiguous over [start, end) of POST's clock,
     // and the K that mapped the latest block, then verifies the history was not overwritten.
@@ -358,10 +354,10 @@ public:
                 ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
         if (report.reason == RecoveryReason::ceiling && lowerOnCeiling && preGain > 1.0f)
         {
-            // A BLIND trial never lets POST stand in for a raised PRE: it matches on the quieter
-            // side instead. PRE returns to unity before its first sample over the ceiling (a step
-            // only when that sample opens the block), and POST takes the same attenuation, so the
-            // two sources stay level-matched. The trial keeps this for its remaining blocks.
+            // A BLIND trial never lets POST stand in for a raised PRE: it matches on the quieter side instead.
+            // PRE returns to unity before its first sample over the ceiling (a step only when that sample opens
+            // the block), and POST takes the same attenuation, so the two sources stay level-matched. The trial
+            // keeps this for its remaining blocks.
             const auto first = firstOverCeiling (block.frames, preLevel.peak (preGain), ceilingLinear);
             report.levelShift = 1.0f / preGain;
             postTarget *= report.levelShift;
@@ -394,10 +390,9 @@ public:
                                            : RenderReport::AudibleSource::none;
             return report;
         }
-        // Once both ramps are already settled, bypass the crossfade arithmetic entirely. The
-        // Blind receipt therefore describes the exact path that produced this whole block, not
-        // an inference from ramp state after a multiply/add loop. This is also the cheap steady
-        // state: one PRE gain multiply, or the bit-identical POST fast path above.
+        // Once both ramps are settled, bypass the crossfade arithmetic: the Blind receipt then describes the exact
+        // path that produced this whole block, not an inference from ramp state after a multiply/add loop. It is
+        // also the cheap steady state: one PRE gain multiply, or the bit-identical POST fast path above.
         if (weight >= 1.0f && target >= 1.0f && preLevel.settledAt (preGain)
             && post.value() >= postTarget && post.value() <= postTarget)
         {
@@ -460,9 +455,8 @@ private:
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
     static constexpr double historySeconds = 8.0; // MATCH reads up to 4 s of it
 
-    // INV-LC14: a PRE block is never output when a sample is not finite or, raised by the approved
-    // gain, peaks above the ceiling fixed at MATCH. Sample peaks miss inter-sample peaks, so this
-    // guard alone does not prove the true peak.
+    // INV-LC14: a PRE block is never output when a sample is not finite or, raised by the approved gain, peaks
+    // above the ceiling fixed at MATCH. Sample peaks miss inter-sample peaks, so this guard alone does not prove it.
     RecoveryReason guardFailure (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
     {
         if (! std::isfinite (preGain) || preGain <= 0.0f) return RecoveryReason::nonFinite;
