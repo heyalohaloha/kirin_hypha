@@ -33,11 +33,14 @@ void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC
 void returnLiveComparePostToNormal() noexcept;
 bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
+hypha::live_compare::WideOffset searchLiveCompareWideOffset();
 void serviceLiveContentTiming();
 bool alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step&, const hypha::live_compare::OffsetEstimate&) noexcept;
 bool liveCompareAlignPending() const noexcept;
-bool alignConfirmationExpired (const hypha::live_compare::Status&, std::uint64_t now) noexcept;
+hypha::live_compare::PreAlignInput preAlignInput (hypha::live_compare::PreAlignEvent) const noexcept;
+void preAlignEvent (hypha::live_compare::PreAlignEvent) noexcept;
 bool candidateAlignUnconfirmed() const noexcept;
+bool liveContentPathProven (const hypha::live_compare::Status&) const noexcept;
 bool liveCompareAutoAlign() const noexcept; // INV-LC28, on unless the user turned it off
 void setLiveCompareAutoAlign (bool enabled) noexcept;
 std::int64_t liveCompareAlignFrames() const noexcept; // frames PRE is read later than K alone says

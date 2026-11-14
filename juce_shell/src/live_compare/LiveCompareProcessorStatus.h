@@ -33,6 +33,11 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.gain = gains.pre;
     status.postTarget = gains.coherent ? gains.post : status.postActual;
     status.contentHeld = liveCompare.contentHold.held();
+    // INV-LC28: a short correction's hold ended before PRE's run served it; PRE (A) plays at K
+    // meanwhile, told with the same words in LISTEN, BLIND and A/B.
+    const auto told = liveCompare.preAlign.notice (liveCompare.renderer.alignState().unservedCorrection());
+    status.contentUnmeasured = told.unmeasured;
+    status.contentNotRemeasured = told.notRemeasured;
     if (status.contentHeld)
         status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
     status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);

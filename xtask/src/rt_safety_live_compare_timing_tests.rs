@@ -5,6 +5,9 @@ use super::{
 const BLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareBlockClock.h");
 const AAX_CHUNK_H: &str = include_str!("../../juce_shell/src/live_compare/AaxChunkPosition.h");
 const ALIGN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareAlign.h");
+const PRE_ALIGN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveComparePreAlign.h");
+const STATUS_H: &str =
+    include_str!("../../juce_shell/src/live_compare/LiveCompareProcessorStatus.h");
 const TIMING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareTimingWitness.h");
 const PREPARATION_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareTimingPreparation.h");
@@ -15,17 +18,80 @@ fn content_alignment_moves_only_the_audition_address() {
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
     let alignment = function_body(ALIGN_H, "AlignUpdate update (AlignPlayback playback");
     assert!(alignment.contains("wanted != applied && weight <= 0.0f"));
-    assert!(alignment
-        .contains("(! blind || ! preSelected || ! playback.enabled || applied.verifySamples)"));
+    assert!(alignment.contains(
+        "(! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)"
+    ));
+    // A correction PRE's current run cannot serve yet (after a seek or stop): one of up to the 1 s
+    // bound waits as POST. One budget bounds every wait for PRE's address (a held block and a
+    // clock-proven block waiting for content count alike unless PRE played it). BLIND counts and
+    // serves by PRE's path. A spent budget stays spent until PRE plays at its address or a new
+    // session or context begins; an ended hold needs PRE's run to serve the correction first.
+    assert!(alignment.contains(
+        "stake = holdable && unreached && (blind || (preSelected && playback.outputAllowed)) && ! expired ? playedFrames : 0;"
+    ));
+    assert!(alignment.contains("if (stake > 0 && held + stake > shortFrames) expired = true;"));
+    assert!(ALIGN_H
+        .contains("if (held + played > bound) expired = true; else held += (stake = played);"));
+    // No clock mapping, refused address or calibrating block waits outside the budget.
+    assert!(ALIGN_H.contains("if (((path && ((waiting && seen) || update.deferred)) || refused) && stake == 0 && ! expired)"));
+    assert!(
+        ALIGN_H.contains("void arm() const noexcept { armed.store (budget.load (")
+            && !ALIGN_H.contains("arm (std::uint64_t")
+    );
+    assert!(alignment.contains("held += stake;"));
+    assert!(alignment.contains("const auto path = blind ? blindRequest : wanted;"));
+    assert!(alignment.contains(
+        "serves = blind ? ! pathBeyond && (path.frames == 0 || readableFrames != std::numeric_limits<std::int64_t>::max())"
+    ));
+    assert!(alignment.contains("result.deferred = (((beyond || pathBeyond) && holdable) || (blind && unknown && path.frames > 0)) && ! expired;"));
+    assert!(alignment.contains("if ((beyond && ! result.deferred) || atK) wanted = {};"));
+    assert!(!alignment.contains("expired = false"));
+    assert_eq!(ALIGN_H.matches("expired = holdEnded = false").count(), 2); // a new session, PRE at its address
+    assert!(ALIGN_H.contains(
+        "if (serves && (corrected || ! holdEnded)) { held = 0; expired = holdEnded = false; unserved.store (false); renew(); }"
+    ));
+    // BLIND is proven, waits and is served by PRE's path, never by the address a source applied.
+    assert!(ALIGN_H.contains("const bool path = blindPath ? pathClock : accepted;"));
+    assert!(
+        ALIGN_H.contains("proven.store (path && ! update.deferred, std::memory_order_relaxed);")
+    );
+    assert!(
+        ALIGN_H.contains("else if (blindPath && path && ! waiting && ! update.deferred) served();")
+    );
+    assert!(ALIGN_H.contains(
+        "readiness.newContext(); held = stake = 0; expired = holdEnded = false; blindRequest = {}; unserved.store (false);"
+    ));
+    assert!(render.contains(
+        "if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served();"
+    ));
+    // What an ended hold tells is one rule for LISTEN, BLIND and A/B: no mode is asked.
+    assert!(STATUS_H.contains(
+        "liveCompare.preAlign.notice (liveCompare.renderer.alignState().unservedCorrection());"
+    ));
+    // The owner binds a correction to the K it was measured against and refuses an older mapping.
+    assert!(PRE_ALIGN_H
+        .contains("if (in.measuredRevision != in.revision || in.measuredK != in.k) break;"));
+    assert!(PRE_ALIGN_H.contains("kept = { in.value, in.measuredK, in.context, in.host };"));
+    assert!(PRE_ALIGN_H.contains("if (! (in.pending && in.spent)) { missSince = 0; break; }"));
+    assert!(!STATUS_H.contains("candidateCompareActive"));
+    assert!(ALIGN_H.contains("{ return { unserved || unmeasured, ! unserved && notRemeasured }; }"));
+    assert!(render.contains(
+        "alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);"
+    ));
+    assert!(render.contains(
+        "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),"
+    ));
+    assert!(render.contains("block.playing ? block.frames : 0);"));
+    assert!(render.contains("! aligned.current || aligned.deferred"));
     assert!(render.contains(
         "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
     ));
-    assert!(render.contains("align.outputAllowed && ! alignFading"));
+    assert!(render.contains("align.outputAllowed && ! aligned.fading"));
     assert!(
         alignment.contains("requested.read (context, applied, result.revision, &result.current,")
     );
     assert!(alignment.contains("appliedRevision == result.revision"));
-    assert!(function_body(SESSION_H, "void prepare (").contains("alignment.readiness.newContext()"));
+    assert!(function_body(SESSION_H, "void prepare (").contains("alignment.newSession()"));
     assert!(render.contains(
         "consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value())"
     ));
@@ -53,7 +119,9 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
     assert!(measure.contains("estimate.alignContext = context"));
     let publish = function_body(content, "bool KirinHyphaProcessorBase::alignLiveCompare (");
     assert!(publish.contains("estimate.alignContext != liveCompare.alignContext()"));
-    assert!(publish.contains("requestAlign (value, estimate.alignContext, estimate.alignRevision)"));
+    assert!(
+        publish.contains("requestAlign (publish.value, estimate.alignContext, publish.revision)")
+    );
     let read = function_body(ALIGN_H, "AlignValue read (");
     assert!(read.contains("if (before != sequence.load()) return unchanged"));
     assert!(read.contains("return measured == context ? value : AlignValue {}"));
@@ -98,7 +166,8 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
 
 fn rendered_alignment_requires_acceptance() -> bool {
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
-    render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied()")
+    render.contains("alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);")
+        && ALIGN_H.contains("if (accepted) shown.publishDisplay (applied, context);")
         && ALIGN_H.contains("if (playback.context != context)")
 }
 

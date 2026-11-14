@@ -7,6 +7,7 @@
 #include "LiveCompareMatch.h"
 #include "LiveCompareOffset.h"
 #include "LiveComparePinResult.h"
+#include "LiveComparePreAlign.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
 #include "LiveCompareCompletion.h"
@@ -41,6 +42,8 @@ struct LiveBlindStatus
     RecoveryReason reason = RecoveryReason::none;
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
+    bool contentUnmeasured = false; // INV-LC28: the bounded wait ended unconfirmed; PRE plays at K, told
+    bool contentNotRemeasured = false; // INV-LC28: PRE plays at K plus the kept correction, told
     std::int64_t contentLagFrames = 0; // INV-LC10 notice: positive when PRE is late
     double contentNoticeMs = 0.0;      // the last notice in this trial, for the RESULT only
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
@@ -74,6 +77,8 @@ struct Status
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
     bool contentHeld = false; // INV-LC10: a strong estimate the clock cannot act on; PRE still sounds at K
+    bool contentUnmeasured = false; // INV-LC28: no position confirmed by the bound; PRE plays at K, told
+    bool contentNotRemeasured = false; // INV-LC28: no position confirmed by the bound; the kept correction plays
     std::int64_t contentJumpLagFrames = 0; // the settled offset of that notice; zero without one
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off
     RecoveryReason reason = RecoveryReason::none; // retained first failure, never a current blocker
@@ -192,10 +197,15 @@ struct ProcessorState
     OffsetMonitor::Step contentStep;
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
-    std::uint64_t alignConfirmStart = 0;          // message thread: the short wait for content (INV-LC28)
     std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a notice (INV-LC10)
     double blindContentNoticeMs = 0.0;            // message thread: the last notice since this BLIND began
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
+    // INV-LC28, message thread, in memory only: the one owner of PRE's alignment state (the kept
+    // correction with its K, pair, format, PRE owner and host conditions, and what is told).
+    hypha::live_compare::PreAlignState preAlign;
+    std::atomic<std::uint64_t> alignConditions { 0 }; // Audio Thread: the A/B host conditions' fingerprint
+    std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
+    std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second
     OffsetWindow contentWindow;
     ContentHold contentHold;      // INV-LC10: a status-line notice; never changes the output
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold

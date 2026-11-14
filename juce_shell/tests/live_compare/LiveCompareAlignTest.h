@@ -278,6 +278,130 @@ static void candidateAlignWaitFadesFromTheLastOutput()
     require (first >= last && first <= last, "the wait continues from A's last sample instead of stepping to B");
 }
 
+// INV-LC28: every block PRE is selected in and does not play counts against one deadline, whatever
+// keeps it waiting, and the deadline stays ended once it has ended, whatever the block size.
+static void alignHoldIsOneLatchedDeadline()
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t rate = 48000, correction = 38400, unknown = std::numeric_limits<std::int64_t>::max();
+    const AlignContext context { 2, 4, 6, 8 };
+    AlignPlayback playback; playback.context = context;
+    RendererAlignment alignment; float weight = 0.0f;
+    alignment.update (playback, false, true, weight, unknown, rate, 0);
+    alignment.request ({ correction }, context);
+    // A seek every 0.4 s: each run first has no proven mapping, then a proven one that is still short.
+    std::int64_t waited = 0; bool ended = false;
+    for (int block = 0; block < 600 && ! ended; ++block)
+    {
+        const bool proven = block % 75 >= 37;
+        ended = ! alignment.update (playback, false, true, weight, proven ? (block % 75) * 256 : unknown, rate, 256).deferred && proven;
+        if (! ended) waited += 256;
+    }
+    std::printf ("hold under seeks every 0.4 s: %.3f s of selected PRE waited before PRE played at K\n", static_cast<double> (waited) / rate);
+    require (ended && waited <= rate && alignment.unservedCorrection(), "unproven blocks count against the same one second as held ones");
+    for (const int frames : { 64, 256, 1, 64 })
+        require (! alignment.update (playback, false, true, weight, 1024, rate, frames).deferred,
+                 "an ended hold stays ended whatever the block size");
+    alignment.update (playback, false, true, weight, rate, rate, 256);
+    alignment.served();
+    require (alignment.value().frames == correction && ! alignment.unservedCorrection()
+             && alignment.update (playback, false, true, weight, 1024, rate, 256).deferred,
+             "once PRE has played at the correction, a later restart may hold again");
+    // A Blind trial that plays PRE at K until the listener switches waits for nothing.
+    RendererAlignment trial; weight = 1.0f;
+    trial.update (playback, true, true, weight, unknown, rate, 0);
+    trial.request ({ correction }, context);
+    for (int block = 0; block < 400; ++block)
+    {
+        require (! trial.update (playback, true, true, weight, rate, rate, 256).deferred, "a served correction is not held");
+        trial.served();
+    }
+    require (trial.value().frames == 0 && ! trial.unservedCorrection()
+             && trial.update (playback, true, true, weight, 1024, rate, 256).deferred, "PRE that plays uses none of the hold");
+    for (int block = 0; block < 200; ++block) trial.update (playback, true, true, weight, 1024, rate, 256);
+    require (trial.unservedCorrection(), "the trial's hold ends as any other");
+    trial.newSession();
+    require (! trial.unservedCorrection() && trial.update (playback, true, true, weight, 1024, rate, 256).deferred,
+             "a new session has the whole hold again");
+    // BLIND: the same playback waits, ends its hold and is told alike whichever source is selected.
+    RendererAlignment x, y; float xWeight = 1.0f, yWeight = 0.0f; // X is PRE, Y is POST
+    x.update (playback, true, true, xWeight, unknown, rate, 0); y.update (playback, true, false, yWeight, unknown, rate, 0);
+    x.request ({ correction }, context); y.request ({ correction }, context);
+    std::int64_t blindWaited = 0; int blindTold = 0;
+    for (int block = 0; block < 900; ++block)
+    {
+        const bool storm = block >= 100 && block < 700, mapped = ! storm || block % 75 >= 37;
+        const auto readable = ! mapped ? unknown : storm ? (block % 75) * 256 : rate;
+        const auto xUpdate = x.update (playback, true, true, xWeight, readable, rate, 256);
+        const auto yUpdate = y.update (playback, true, false, yWeight, readable, rate, 256);
+        x.observed (mapped && ! xUpdate.deferred, mapped, xUpdate); y.observed (mapped && ! yUpdate.deferred, mapped, yUpdate);
+        if (mapped && ! xUpdate.deferred) x.served();
+        if (mapped && ! yUpdate.deferred) y.served();
+        require (xUpdate.deferred == yUpdate.deferred && x.unservedCorrection() == y.unservedCorrection()
+                 && x.pathProven() == y.pathProven(), "BLIND waits and tells alike for either selected source");
+        if (storm && blindTold == 0 && (! mapped || xUpdate.deferred)) blindWaited += 256;
+        blindTold += x.unservedCorrection() ? 1 : 0;
+        require (block < 100 ? ! x.unservedCorrection() : true, "PRE's path that serves the correction is told nothing");
+    }
+    std::printf ("BLIND hold under seeks every 0.4 s: %.3f s waited by either source before the notice\n", static_cast<double> (blindWaited) / rate);
+    require (blindTold > 0 && blindWaited <= rate && ! x.unservedCorrection() && ! y.unservedCorrection(),
+             "either source's hold ends within the second, and the notice ends once PRE's run serves the correction");
+    // What is told is one rule for every mode: an ended hold plays PRE at K, so it is unmeasured.
+    const auto told = alignNotice (true, false, true), kept = alignNotice (false, false, true);
+    require (told.unmeasured && ! told.notRemeasured && kept.notRemeasured && ! kept.unmeasured
+             && alignNotice (false, true, false).unmeasured, "an ended hold is told as unmeasured, never as the kept correction");
+    // K moved by the kept amount: the host compensates it now. Any other change of K keeps it.
+    require (hostTookOver ({ 1065 }, 512, 512 + 1065, 2) && hostTookOver ({ 1065 }, -512, 555, 2),
+             "K later by the kept amount means the host took the delay over");
+    require (! hostTookOver ({ 1065 }, 512, 512 + 256, 2) && ! hostTookOver ({ 1065 }, 512, 512 - 1065, 2)
+             && ! hostTookOver ({ 1065 }, 512, 512 + 1068, 2) && ! hostTookOver ({ 1065 }, 512, 512, 2)
+             && ! hostTookOver ({}, 512, 512, 2)
+             && ! hostTookOver ({ 1065 }, std::numeric_limits<std::int64_t>::max(), std::numeric_limits<std::int64_t>::min() + 1064, 2),
+             "a buffer-like, opposite, unchanged or uncomputable change of K keeps the correction");
+}
+
+// INV-LC28: a Blind trial moves PRE's address without the listener's switch only while PRE is silent
+// (here: the first block after a seek, PRE's reach not known yet), and both assignments move alike.
+static void blindMovesOnlyWhilePreIsSilent()
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t rate = 48000, correction = 1065, unknown = std::numeric_limits<std::int64_t>::max();
+    const AlignContext context { 2, 4, 6, 8 };
+    AlignPlayback playback; playback.context = context;
+    for (bool sounding : { false, true })
+    {
+        // X: source 1 is PRE. Y: source 1 is POST. The listener starts on source 2, then switches to 1.
+        RendererAlignment x, y; float xWeight = 0.0f, yWeight = 1.0f;
+        x.request ({ correction }, context); y.request ({ correction }, context);
+        const auto block = [&] (bool onSourceOne, std::int64_t readable)
+        {
+            const auto xUpdate = x.update (playback, true, onSourceOne, xWeight, readable, rate, 256);
+            const auto yUpdate = y.update (playback, true, ! onSourceOne, yWeight, readable, rate, 256);
+            const auto reads = [readable] (const RendererAlignment& a) { return readable == unknown ? a.value().frames == 0 : a.value().frames <= readable; };
+            x.observed (reads (x) && ! xUpdate.deferred, true, xUpdate); y.observed (reads (y) && ! yUpdate.deferred, true, yUpdate);
+            require (xUpdate.deferred == yUpdate.deferred && ! xUpdate.deferred && x.unservedCorrection() == y.unservedCorrection()
+                     && x.pathProven() == y.pathProven() && x.budgetSpent() == y.budgetSpent() && ! x.budgetSpent(),
+                     "both assignments wait and are told alike, and neither waits here");
+        };
+        for (int i = 0; i < 4; ++i) block (false, rate);
+        require (x.value().frames == correction && y.value().frames == 0, "the silent PRE takes the correction; the sounding one keeps K");
+        xWeight = 1.0f; yWeight = 0.0f; // the switch to source 1, after its fade
+        for (int i = 0; i < 4; ++i) block (true, rate);
+        require (x.value().frames == correction && y.value().frames == correction, "the switch brings the other assignment there");
+        x.request ({}, context); y.request ({}, context); // the same clock mapping now confirms no correction
+        for (int i = 0; i < 200; ++i)
+        {
+            block (true, rate);
+            require (x.value().frames == correction, "PRE that sounds keeps its address until the listener switches");
+        }
+        if (! sounding) xWeight = 0.0f; // a seek: PRE is silent until the new run is proven
+        block (true, unknown);
+        require (sounding ? x.value().frames == correction : x.value().frames == 0, sounding
+                 ? "the address never moves while PRE sounds" : "after a seek the silent PRE moves to the confirmed position");
+        require (y.value().frames == 0, "the other assignment is at the confirmed position already");
+    }
+}
+
 static void liveCompareAlignContract()
 {
     // A contended publication retains the last proven context's value, never a torn tuple or
@@ -305,4 +429,6 @@ static void liveCompareAlignContract()
     alignLoopProofStopsAtWhatPreWrote();
     aaxPendingCycleCannotSurviveASeek();
     candidateAlignWaitFadesFromTheLastOutput();
+    alignHoldIsOneLatchedDeadline();
+    blindMovesOnlyWhilePreIsSilent();
 }

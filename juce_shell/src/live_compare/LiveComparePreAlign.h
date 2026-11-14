@@ -1,0 +1,139 @@
+#pragma once
+#include "LiveCompareAlign.h"
+
+namespace hypha::live_compare
+{
+// INV-LC28: the one owner of the PRE path's alignment state outside the Audio Thread (message
+// thread, in memory only). It holds the correction kept for later sessions together with the clock
+// difference K it was measured against, the pair / format / PRE owner and the host conditions it
+// belongs to, and what is told. Every change goes through transition(), fed by explicit events; the
+// Audio Thread's part (RendererAlignment) owns the single budget of waiting and publishes it. Nothing
+// here depends on which source is selected or on the address a source applied, so a Blind trial's
+// two anonymous sources share every decision.
+struct PreAlignHost
+{
+    bool candidate = false; // A/B, which keeps a correction only for the same candidate and conditions
+    std::uint64_t peer = 0, conditions = 0, compensation = 0;
+    bool operator== (const PreAlignHost& other) const noexcept
+    {
+        return candidate == other.candidate
+            && (! candidate || (peer == other.peer && conditions == other.conditions && compensation == other.compensation));
+    }
+};
+
+enum class PreAlignEvent : std::uint8_t
+{
+    contextChanged, // a new pair, format, PRE owner or automatic-alignment choice: nothing is told yet
+    clockChanged,   // the Audio Thread's clock mapping moved on (a new session, a changed K): nothing is told yet
+    transport,      // a seek, stop, loop or mode end: `active` says whether a comparison still runs
+    measured,       // two agreeing strong windows settled: nothing unmeasured is left to tell
+    estimate,       // a settled correction to publish, measured at `measuredRevision` against `measuredK`
+    tick            // the periodic service: the budget and the kept correction
+};
+
+struct PreAlignInput
+{
+    PreAlignEvent event = PreAlignEvent::tick;
+    AlignContext context;
+    PreAlignHost host;
+    std::uint64_t revision = 0; // the Audio Thread's present clock mapping ...
+    std::int64_t k = 0;         // ... and its K
+    bool active = false;
+    // estimate
+    AlignValue value;
+    std::uint64_t measuredRevision = 0;
+    std::int64_t measuredK = 0;
+    // tick
+    bool pending = false, spent = false; // a content check is awaited; the Audio Thread's budget is spent
+    std::int64_t reach = std::numeric_limits<std::int64_t>::max(); // what PRE's run serves; the maximum while unknown
+    std::int64_t agreement = 0; // the estimates' agreement in frames
+    std::uint64_t now = 0, readRetryNanos = 0;
+};
+
+struct PreAlignOutput
+{
+    bool request = false; // publish `value` for `revision`
+    AlignValue value;
+    std::uint64_t revision = 0;
+};
+
+class PreAlignState
+{
+public:
+    PreAlignOutput transition (const PreAlignInput& in) noexcept
+    {
+        PreAlignOutput out;
+        observeClock (in);
+        switch (in.event)
+        {
+            case PreAlignEvent::contextChanged:
+            case PreAlignEvent::clockChanged:
+            case PreAlignEvent::measured: tell (false, false); break;
+            case PreAlignEvent::transport: if (! in.active) tell (false, false); break;
+            case PreAlignEvent::estimate:
+                // An estimate measured against an older mapping proves nothing about this one. The
+                // Audio Thread refuses the old revision anyway; the kept K is the measured one, never
+                // whatever K has become meanwhile.
+                if (in.measuredRevision != in.revision || in.measuredK != in.k) break;
+                out = { true, in.value, in.measuredRevision };
+                if (! in.value.verifySamples) // a repeated waveform proves no unique position: never kept
+                    kept = { in.value, in.measuredK, in.context, in.host };
+                break;
+            case PreAlignEvent::tick:
+            {
+                if (! (in.pending && in.spent)) { missSince = 0; break; }
+                // The budget ended without a confirmed position: the kept correction of this very
+                // pair, format, owner and host conditions plays, told as not re-measured; else K.
+                auto use = usable (in) ? kept.value : AlignValue {};
+                const bool known = in.reach != std::numeric_limits<std::int64_t>::max();
+                if (use.frames != 0 && ! known && (missSince == 0 || in.now - missSince < in.readRetryNanos))
+                {
+                    if (missSince == 0) missSince = in.now;
+                    break; // read PRE's run again on the next service, for a bounded time
+                }
+                missSince = 0;
+                if (use.frames != 0 && (! known || in.reach < use.frames)) use = {}; // PRE's run does not serve it
+                kept = { use, in.k, in.context, in.host }; // played under this K from here on
+                out = { true, use, in.revision };
+                tell (use.frames == 0 && ! in.host.candidate, use.frames != 0);
+                break;
+            }
+        }
+        return out;
+    }
+    // A/B: the same candidate started again under the same pair and format keeps its correction.
+    void candidateRestarted (std::uint64_t formatBefore, std::uint64_t authority, std::uint64_t peer) noexcept
+    {
+        if (kept.host.candidate && kept.context.format == formatBefore && kept.context.authority == authority
+            && kept.host.peer == peer) kept.context.format = formatBefore + 1;
+    }
+    AlignNotice notice (bool unserved) const noexcept
+    { return alignNotice (unserved, unmeasured.load (std::memory_order_acquire), notRemeasured.load (std::memory_order_acquire)); }
+    // For tests and diagnostics: the kept correction and the K it is bound to.
+    AlignValue keptValue() const noexcept { return kept.value; }
+    std::int64_t keptK() const noexcept { return kept.k; }
+private:
+    struct Kept { AlignValue value; std::int64_t k = 0; AlignContext context; PreAlignHost host; };
+    bool usable (const PreAlignInput& in) const noexcept
+    { return kept.value.frames != 0 && kept.context == in.context && kept.host == in.host; }
+    // K moved by the kept amount, in one observed step or since the correction was measured or last
+    // played: the host compensates that delay now, so the kept correction is dropped (PRE at K).
+    void observeClock (const PreAlignInput& in) noexcept
+    {
+        const bool stepped = clockSeen && in.k != seenK;
+        if (usable (in) && (hostTookOver (kept.value, kept.k, in.k, in.agreement)
+                            || (stepped && hostTookOver (kept.value, seenK, in.k, in.agreement)))) kept.value = {};
+        seenK = in.k; clockSeen = true;
+    }
+    void tell (bool unmeasuredNow, bool notRemeasuredNow) noexcept
+    {
+        unmeasured.store (unmeasuredNow, std::memory_order_release);
+        notRemeasured.store (notRemeasuredNow, std::memory_order_release);
+    }
+    Kept kept;
+    std::int64_t seenK = 0;
+    bool clockSeen = false;
+    std::uint64_t missSince = 0; // the first read of the kept position that missed
+    std::atomic<bool> unmeasured { false }, notRemeasured { false };
+};
+}

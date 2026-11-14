@@ -257,7 +257,10 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && liveCompare.alignmentConditions.observe (candidateToken, *ring, block, compensationChanged))
             liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
         if (candidateToken != 0 && ! candidateReturning)
+        {
+            liveCompare.alignConditions.store (liveCompare.alignmentConditions.fingerprint(), std::memory_order_release);
             ring->header.candidate.refreshLease (candidateToken, usable && permitted && ! outputTaken ? block.wallNanos : 0);
+        }
         if (candidateToken != 0)
         {
             auto& state = liveCompare.candidate;

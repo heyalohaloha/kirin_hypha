@@ -156,7 +156,7 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
         y[i] = pre[i];
     transform (x, false);
     transform (y, false);
-    // A narrow spectrum needs a full-window sample check instead of a spectral peak.
+    // A narrow spectrum is first checked sample by sample: a repeated waveform has no unique peak.
     std::vector<double> energy (size / 2);
     double total = 0.0;
     for (std::size_t k = 0; k < size / 2; ++k)
@@ -167,14 +167,14 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     for (std::size_t k = 0; k <= energy.size() / 100; ++k)
         top += energy[k];
     if (total <= 0.0) return estimate;
-    if (top > 0.8 * total)
-    {
-        // After EQ or a limiter a bass-heavy window is no scaled copy and has no usable phase in
-        // its few strong bins. It says nothing about the position, so it is not ambiguity either.
-        auto copy = scaledCopyOffset (post, pre, maxLag);
-        copy.narrow = ! copy.determined;
-        return copy;
-    }
+    // After EQ or a limiter a bass-heavy window is no scaled copy, yet the rest of its spectrum
+    // (drums, room, noise) still carries the phase of the position: the peak below judges it like
+    // any window. Only a peak strong and unique enough to vote counts there; anything weaker says
+    // nothing about the position, so it is not ambiguity either.
+    const bool narrow = top > 0.8 * total;
+    if (narrow)
+        if (auto copy = scaledCopyOffset (post, pre, maxLag); copy.determined)
+            return copy;
     double meanMagnitude = 0.0;
     for (std::size_t k = 0; k < size; ++k)
     {
@@ -204,10 +204,17 @@ OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector
     // A peak at the edge of the search is out of range, not an offset.
     const bool inside = best > 32 && best + 32 < span;
     estimate.determined = inside && peak >= 0.05 && estimate.dominance >= 3.0;
+    if (narrow)
+    {
+        if (inside && peak >= offsetJumpPeak && estimate.dominance >= offsetJumpDominance) return estimate;
+        OffsetEstimate undetermined;
+        undetermined.narrow = true;
+        return undetermined;
+    }
     return estimate.determined ? estimate : scaledCopyOffset (post, pre, maxLag);
 }
 
-OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
+OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer, std::int64_t center)
 {
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (beforeOffsetWindowForTest != nullptr) beforeOffsetWindowForTest();
@@ -215,12 +222,18 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
     const auto view = renderer.historyView();
     if (view.samples == nullptr || ! view.kValid)
         return {};
+    if (std::llabs (center) > offsetWideFrames (ring.header.sampleRate.load (std::memory_order_relaxed)))
+        return {};
+    // The search runs from center - lag to center + lag. A later PRE (center > 0) needs the POST
+    // window that much earlier, so that PRE has already written its match; an earlier one needs
+    // PRE's run to reach back that far. copyPreRing checks both bounds again after the copy.
     const auto lag = offsetSearchFrames;
     const auto preStart = ring.header.runStart.load (std::memory_order_acquire);
     std::int64_t postEnd = 0, mappedStart = 0, retainedStart = 0, available = 0;
-    if (! checkedClockSubtract (view.end, lag, postEnd)
+    if (! checkedClockSubtract (view.end, lag + std::max<std::int64_t> (0, center), postEnd)
         || ! checkedClockAdd (preStart, view.k, mappedStart)
         || ! checkedClockAdd (mappedStart, lag, mappedStart)
+        || ! checkedClockSubtract (mappedStart, center, mappedStart)
         || ! checkedClockSubtract (view.end, view.frames - 1, retainedStart)) return {};
     const auto availableStart = std::max ({ view.start, retainedStart, mappedStart });
     if (! checkedClockSubtract (postEnd, availableStart, available)) return {};
@@ -229,6 +242,7 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
     const auto postStart = postEnd - frames;
     std::int64_t readStart = 0;
     if (! checkedClockSubtract (postStart, view.k, readStart)
+        || ! checkedClockAdd (readStart, center, readStart)
         || ! checkedClockSubtract (readStart, lag, readStart)) return {};
     std::vector<float> post (static_cast<std::size_t> (frames) * 2);
     std::vector<float> pre (static_cast<std::size_t> (frames + 2 * lag) * 2);
@@ -260,11 +274,159 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
         };
         estimate = estimateOffset (sum (post), sum (pre), lag);
     }
-    estimate.window = { postEnd, view.proof, view.preRun };
+    if (estimate.determined) estimate.lagFrames += center;
+    estimate.window = { postEnd, view.proof, view.preRun, center };
     estimate.windowReady = true;
     estimate.clockK = view.k;
     estimate.blockFrames = view.blockFrames;
     estimate.sampleRate = rate;
     return estimate;
+}
+
+// Two cascaded box averages of `factor` samples, then every factor-th sample: a coarse low-pass
+// that treats PRE and POST alike. One channel of the interleaved stereo.
+static std::vector<float> decimate (const std::vector<float>& stereo, std::size_t channel, int factor)
+{
+    const auto frames = stereo.size() / 2;
+    const auto step = static_cast<std::size_t> (factor);
+    std::vector<double> once (frames), twice (frames);
+    double sum = 0.0;
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        sum += stereo[i * 2 + channel];
+        if (i >= step) sum -= stereo[(i - step) * 2 + channel];
+        once[i] = sum / factor;
+    }
+    sum = 0.0;
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        sum += once[i];
+        if (i >= step) sum -= once[i - step];
+        twice[i] = sum / factor;
+    }
+    std::vector<float> out (frames / step);
+    for (std::size_t i = 0; i < out.size(); ++i)
+        out[i] = static_cast<float> (twice[i * step + step - 1]);
+    return out;
+}
+
+// One decimated signal, zero-padded and transformed once for every pair it takes part in. About
+// -70 dBFS RMS or less carries no content: it neither proposes nor needs to agree.
+struct WideSpectrum
+{
+    std::vector<Complex> bins;
+    bool content = false;
+};
+
+static WideSpectrum wideSpectrum (const std::vector<float>& x, std::size_t size)
+{
+    WideSpectrum spectrum;
+    spectrum.content = rms (x) >= 3.0e-4;
+    if (! spectrum.content) return spectrum;
+    spectrum.bins.assign (size, Complex());
+    for (std::size_t i = 0; i < x.size(); ++i) spectrum.bins[i] = x[i];
+    transform (spectrum.bins, false);
+    return spectrum;
+}
+
+// The whitened correlation of one decimated pair of n samples, over lags that keep `overlap` of both.
+static WideOffset wideCorrelation (const WideSpectrum& post, const WideSpectrum& pre, std::size_t n,
+                                   std::int64_t overlap, int factor)
+{
+    if (! post.content || ! pre.content) return {};
+    const auto size = post.bins.size();
+    std::vector<Complex> a (size);
+    double meanMagnitude = 0.0;
+    for (std::size_t k = 0; k < size; ++k) { a[k] = std::conj (post.bins[k]) * pre.bins[k]; meanMagnitude += std::abs (a[k]); }
+    const double floor = 1.0e-3 * meanMagnitude / static_cast<double> (size) + 1.0e-30;
+    for (auto& value : a) value /= std::abs (value) + floor;
+    transform (a, true);
+    // a[j] = sum over i of post[i] pre[i + j]: lag j for j < n, j - size beyond.
+    const auto reach = static_cast<std::int64_t> (n) - overlap;
+    const auto lagAt = [&] (std::size_t j) { return j < size / 2 ? static_cast<std::int64_t> (j) : static_cast<std::int64_t> (j) - static_cast<std::int64_t> (size); };
+    std::int64_t best = 0;
+    double peak = 0.0;
+    for (std::size_t j = 0; j < size; ++j)
+        if (std::llabs (lagAt (j)) <= reach && std::fabs (a[j].real()) > peak) { peak = std::fabs (a[j].real()); best = lagAt (j); }
+    double runnerUp = 0.0;
+    for (std::size_t j = 0; j < size; ++j)
+        if (std::llabs (lagAt (j)) <= reach && std::llabs (lagAt (j) - best) > 2)
+            runnerUp = std::max (runnerUp, std::fabs (a[j].real()));
+    WideOffset wide;
+    wide.peak = peak;
+    wide.dominance = runnerUp > 0.0 ? peak / runnerUp : std::numeric_limits<double>::infinity();
+    wide.lagFrames = best * factor;
+    wide.found = peak > 0.0 && wide.dominance >= offsetWideDominance && std::llabs (best) < reach;
+    return wide;
+}
+
+WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
+{
+    const auto view = renderer.historyView();
+    if (view.samples == nullptr || ! view.kValid) return {};
+    const auto rate = static_cast<double> (ring.header.sampleRate.load (std::memory_order_relaxed));
+    if (! (rate >= 8000.0 && rate <= 768000.0)) return {};
+    const int factor = std::max (1, static_cast<int> (std::lround (rate / 3000.0)));
+    // POST's history and PRE's run over the same positions through K: one correlation finds a PRE
+    // that is early and one that is late. The span is the latest history both sides hold.
+    std::int64_t preFirst = 0, preLast = 0, retainedStart = 0;
+    if (! checkedClockAdd (ring.header.runStart.load (std::memory_order_acquire), view.k, preFirst)
+        || ! checkedClockAdd (ring.header.writeEnd.load (std::memory_order_acquire), view.k, preLast)
+        || ! checkedClockSubtract (view.end, view.frames - 1, retainedStart)) return {};
+    const auto spanEnd = std::min (view.end, preLast);
+    // At most half the ring, so that PRE's writer never reaches the oldest copied frame.
+    const auto longest = std::min (offsetWideFrames (rate), static_cast<std::int64_t> (ringCapacityFrames / 2));
+    const auto spanStart = std::max ({ view.start, retainedStart, preFirst, spanEnd - longest });
+    const auto overlap = static_cast<std::int64_t> (rate * offsetWideOverlapSeconds);
+    if (spanEnd - spanStart < overlap + offsetWindowFrames) return {};
+    const auto frames = spanEnd - spanStart;
+    std::vector<float> post (static_cast<std::size_t> (frames) * 2), pre (static_cast<std::size_t> (frames) * 2);
+    copyPostHistory (view, spanStart, frames, post);
+    if (! copyPreRing (ring, spanStart - view.k, frames, pre, view.preRun) || ! renderer.historyStillValid (view, spanStart))
+        return {};
+    // Each of POST's channels against PRE's left, right and their sum: opposite-polarity stereo has no
+    // sum, exchanged channels no peak channel by channel, crossfeed only in the sum. The decimation is
+    // linear, so the sum's transform is the sum of the channels' transforms.
+    const auto preLeft = decimate (pre, 0, factor), preRight = decimate (pre, 1, factor);
+    std::vector<float> preSum (preLeft.size());
+    for (std::size_t i = 0; i < preSum.size(); ++i) preSum[i] = 0.5f * (preLeft[i] + preRight[i]);
+    const auto n = preLeft.size();
+    std::size_t size = 1;
+    while (size < 2 * n) size <<= 1;
+    WideSpectrum preSpectra[3] { wideSpectrum (preLeft, size), wideSpectrum (preRight, size), {} };
+    preSpectra[2].content = rms (preSum) >= 3.0e-4;
+    if (preSpectra[2].content)
+    {
+        preSpectra[2].bins.resize (size);
+        for (std::size_t k = 0; k < size; ++k)
+            preSpectra[2].bins[k] = 0.5 * ((preSpectra[0].content ? preSpectra[0].bins[k] : Complex())
+                                           + (preSpectra[1].content ? preSpectra[1].bins[k] : Complex()));
+    }
+    // INV-LC7, the mapping hypotheses in order: straight (L-L, R-R), exchanged (L-R, R-L), then each
+    // POST channel against PRE's sum. Ambiguity is judged inside each pair's own correlation: a POST
+    // channel with content informs a hypothesis when its pair has a dominant peak, and votes for that
+    // position. Two informative channels at different positions contradict: nothing, never a later
+    // hypothesis. The first hypothesis with an informative channel decides. A channel that informs
+    // nothing neither votes nor vetoes, except that it holds the proposal back while the span is still
+    // short of the full reach: its delay may simply not be reachable yet.
+    const WideSpectrum postSpectra[2] { wideSpectrum (decimate (post, 0, factor), size),
+                                        wideSpectrum (decimate (post, 1, factor), size) };
+    const bool fullReach = frames >= longest;
+    constexpr std::size_t hypotheses[3][2] { { 0, 1 }, { 1, 0 }, { 2, 2 } };
+    for (const auto& sources : hypotheses)
+    {
+        WideOffset proposal;
+        bool silent = false;
+        for (std::size_t channel = 0; channel < 2; ++channel)
+        {
+            if (! postSpectra[channel].content) continue;
+            const auto wide = wideCorrelation (postSpectra[channel], preSpectra[sources[channel]], n, overlap / factor, factor);
+            if (! wide.found) { silent = true; continue; }
+            if (proposal.found && std::llabs (proposal.lagFrames - wide.lagFrames) > 2 * factor) return {};
+            if (! proposal.found || wide.peak > proposal.peak) proposal = wide;
+        }
+        if (proposal.found) return silent && ! fullReach ? WideOffset {} : proposal;
+    }
+    return {};
 }
 }

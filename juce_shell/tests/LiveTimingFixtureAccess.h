@@ -135,6 +135,9 @@ public:
     { processor.liveCompare.compensationOff.store (disabled); }
     static hypha::live_compare::OffsetEstimate jumpFacts (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.contentJumpFacts; }
+    // Each new clock mapping (or a block that fails its sample check) opens a new content check.
+    static std::uint64_t alignRevision (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.renderer.alignRevision(); }
     static void clearContent (KirinHyphaProcessorBase& processor)
     { processor.liveCompare.contentHold.clear (processor.liveCompare.contentHold.generation()); }
     // Simulate invalidation immediately after the publisher's final context check. The real RT

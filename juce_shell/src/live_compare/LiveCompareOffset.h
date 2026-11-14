@@ -18,13 +18,15 @@ struct OffsetWindow
 {
     std::int64_t end = 0;
     std::uint64_t proof = 0, preRun = 0;
+    std::int64_t center = 0; // where the fine search was centred: another center is another window
     bool operator== (const OffsetWindow& other) const noexcept
-    { return end == other.end && proof == other.proof && preRun == other.preRun; }
+    { return end == other.end && proof == other.proof && preRun == other.preRun && center == other.center; }
 };
 
 #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
 inline void (*beforeOffsetWindowForTest)() = nullptr;
 inline void (*beforeContentEstimateForTest)() = nullptr;
+inline bool (*keptViewMissForTest)() = nullptr; // true: the kept correction's reach is not known yet
 #endif
 
 struct OffsetEstimate
@@ -41,7 +43,7 @@ struct OffsetEstimate
     std::uint64_t alignRevision = 0;
     OffsetWindow window; // identity of the actual copied history, never a separate pre-copy sample
     bool windowReady = false; // copies validated, even if the content has no distinct peak
-    bool narrow = false; // a narrow spectrum (strong bass) without a scaled copy: no evidence, no doubt
+    bool narrow = false; // narrow (strong bass), no scaled copy, no strong peak: no evidence, no doubt
     double sampleRate = 0.0; // the rate lagFrames counts in: the rate the ring is stamped with
 };
 
@@ -54,8 +56,28 @@ constexpr std::int64_t offsetWindowFrames = 32768; // 0.68 s at 48 kHz
 OffsetEstimate estimateOffset (const std::vector<float>& post, const std::vector<float>& pre, std::int64_t maxLag);
 
 // Non-RT (message thread): the latest window of POST's input history against PRE's ring through the
-// proven K, keeping maxLag of PRE after the window so that PRE has already written it.
-OffsetEstimate measureOffset (const Ring&, const PostRenderer&);
+// proven K, keeping maxLag of PRE after the window so that PRE has already written it. `center`
+// moves the +/-offsetSearchFrames search to an offset a wide search found (lagFrames includes it).
+OffsetEstimate measureOffset (const Ring&, const PostRenderer&, std::int64_t center = 0);
+
+// A chain delay the host does not compensate can exceed the fine search: a linear-phase EQ at high
+// oversampling holds tens of thousands of samples. The wide search correlates POST with PRE under the
+// mapping hypotheses in order (straight, exchanged, each POST channel against PRE's sum), over up to the
+// last offsetWideHistorySeconds of POST's history and PRE's run at about 3 kHz (whitened, as above), and
+// reaches as far as both sides overlap by offsetWideOverlapSeconds. The first hypothesis in which a
+// channel's own pair has a dominant peak decides; two such channels at different positions propose
+// nothing. A channel without one only waits for the full reach. It only proposes a center: the fine
+// search there, with its own peak, agreement and dominance rules, is the evidence.
+constexpr double offsetWideHistorySeconds = 8.0, offsetWideOverlapSeconds = 1.0, offsetWideDominance = 3.0;
+inline std::int64_t offsetWideFrames (double rate) noexcept
+{ return rate > 0.0 && rate <= 768000.0 ? static_cast<std::int64_t> (rate * offsetWideHistorySeconds) : 0; }
+struct WideOffset
+{
+    bool found = false;
+    std::int64_t lagFrames = 0; // the same sign as OffsetEstimate: positive when PRE plays late
+    double peak = 0.0, dominance = 0.0;
+};
+WideOffset searchWideOffset (const Ring&, const PostRenderer&);
 
 // INV-LC10: time tolerances, independent of rate. GCC-PHAT's display threshold is too
 // permissive for a safety hold after clipping. Only a strong, unambiguous peak votes here.

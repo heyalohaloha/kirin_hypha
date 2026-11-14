@@ -101,9 +101,14 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     const auto pre = liveComparePreInstance();
     if (pre.isEmpty())
         return StartResult::noPair;
-    // Each admitted candidate start owns a fresh alignment, even for the same peer.
+    // Each admitted candidate start owns a fresh alignment, even for the same peer. A correction this
+    // same candidate confirmed under the same pair and format is carried across; the content service
+    // uses it only under the same host conditions (INV-LC28).
     if (! liveCompare.candidate.selectedPre.empty())
-        liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
+    {
+        const auto before = liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
+        liveCompare.preAlign.candidateRestarted (before, permission, hypha::live_compare::pairKeyForPreInstance (pre.toStdString()));
+    }
     stopLiveCompare();
     if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,
             liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,

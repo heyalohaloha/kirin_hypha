@@ -145,7 +145,7 @@ public:
         projectKnown.store (false, std::memory_order_relaxed);
         matchOffsetValid.store (false, std::memory_order_relaxed);
         consumer.reset();
-        alignment.readiness.newContext(); // each new session confirms its own content, retaining only the value
+        alignment.newSession(); // each new session confirms its own content, retaining only the value
         weight = 0.0f;
     }
 
@@ -274,11 +274,14 @@ public:
         }
         float* scratch[] = { left.get(), right.get() };
         align.context = alignOwner (align.context, ring);
-        const auto aligned = alignment.update (align, blind, preSelected, weight);
-        const bool alignFading = aligned.fading;
+        std::int64_t mapped = 0, readable = std::numeric_limits<std::int64_t>::max(); // INV-LC28: PRE's run reaches this far back
+        if (consumer.calibrated() && checkedClockSubtract (block.clock, consumer.offset(), mapped))
+            checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
+        const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),
+                                          block.playing ? block.frames : 0);
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
-        if (decision.verdict == Verdict::accepted) alignment.publishApplied();
+        alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
         std::int64_t inputStart = 0, inputEnd = 0;
         const bool inputPosition = decision.kValid && checkedClockSubtract (block.clock, decision.k, inputStart)
@@ -325,7 +328,7 @@ public:
         const bool sampleMismatch = align.enabled && alignment.value().verifySamples
             && ! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0);
         if (align.verify && sampleMismatch) alignment.readiness.recheck();
-        if (align.verify && align.enabled && (alignment.readiness.pending() || ! aligned.current
+        if (align.verify && align.enabled && (alignment.readiness.pending() || ! aligned.current || aligned.deferred
             || aligned.revision != alignment.readiness.generation() || sampleMismatch))
         {
             weight = 0.0f; // the previous address is unverified: never fade through it
@@ -379,7 +382,8 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        const float target = preSelected && align.outputAllowed && ! alignFading ? 1.0f : 0.0f;
+        const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
+        if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays or could
         if (weight <= 0.0f && target <= 0.0f)
         {
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
@@ -435,6 +439,8 @@ public:
     std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }
+    const RendererAlignment& alignState() const noexcept { return alignment; }
+    std::int64_t alignReach() const noexcept { return alignment.servable(); }
     void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignment.readiness.ambiguous (measured); }
     AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignment.requestFor (context); }
     std::int64_t alignFrames (AlignContext context) const noexcept { return alignment.displayed (context); }

@@ -25,6 +25,8 @@ const Entry entries[] = {
     { "Repeated audio: checked per block", u8"周期的な音：波形を都度確認" },
     { "PRE arrives after POST", u8"PREの音がPOSTより遅れています" },
     { "Check delay compensation", u8"遅延補正を確認" },
+    { "Delay unmeasured", u8"遅延を測れません" },
+    { "Delay not re-measured", u8"遅延は前回の測定のまま" },
     { "Audio estimate: PRE may have been %1 ms off", u8"音の推定：PREが%1 msずれていた可能性" },
     { "Audio estimate: A may have been %1 ms off", u8"音の推定：Aが%1 msずれていた可能性" },
     { "Paired with PRE  %1", u8"PRE  %1 と組みました" },

@@ -44,6 +44,8 @@ template<class Require> void verifyCandidateAudit (Require require)
     std::cout << "Candidate product: alignment\n" << std::flush;
     verifyCandidateAlignment (require);
     verifyCandidateAlignmentEpoch (require);
+    verifyCandidateKeptCorrection (require);
+    verifyCandidateHoldNotice (require);
     verifyCandidateContentConfirmation (require);
     verifyLiveCompareRestartAlignment (require);
     ProductTestClock wall;
