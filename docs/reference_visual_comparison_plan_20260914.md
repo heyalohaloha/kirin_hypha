@@ -71,7 +71,7 @@ Hyphaの既存読込上限4,096は受理上限であり、生成数や詳細解�
 | --- | --- | --- |
 | Peak + RMSの外形・内層 | 盛り上がり、休符、終わり方、ピークと持続的なエネルギーの分布 | 同一時間bin・channel集約・振幅倍率。sample peakはTPとして表示しない |
 | LOUDNESS | 固定Gain Match後にも残る、同じ区間の強弱の違い | LUFS-Sを既定。同じ3秒windowの終端でA/Bを比較。必要な連続入力が無ければ欠測 |
-| CREST | 同じ区間のTrue PeakとRMSの開き | 現行OSのblock crest定義を明示し、Aも同じbin・window・TP条件で計測。一定gainによるCrestの変化は0 |
+| CREST | 同じ区間のsample peakとRMSの開き | 現行OSのblock crest定義を明示し、Aも同じbin・window・sample peak条件で計測。一定gainによるCrestの変化は0 |
 
 LUFS系列の算術平均を「区間LUFS」と呼ばない。
 モックの`region mean`は製品仕様へ採用せず、初回は同時刻の値と差に絞る。

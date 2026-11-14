@@ -224,11 +224,11 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   saved with the project. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
-  medians on the right, with the difference on A's line — crest (TP/RMS) and loudness movement (LUFS-S around each median,
+  medians on the right, with the difference on A's line — crest (sample peak/RMS) and loudness movement (LUFS-S around each median,
   read as p90 − p10) for dynamics, LUFS-M for loudness, width (S/M) and correlation for stereo, peak
   and RMS for waveform, and attack (each hop's peak minus its LUFS-M: how far the peaks stand out,
   made smaller by limiting) and onset for transient. The facts are Kirin OS's per-hop definitions
-  (crest 20·log10(TP/RMS); width √(mean S²)/√(mean M²) × 100, up to 150 %; correlation
+  (crest 20·log10(sample peak/RMS); width √(mean S²)/√(mean M²) × 100, up to 150 %; correlation
   ΣLR/√(ΣL²·ΣR²); LUFS at the end of the hop), so A's 100 ms bins are regrouped into C's hop
   (200 ms for a song longer than 204.8 s). Loudness facts (LUFS-M, peak, RMS) are shown at the level
   C plays at. Until A has 3 seconds only C is drawn (A WAITING).

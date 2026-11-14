@@ -7,7 +7,7 @@ namespace hypha::reference_ui::help_text
 {
 // 範囲の帯（HyphaReferenceRangeStrips.cpp）。
 inline constexpr const char* strips = "Bars: p10 to p90 of each window, the mark is the median. A gold, the compared side cyan.";
-inline constexpr const char* crest = "Crest: how far peaks rise above the average (true peak over RMS), moment by moment.";
+inline constexpr const char* crest = "Crest: how far peaks rise above the average (sample peak over RMS), moment by moment.";
 inline constexpr const char* movement = "Loudness movement: how far the 3-second loudness swings around its median.";
 inline constexpr const char* momentary = "Momentary loudness every 0.4 s, with the compared side at the level it plays at.";
 inline constexpr const char* width = "Width: side against mid, up to 150%. Shows how wide the stereo image is.";

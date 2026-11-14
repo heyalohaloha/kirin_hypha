@@ -103,8 +103,8 @@ const Entry entries[] = {
     { "dB HIGHER", u8"dB高い" },
     { "dB LOWER", u8"dB低い" },
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
-    // 範囲の帯（HyphaReferenceRangeStrips.cpp）の項目名と、V の時間の線の見出し（「CREST (TP/RMS) / OVER TIME」）。
-    { "CREST (TP/RMS)", u8"CREST（TP/RMS）" },
+    // 範囲の帯（HyphaReferenceRangeStrips.cpp）の項目名と、V の時間の線の見出し（「CREST / OVER TIME」）。
+    { "CREST (OLD)", u8"CREST（前の式）" },
     { "LOUDNESS MOVEMENT (LUFS-S)", u8"音量の動き（LUFS-S）" },
     { "ONSET (RISE PER HOP)", u8"ONSET（立ち上がり）" },
     { "ATTACK (PEAK - LUFS-M)", u8"ATTACK（PEAK−LUFS-M）" },
@@ -151,8 +151,8 @@ const Entry entries[] = {
     // 300% の B・C・V で項目を指したときの下の行の説明（HyphaReferenceHelpText.h。2026-10-04）。
     { "Bars: p10 to p90 of each window, the mark is the median. A gold, the compared side cyan.",
       u8"帯は各区間のp10〜p90、縦線は中央値。Aは金、比べる側は水色。" },
-    { "Crest: how far peaks rise above the average (true peak over RMS), moment by moment.",
-      u8"CREST：瞬間ごとのPeak（TP）と平均（RMS）の差。Peakの立ち方。" },
+    { "Crest: how far peaks rise above the average (sample peak over RMS), moment by moment.",
+      u8"CREST：瞬間ごとのサンプルピーク÷RMS。ピークの立ち方。" },
     { "Loudness movement: how far the 3-second loudness swings around its median.",
       u8"音量の動き：3秒ごとの音量（LUFS-S）が中央値のまわりで上下する幅。" },
     { "Momentary loudness every 0.4 s, with the compared side at the level it plays at.",
