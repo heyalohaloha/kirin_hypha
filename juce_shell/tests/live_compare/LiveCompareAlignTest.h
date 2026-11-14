@@ -323,6 +323,29 @@ static void alignHoldIsOneLatchedDeadline()
     trial.newSession();
     require (! trial.unservedCorrection() && trial.update (playback, true, true, weight, 1024, rate, 256).deferred,
              "a new session has the whole hold again");
+    // BLIND: the same playback waits, ends its hold and is told alike whichever source is selected.
+    RendererAlignment x, y; float xWeight = 1.0f, yWeight = 0.0f; // X is PRE, Y is POST
+    x.update (playback, true, true, xWeight, unknown, rate, 0); y.update (playback, true, false, yWeight, unknown, rate, 0);
+    x.request ({ correction }, context); y.request ({ correction }, context);
+    std::int64_t blindWaited = 0; int blindTold = 0;
+    for (int block = 0; block < 900; ++block)
+    {
+        const bool storm = block >= 100 && block < 700, mapped = ! storm || block % 75 >= 37;
+        const auto readable = ! mapped ? unknown : storm ? (block % 75) * 256 : rate;
+        const auto xUpdate = x.update (playback, true, true, xWeight, readable, rate, 256);
+        const auto yUpdate = y.update (playback, true, false, yWeight, readable, rate, 256);
+        x.observed (mapped && ! xUpdate.deferred, xUpdate.deferred); y.observed (mapped && ! yUpdate.deferred, yUpdate.deferred);
+        if (mapped && ! xUpdate.deferred) x.served();
+        if (mapped && ! yUpdate.deferred) y.served();
+        require (xUpdate.deferred == yUpdate.deferred && x.unservedCorrection() == y.unservedCorrection()
+                 && x.pathProven() == y.pathProven(), "BLIND waits and tells alike for either selected source");
+        if (storm && blindTold == 0 && (! mapped || xUpdate.deferred)) blindWaited += 256;
+        blindTold += x.unservedCorrection() ? 1 : 0;
+        require (block < 100 ? ! x.unservedCorrection() : true, "PRE's path that serves the correction is told nothing");
+    }
+    std::printf ("BLIND hold under seeks every 0.4 s: %.3f s waited by either source before the notice\n", static_cast<double> (blindWaited) / rate);
+    require (blindTold > 0 && blindWaited <= rate && ! x.unservedCorrection() && ! y.unservedCorrection(),
+             "either source's hold ends within the second, and the notice ends once PRE's run serves the correction");
     // What is told is one rule for every mode: an ended hold plays PRE at K, so it is unmeasured.
     const auto told = alignNotice (true, false, true), kept = alignNotice (false, false, true);
     require (told.unmeasured && ! told.notRemeasured && kept.notRemeasured && ! kept.unmeasured

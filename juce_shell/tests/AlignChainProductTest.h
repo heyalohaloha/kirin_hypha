@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include "AlignSessionProductTest.h"
 #include "ChainMusic.h"
 #include "../src/HyphaLiveBlindComponent.h"
@@ -204,6 +205,49 @@ inline void chainFindsLongDelays (int channels)
         }
         chain.clean ("every PRE sample is at the address the renderer claims; unproven blocks are POST");
     }
+}
+
+// BLIND never tells which source is PRE: under the same seeks, the waits' notices come at the same
+// chunks whichever source the listener has selected (the first source is PRE, then POST).
+inline void blindHoldTellsBothSourcesAlike (int channels)
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t correction = 38400;
+    const auto tracks = hypha::tests::chain_music::render (1068544 - 250000, 1400000, { 12.0, 12.0, 240, -12.0 });
+    std::vector<int> told[2];
+    for (int assignment = 0; assignment < 2; ++assignment)
+    {
+        ChunkedPost chain (channels);
+        chain.music = &tracks;
+        chain.setDelay (512);
+        chain.contentK = 512 + correction;
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the chain for BLIND");
+        require (post.startLiveCompare() == StartResult::started, "LISTEN starts");
+        post.selectLiveComparePre (true);
+        chain.until (400, [&] { return post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == correction; },
+                     "the early PRE is confirmed before BLIND");
+        post.finishLiveCompare();
+        chain.until (60, [&] { const auto s = post.liveCompareStatus(); return ! s.active && ! s.finishing; }, "LISTEN ends");
+        require (post.beginLiveBlind() == StartResult::started, "BLIND starts");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND prepares");
+        LiveTimingFixtureAccess::assignBlind (post, assignment == 0);
+        require (post.selectLiveBlind (1), "select the first anonymous source");
+        chain.run (40);
+        for (int i = 0; i < 12 * 19; ++i)
+        {
+            if (i % 19 == 0) chain.seek (chain.transport + 48000);
+            chain.chunk();
+            post.serviceLiveBlind();
+            const auto s = post.liveBlindStatus();
+            told[assignment].push_back ((s.contentUnmeasured ? 1 : 0) + (s.contentNotRemeasured ? 2 : 0));
+        }
+        chain.clean ("every PRE sample in BLIND is at the address the renderer claims");
+    }
+    int differing = 0, shown = 0;
+    for (size_t i = 0; i < told[0].size(); ++i) { differing += told[0][i] != told[1][i] ? 1 : 0; shown += told[0][i] != 0 ? 1 : 0; }
+    std::printf ("BLIND short correction with seeks every 0.4 s: notice shown in %d chunks, differing between the sources in %d\n", shown, differing);
+    require (shown > 0 && differing == 0, "both anonymous sources show the same notice at the same time");
 }
 
 // INV-LC28: a correction of up to the one-second bound that PRE's new run cannot serve yet holds POST

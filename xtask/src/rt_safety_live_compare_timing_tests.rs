@@ -22,35 +22,40 @@ fn content_alignment_moves_only_the_audition_address() {
     ));
     // A correction PRE's current run cannot serve yet (after a seek or stop): one of up to the 1 s
     // bound waits as POST. One deadline bounds it: every played block with PRE selected counts
-    // unless the renderer reports that PRE played it, whatever kept PRE waiting. An ended deadline
-    // stays ended (no comparison with the block size) until PRE plays at a correction or a new
-    // session or context begins; a longer correction, or one whose hold has ended, plays PRE at K.
+    // unless the renderer reports that PRE played it, whatever kept PRE waiting. BLIND counts and
+    // serves by PRE's path for either selected source. An ended deadline stays ended until PRE
+    // plays at a correction or a new session or context begins; an ended hold plays PRE at K.
     assert!(alignment.contains(
-        "stake = holdable && preSelected && playback.outputAllowed && ! expired ? playedFrames : 0;"
+        "stake = holdable && (blind || (preSelected && playback.outputAllowed)) && ! expired ? playedFrames : 0;"
     ));
-    assert!(
-        alignment.contains("if (beyond && holdable && held + stake > shortFrames) expired = true;")
-    );
+    assert!(alignment
+        .contains("if (pathBeyond && holdable && held + stake > shortFrames) expired = true;"));
     assert!(alignment.contains("held += stake;"));
-    assert!(alignment.contains("result.deferred = beyond && holdable && ! expired;"));
+    assert!(alignment.contains("const auto path = blind ? blindRequest : wanted;"));
+    assert!(alignment
+        .contains("serves = blind ? path.frames > 0 && ! pathBeyond : applied.frames > 0;"));
+    assert!(
+        alignment.contains("result.deferred = (beyond || pathBeyond) && holdable && ! expired;")
+    );
     assert!(alignment.contains("if (beyond && ! result.deferred) wanted = {};"));
     assert!(!alignment.contains("expired = false"));
     assert_eq!(ALIGN_H.matches("expired = false").count(), 3); // the member, a new session, PRE served
+    assert!(ALIGN_H.contains("if (serves) { held = 0; expired = false; unserved.store (false); }"));
+    assert!(ALIGN_H.contains("proven.store (accepted && ! deferred, std::memory_order_relaxed);"));
     assert!(ALIGN_H.contains(
-        "if (applied.frames > 0) { held = 0; expired = false; unserved.store (false); }"
+        "readiness.newContext(); held = stake = 0; expired = false; blindRequest = {}; unserved.store (false);"
     ));
-    assert!(ALIGN_H.contains(
-        "readiness.newContext(); held = stake = 0; expired = false; unserved.store (false);"
-    ));
-    assert!(render.contains("if (target > 0.0f && ! aligned.deferred) alignment.served();"));
+    assert!(
+        render.contains("if ((blind || target > 0.0f) && ! aligned.deferred) alignment.served();")
+    );
     // What an ended hold tells is one rule for LISTEN, BLIND and A/B: no mode is asked.
-    assert!(STATUS_H
-        .contains("hypha::live_compare::alignNotice (liveCompare.renderer.alignUnserved(),"));
+    assert!(STATUS_H.contains(
+        "hypha::live_compare::alignNotice (liveCompare.renderer.alignState().unservedCorrection(),"
+    ));
     assert!(!STATUS_H.contains("candidateCompareActive"));
     assert!(ALIGN_H.contains("{ return { unserved || unmeasured, ! unserved && notRemeasured }; }"));
-    assert!(
-        render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied();")
-    );
+    assert!(render
+        .contains("alignment.observed (decision.verdict == Verdict::accepted, aligned.deferred);"));
     assert!(render.contains(
         "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),"
     ));
@@ -137,7 +142,8 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
 
 fn rendered_alignment_requires_acceptance() -> bool {
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
-    render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied()")
+    render.contains("alignment.observed (decision.verdict == Verdict::accepted, aligned.deferred);")
+        && ALIGN_H.contains("if (accepted) shown.publishDisplay (applied, context);")
         && ALIGN_H.contains("if (playback.context != context)")
 }
 

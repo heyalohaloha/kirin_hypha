@@ -275,7 +275,7 @@ public:
                                           block.playing ? block.frames : 0);
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
-        if (decision.verdict == Verdict::accepted) alignment.publishApplied();
+        alignment.observed (decision.verdict == Verdict::accepted, aligned.deferred);
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
         std::int64_t inputStart = 0, inputEnd = 0;
         const bool inputPosition = decision.kValid && checkedClockSubtract (block.clock, decision.k, inputStart)
@@ -377,7 +377,7 @@ public:
             return report;
         }
         const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
-        if (target > 0.0f && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays; any other block counted
+        if ((blind || target > 0.0f) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays (BLIND: either source)
         if (weight <= 0.0f && target <= 0.0f)
         {
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
@@ -433,7 +433,7 @@ public:
     std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }
-    bool alignUnserved() const noexcept { return alignment.unservedCorrection(); }
+    const RendererAlignment& alignState() const noexcept { return alignment; }
     std::int64_t alignReach() const noexcept { return alignment.servable(); }
     void reportAlignAmbiguous (std::uint64_t measured) noexcept { alignment.readiness.ambiguous (measured); }
     AlignValue alignRequested (AlignContext context = {}) const noexcept { return alignment.requestFor (context); }

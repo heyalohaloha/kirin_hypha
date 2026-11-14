@@ -175,7 +175,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentUnmeasured.store (kept.frames == 0 && ! candidateCompareActive(), std::memory_order_release);
         liveCompare.contentNotRemeasured.store (kept.frames != 0, std::memory_order_release);
     }
-    if (!state.active || state.compensationOff || state.verdict != hypha::live_compare::Verdict::accepted
+    if (!state.active || state.compensationOff || ! liveContentPathProven (state)
         || now < liveCompare.contentMonitorNext) return;
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (hypha::live_compare::beforeContentEstimateForTest != nullptr)
@@ -310,7 +310,7 @@ bool KirinHyphaProcessorBase::alignConfirmationExpired (const hypha::live_compar
         liveCompare.alignConfirmStart = 0;
         return false;
     }
-    if (state.verdict != hypha::live_compare::Verdict::accepted) return false;
+    if (! liveContentPathProven (state)) return false;
     if (liveCompare.alignConfirmStart == 0) liveCompare.alignConfirmStart = now;
     return now >= liveCompare.alignConfirmStart && now - liveCompare.alignConfirmStart >= confirmationWaitNanos;
 }
@@ -336,6 +336,15 @@ bool KirinHyphaProcessorBase::keptReadable (hypha::live_compare::AlignValue& kep
     liveCompare.keptMissSince = 0;
     if (! known || reach < kept.frames) kept = {};
     return true;
+}
+
+// BLIND never tells which source is PRE: its content checks and their timers follow PRE's path
+// (proven and not held), which is the same whichever source is selected; the selected source's own
+// verdict differs once a correction is applied. LISTEN and A/B follow the playback verdict.
+bool KirinHyphaProcessorBase::liveContentPathProven (const hypha::live_compare::Status& state) const noexcept
+{
+    return liveCompare.blindStage != hypha::live_compare::BlindStage::idle
+        ? liveCompare.renderer.alignState().pathProven() : state.verdict == hypha::live_compare::Verdict::accepted;
 }
 
 bool KirinHyphaProcessorBase::candidateAlignUnconfirmed() const noexcept
