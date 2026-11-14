@@ -41,7 +41,8 @@ bool runReferenceAbcvTests (int argc, char** argv, const juce::File& sandbox)
 {
     if (argc != 2) return false;
     const juce::String mode (argv[1]);
-    if (mode == "--library-skipped-only") testReferenceLibrarySkipped (sandbox);
+    if (mode == "--dynamics-range-only") testReferenceDynamicsRange();
+    else if (mode == "--library-skipped-only") testReferenceLibrarySkipped (sandbox);
     else if (mode == "--abcv-only") testReferenceAbcv (sandbox);
     else return false;
     hypha::tests::removeFixtureDirectory (sandbox);

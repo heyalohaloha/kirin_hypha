@@ -94,14 +94,20 @@ fn one_large_push_matches_sequential_100ms_pushes_at_standard_rates() {
 fn crest_pooling_uses_all_interleaved_channel_samples() {
     let sample_rate = 48_000;
     let frames = sample_rate as usize * 4 / 10;
-    let stereo: Vec<f64> = (0..frames).flat_map(|_| [1.0, 0.0]).collect();
+    let stereo: Vec<f64> = (0..frames)
+        .flat_map(|frame| [[0.0, 1.0, 1.0, 0.0, -1.0, -1.0][frame % 6], 0.0])
+        .collect();
     let mut engine = MeasureEngine::new(sample_rate, ChannelLayout::stereo()).unwrap();
 
     let result = engine.push(&stereo).expect("four 100ms results");
     let crest = result.crest.expect("non-silent crest");
 
     assert!(
-        (crest - 3.010_299_956_639_812).abs() <= 1.0e-12,
+        result.true_peak.expect("true peak") > 0.01,
+        "true peak exceeds the 0 dBFS sample peak"
+    );
+    assert!(
+        (crest - 10.0 * 3.0_f64.log10()).abs() <= 1.0e-12,
         "interleaved RMS should average both channels, got {crest} dB"
     );
 }

@@ -1,0 +1,165 @@
+{
+  "format": "kirin_hypha_reference_measurement",
+  "version": "2.0",
+  "source_content": {
+    "sha256_file": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sha256_pcm": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "audio": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "total_sample_frames": 192000
+  },
+  "views": {
+    "waveform": {
+      "start_sample": 0,
+      "frames_per_bin": 48000,
+      "bin_count": 4,
+      "sample_peak_millidbfs": [
+        [
+          -1000,
+          -2000,
+          -3000,
+          -4000
+        ],
+        [
+          -1100,
+          -2100,
+          -3100,
+          -4100
+        ]
+      ],
+      "rms_millidbfs": [
+        [
+          -6000,
+          -7000,
+          -8000,
+          -9000
+        ],
+        [
+          -6100,
+          -7100,
+          -8100,
+          -9100
+        ]
+      ]
+    },
+    "spectrum": {
+      "band_centers_hz": [
+        20,
+        31.5,
+        50,
+        80,
+        125,
+        200,
+        315,
+        500,
+        800,
+        1250,
+        2000,
+        3150
+      ],
+      "p10_millidbfs": [
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000,
+        -30000
+      ],
+      "median_millidbfs": [
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000,
+        -20000
+      ],
+      "p90_millidbfs": [
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000,
+        -10000
+      ]
+    },
+    "loudness": {
+      "start_sample": 0,
+      "hop_samples": 48000,
+      "lufs_m_millilu": [
+        -12000,
+        -11000,
+        -10000,
+        -9000
+      ],
+      "lufs_s_millilu": [
+        null,
+        -11500,
+        -10500,
+        -9500
+      ]
+    },
+    "dynamics": {
+      "start_sample": 0,
+      "hop_samples": 48000,
+      "psr_millidb": [
+        null,
+        null,
+        12000,
+        13000
+      ],
+      "crest_millidb": [
+        5000,
+        5000,
+        5000,
+        5000
+      ],
+      "crest_basis": "sample_peak_over_rms"
+    },
+    "transient": {
+      "start_sample": 0,
+      "hop_samples": 48000,
+      "onset_strength_q15": [
+        0,
+        12000,
+        32000,
+        2000
+      ]
+    },
+    "stereo": {
+      "start_sample": 0,
+      "hop_samples": 48000,
+      "correlation_milli": [
+        900,
+        800,
+        700,
+        600
+      ],
+      "width_basis_points": [
+        8000,
+        9000,
+        10000,
+        11000
+      ]
+    }
+  }
+}

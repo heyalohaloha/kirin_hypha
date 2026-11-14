@@ -16,7 +16,7 @@ namespace hypha::reference_audition
 // A と比べる側（C・V）の区間ごとの値の p10・中央値・p90 で比べる。値は Kirin OS の解析と
 // 同じ定義：
 //  - 区間（hop）は 100 ms の整数倍。A は VisualMeter の 100 ms の bin を、比べる側の hop にまとめ直して出す。
-//  - クレスト：20·log10(TP / RMS)。TP は区間の true peak（100 ms ごとの prev_true_peak の最大）、RMS は全 ch。
+//  - クレスト：20·log10(sample peak / RMS)。sample peak は区間の両 ch の最大（100 ms の bin の peak の最大）、RMS は全 ch。
 //  - LUFS-M・LUFS-S：区間の終わりの値。始めてから 0.4 秒・3 秒までは無い。
 //  - 相関：Σlr / √(ΣL²·ΣR²)（−1〜1）。幅：√(S²の平均) / (√(M²の平均) + 1e−10) × 100（150 % まで）。M = (L+R)/2、S = (L−R)/2。
 //  - ピーク：区間の sample peak の大きい ch（dBFS）。RMS：全 ch の電力の平均（dBFS）。
