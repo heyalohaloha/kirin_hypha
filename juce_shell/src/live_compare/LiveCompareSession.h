@@ -275,7 +275,7 @@ public:
                                           block.playing ? block.frames : 0);
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
-        alignment.observed (decision.verdict == Verdict::accepted, aligned.deferred);
+        alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
         std::int64_t inputStart = 0, inputEnd = 0;
         const bool inputPosition = decision.kValid && checkedClockSubtract (block.clock, decision.k, inputStart)
@@ -377,7 +377,7 @@ public:
             return report;
         }
         const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
-        if ((blind || target > 0.0f) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays (BLIND: either source)
+        if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays or could
         if (weight <= 0.0f && target <= 0.0f)
         {
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;

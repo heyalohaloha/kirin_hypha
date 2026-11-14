@@ -334,7 +334,7 @@ static void alignHoldIsOneLatchedDeadline()
         const auto readable = ! mapped ? unknown : storm ? (block % 75) * 256 : rate;
         const auto xUpdate = x.update (playback, true, true, xWeight, readable, rate, 256);
         const auto yUpdate = y.update (playback, true, false, yWeight, readable, rate, 256);
-        x.observed (mapped && ! xUpdate.deferred, xUpdate.deferred); y.observed (mapped && ! yUpdate.deferred, yUpdate.deferred);
+        x.observed (mapped && ! xUpdate.deferred, mapped, xUpdate); y.observed (mapped && ! yUpdate.deferred, mapped, yUpdate);
         if (mapped && ! xUpdate.deferred) x.served();
         if (mapped && ! yUpdate.deferred) y.served();
         require (xUpdate.deferred == yUpdate.deferred && x.unservedCorrection() == y.unservedCorrection()

@@ -60,6 +60,14 @@ struct AlignNotice { bool unmeasured = false, notRemeasured = false; };
 inline AlignNotice alignNotice (bool unserved, bool unmeasured, bool notRemeasured) noexcept
 { return { unserved || unmeasured, ! unserved && notRemeasured }; }
 
+// The clocks alone prove PRE's path at this block: K is valid and only the PCM range at one address
+// (writing, before the run, not written, overwritten, torn) may have refused it.
+template <typename Decision> bool alignClockProven (const Decision& decision) noexcept
+{
+    using V = decltype (decision.verdict);
+    return decision.kValid && (decision.verdict == V::accepted || (decision.verdict >= V::writing && decision.verdict <= V::torn));
+}
+
 struct AlignPlayback
 {
     AlignContext context;
@@ -206,14 +214,16 @@ public:
     // about with the usual fades and a Blind trial leaves to the listener's own switching.
     // readableFrames: the largest correction PRE's current run can serve at this block. A longer one
     // (after a seek, stop or new start) is kept but not used until PRE has written that far. One of up
-    // to shortFrames (the 1 s bound) waits as POST. One deadline bounds that hold: every block of
-    // playback with PRE selected that does not play PRE (served() below) counts against shortFrames,
-    // whatever keeps PRE waiting (an unproven clock, a short run, a content check), however often
-    // seeks, stops or loop wraps restart the run. Once it has ended it stays ended, whatever the block
-    // size, until PRE plays at a correction or a new session or context begins; then, as a longer one
-    // (seconds) at once, PRE plays at K meanwhile, as with alignment off, never POST for want of the
-    // correction. BLIND counts and serves by PRE's path whichever source is selected, so both sources
-    // wait and are told alike. playedFrames: this block's frames while playing.
+    // to shortFrames (the 1 s bound) waits as POST. ONE budget bounds every wait for PRE's address:
+    // a block of playback with PRE selected whose holdable correction PRE's run does not serve or
+    // whose clock is not proven yet, and a clock-proven block that waits for the content check
+    // (observed() below), count against the same shortFrames unless the block plays PRE (served()), however
+    // often seeks, stops, loop wraps or a changed K restart the wait. Once spent it stays spent,
+    // whatever the block size, until PRE plays at its address or a new session or context begins:
+    // PRE plays at K meanwhile, as with alignment off, never POST for want of the correction, and the
+    // owner (LiveComparePreAlign.h) answers a pending check at once. BLIND counts and serves by PRE's
+    // path whichever source is selected, so both sources wait and are told alike. playedFrames: this
+    // block's frames while playing.
     AlignUpdate update (AlignPlayback playback, bool blind, bool preSelected, float& weight,
                         std::int64_t readableFrames = std::numeric_limits<std::int64_t>::max(),
                         std::int64_t shortFrames = 0, std::int64_t playedFrames = 0) noexcept
@@ -238,12 +248,14 @@ public:
         const bool beyond = playback.enabled && wanted.frames > 0 && wanted.frames > readableFrames;
         const bool pathBeyond = playback.enabled && path.frames > 0 && path.frames > readableFrames;
         const bool holdable = playback.enabled && path.frames > 0 && path.frames <= shortFrames;
-        stake = holdable && (blind || (preSelected && playback.outputAllowed)) && ! expired ? playedFrames : 0;
-        if (pathBeyond && holdable && held + stake > shortFrames) expired = true; // latched: see served()
+        blindPath = blind; played = playedFrames; bound = shortFrames; checks = playback.enabled && playback.verify;
+        const bool unreached = pathBeyond || readableFrames == std::numeric_limits<std::int64_t>::max();
+        stake = holdable && unreached && (blind || (preSelected && playback.outputAllowed)) && ! expired ? playedFrames : 0;
+        if (stake > 0 && held + stake > shortFrames) expired = true; // latched: see served()
         if (expired) stake = 0;
         held += stake; // counted unless this block plays PRE
         result.deferred = (beyond || pathBeyond) && holdable && ! expired;
-        if (pathBeyond && holdable && expired) unserved.store (true); // told as unmeasured meanwhile
+        if (pathBeyond && holdable && expired) { holdEnded = true; unserved.store (true); } // told as unmeasured meanwhile
         if (beyond && ! result.deferred) wanted = {};
         if (wanted != applied && weight <= 0.0f
             && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)) adopt (wanted);
@@ -251,13 +263,17 @@ public:
         if (playback.verify && result.current && appliedRevision != result.revision && weight <= 0.0f)
             adopt (wanted); // only a freshly confirmed clock mapping can move BLIND here
         if (path.frames == 0) unserved.store (false);
-        serves = blind ? path.frames > 0 && ! pathBeyond : applied.frames > 0;
+        corrected = path.frames > 0;
+        // BLIND: a correction is served only where PRE's run is known to reach it (not on the block that calibrates).
+        serves = blind ? ! pathBeyond && (path.frames == 0 || readableFrames != std::numeric_limits<std::int64_t>::max())
+                       : applied == path;
         return result;
     }
     // A new session or context: its first hold has the whole bound again.
     void newSession() noexcept
     {
-        readiness.newContext(); held = stake = 0; expired = false; blindRequest = {}; unserved.store (false);
+        readiness.newContext(); held = stake = 0; expired = holdEnded = false; blindRequest = {}; unserved.store (false);
+        spent.store (false);
         reach.store (std::numeric_limits<std::int64_t>::max());
     }
     // The largest correction PRE's run served at POST's latest block; the maximum while unknown.
@@ -265,19 +281,37 @@ public:
     // The hold ended before PRE's run served the correction: PRE plays at K until it does.
     bool unservedCorrection() const noexcept { return unserved.load(); }
     AlignValue value() const noexcept { return applied; }
-    // The block's clock verdict. proven: PRE's path is proven and not held, the same for either BLIND source.
-    void observed (bool accepted, bool deferred) noexcept
+    // The block's clock verdict. accepted: at the applied address; pathClock: the clocks alone prove
+    // PRE's path (alignClockProven below), whatever address this assignment applied. BLIND takes
+    // everything from the path, so both anonymous sources are proven, wait and spend alike. A proven
+    // block that still waits for the content check spends the same budget as a held one, from the
+    // moment the content service has seen this clock mapping (arm() below): time in which nothing
+    // could measure is not a wait for the measurement.
+    void observed (bool accepted, bool pathClock, const AlignUpdate& update) noexcept
     {
         if (accepted) shown.publishDisplay (applied, context);
-        proven.store (accepted && ! deferred, std::memory_order_relaxed);
+        const bool path = blindPath ? pathClock : accepted;
+        proven.store (path && ! update.deferred, std::memory_order_relaxed);
+        const bool waiting = checks && (readiness.pending() || ! update.current || update.revision != readiness.generation());
+        if (path && waiting && stake == 0 && ! expired && armed.load (std::memory_order_relaxed) == readiness.generation())
+        {
+            if (held + played > bound) expired = true; else held += (stake = played);
+        }
+        else if (blindPath && path && ! waiting && ! update.deferred) served(); // by PRE's path, whatever this source applied
+        spent.store (expired, std::memory_order_relaxed);
     }
     bool pathProven() const noexcept { return proven.load (std::memory_order_relaxed); }
-    // This block plays PRE at the applied address (in BLIND: could, whichever source is selected): it
-    // used none of the hold. At a correction PRE's run serves it, so the hold is whole again.
+    // The content service (non-RT) has seen this clock mapping waiting for its check.
+    void arm (std::uint64_t revision) const noexcept { armed.store (revision, std::memory_order_relaxed); }
+    // The one budget is spent: a pending content check is answered at once (PRE at K or the kept correction).
+    bool budgetSpent() const noexcept { return spent.load (std::memory_order_relaxed); }
+    // This block plays PRE at the applied address (or could: in BLIND whichever source is selected,
+    // elsewhere with POST selected): it used none of the budget. At its address the budget is whole
+    // again; a hold that ended needs PRE's run to serve the correction first.
     void served() noexcept
     {
         held -= stake; stake = 0;
-        if (serves) { held = 0; expired = false; unserved.store (false); }
+        if (serves && (corrected || ! holdEnded)) { held = 0; expired = holdEnded = false; unserved.store (false); }
     }
     void confirmApplied (std::uint64_t revision) noexcept { appliedRevision = revision; }
     AlignReadiness readiness;
@@ -292,12 +326,14 @@ private:
     std::uint64_t appliedRevision = 0; // Audio Thread: contention never grants a new address
     AlignContext context; // Audio Thread only
     AlignValue applied, blindRequest; // Audio Thread only
-    // Audio Thread only. held: frames of counted playback without PRE since PRE last played at a
-    // correction; stake: this block's share of it; expired: the hold has ended (latched); serves:
-    // PRE playing this block is PRE at a correction.
-    std::int64_t held = 0, stake = 0;
-    bool expired = false, serves = false;
-    std::atomic<bool> unserved { false }, proven { false };
+    // Audio Thread only. held: frames of counted playback without PRE since PRE last played at its
+    // address; stake: this block's share of it; expired: the budget is spent (latched); holdEnded: it
+    // was spent while PRE's run did not serve a correction; serves: PRE playing this block is PRE at
+    // its address (corrected: a correction).
+    std::int64_t held = 0, stake = 0, played = 0, bound = 0;
+    bool expired = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
+    std::atomic<bool> unserved { false }, proven { false }, spent { false };
+    mutable std::atomic<std::uint64_t> armed { 0 }; // written by the content service only
     std::atomic<std::int64_t> reach { std::numeric_limits<std::int64_t>::max() };
 };
 

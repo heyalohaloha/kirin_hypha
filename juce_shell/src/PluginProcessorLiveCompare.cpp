@@ -106,10 +106,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     if (! liveCompare.candidate.selectedPre.empty())
     {
         const auto before = liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
-        if (liveCompare.alignKeptCandidate && liveCompare.alignKeptFor.format == before
-            && liveCompare.alignKeptFor.authority == permission
-            && liveCompare.alignKeptPeer == hypha::live_compare::pairKeyForPreInstance (pre.toStdString()))
-            liveCompare.alignKeptFor.format = before + 1;
+        liveCompare.preAlign.candidateRestarted (before, permission, hypha::live_compare::pairKeyForPreInstance (pre.toStdString()));
     }
     stopLiveCompare();
     if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,

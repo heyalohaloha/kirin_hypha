@@ -7,6 +7,7 @@
 #include "LiveCompareMatch.h"
 #include "LiveCompareOffset.h"
 #include "LiveComparePinResult.h"
+#include "LiveComparePreAlign.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
 #include "LiveCompareCompletion.h"
@@ -171,23 +172,13 @@ struct ProcessorState
     OffsetMonitor::Step contentStep;
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
-    std::uint64_t alignConfirmStart = 0;          // message thread: the short wait for content (INV-LC28)
     std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a notice (INV-LC10)
     double blindContentNoticeMs = 0.0;            // message thread: the last notice since this BLIND began
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
-    std::atomic<bool> contentUnmeasured { false };    // LISTEN/BLIND: the bound ended without a position
-    std::atomic<bool> contentNotRemeasured { false }; // the bound ended without a position; the kept correction plays
-    // INV-LC28, message thread, in memory only: the last confirmed correction and the pair, format and
-    // PRE owner it belongs to. A new session or K plays it after the bound instead of K alone.
-    hypha::live_compare::AlignValue alignKept;
-    hypha::live_compare::AlignContext alignKeptFor;
-    // Whether A/B confirmed it, for which peer (PRE2) and under which host conditions (reported latency,
-    // insert chain, maximum delay, compensation): another start of that candidate needs the same ones.
-    bool alignKeptCandidate = false;
-    std::int64_t alignKeptK = 0; // the K it was confirmed or last played under: a host that takes the delay over moves K by it
-    std::uint64_t alignKeptPeer = 0, alignKeptConditions = 0, alignKeptCompensation = 0;
+    // INV-LC28, message thread, in memory only: the one owner of PRE's alignment state (the kept
+    // correction with its K, pair, format, PRE owner and host conditions, and what is told).
+    hypha::live_compare::PreAlignState preAlign;
     std::atomic<std::uint64_t> alignConditions { 0 }; // Audio Thread: the A/B host conditions' fingerprint
-    std::uint64_t keptMissSince = 0; // message thread: the first read of the kept position that missed
     std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
     std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second
     OffsetWindow contentWindow;

@@ -3,7 +3,7 @@
 namespace
 {
 // INV-LC28 / INV-LC10: fresh windows vote well within it (100 ms apart, two needed).
-constexpr std::uint64_t confirmationWaitNanos = 1'000'000'000;
+constexpr std::uint64_t confirmationWaitNanos = 1'000'000'000; // a notice without renewed evidence
 constexpr std::uint64_t keptReadNanos = 500'000'000; // INV-LC28: a kept correction's read retries
 }
 
@@ -118,16 +118,13 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentWindow = {};
         liveCompare.offsetCenter = 0;
         liveCompare.wideSearchNext = 0;
-        liveCompare.contentUnmeasured.store (false, std::memory_order_release);
-        liveCompare.contentNotRemeasured.store (false, std::memory_order_release);
+        preAlignEvent (hypha::live_compare::PreAlignEvent::contextChanged);
     }
     const auto revision = liveCompare.renderer.alignRevision();
     if (revision != liveCompare.contentAlignRevision)
     {
-        liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
-        liveCompare.contentUnmeasured.store (false, std::memory_order_release);
-        liveCompare.contentNotRemeasured.store (false, std::memory_order_release);
+        preAlignEvent (hypha::live_compare::PreAlignEvent::clockChanged);
         liveCompare.contentAlignRevision = revision;
         liveCompare.offsetCenter = 0;
         liveCompare.wideSearchNext = 0;
@@ -140,9 +137,10 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     const auto run = liveComparePlaybackRun();
     if (!state.active || state.compensationOff || run != liveCompare.contentMonitorRun)
     {
-        liveCompare.alignConfirmStart = 0;
         liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
-        if (! state.active) { liveCompare.contentUnmeasured.store (false); liveCompare.contentNotRemeasured.store (false); }
+        auto ended = preAlignInput (hypha::live_compare::PreAlignEvent::transport);
+        ended.active = state.active;
+        liveCompare.preAlign.transition (ended);
         liveCompare.contentMonitor = {};
         liveCompare.contentStep = {};
         liveCompare.contentMonitorRun = run;
@@ -150,31 +148,27 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentWindow = {};
     }
     const auto now = hypha::live_compare::callbackWallNanos();
-    // The bound ended without a confirmed position: PRE plays at K, and LISTEN and BLIND say that the
-    // delay was not measured instead of staying silent (A/B already says its A is unconfirmed). A
-    // correction confirmed before for this pair, format and PRE owner plays instead, told as not
-    // re-measured (INV-LC28). A snapshot that cannot be read now is read again on the next service,
-    // for at most keptReadNanos; one that PRE's run cannot serve yet is dropped. LISTEN / BLIND and A/B
-    // never use each other's; A/B uses one only for the same candidate under the same host conditions.
-    // K moved by the kept amount: the host compensates that delay now, so it is dropped (PRE at K).
-    const bool candidate = candidateCompareActive();
-    const bool sameHost = ! candidate || (liveCompare.alignKeptPeer == liveCompare.alignPeer.load (std::memory_order_acquire)
-        && liveCompare.alignKeptConditions == liveCompare.alignConditions.load (std::memory_order_acquire)
-        && liveCompare.alignKeptCompensation == liveCompare.compensationRevision.load (std::memory_order_acquire));
-    auto kept = liveCompare.alignKeptFor == context && liveCompare.alignKeptCandidate == candidate && sameHost
-        ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
-    const auto clockK = liveCompare.renderer.alignClockK();
-    if (hypha::live_compare::hostTookOver (kept, liveCompare.alignKeptK, clockK, static_cast<std::int64_t> (
-            std::floor (preparedFormat.sampleRate * hypha::live_compare::offsetAgreementSeconds)))) kept = {};
-    if (! alignConfirmationExpired (state, now)) liveCompare.keptMissSince = 0;
-    else if (keptReadable (kept, now))
-    {
-        liveCompare.alignKept = kept;
-        liveCompare.alignKeptK = clockK;
-        liveCompare.renderer.requestAlign (kept, context, revision);
-        liveCompare.contentUnmeasured.store (kept.frames == 0 && ! candidateCompareActive(), std::memory_order_release);
-        liveCompare.contentNotRemeasured.store (kept.frames != 0, std::memory_order_release);
-    }
+    // The one budget (RendererAlignment) ended without a confirmed position: PRE plays at K, and
+    // LISTEN and BLIND say that the delay was not measured instead of staying silent (A/B already says
+    // its A is unconfirmed). A correction confirmed before for this pair, format and PRE owner plays
+    // instead, told as not re-measured (INV-LC28). A snapshot that cannot be read now is read again on
+    // the next service, for at most keptReadNanos; one that PRE's run cannot serve yet is dropped.
+    // LISTEN / BLIND and A/B never use each other's; A/B uses one only for the same candidate under the
+    // same host conditions. K moved by the kept amount: the host compensates that delay now, so it is
+    // dropped (PRE at K). All of it is the owner's one transition (LiveComparePreAlign.h).
+    auto tick = preAlignInput (hypha::live_compare::PreAlignEvent::tick);
+    tick.revision = revision;
+    tick.pending = state.active && liveCompareAutoAlign() && liveCompare.renderer.alignPending();
+    if (tick.pending) liveCompare.renderer.alignState().arm (revision); // the wait for content counts from here
+    tick.spent = liveCompare.renderer.alignState().budgetSpent();
+    tick.reach = liveCompare.renderer.alignReach();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest())
+        tick.reach = std::numeric_limits<std::int64_t>::max();
+   #endif
+    tick.now = now; tick.readRetryNanos = keptReadNanos;
+    if (const auto fallback = liveCompare.preAlign.transition (tick); fallback.request)
+        liveCompare.renderer.requestAlign (fallback.value, context, fallback.revision);
     if (!state.active || state.compensationOff || ! liveContentPathProven (state)
         || now < liveCompare.contentMonitorNext) return;
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
@@ -226,7 +220,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     }
     const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
     if (step.settled) liveCompare.contentStep = step;
-    if (step.settled) { liveCompare.contentUnmeasured.store (false); liveCompare.contentNotRemeasured.store (false); }
+    if (step.settled) preAlignEvent (hypha::live_compare::PreAlignEvent::measured);
     const bool aligned = step.settled && alignLiveCompare (step, estimate);
     // A strong estimate that PRE is late, early past the ring, or jumped from the run's baseline is
     // told, never sounded as POST: PRE keeps its clock position K (plus a correction confirmed
@@ -279,17 +273,15 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
     if (liveCompare.renderer.alignPending() || value.verifySamples != requested.verifySamples || value.frames == 0 || current == 0
         || static_cast<double> (std::llabs (settled - current)) > agreement)
     {
-        liveCompare.renderer.requestAlign (value, estimate.alignContext, estimate.alignRevision);
-        if (! value.verifySamples) // a repeated waveform proves no unique position: never kept
-        {
-            liveCompare.alignKept = value; // confirmed: later sessions and K start from it (in memory only)
-            liveCompare.alignKeptFor = estimate.alignContext;
-            liveCompare.alignKeptK = liveCompare.renderer.alignClockK();
-            liveCompare.alignKeptCandidate = candidateCompareActive();
-            liveCompare.alignKeptPeer = liveCompare.alignPeer.load (std::memory_order_acquire);
-            liveCompare.alignKeptConditions = liveCompare.alignConditions.load (std::memory_order_acquire);
-            liveCompare.alignKeptCompensation = liveCompare.compensationRevision.load (std::memory_order_acquire);
-        }
+        // Confirmed: published for the revision it was measured at, and kept (in memory only) with
+        // the K it was measured against, never whatever K has become since the checks above.
+        auto confirmed = preAlignInput (hypha::live_compare::PreAlignEvent::estimate);
+        confirmed.context = estimate.alignContext;
+        confirmed.value = value;
+        confirmed.measuredRevision = estimate.alignRevision;
+        confirmed.measuredK = estimate.windowReady ? estimate.clockK : confirmed.k;
+        if (const auto publish = liveCompare.preAlign.transition (confirmed); publish.request)
+            liveCompare.renderer.requestAlign (publish.value, estimate.alignContext, publish.revision);
     }
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
     return ! unreadable || slightlyLate;
@@ -298,45 +290,30 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
 // LISTEN, BLIND and A/B are comparisons the listener asked for, so PRE (A) never waits on a
 // content check that cannot finish: quiet or ambiguous audio, a limiter or outboard between PRE
 // and POST confirm no position, and B's first four settling seconds offer no window at all.
-// After one second of proven playback PRE sounds at its clock position K, as with alignment off;
+// After one second of the Audio Thread's one budget (clock-proven playback that waits for content,
+// together with any hold for PRE's run) PRE sounds at its clock position K, as with alignment off;
 // every block still needs the clock and PCM proof. Later strong evidence that PRE is early still
 // moves the read position through the usual fades. A confident late PRE (two strong windows,
 // 0.25 ms or more) is never a wait: it sounds at K and the status line says so (INV-LC10).
-bool KirinHyphaProcessorBase::alignConfirmationExpired (const hypha::live_compare::Status& state,
-                                                        std::uint64_t now) noexcept
+// What every event tells the owner of PRE's alignment state: the present context, host conditions
+// and the Audio Thread's clock mapping.
+hypha::live_compare::PreAlignInput KirinHyphaProcessorBase::preAlignInput (hypha::live_compare::PreAlignEvent event) const noexcept
 {
-    if (! state.active || ! liveCompareAutoAlign() || ! liveCompare.renderer.alignPending())
-    {
-        liveCompare.alignConfirmStart = 0;
-        return false;
-    }
-    if (! liveContentPathProven (state)) return false;
-    if (liveCompare.alignConfirmStart == 0) liveCompare.alignConfirmStart = now;
-    return now >= liveCompare.alignConfirmStart && now - liveCompare.alignConfirmStart >= confirmationWaitNanos;
+    hypha::live_compare::PreAlignInput in;
+    in.event = event;
+    in.context = liveCompare.alignContext();
+    in.host = { candidateCompareActive(), liveCompare.alignPeer.load (std::memory_order_acquire),
+                liveCompare.alignConditions.load (std::memory_order_acquire),
+                liveCompare.compensationRevision.load (std::memory_order_acquire) };
+    in.revision = liveCompare.renderer.alignRevision();
+    in.k = liveCompare.renderer.alignClockK();
+    in.active = true;
+    in.agreement = static_cast<std::int64_t> (std::floor (preparedFormat.sampleRate * hypha::live_compare::offsetAgreementSeconds));
+    return in;
 }
 
-// INV-LC28: whether PRE's run serves the kept correction at POST's latest block, as that block's
-// renderer found it (LISTEN, BLIND and A/B alike: A/B records no history while B settles). False only
-// to read again (no proven clock mapping yet), for at most keptReadNanos; an unreadable or still
-// unknown position then clears `kept`, so the bound falls back to K.
-bool KirinHyphaProcessorBase::keptReadable (hypha::live_compare::AlignValue& kept, std::uint64_t now) noexcept
-{
-    if (kept.frames == 0) return true;
-    auto reach = liveCompare.renderer.alignReach();
-   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
-    if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest())
-        reach = std::numeric_limits<std::int64_t>::max();
-   #endif
-    const bool known = reach != std::numeric_limits<std::int64_t>::max();
-    if (! known && (liveCompare.keptMissSince == 0 || now - liveCompare.keptMissSince < keptReadNanos))
-    {
-        if (liveCompare.keptMissSince == 0) liveCompare.keptMissSince = now;
-        return false;
-    }
-    liveCompare.keptMissSince = 0;
-    if (! known || reach < kept.frames) kept = {};
-    return true;
-}
+void KirinHyphaProcessorBase::preAlignEvent (hypha::live_compare::PreAlignEvent event) noexcept
+{ liveCompare.preAlign.transition (preAlignInput (event)); }
 
 // BLIND never tells which source is PRE: its content checks and their timers follow PRE's path
 // (proven and not held), which is the same whichever source is selected; the selected source's own
