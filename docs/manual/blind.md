@@ -15,6 +15,17 @@ vote, learn from it, or change audio from it. No Kirin OS is required.
 
 ![PRE/POST Blind after REVEAL: SOURCE 1 was POST and SOURCE 2 was PRE; switching continues until END](../media/readme/blind_result.jpg)
 
+**GUESS** in MENU (off by default) adds one question above REVEAL: **Which one is POST?**
+(**Which one is B?** in A/B). Choose **1** or **2** before REVEAL. The question and both answers look
+the same whatever the hidden assignment is. After REVEAL your answer stays lit with **— right** or
+**— not this time**. The answer is not stored. With GUESS off, BLIND is unchanged.
+
+On the RESULT, **SAVE IMAGE** saves a 1080 × 1080 PNG where you choose. Name each source first, up to
+16 characters; an empty name uses PRE and POST (A and B in A/B), and the names are remembered. The
+image shows which source was which, your answer and its outcome when GUESS was on, and the RESULT's
+own notes, in the screen language. It ends with **One blind listen at matched level.** and the Hypha
+address. Song and track names are not collected automatically. When saving fails, the reason stays on the screen.
+
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
 another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match.
 
