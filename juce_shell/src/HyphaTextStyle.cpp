@@ -337,9 +337,10 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
 
 template <typename Area>
 void drawShown (juce::Graphics& graphics, const juce::String& text, Area area,
-                juce::Justification justification, bool useEllipsesIfTooLong)
+                juce::Justification justification, bool useEllipsesIfTooLong,
+                LabelPolicy policy = LabelPolicy::localized)
 {
-    const auto shown = shownText (text);
+    const auto shown = shownText (text, policy);
     const ShownFont font (graphics, shown);
     graphics.drawText (drawn (shown, area.toFloat()), area, justification, useEllipsesIfTooLong);
 }
@@ -410,6 +411,12 @@ void drawText (juce::Graphics& graphics, const juce::String& text, juce::Rectang
                juce::Justification justification, bool useEllipsesIfTooLong)
 {
     drawShown (graphics, text, area, justification, useEllipsesIfTooLong);
+}
+
+void drawText (juce::Graphics& graphics, const juce::String& text, juce::Rectangle<float> area,
+               juce::Justification justification, bool useEllipsesIfTooLong, LabelPolicy policy)
+{
+    drawShown (graphics, text, area, justification, useEllipsesIfTooLong, policy);
 }
 
 void drawText (juce::Graphics& graphics, const juce::String& text, int x, int y, int width,

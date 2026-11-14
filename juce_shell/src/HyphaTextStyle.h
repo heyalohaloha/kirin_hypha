@@ -50,6 +50,9 @@ void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                juce::Justification, bool useEllipsesIfTooLong = true);
 void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float>,
                juce::Justification, bool useEllipsesIfTooLong = true);
+// A pre-localized image line (including a user-entered name) must not be translated again.
+void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float>,
+               juce::Justification, bool useEllipsesIfTooLong, LabelPolicy);
 void drawText (juce::Graphics&, const juce::String&, int x, int y, int width, int height,
                juce::Justification, bool useEllipsesIfTooLong = true);
 
