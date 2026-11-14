@@ -28,6 +28,7 @@ namespace hypha::reference_audition
     {
         std::int64_t hopSamples = 0;
         std::map<std::string, RuntimeNullableIntegerSeries> series;
+        bool samplePeakCrest = false;
     };
 
     struct RuntimeMeasurementTransient

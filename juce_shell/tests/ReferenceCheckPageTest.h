@@ -1,13 +1,12 @@
 #pragma once
-
 // C（CHECK）の画面（300%）。CHECK SET・Check のタブ（CHECK セットの順）・曲・Cue・MATCH、
 // 見比べ（Cue 対 A の同じ長さの直近、同じ音量）、4 帯域の要約、Cue の時間軸。200% は今までの選択欄。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceHoverHelpTest.h"
+#include "ReferenceCrestMarkerUiTest.h"
 #include "../src/HyphaReferenceCueSummary.h"
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaReferenceVersionPage.h"
-
 namespace hypha::tests
 {
 inline std::shared_ptr<reference_audition::KirinSpectrumWindow> kirinWindow (float tilt, std::array<double, 4> balance, int frames)
@@ -330,6 +329,7 @@ inline void verifyReferenceCheckPage()
             require (previous.isNull() || differentPixels (previous, image) > 500, "each Check draws its own strips");
             previous = image;
         }
+        verifyCrestMarkerUi (panel, strips, measurement, differentPixels);
         strips.viewBindings = { "dynamics", "loudness" };  // Kirin OS の Dynamics の Check は 2 つの図を並べる（狭い枠）
         panel.setState (strips);
         write (panel, "abcv_c_900_dynamics_loudness.png");

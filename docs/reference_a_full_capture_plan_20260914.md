@@ -32,7 +32,7 @@ Baseline: Hypha B-873 `674e383a93aedcb3cbab211452e7a1f17fb2d931` / Kirin OS側�
 | 表示を閉じると観測が止まる | 明示的なCapture中だけeditor非表示でも取得を続ける |
 | Bの読込とA/B計測が同じ表示worker内にある | BのI/O停止がA取得を欠落させない責務分離を先に行う |
 | 現在の要約はBのbin境界に合わせる | A自身の取得範囲と要約を持ち、異なるBでも再利用する |
-| 現在のmeterはLUFS-S・TP/RMSで、取得範囲全体のLUFS-Iを持たない | 独立したCapture計測に連続範囲のIntegrated集計を追加する |
+| 現在のmeterはLUFS-S・sample peak/RMSで、取得範囲全体のLUFS-Iを持たない | 独立したCapture計測に連続範囲のIntegrated集計を追加する |
 | 再起動で保存するのは表示範囲の設定のみ | 取得時点の要約を、現在のAと区別して復元する |
 
 B-873の完全なruntime試験では8秒の80 bin中75 binが観測された。校正・準備中の空白は仕様どおりだが、Capture Aでは冒頭を取り逃さない設計が必要である。
@@ -72,7 +72,7 @@ seek・loop折返し・clock欠損・rate/channel/経路変更・queue欠落で�
 
 - 波形: L/R別sample peakとenergy/frame countを集計し、外側peak・内側RMSを描く。
 - Loudness: 実入力の連続3秒windowから得たLUFS-Sを、そのwindow終端に置く。
-- Crest: 同じbin範囲のtrue peakとRMSから算出する。PSRやLRAとは呼ばない。
+- Crest: 同じbin範囲のsample peakとRMSから算出する。PSRやLRAとは呼ばない。
 - 取得範囲全体: 連続した全入力を処理したLUFS-Iと最大TP。取得範囲を必ず伴わせる。
 - 照合: 既存の位置合わせと互換性を確認した時系列特徴と検証receiptを保持し、後の候補位置探索に利用する。
 
