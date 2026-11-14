@@ -88,6 +88,9 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       const daw = canonicalDaw(row.daw);
       if (!daw) throw new Error(`Fix row ${row.id} names an unknown DAW: ${row.daw}`);
       if (!['macos', 'windows'].includes(row.os)) throw new Error(`Fix row ${row.id} needs os macos or windows`);
+      if (row.hosts.some(host => host.split('/')[0].toLowerCase() !== row.os)) {
+        throw new Error(`Fix row ${row.id} hosts OS must match ${row.os}`);
+      }
       if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
       if (daw === 'Cakewalk' && row.os !== 'windows') throw new Error(`Fix row ${row.id}: Cakewalk requires windows`);
       for (const promise of names) {

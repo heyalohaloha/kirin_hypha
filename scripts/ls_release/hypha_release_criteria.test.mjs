@@ -150,7 +150,7 @@ test('each promise requires each DAW once, with aliases and whitespace normalize
   for (const daw of ['Cakewalk', ' CAKEWALK by BANDLAB ', 'Cakewalk Sonar', ' s O n A r ']) {
     f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 6 ? { ...row, daw } : row) });
     assertState(init());
-    f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 6 ? { ...row, daw, os: 'macos' } : row) });
+    f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 6 ? { ...row, daw, os: 'macos', hosts: ['macOS/x86_64/AU'] } : row) });
     assert.throws(init, /Cakewalk requires windows/);
   }
   f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 0 ? { ...row, daw: 'Unknown DAW' } : row) });
@@ -171,14 +171,14 @@ test('platform-sensitive promises cover both systems without repeated DAW and OS
   const spec = { ...f.spec, platformSensitive: [promise] };
   write(spec);
   assertState(init());
-  const windows = { ...spec.rows.find(row => row.daw === 'REAPER' && row.promise === promise), id: 'windows-reaper', os: 'windows' };
+  const windows = { ...spec.rows.find(row => row.daw === 'REAPER' && row.promise === promise), id: 'windows-reaper', os: 'windows', hosts: ['Windows/x86_64/VST3'] };
   write({ ...spec, rows: [...spec.rows, windows] });
   assertState(init());
   write({ ...spec, rows: [...spec.rows, windows, { ...windows, id: 'windows-again', daw: 'Reaper' }] });
   assert.throws(init, /Promise The clock keeps every frame\. is already verified in REAPER/);
   write({ ...f.spec, rows: [...f.spec.rows, windows] });
   assert.throws(init, /Promise The clock keeps every frame\. is already verified in REAPER/);
-  const windowsOnly = spec.rows.map(row => row.daw !== 'Logic Pro' && row.promise === promise ? { ...row, os: 'windows' } : row)
+  const windowsOnly = spec.rows.map(row => row.daw !== 'Logic Pro' && row.promise === promise ? { ...row, os: 'windows', hosts: ['Windows/x86_64/VST3'] } : row)
     .filter(row => !(row.daw === 'Logic Pro' && row.promise === promise));
   // A missing DAW is diagnosed before platform coverage.
   write({ ...spec, rows: windowsOnly });
@@ -191,8 +191,27 @@ test('platform-sensitive promises cover both systems without repeated DAW and OS
     write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os } : row) });
     assert.throws(init, /needs os macos or windows/);
   }
-  write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os: 'windows', daw: 'logic' } : row) });
+  write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os: 'windows', daw: 'logic', hosts: ['Windows/x86_64/VST3'] } : row) });
   assert.throws(init, /Logic Pro requires macos/);
+});
+
+test('every host entry names the row OS as its first segment', t => {
+  const f = fixture(t);
+  const init = () => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE);
+  const replace = (index, hosts) => f.write('fixes.json', { ...f.spec,
+    rows: f.spec.rows.map((row, i) => i === index ? { ...row, hosts } : row) });
+  const cakewalk = f.spec.rows.findIndex(row => row.daw === 'Cakewalk');
+  for (const hosts of [['macOS/x86_64/AU'], ['Windows/x86_64/VST3', 'macOS/x86_64/AU'],
+    ['WindowsExtra/x86_64/VST3'], ['/Windows/x86_64/VST3']]) {
+    replace(cakewalk, hosts);
+    assert.throws(init, /hosts OS must match windows/);
+  }
+  replace(0, ['Windows/x86_64/VST3']);
+  assert.throws(init, /hosts OS must match macos/);
+  replace(cakewalk, ['wInDoWs/x86_64/VST3', 'WINDOWS/x86_64/AAX']);
+  assertState(init());
+  replace(0, ['MaCoS/x86_64/AU']);
+  assertState(init());
 });
 
 test('promises are every English list item, whatever its marker, with continuation lines joined', t => {

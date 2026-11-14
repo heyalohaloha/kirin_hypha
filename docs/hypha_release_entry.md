@@ -217,7 +217,7 @@ reportで事後に期待値を変更して通すことはできない。
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
 `--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の
 箇条が約束で、各約束をStudio One、Logic Pro、REAPER、Pro Tools、Cubase、Ableton Live、Cakewalkの全7 DAWの実host行で検証し、CI行はその補足とする。
-OSで異なる可能性のある約束は`platformSensitive`に列挙してmacOSとWindowsの両方で確かめ、それ以外は1 OSで確かめる。
+OSで異なる可能性のある約束は`platformSensitive`に列挙してmacOSとWindowsの両方で確かめ、それ以外はDAWごとに1 OSで確かめる。
 host行の`os`は`macos`または`windows`とし、同じ約束とDAWの重複は`platformSensitive`の異なるOS間だけ許す（Logic Proは`macos`のみ、Cakewalkは`windows`のみ）。
 OS差の候補：ファイル・path・保存先、PRE/POST転送（macOSはatomic file、Windowsは共有メモリ）、文字・font・表示倍率、keyboard・mouse、audio機器・driver・timing、installer・plug-in folder、format差（AUはmacOSのみ）。
 host行は`promise`に一つ、または`promises`に複数の約束の文をそのまま書ける（CI行は`promise`に一つ）。
