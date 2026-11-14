@@ -92,7 +92,7 @@ void verifyBlindGuessAndImage (Require check)
         const auto png = root.getChildFile ("result.png"), jpg = root.getChildFile ("result.jpg");
         require (! capture::replacePngApproved (0) && capture::replacePngApproved (1)
             && ! capture::replacePngApproved (2) && ! capture::replacePngApproved (-1), "only Replace approves");
-        require (png.replaceWithText ("original"), "existing PNG fixture");
+        require (png.appendText ("original"), "existing PNG fixture"); // a new file in a new folder
         int confirmations = 0, saves = 0;
         std::function<void (bool)> reply;
         const auto confirm = [&] (const juce::File& target, std::function<void (bool)> answer)
@@ -107,7 +107,7 @@ void verifyBlindGuessAndImage (Require check)
         reply (true);
         require (confirmations == 2 && saves == 1, "approval saves the same PNG");
         const auto fresh = root.getChildFile ("fresh.jpg");
-        require (fresh.replaceWithText ("unrelated"), "other extension fixture");
+        require (fresh.appendText ("unrelated"), "other extension fixture");
         capture::choosePngTarget (fresh, [&] (const juce::File&, std::function<void (bool)>) { require (false, "no PNG to replace"); },
             [&] (const juce::File& target) { require (target == fresh.withFileExtension (".png"), "new PNG uses normalized path"); });
         capture::choosePngTarget ({}, confirm, save);
