@@ -32,22 +32,23 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(alignment.contains("if (stake > 0 && held + stake > shortFrames) expired = true;"));
     assert!(ALIGN_H
         .contains("if (held + played > bound) expired = true; else held += (stake = played);"));
-    assert!(ALIGN_H.contains(
-        "if (path && waiting && stake == 0 && ! expired && armed.load (std::memory_order_relaxed) == readiness.generation())"
-    ));
+    // No clock mapping, refused address or calibrating block waits outside the budget.
+    assert!(ALIGN_H.contains("if (((path && ((waiting && seen) || update.deferred)) || refused) && stake == 0 && ! expired)"));
+    assert!(
+        ALIGN_H.contains("void arm() const noexcept { armed.store (budget.load (")
+            && !ALIGN_H.contains("arm (std::uint64_t")
+    );
     assert!(alignment.contains("held += stake;"));
     assert!(alignment.contains("const auto path = blind ? blindRequest : wanted;"));
     assert!(alignment.contains(
         "serves = blind ? ! pathBeyond && (path.frames == 0 || readableFrames != std::numeric_limits<std::int64_t>::max())"
     ));
-    assert!(
-        alignment.contains("result.deferred = (beyond || pathBeyond) && holdable && ! expired;")
-    );
-    assert!(alignment.contains("if (beyond && ! result.deferred) wanted = {};"));
+    assert!(alignment.contains("result.deferred = (((beyond || pathBeyond) && holdable) || (blind && unknown && path.frames > 0)) && ! expired;"));
+    assert!(alignment.contains("if ((beyond && ! result.deferred) || atK) wanted = {};"));
     assert!(!alignment.contains("expired = false"));
     assert_eq!(ALIGN_H.matches("expired = holdEnded = false").count(), 2); // a new session, PRE at its address
     assert!(ALIGN_H.contains(
-        "if (serves && (corrected || ! holdEnded)) { held = 0; expired = holdEnded = false; unserved.store (false); }"
+        "if (serves && (corrected || ! holdEnded)) { held = 0; expired = holdEnded = false; unserved.store (false); renew(); }"
     ));
     // BLIND is proven, waits and is served by PRE's path, never by the address a source applied.
     assert!(ALIGN_H.contains("const bool path = blindPath ? pathClock : accepted;"));

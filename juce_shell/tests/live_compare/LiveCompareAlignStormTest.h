@@ -143,7 +143,7 @@ struct World
         auto tick = input (l, PreAlignEvent::tick);
         tick.pending = l.alignment.readiness.pending(); tick.spent = l.alignment.budgetSpent();
         tick.reach = l.alignment.servable(); tick.now = static_cast<std::uint64_t> (clock) * 1000000000u / rate; tick.readRetryNanos = 500000000u;
-        if (tick.pending) l.alignment.arm (tick.revision);
+        if (tick.pending) l.alignment.arm();
         const auto out = send (l, tick);
         if (tick.pending && tick.spent && ! out.request) l.rereading = true;
         if (out.request)
