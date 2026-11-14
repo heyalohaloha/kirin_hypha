@@ -191,14 +191,17 @@ namespace hypha::reference_audition
 
         bool parsePositionView (const juce::var& value, const std::vector<std::string>& series,
                                 const std::vector<std::pair<std::int64_t, std::int64_t>>& bounds,
-                                std::int64_t sourceCount, RuntimeProfileView& result)
+                                std::int64_t sourceCount, RuntimeProfileView& result, bool dynamics)
         {
             const auto* object = value.getDynamicObject();
-            if (object == nullptr || object->getProperties().size() != static_cast<int> (series.size() + 1)
+            if (object == nullptr || object->getProperties().size() != static_cast<int> (series.size() + 1
+                    + (dynamics && object->hasProperty ("crest_basis") ? 1 : 0))
                 || ! object->hasProperty ("position_basis_points")
                 || ! parseAxis (object->getProperty ("position_basis_points"), 2, 256,
                                0.0, 10'000.0, true, result.axis))
                 return false;
+            const auto basis = object->getProperty ("crest_basis");
+            result.samplePeakCrest = dynamics && basis.isString() && basis.toString() == "sample_peak_over_rms";
             for (size_t index = 0; index < series.size(); ++index)
             {
                 const juce::Identifier seriesName { juce::String (series[index]) };
@@ -258,7 +261,7 @@ namespace hypha::reference_audition
                     continue;
                 RuntimeProfileView view;
                 if (! parsePositionView (item, definition.series, definition.bounds,
-                                        result.sourceCount, view))
+                                        result.sourceCount, view, std::string (definition.name) == "dynamics"))
                     return false;
                 result.views.emplace (definition.name, std::move (view));
             }

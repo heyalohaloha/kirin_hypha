@@ -10,7 +10,7 @@ Kirin OS remains OS側の対応実装 `31fd330c`; its existing measurement 2.0 d
 - Shared-time stacked A/B waveform, sample peak outside and channel-energy RMS inside.
 - B overview is available independently of A coverage. Exact paired readouts require the verified position map.
 - Source bins are `[start,end)`. Final bins use actual frame counts. Display reduction uses peak maxima and frame-weighted energy, never dB averages.
-- LOUDNESS is LUFS-S at a complete 3-second window endpoint. CREST is true peak / RMS over the same A/B bin. PSR is not substituted.
+- LOUDNESS is LUFS-S at a complete 3-second window endpoint. CREST is sample peak / RMS over the same A/B bin. PSR is not substituted.
 - The detail chart uses one common vertical scale for both sides. A/B switching preserves the selected display region.
 - Click/drag and arrow keys change the view; Shift+arrow resizes it; FOLLOW/Home resumes following. None of these operations seeks, loops or switches DAW output.
 - FOLLOW shows ten seconds before playback and two seconds after it, keeping a twelve-second window within the song boundaries. The overview selection frame uses the same interval as the detail chart.

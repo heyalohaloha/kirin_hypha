@@ -28,6 +28,7 @@ namespace hypha::reference_audition
     {
         std::vector<double> axis;
         std::map<std::string, RuntimeProfileDistribution> series;
+        bool samplePeakCrest = false;
     };
 
     struct RuntimeProfile

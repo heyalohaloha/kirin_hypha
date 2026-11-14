@@ -220,8 +220,11 @@ namespace hypha::reference_audition
             const auto firstId = juce::Identifier (firstName);
             const auto secondId = juce::Identifier (secondName);
             const auto* first = object == nullptr ? nullptr : object->getProperty (firstId).getArray();
-            if (object == nullptr || ! exactProperties (*object, {
+            const bool dynamics = juce::String (firstName) == "psr_millidb";
+            if (object == nullptr || ! (exactProperties (*object, {
                     "start_sample", "hop_samples", firstName, secondName })
+                || (dynamics && exactProperties (*object, {
+                    "start_sample", "hop_samples", firstName, secondName, "crest_basis" })))
                 || ! exactInteger (object->getProperty ("start_sample"), 0, 0, start)
                 || ! exactInteger (object->getProperty ("hop_samples"), 1,
                                    maximumSafeInteger, result.hopSamples)
@@ -239,6 +242,8 @@ namespace hypha::reference_audition
                 hasFacts = hasFacts || firstSeries[index].has_value() || secondSeries[index].has_value();
             if (! hasFacts)
                 return false;
+            const auto basis = object->getProperty ("crest_basis");
+            result.samplePeakCrest = dynamics && basis.isString() && basis.toString() == "sample_peak_over_rms";
             result.series.emplace (firstName, std::move (firstSeries));
             result.series.emplace (secondName, std::move (secondSeries));
             output = std::move (result);
