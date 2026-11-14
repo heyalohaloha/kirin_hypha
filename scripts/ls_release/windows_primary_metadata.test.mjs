@@ -27,10 +27,10 @@ test('previous public installers pin the released 1.1.52 VST3 and AAX installer'
   }]);
 });
 
-test('release qualification requires a passed 1.1.55 upgrade bound to the current fixture', () => {
+test('release qualification requires a passed 1.1.56 upgrade bound to the current fixture', () => {
   const bytes = fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url));
   const fixture = JSON.parse(bytes);
-  const latestId = 'all-users-1.1.55';
+  const latestId = 'all-users-1.1.56';
   assert.ok(fixture.required_for_release.includes(latestId));
   const fixtureHash = createHash('sha256').update(bytes).digest('hex');
   const scenarios = fixture.required_for_release.map(id => ({ id, status: 'passed' }));
@@ -39,7 +39,7 @@ test('release qualification requires a passed 1.1.55 upgrade bound to the curren
   });
   assert.doesNotThrow(() => qualify(scenarios));
   // Passing the older upgrades cannot replace the immediately preceding public release.
-  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.55/);
+  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.56/);
   assert.throws(() => qualify(scenarios.map(row => row.id === latestId ? { ...row, status: 'failed' } : row)),
     /previous-release upgrade verification is incomplete/);
   // A report bound to the former two-installer fixture cannot qualify the new matrix.
@@ -368,6 +368,24 @@ test('previous public installers pin the released 1.1.55 VST3 and AAX installer 
   assert.deepEqual(fixture.scenarios.filter(scenario => scenario.id === 'all-users-1.1.55'), [{
     id: 'all-users-1.1.55',
     previous: [{ version: '1.1.55', scope: 'default' }],
+    new_scope: 'all-users',
+    expect: 'replaced',
+  }]);
+});
+
+test('previous public installers pin the released 1.1.56 VST3 and AAX installer and upgrade', () => {
+  const fixture = JSON.parse(fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url)));
+  assert.deepEqual(fixture.installers.filter(entry => entry.version === '1.1.56'), [{
+    version: '1.1.56',
+    file_name: 'Kirin-Hypha-1.1.56-Windows-x64-Setup.exe',
+    bytes: 28371032,
+    sha256: 'd6853d53b04840676b8544fe4b1b03c1ac3d7f2c8c04217bfaebc204bf1203f8',
+    default_scope: 'all-users',
+    formats: ['VST3', 'AAX'],
+  }]);
+  assert.deepEqual(fixture.scenarios.filter(scenario => scenario.id === 'all-users-1.1.56'), [{
+    id: 'all-users-1.1.56',
+    previous: [{ version: '1.1.56', scope: 'default' }],
     new_scope: 'all-users',
     expect: 'replaced',
   }]);
