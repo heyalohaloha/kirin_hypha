@@ -11,7 +11,7 @@
 namespace hypha::text_style
 {
 // Fixed control labels keep their literal spelling; explanatory text remains localized.
-enum class LabelPolicy { localized, fixed };
+enum class LabelPolicy { localized, fixed, fixedNativeBold };
 
 // The text the calls below show for `text`, and the width it takes when drawn in `font`.
 juce::String shownText (const juce::String&, LabelPolicy = LabelPolicy::localized);

@@ -87,6 +87,33 @@ void verifyBlindGuessAndImage (Require check)
     require (root.createDirectory().wasOk(), "test folder");
     const auto preferenceFixture = root.getChildFile ("u");
 
+    // A mismatched typed extension must never bypass confirmation of the final PNG.
+    {
+        const auto png = root.getChildFile ("result.png"), jpg = root.getChildFile ("result.jpg");
+        require (! capture::replacePngApproved (0) && capture::replacePngApproved (1)
+            && ! capture::replacePngApproved (2) && ! capture::replacePngApproved (-1), "only Replace approves");
+        require (png.replaceWithText ("original"), "existing PNG fixture");
+        int confirmations = 0, saves = 0;
+        std::function<void (bool)> reply;
+        const auto confirm = [&] (const juce::File& target, std::function<void (bool)> answer)
+        { ++confirmations; require (target == png, "confirm the normalized PNG"); reply = std::move (answer); };
+        const auto save = [&] (const juce::File& target)
+        { ++saves; require (target == png, "save the confirmed PNG"); };
+        capture::choosePngTarget (jpg, confirm, save);
+        require (confirmations == 1 && saves == 0 && png.loadFileAsString() == "original", "existing PNG waits for confirmation");
+        reply (false);
+        require (saves == 0 && png.loadFileAsString() == "original", "cancel keeps the PNG");
+        capture::choosePngTarget (jpg, confirm, save);
+        reply (true);
+        require (confirmations == 2 && saves == 1, "approval saves the same PNG");
+        const auto fresh = root.getChildFile ("fresh.jpg");
+        require (fresh.replaceWithText ("unrelated"), "other extension fixture");
+        capture::choosePngTarget (fresh, [&] (const juce::File&, std::function<void (bool)>) { require (false, "no PNG to replace"); },
+            [&] (const juce::File& target) { require (target == fresh.withFileExtension (".png"), "new PNG uses normalized path"); });
+        capture::choosePngTarget ({}, confirm, save);
+        require (confirmations == 2 && saves == 1, "cancelled chooser does nothing");
+    }
+
     // OFF: the screen is the Blind it was, whatever answer is held.
     for (bool candidate : { false, true })
         for (bool revealed : { false, true })
@@ -320,11 +347,30 @@ void verifyBlindGuessAndImage (Require check)
             const auto layout = blind_image::layoutFor (facts);
             const auto& items = layout.items;
             const juce::Rectangle<float> canvas (0.0f, 0.0f, blind_image::logicalSize, blind_image::logicalSize);
+            require (BG.isOpaque() && layout.badge.contains (items[1].area), "the blind label has a solid dark backing");
+            if (language == i18n::Language::japanese)
+            {
+                const blind_image::Item* latin = nullptr;
+                const blind_image::Item* other = nullptr;
+                const blind_image::Item* selected = nullptr;
+                for (const auto& item : items)
+                {
+                    if (item.role == typography::BlindImageText::small && item.text == (facts.selected == 1 ? "SOURCE 1 / " : "SOURCE 2 / ")) latin = &item;
+                    if (item.role == typography::BlindImageText::small && item.text == (facts.selected == 1 ? "SOURCE 2" : "SOURCE 1")) other = &item;
+                    if (item.text == i18n::tr ("Selected")) selected = &item;
+                }
+                require (latin != nullptr && other != nullptr && selected != nullptr, "Japanese selected caption has separate font runs");
+                if (latin != nullptr && other != nullptr && selected != nullptr)
+                    require (latin->font == other->font && selected->font.isBold()
+                        && std::abs (latin->font.getHeight() - selected->font.getHeight()) < 0.01f
+                        && std::abs (latin->area.getRight() - selected->area.getX()) < 0.01f, "matching source font and weighted Japanese suffix");
+            }
             require (items.size() >= 2 && items.back().text == blind_image::address
                 && items[items.size() - 2].text == i18n::tr (blind_image::closingSentence), "ends with the sentence and the address");
             if (language == i18n::Language::japanese)
                 require (items[items.size() - 2].text == juce::String::fromUTF8 (u8"音量をそろえて 1 回聴いた結果です。"), "Japanese sentence");
             std::set<juce::String> allowed { "KIRIN HYPHA", "A/B BLIND", "PRE/POST BLIND", "BLIND RESULT", "SOURCE 1", "SOURCE 2",
+                                             "SOURCE 1 / ", "SOURCE 2 / ", i18n::tr ("Selected"),
                                              i18n::tr ("SOURCE 1") + " / " + i18n::tr ("Selected"),
                                              i18n::tr ("SOURCE 2") + " / " + i18n::tr ("Selected"),
                                              blind_image::address, i18n::tr (blind_image::closingSentence),

@@ -30,7 +30,7 @@ ShownTextLog::~ShownTextLog()
 
 juce::String shownText (const juce::String& text, LabelPolicy policy)
 {
-    return displayableText (policy == LabelPolicy::fixed ? text : i18n::tr (text));
+    return displayableText (policy == LabelPolicy::localized ? i18n::tr (text) : text);
 }
 
 float shownWidth (const juce::Font& font, const juce::String& text, LabelPolicy policy)
@@ -288,12 +288,15 @@ namespace
 class ShownFont final
 {
 public:
-    ShownFont (juce::Graphics& graphics, const juce::String& shown)
+    ShownFont (juce::Graphics& graphics, const juce::String& shown, bool boldNative = false)
     {
         if (! requiresJapaneseGlyphs (shown))
             return;
         saved.emplace (graphics);
-        graphics.setFont (nativeTextFontLike (graphics.getCurrentFont()));
+        if (boldNative)
+            graphics.setFont (nativeTextFontLike (graphics.getCurrentFont()).boldened());
+        else
+            graphics.setFont (nativeTextFontLike (graphics.getCurrentFont()));
     }
 
 private:
@@ -341,7 +344,7 @@ void drawShown (juce::Graphics& graphics, const juce::String& text, Area area,
                 LabelPolicy policy = LabelPolicy::localized)
 {
     const auto shown = shownText (text, policy);
-    const ShownFont font (graphics, shown);
+    const ShownFont font (graphics, shown, policy == LabelPolicy::fixedNativeBold);
     graphics.drawText (drawn (shown, area.toFloat()), area, justification, useEllipsesIfTooLong);
 }
 }

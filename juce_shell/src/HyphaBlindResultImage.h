@@ -82,11 +82,12 @@ struct Item
     typography::BlindImageText role = typography::BlindImageText::small;
     int nameSize = 34;
     float kerning = 0.0f;
+    bool nativeBold = false;
 };
 
 struct Layout
 {
-    juce::Rectangle<float> panel, cardOne, cardTwo, chip;
+    juce::Rectangle<float> panel, cardOne, cardTwo, chip, badge;
     float rule = 0.0f;
     std::vector<Item> items;  // top to bottom; the last two are the closing sentence and the address
 };
@@ -132,10 +133,11 @@ inline juce::String noteWithNames (const Facts& facts)
 
 inline void addLine (Layout& layout, const juce::String& text, juce::Rectangle<float> area, typography::BlindImageText role,
                      juce::Colour colour, juce::Justification justification = juce::Justification::centred,
-                     float kerning = 0.0f, int nameSize = 34)
+                     float kerning = 0.0f, int nameSize = 34, bool nativeBold = false)
 {
-    layout.items.push_back ({ text, area, shownFont (text, imageFont (role, nameSize, kerning)), colour, justification,
-                              role, nameSize, kerning });
+    const auto font = shownFont (text, imageFont (role, nameSize, kerning));
+    layout.items.push_back ({ text, area, nativeBold ? font.boldened() : font, colour, justification,
+                              role, nameSize, kerning, nativeBold });
 }
 
 // Lines of `shown` at `width`: Japanese breaks between phrases, English between words.
@@ -186,7 +188,10 @@ inline Layout layoutFor (const Facts& facts)
     const float margin = 34.0f, pad = 26.0f;
     const auto secondary = COL_TEXT_SECONDARY.brighter (0.25f);
     addLine (layout, "KIRIN HYPHA", { margin, 30.0f, 230.0f, 22.0f }, ImageText::small, COL_SPECTRUM_DELTA_BR, juce::Justification::centredLeft, 0.22f);
-    addLine (layout, i18n::tr (facts.candidate ? "A/B BLIND" : "PRE/POST BLIND"), { logicalSize - margin - 230.0f, 30.0f, 230.0f, 22.0f },
+    const auto mode = i18n::tr (facts.candidate ? "A/B BLIND" : "PRE/POST BLIND");
+    const auto modeWidth = std::ceil (imageFont (ImageText::small, 34, 0.12f).getStringWidthFloat (mode));
+    layout.badge = { logicalSize - margin - modeWidth - 20.0f, 24.0f, modeWidth + 20.0f, 34.0f };
+    addLine (layout, mode, { layout.badge.getX() + 10.0f, 30.0f, modeWidth, 22.0f },
              ImageText::small, secondary, juce::Justification::centredRight, 0.12f);
     layout.panel = { margin, 66.0f, logicalSize - margin * 2.0f, logicalSize - 66.0f - margin };
     auto body = layout.panel.reduced (pad, 0.0f);
@@ -207,9 +212,25 @@ inline Layout layoutFor (const Facts& facts)
     const auto nameHeight = juce::jmin (heightOne, heightTwo);
     for (auto [card, label, lines, source] : { std::tuple { layout.cardOne, "SOURCE 1", linesOne, 1 }, std::tuple { layout.cardTwo, "SOURCE 2", linesTwo, 2 } })
     {
-        const auto caption = i18n::tr (label) + (facts.selected == source ? juce::String (" / ") + i18n::tr ("Selected") : juce::String());
-        addLine (layout, caption, { card.getX(), card.getY() + 14.0f, card.getWidth(), 20.0f }, ImageText::small, secondary,
-                 juce::Justification::centred, 0.14f);
+        const auto selected = facts.selected == source;
+        const auto selectedText = i18n::tr ("Selected");
+        if (selected && requiresJapaneseGlyphs (selectedText))
+        {
+            const auto prefix = i18n::tr (label) + " / ";
+            const auto latin = imageFont (ImageText::small, 34, 0.14f);
+            const auto japanese = nativeTextFontLike (latin).boldened();
+            const auto prefixWidth = std::ceil (latin.getStringWidthFloat (prefix));
+            const auto selectedWidth = std::ceil (japanese.getStringWidthFloat (selectedText));
+            const auto x = card.getCentreX() - (prefixWidth + selectedWidth) * 0.5f;
+            addLine (layout, prefix, { x, card.getY() + 14.0f, prefixWidth, 20.0f }, ImageText::small, secondary,
+                     juce::Justification::centredLeft, 0.14f);
+            addLine (layout, selectedText, { x + prefixWidth, card.getY() + 14.0f, selectedWidth, 20.0f }, ImageText::small,
+                     secondary, juce::Justification::centredLeft, 0.0f, 34, true);
+        }
+        else
+            addLine (layout, i18n::tr (label) + (selected ? juce::String (" / ") + selectedText : juce::String()),
+                     { card.getX(), card.getY() + 14.0f, card.getWidth(), 20.0f }, ImageText::small, secondary,
+                     juce::Justification::centred, 0.14f);
         const auto lineHeight = std::ceil (nameHeight * 1.18f);
         auto top = card.getY() + 36.0f + (card.getHeight() - 36.0f - 12.0f - lineHeight * (float) lines.size()) * 0.5f;
         for (const auto& line : lines)
@@ -276,6 +297,8 @@ inline void paint (juce::Graphics& g, const Facts& facts)
         g.reduceClipRegion (0, 0, (int) logicalSize, (int) logicalSize);
         observatory_world::Backdrop().draw (g, { -270, 0, 810, 540 }, world);
     }
+    g.setColour (BG);
+    g.fillRoundedRectangle (layout.badge, 6.0f);
     surface_material::uncached::paintPanel (g, layout.panel, 0.93f, 10.0f, false);
     const auto light = key_light::overEditor (logicalSize, logicalSize);
     for (const auto& card : { layout.cardOne, layout.cardTwo, layout.chip })
@@ -289,7 +312,8 @@ inline void paint (juce::Graphics& g, const Facts& facts)
         g.setColour (item.colour);
         g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture),
                               item.role, item.nameSize).withExtraKerningFactor (item.kerning));
-        text_style::drawText (g, item.text, item.area, item.justification, false, text_style::LabelPolicy::fixed);
+        text_style::drawText (g, item.text, item.area, item.justification, false,
+                              item.nativeBold ? text_style::LabelPolicy::fixedNativeBold : text_style::LabelPolicy::fixed);
     }
 }
 

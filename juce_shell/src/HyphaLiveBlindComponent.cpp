@@ -225,12 +225,28 @@ void Component::chooseImageFile()
         juce::File::getSpecialLocation (juce::File::userPicturesDirectory).getChildFile (name), "*.png", true);
     juce::Component::SafePointer<Component> safeThis (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                             #if ! JUCE_WINDOWS
+                              | juce::FileBrowserComponent::warnAboutOverwriting
+                             #endif
+                              ,
                           [safeThis] (const juce::FileChooser& chosen)
     {
         if (safeThis == nullptr) return;
         const auto file = chosen.getResult();
+       #if JUCE_WINDOWS
+        capture::choosePngTarget (file, [safeThis] (const juce::File& target, std::function<void (bool)> reply)
+        {
+            if (safeThis == nullptr) return;
+            const auto options = juce::MessageBoxOptions::makeOptionsOkCancel (
+                juce::MessageBoxIconType::WarningIcon, i18n::tr ("Replace existing image?"),
+                i18n::tr ("A file with this name already exists. Replace it?") + "\n\n" + target.getFileName(),
+                i18n::tr ("Cancel"), i18n::tr ("Replace"), safeThis.getComponent());
+            juce::NativeMessageBox::showAsync (options, [deliver = std::move (reply)] (int result)
+            { deliver (capture::replacePngApproved (result)); });
+        }, [safeThis] (const juce::File& target) { if (safeThis != nullptr) safeThis->saveImageTo (target); });
+       #else
         if (file != juce::File {}) safeThis->saveImageTo (file.withFileExtension (".png"));
+       #endif
     });
 }
 
