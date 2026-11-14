@@ -25,8 +25,9 @@ void serviceLiveCompareMatch();
 bool takeLiveCompareMatch (hypha::live_compare::MatchPlan&, bool& applied);
 hypha::live_compare::MatchApplication applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
 bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
-// MATCH on/off in a LISTEN (INV-LC13): off keeps the match for on; false when there is nothing to turn.
-bool setLiveCompareMatchOn (bool on);
+// MATCH on/off in a LISTEN (INV-LC13): off keeps the match for on; not turned when there is nothing to turn.
+// On caps a kept boost at the approved ceiling for PRE's true peak now; without AUTO (following) that reads TP LIMIT.
+hypha::live_compare::MatchToggle setLiveCompareMatchOn (bool on, bool following = false);
 void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
 void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC9, AAX only
 void returnLiveComparePostToNormal() noexcept;

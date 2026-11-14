@@ -80,6 +80,14 @@ struct Status
     RecoveryReason observation = RecoveryReason::none;
 };
 
+// MATCH on/off (INV-LC13): whether it turned, the PRE gain it left, and how far a kept boost stays under
+// the match because PRE's true peak now reaches the approved ceiling (0 when it does not).
+struct MatchToggle
+{
+    bool turned = false;
+    double gainDb = 0.0, shortDb = 0.0;
+};
+
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
 // the ring and the renderer. The message thread publishes and retires the mapping; the Audio
 // Thread reads it only through the slot and publishes its observations through the atomics.
@@ -128,12 +136,13 @@ struct ProcessorState
     struct MatchMemory
     {
         float pre = 1.0f, post = 1.0f, ceiling = 1.0f;
-        bool limited = false, matched = false;
-        std::uint32_t run = 0;
-        std::uint64_t generation = 0;
+        bool limited = false;
+        double peakDbtp = 0.0; // PRE's loudest true peak known to the MATCH (the evidence its gain was checked on)
         GainIdentity identity;
     } matchMemory;
     float listenBasePost = 1.0f;
+    double matchPeakDbtp = 0.0; // the last MATCH's PRE true peak (message thread)
+    GainSnapshot lastGains;     // Audio Thread only: the last whole tuple, kept while a writer holds the revision
     std::atomic<bool> matchOff { false };
     std::atomic<std::uint32_t> matchRun { 0 };
     std::atomic<float> postActual { 1.0f };

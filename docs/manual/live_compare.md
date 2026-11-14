@@ -124,7 +124,9 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    on the quieter side for the rest of the trial ([BLIND](blind.md)). A new gain while PRE plays glides over 50 ms instead of jumping.
 4. Once matched, press **MATCH** again to turn it off: PRE returns to its own level and a lowered
    POST rises back to where it was when LISTEN began, in half a second. Press it once more to turn
-   the same match back on, with the same gain, ceiling and approved attenuation. While MATCH is
+   the same match back on, with the same gain, ceiling and approved attenuation. If PRE now peaks
+   higher, a raised PRE stops at the ceiling and MATCH reads **TP LIMIT** with the amount it needs
+   (with AUTO, the status line says how far PRE stays under POST). While MATCH is
    off, AUTO rests and BLIND makes its own match. **MATCH again** (a new measurement) and **AUTO**
    are in MENU and on the AUTO key. With AUTO, PRE follows POST:
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The

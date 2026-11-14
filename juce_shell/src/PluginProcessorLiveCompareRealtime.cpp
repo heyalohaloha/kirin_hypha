@@ -191,10 +191,19 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.preAudible.store (false, std::memory_order_release);
         liveCompare.preWaiting.store (false, std::memory_order_release);
         liveCompare.postActual.store (1.0f, std::memory_order_release);
+        liveCompare.lastGains.coherent = false; // a later session never outputs an idle-time tuple
         return;
     }
     // The idle subset grants no comparison permission; output always uses a new full snapshot.
-    const auto gains = hypha::live_compare::readGainSnapshot (liveCompare);
+    // A gain writer (MATCH, MATCH on/off, AUTO) holds the revision for a few stores. Output keeps the
+    // tuple this thread last read whole, so PRE never drops to POST for it; receipts, BLIND and the
+    // level commit below still see the write in progress (coherent stays false). A trial's pending
+    // quieter-side level is not carried over a stale tuple.
+    auto gains = hypha::live_compare::readGainSnapshot (liveCompare);
+    const bool coherent = gains.coherent;
+    if (coherent) liveCompare.lastGains = gains;
+    else if (liveCompare.lastGains.coherent && ! liveCompare.blindLevel.pending()) gains = liveCompare.lastGains;
+    const bool steady = gains.coherent; // a whole tuple for this block's output
     float postTarget = gains.post;
     const bool permitted = liveCompare.authority.permitted();
     const hypha::live_compare::Interruption interruption {
@@ -205,7 +214,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const auto selection = liveCompare.selection.command();
     const auto revision = gains.revision;
     const float gain = gains.pre, ceiling = gains.ceiling;
-    const bool coherent = gains.coherent;
     const bool blindRejected = blindCommand.active()
         && (! permitted || ! liveCompare.blind.valid (blindCommand)
             || (coherent && liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision));
@@ -214,13 +222,13 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         const auto reason = interruption.reason (Reason::gainChanged);
         if (! finishing) liveCompare.blind.invalidate (blindCommand, reason);
     }
-    const bool preSelected = permitted && ! finishing && coherent && ! blindRejected
+    const bool preSelected = permitted && ! finishing && steady && ! blindRejected
         && (blindCommand.active() ? blindCommand.pre()
                                   : selection.pre());
     // END first removes PRE, then returns POST. A closed/retired ring still returns normally.
     const float heldTarget = postTarget;
     if (finishing) postTarget = 1.0f;
-    if (! coherent) postTarget = liveCompare.postLevel.value();
+    if (! steady) postTarget = liveCompare.postLevel.value();
     // A BLIND trial whose raised PRE met the ceiling matches on the quieter side. This thread commits
     // that tuple after this block's checks; until it lands the same ratio applies here, also while
     // END fades PRE out. If another writer lands first, POST is never raised above the lowered level.
@@ -281,8 +289,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             }
         }
         // Renderer lifetime is protected by the publication slot, including END/fault reads.
-        if (! permitted || blindRejected || ! coherent || quietResumed) liveCompare.renderer.silenceTransition();
-        if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
+        if (! permitted || blindRejected || ! steady || quietResumed) liveCompare.renderer.silenceTransition();
+        if (finishing && steady && liveCompare.renderer.hasPre()) postTarget = heldTarget;
         if (! usable || outputTaken)
         {
             // Offline render, bypass and another audition leave their input untouched.

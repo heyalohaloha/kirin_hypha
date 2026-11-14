@@ -68,6 +68,9 @@ public:
     }
     static void fadePending (KirinHyphaProcessorBase& processor, bool pending)
     { processor.liveCompare.preAudible.store (pending); }
+    // What MATCH off kept for MATCH on.
+    static hypha::live_compare::ProcessorState::MatchMemory& matchMemory (KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.matchMemory; }
     static void traceForTest (KirinHyphaProcessorBase& processor, std::unique_ptr<hypha::chain_trace::Recorder> trace)
     { processor.liveCompare.trace = std::move (trace); }
     static const hypha::live_compare::SharedRingMapping* publishedRing (const KirinHyphaProcessorBase& processor)

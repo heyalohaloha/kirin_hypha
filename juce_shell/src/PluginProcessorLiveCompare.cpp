@@ -290,6 +290,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     liveCompare.matched.store (true, std::memory_order_release);
     liveCompare.matchRetained.store (true, std::memory_order_release);
     liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
+    liveCompare.matchPeakDbtp = plan.prePeakDbtp; // MATCH on checks a kept boost from here
     return {};
 }
 
@@ -411,6 +412,8 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
         {
             liveCompare.postTarget.store (1.0f, std::memory_order_release);
             liveCompare.postActual.store (1.0f, std::memory_order_release);
+            liveCompare.preAudible.store (false, std::memory_order_release); // nothing to fade: a new LISTEN starts now
+            liveCompare.preWaiting.store (false, std::memory_order_release);
             liveCompare.quietReturn.fetch_add (1, std::memory_order_acq_rel);
             liveCompare.completion.complete (liveCompare.completion.command());
         }

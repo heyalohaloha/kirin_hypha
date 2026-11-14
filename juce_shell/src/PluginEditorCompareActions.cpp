@@ -90,13 +90,27 @@ void KirinHyphaEditor::requestListenSelect (bool pre)
 
 // MATCH on/off (INV-LC13): with a MATCH in this LISTEN a press turns it off and the next press turns the
 // same match on. MATCH again and AUTO stay in MENU and on the AUTO key. With no MATCH yet it measures.
+// On never takes PRE over the ceiling: a capped boost is told as TP LIMIT, or as AUTO's ceiling line.
 void KirinHyphaEditor::requestListenMatch ()
 {
     const auto status = processorRef.liveCompareStatus();
     if (! status.active || ! (status.matched || status.matchHeld || status.matchOff)) { matchLiveCompare(); return; }
-    const bool turned = processorRef.setLiveCompareMatchOn (status.matchOff);
+    const auto turned = processorRef.setLiveCompareMatchOn (status.matchOff, liveCompareAuto.on);
+    const bool capped = turned.turned && status.matchOff && turned.shortDb > 0.0;
+    if (capped && liveCompareAuto.on)
+    { liveCompareAuto.limit = hypha::live_compare::FollowLimit::ceiling; liveCompareAuto.shortDb = turned.shortDb; }
     refreshLiveCompare();
-    showToast (! turned ? "MATCH failed; try again" : status.matchOff ? "MATCH on" : "MATCH off: original levels");
+    const auto db = [] (double value)
+    {
+        const auto hundredths = juce::roundToInt (value * 100.0), magnitude = std::abs (hundredths);
+        return hundredths == 0 ? juce::String ("0.00 dB") : juce::String (hundredths > 0 ? "+" : "-")
+            + juce::String (magnitude / 100) + "." + juce::String (magnitude % 100).paddedLeft ('0', 2) + " dB";
+    };
+    showToast (! turned.turned ? juce::String ("MATCH failed; try again")
+        : ! status.matchOff ? juce::String ("MATCH off: original levels")
+        : capped && ! liveCompareAuto.on ? juce::String (processorRef.candidateCompareActive() ? "TP limit: A " : "TP limit: PRE ")
+              + db (turned.gainDb) + ", need " + db (turned.gainDb + turned.shortDb)
+        : juce::String ("MATCH on"));
 }
 
 void KirinHyphaEditor::requestListenEnd ()
