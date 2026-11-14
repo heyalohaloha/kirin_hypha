@@ -215,10 +215,10 @@ namespace
             if (state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR)
                 lead += scale > 1.4f ? " / 6s field" : " / 6s";
             if (tilted) lead += "  TILT " + slope;
-            if (scale > 1.4f && state.settings[display_settings::peak] == 0) lead += " / ";
+            if (scale > 1.4f && state.settings[display_settings::peak] != 1) lead += " / ";
             g.setColour (COL_TEXT_SECONDARY);
             text_style::drawText (g, lead, legend, juce::Justification::centredLeft);
-            if (scale > 1.4f && state.settings[display_settings::peak] == 0)
+            if (scale > 1.4f && state.settings[display_settings::peak] != 1)
             {
                 // The hold curve's own colour names it, as MID and SIDE are named in theirs.
                 const auto style = typography::resolve (state.presentation, typography::TextRole::legend,
@@ -418,7 +418,7 @@ void paint (juce::Graphics& g,
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.deltaValid,
                                        state.haveMark ? &state.mark : nullptr,
-                                       state.haveMark ? &state.markValid : nullptr, range, brightness);
+                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill());
     if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
         paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range);
     if (! state.midSideObservation)

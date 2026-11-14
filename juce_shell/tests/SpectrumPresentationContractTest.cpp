@@ -2,6 +2,7 @@
 #include "SpectrumLowScopeContract.h"
 #include "SpectrumAverageContract.h"
 #include "FreqDisplayContract.h"
+#include "FreqRichDisplayContract.h"
 
 #include "../src/HyphaSpectrumPeaks.h"
 #include "../src/HyphaSpectrumPresentation.h"
@@ -88,6 +89,7 @@ void verifySpectrumPresentationContract()
     verifySpectrumLowScopeContract();
     verifySpectrumAverageContract();
     verifyFreqDisplayContract();
+    verifyFreqRichDisplayContract();
     // The host-rate aperture keeps the zero-padded bin below 10 Hz at common rates.
     verifyWeightSpan (10.0f, 22'000.0f);
     verifyWeightSpan (96'000.0f / 16'384.0f, 22'000.0f);

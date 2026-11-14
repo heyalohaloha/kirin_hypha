@@ -14,6 +14,7 @@
 #include "HyphaSpectrumFocusTrail.h"
 #include "HyphaSpectrumDeltaSelection.h"
 #include "HyphaSpectrumPresentation.h"
+#include "HyphaSpectrumPeakFall.h"
 #include "HyphaSpectrumAverage.h"
 #include "HyphaSpectrumDisplay.h"
 #include "HyphaSpectrumFrameDriver.h"
@@ -68,9 +69,17 @@ public:
     void setDisplaySettings (display_settings::Values next)
     {
         if (displaySettings == next) return;
+        // The slow PEAK line belongs to one band definition: another SMOOTH or PEAK starts it again.
+        if (displaySettings[display_settings::smooth] != next[display_settings::smooth]
+            || displaySettings[display_settings::peak] != next[display_settings::peak]) peakFall.clear();
         displaySettings = next; curveDirty = havePendingSnapshot; backdrop.invalidate(); repaint();
     }
     display_settings::Values displaySettingsForTest() const noexcept { return displaySettings; }
+    // PEAK SLOW chosen again in its menu: the line starts over from the sound that arrives next.
+    void restartPeakLine() { peakFall.clear(); repaint(); }
+    float slowPeakForTest (size_t band) const noexcept { return peakFall.values()[band]; }
+    bool slowPeakEmptyForTest() const noexcept { return peakFall.empty(); }
+    unsigned tickRepaintsForTest() const noexcept { return tickRepaints; }
     double displayedPsbCeilingForTest() const noexcept { return psbMotion.ceiling; }
     double peakLabelUpdateTimeForTest() const noexcept { return peakReadout.updated; }
     void setHistoryCacheEnabledForTest (bool enabled) { backdrop.enabled = enabled; backdrop.invalidate(); }
@@ -175,7 +184,16 @@ private:
     spectrum_display::PeakReadout peakReadout;
     spectrum_display::PsbMotion psbMotion;
     spectrum_display::Backdrop backdrop;
+    spectrum_presentation::PeakFall<KIRIN_SPECTRUM_BAND_COUNT> peakFall;
+    // Maxima are taken here, when a value is received, from the value as it will be drawn.
+    void notePeak (double nowMs)
+    {
+        if (! displaySettings.slowPeak() || ! absoluteObservation || midSideObservation) return;
+        peakFall.accept (spectrum_display::spatial (pendingPost, pendingSnapshot.min_hz, pendingSnapshot.max_hz,
+                                                    displaySettings[display_settings::smooth]), displayedPost, nowMs);
+    }
     bool resumeCurve = false, animationVisible = true;
+    unsigned tickRepaints = 0;
     class AverageButton final : public juce::Button
     {
     public:

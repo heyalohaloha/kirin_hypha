@@ -39,6 +39,8 @@
 #include "ObservationEqualityContractTest.h"
 #include "PolylineGeometryContractTest.h"
 #include "SpectrumPerformanceFixture.h"
+#include "SpectrumPaintCostTest.h"
+#include "FreqRichDisplayContract.h"
 #include "SpectrumResponsiveGeometryContractTest.h"
 #include "TypographyContractTest.h"
 #include "AnalysisDemandContractTest.h"
@@ -68,6 +70,10 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { verifyVuLayerParity(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-frame-trace-only")
     { verifyVuFrameTrace(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--freq-paint-cost-only")
+    { measureSpectrumPaintCost(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--freq-rich-only")
+    { verifyFreqRichDisplayContract(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--language-only")
     { verifyLanguageContract(); return true; }
     if (argc == 1 || (argc == 2 && std::string_view (argv[1]) == "--reference-format-only"))

@@ -31,7 +31,8 @@ namespace hypha::spectrum_painter
                       const SpectrumBins& delta,
                       const SpectrumValidity& deltaValid,
                       const SpectrumBins* mark,
-                      const SpectrumValidity* markValid, float range = 96.0f, float brightness = 1.0f);
+                      const SpectrumValidity* markValid, float range = 96.0f, float brightness = 1.0f,
+                      bool richPost = false);
 
     // Retained history presentation for MID and SIDE only; LR keeps its current and hold curves.
     void paintAbsoluteHistory (juce::Graphics& graphics,
