@@ -114,6 +114,14 @@ template<class Require> void verifyCandidateKeptCorrection (Require require)
     require (moved.audible > 150 && moved.aligned == 0 && moved.atK >= moved.audible - 1 && moved.notRemeasured == 0
              && post.liveCompareAlignFrames() == 0, "changed host conditions start fresh: A at K");
     finish();
+    // The rearranged candidate confirms its own correction again, so one exists when another candidate starts.
+    candidateBroadband = true;
+    start ("the candidate starts on broadband material after the units moved");
+    for (int i = 0; i < 1200 && ! (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == residual); ++i)
+        host.render (1, true, true, false);
+    require (post.liveCompareAlignFrames() == residual, "the rearranged candidate confirms A 1065 frames early again");
+    finish();
+    candidateBroadband = false;
     // Another candidate: a new PRE2 instance at the same place.
     host.instances[1]->releaseResources();
     host.instances[1].reset();
