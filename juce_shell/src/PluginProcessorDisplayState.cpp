@@ -134,3 +134,14 @@ bool KirinHyphaProcessorBase::setReferenceOverlay (const hypha::reference_auditi
     return false;
    #endif
 }
+
+// C の画面の CUE／SONG（比べる値）。保存する表示の選択なので、重ね比べと並べる。
+bool KirinHyphaProcessorBase::setReferenceCheckSong (bool song)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr && referenceAuditionController->setCheckSong (song);
+   #else
+    juce::ignoreUnused (song);
+    return false;
+   #endif
+}

@@ -207,14 +207,28 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
-  FOLLOW A and the offset). A Check
+  FOLLOW A and the offset). **CUE / SONG** at the right end of the Cue row chooses what C is compared
+  over; it changes neither what plays nor MATCH. CUE is the comparison above. SONG compares C's whole song
+  (the whole-song range Kirin OS 1.6.1 and later publishes for every song) with A FROM START: what A played
+  in each 100 ms step of the DAW timeline, counted from its start, where playing a step again replaces it,
+  so a loop or a seek does not count a passage twice (after a start or a seek, A is taken from the next step
+  boundary, and the loudness joins only steps played in one go). The legend reads A FROM START 2:41 (how
+  much of the timeline A holds) and C SONG 0:00-4:55, the chart and the four bands set both whole songs to
+  the same loudness, and the time bar frames the whole song in gold with the Cue C plays as the inner box.
+  A FROM START keeps the first 30 minutes of the timeline, is not saved with the project, and is emptied
+  by RESET A WINDOW, the one item of A's list in SONG; a new sample rate or channel count empties it too, a
+  new C song does not. SONG compares Checks whose charts are spectra; on a Check with range strips SONG
+  cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check.
+  Without a whole-song range (an older Kirin OS) C keeps the Cue and the status line says WHOLE-SONG VALUES
+  COME WITH KIRIN OS 1.6.1, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
+  saved with the project. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
-  medians on the right, with the difference on A's line — crest (TP/RMS) and loudness movement (LUFS-S around each median,
+  medians on the right, with the difference on A's line — crest (sample peak/RMS) and loudness movement (LUFS-S around each median,
   read as p90 − p10) for dynamics, LUFS-M for loudness, width (S/M) and correlation for stereo, peak
   and RMS for waveform, and attack (each hop's peak minus its LUFS-M: how far the peaks stand out,
   made smaller by limiting) and onset for transient. The facts are Kirin OS's per-hop definitions
-  (crest 20·log10(TP/RMS); width √(mean S²)/√(mean M²) × 100, up to 150 %; correlation
+  (crest 20·log10(sample peak/RMS); width √(mean S²)/√(mean M²) × 100, up to 150 %; correlation
   ΣLR/√(ΣL²·ΣR²); LUFS at the end of the hop), so A's 100 ms bins are regrouped into C's hop
   (200 ms for a song longer than 204.8 s). Loudness facts (LUFS-M, peak, RMS) are shown at the level
   C plays at. Until A has 3 seconds only C is drawn (A WAITING).

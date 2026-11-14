@@ -1,0 +1,145 @@
+{
+  "format": "kirin_hypha_reference_profile",
+  "version": "2.0",
+  "source_profile_artifact": {
+    "profile_id": "00000000-0000-4000-8000-000000000001",
+    "revision_id": "00000000-0000-4000-8000-000000000002",
+    "relative_path": "reference/profiles/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002.v1.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "bytes": 4096
+  },
+  "name": "Modern Mixes",
+  "source_count": 3,
+  "views": {
+    "waveform": null,
+    "spectrum": {
+      "band_centers_hz": [
+        20,
+        31.5,
+        50,
+        80,
+        125,
+        200,
+        315,
+        500,
+        800,
+        1250,
+        2000,
+        3150
+      ],
+      "level_millidbfs": {
+        "contributor_count": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "p10": [
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000,
+          -21000
+        ],
+        "median": [
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000,
+          -20000
+        ],
+        "p90": [
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000,
+          -19000
+        ]
+      }
+    },
+    "loudness": null,
+    "dynamics": {
+      "position_basis_points": [
+        0,
+        5000,
+        10000
+      ],
+      "psr_millidb": {
+        "contributor_count": [
+          3,
+          3,
+          3
+        ],
+        "p10": [
+          8000,
+          9000,
+          10000
+        ],
+        "median": [
+          9000,
+          10000,
+          11000
+        ],
+        "p90": [
+          10000,
+          11000,
+          12000
+        ]
+      },
+      "crest_millidb": {
+        "contributor_count": [
+          3,
+          3,
+          3
+        ],
+        "p10": [
+          11000,
+          10000,
+          12000
+        ],
+        "median": [
+          12000,
+          11000,
+          13000
+        ],
+        "p90": [
+          13000,
+          12000,
+          14000
+        ]
+      },
+      "crest_basis": "sample_peak_over_rms"
+    },
+    "transient": null,
+    "stereo": null
+  }
+}

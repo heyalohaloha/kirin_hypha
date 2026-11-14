@@ -28,9 +28,11 @@ pub extern "C" fn kirin_reference_visual_capture_create(
 /// Null or a live meter owned by this caller; no concurrent calls.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_reference_visual_drop(meter: *mut VisualMeter) {
-    if !meter.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(meter) })));
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !meter.is_null() {
+            drop(unsafe { Box::from_raw(meter) })
+        }
+    }));
 }
 /// # Safety
 /// Meter is live; samples contains count readable floats; no concurrent calls.
@@ -40,11 +42,11 @@ pub unsafe extern "C" fn kirin_reference_visual_push(
     samples: *const f32,
     count: usize,
 ) -> bool {
-    if meter.is_null() || samples.is_null() || count == 0 || count > 16384 {
-        return false;
-    }
-    catch_unwind(AssertUnwindSafe(|| unsafe {
-        (*meter).push(std::slice::from_raw_parts(samples, count))
+    catch_unwind(AssertUnwindSafe(|| {
+        if meter.is_null() || samples.is_null() || count == 0 || count > 16384 {
+            return false;
+        }
+        unsafe { (*meter).push(std::slice::from_raw_parts(samples, count)) }
     }))
     .unwrap_or(false)
 }
@@ -55,10 +57,10 @@ pub unsafe extern "C" fn kirin_reference_visual_finish(
     meter: *mut VisualMeter,
     output: *mut VisualBin,
 ) -> bool {
-    if meter.is_null() || output.is_null() {
-        return false;
-    }
     catch_unwind(AssertUnwindSafe(|| {
+        if meter.is_null() || output.is_null() {
+            return false;
+        }
         let Some(bin) = (unsafe { &mut *meter }).finish_bin() else {
             return false;
         };
@@ -77,10 +79,10 @@ pub unsafe extern "C" fn kirin_reference_visual_seal(
     integrated: *mut f64,
     maximum_true_peak: *mut f64,
 ) -> bool {
-    if meter.is_null() || integrated.is_null() || maximum_true_peak.is_null() {
-        return false;
-    }
     catch_unwind(AssertUnwindSafe(|| {
+        if meter.is_null() || integrated.is_null() || maximum_true_peak.is_null() {
+            return false;
+        }
         let (loudness, peak) = unsafe { &mut *meter }.seal_capture();
         unsafe {
             *integrated = loudness;
@@ -102,10 +104,10 @@ pub unsafe extern "C" fn kirin_reference_visual_admission_set(
     admission: *mut VisualAdmission,
     active: bool,
 ) -> bool {
-    if admission.is_null() {
-        return false;
-    }
     catch_unwind(AssertUnwindSafe(|| {
+        if admission.is_null() {
+            return false;
+        }
         let a = unsafe { &mut *admission };
         if active {
             a.acquire()
@@ -120,11 +122,11 @@ pub unsafe extern "C" fn kirin_reference_visual_admission_set(
 /// Null or exclusively owned live admission; no concurrent calls.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_reference_visual_admission_drop(admission: *mut VisualAdmission) {
-    if !admission.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !admission.is_null() {
             drop(unsafe { Box::from_raw(admission) })
-        }));
-    }
+        }
+    }));
 }
 
 #[cfg(test)]

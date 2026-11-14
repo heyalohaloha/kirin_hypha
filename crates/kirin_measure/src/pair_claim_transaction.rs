@@ -94,7 +94,7 @@ impl ClaimLock {
 
     fn open(path: &Path) -> io::Result<File> {
         if let Some(parent) = path.parent() {
-            crate::atomic_file::create_private_dir_all(parent)?;
+            crate::atomic_file::durable::create_private_dir_all(parent)?;
         }
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);

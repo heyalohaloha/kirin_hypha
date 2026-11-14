@@ -1,6 +1,6 @@
 // 2026-10-04：範囲の帯（ReferenceDynamicsRange）。Kirin OS（kirin-audio-engine の measureReferenceSource）が合成信号に
 // 出した区間ごとの値（tests/fixtures/kirin_dynamics/kirin_os_hops.json）と、同じ信号を Hypha の A の計器
-// （VisualMeter の 100 ms の bin）に通して区間にまとめ直した値が一致すること。hop 100 ms（48 kHz・6 秒）と、
+// （VisualMeter の 100 ms の bin）に通して区間にまとめ直した値が一致すること。Crest は旧 fixture と異なり sample peak で直接検証する。hop 100 ms（48 kHz・6 秒）と、
 // 2 つの bin を 1 区間にまとめる hop 200 ms（8 kHz・210 秒の曲の先頭 8 秒）。Kirin OS の値の切り出しと p10・中央値・p90。
 // Kirin OS は 100 ms の窓の頭を秒に直してから読む（symphonia の calc_timestamp：整数秒 × レート ＋ trunc(レート × 小数部)）
 // ので、約 4 割の窓を 1 sample 早く読む（Kirin OS 側の別の作業）。Kirin OS の値とは同じ読み方の窓で比べ、定義そのものは
@@ -88,6 +88,17 @@ bool same (double ours, const juce::var& theirs, double tolerance)
 
 void testReferenceDynamicsRange()
 {
+    {
+        KirinReferenceVisualBin bin {};
+        bin.frames = 100; bin.peak[0] = 1.0; bin.rms[0] = 0.5; bin.true_peak = 2.0;
+        const auto crest = [&] { return aggregateHops (&bin, 1, 1, 2)[DynamicsFact::crest][0]; };
+        require (std::abs (crest() - 20.0 * std::log10 (std::sqrt (8.0))) < 1.0e-10,
+                 "pooled crest uses sample peak even when true peak is larger");
+        bin.rms[0] = 1.0e-16;
+        require (std::isnan (crest()), "sub-threshold RMS has no crest");
+        bin.rms[0] = 0.5; bin.peak[0] = 0.0;
+        require (std::isnan (crest()), "zero sample peak has no crest");
+    }
     const auto fixture = juce::JSON::parse (juce::File (KIRIN_REFERENCE_FIXTURE_DIR).getChildFile ("kirin_dynamics/kirin_os_hops.json"));
     const auto* signals = fixture["signals"].getArray();
     require (signals != nullptr && signals->size() == 2, "the Kirin OS dynamics fixture is readable");
@@ -111,7 +122,7 @@ void testReferenceDynamicsRange()
                          juce::String (key) + " hop " + juce::String (hop) + " at " + juce::String (rate) + " Hz: "
                              + juce::String (ours[fact][static_cast<size_t> (hop)], 6) + " vs " + (*theirs)[hop].toString());
         };
-        check (DynamicsFact::crest, "crest_db", 1.0e-6);
+        // The retained producer fixture uses the old true-peak formula; verify sample peak below.
         check (DynamicsFact::lufsM, "lufs_m", 1.0e-6);
         check (DynamicsFact::lufsS, "lufs_s", 1.0e-6);
         check (DynamicsFact::correlation, "correlation", 1.0e-9);
@@ -136,6 +147,7 @@ void testReferenceDynamicsRange()
                 const auto at = static_cast<size_t> (hop);
                 requireText (std::abs (exact[DynamicsFact::correlation][at] - cross / std::sqrt (e0 * e1)) < 1.0e-9
                                  && std::abs (exact[DynamicsFact::width][at] - std::sqrt (side / frames) / (std::sqrt (mid / frames) + 1e-10) * 100.0) < 1.0e-6
+                                 && std::abs (exact[DynamicsFact::crest][at] - 20.0 * std::log10 (peak / rms)) < 1.0e-9
                                  && std::abs (exact[DynamicsFact::peak][at] - 20.0 * std::log10 (peak)) < 1.0e-9
                                  && std::abs (exact[DynamicsFact::rms][at] - 20.0 * std::log10 (rms)) < 1.0e-9
                                  && (hop == 0 || std::abs (exact[DynamicsFact::onset][at] - std::max (0.0, rms - previous) / rms) < 1.0e-9)
@@ -155,7 +167,8 @@ void testReferenceDynamicsRange()
             const auto peak = std::max (number ((*peaks)[0][hop]), number ((*peaks)[1][hop])) / 1000.0;
             const auto power = (std::pow (10.0, number ((*rms)[0][hop]) / 10'000.0) + std::pow (10.0, number ((*rms)[1][hop]) / 10'000.0)) / 2.0;
             requireText (std::abs (ours[DynamicsFact::peak][static_cast<size_t> (hop)] - peak) < 0.0006
-                         && std::abs (ours[DynamicsFact::rms][static_cast<size_t> (hop)] - 10.0 * std::log10 (power)) < 0.0012,
+                         && std::abs (ours[DynamicsFact::rms][static_cast<size_t> (hop)] - 10.0 * std::log10 (power)) < 0.0012
+                         && std::abs (ours[DynamicsFact::crest][static_cast<size_t> (hop)] - (peak - 10.0 * std::log10 (power))) < 0.0018,
                      "peak and RMS hop " + juce::String (hop));
         }
         // 立ち上がり：Kirin OS は曲の頭の前を 0 として最初の区間を 32767 にする。A の窓は前を知らないので最初は出さない。
@@ -240,6 +253,6 @@ void testReferenceDynamicsRange()
     for (auto& bin : mono) { bin.frames = 4800; bin.rms[0] = 0.1; bin.peak[0] = 0.3; bin.true_peak = 0.31; }
     const auto monoHops = aggregateHops (mono.data(), mono.size(), 2, 1);
     require (monoHops.size() == 2 && std::isnan (monoHops[DynamicsFact::width][0]) && std::isnan (monoHops[DynamicsFact::correlation][0])
-                 && std::abs (monoHops[DynamicsFact::crest][0] - 20.0 * std::log10 (0.31 / 0.1)) < 1.0e-9,
+                 && std::abs (monoHops[DynamicsFact::crest][0] - 20.0 * std::log10 (0.3 / 0.1)) < 1.0e-9,
              "mono has crest but no width or correlation");
 }

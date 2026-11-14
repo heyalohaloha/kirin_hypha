@@ -137,6 +137,7 @@ impl VisualMeter {
         let rms = std::array::from_fn(|c| (self.energy[c] / self.frames as f64).sqrt());
         let combined =
             (self.energy.iter().sum::<f64>() / (self.frames as f64 * self.channels as f64)).sqrt();
+        let peak = self.peak[0].max(self.peak[1]);
         let bin = VisualBin {
             frames: self.frames,
             peak: self.peak,
@@ -148,8 +149,8 @@ impl VisualMeter {
             } else {
                 f64::NAN
             },
-            crest_db: if combined > 1e-15 && self.tp > 0.0 {
-                20.0 * (self.tp / combined).log10()
+            crest_db: if combined > 1e-15 && peak > 0.0 {
+                20.0 * (peak / combined).log10()
             } else {
                 f64::NAN
             },
@@ -222,6 +223,17 @@ impl VisualMeter {
 mod tests {
     use super::*;
     #[test]
+    fn crest_uses_sample_peak_even_when_true_peak_is_higher() {
+        let mut meter = VisualMeter::new(48_000, 2).unwrap();
+        let samples: Vec<f32> = (0..4800)
+            .flat_map(|i| [[0.0, 1.0, 1.0, 0.0, -1.0, -1.0][i % 6], 0.0])
+            .collect();
+        assert!(meter.push(&samples));
+        let bin = meter.finish_bin().unwrap();
+        assert!(bin.true_peak > bin.peak[0] + 0.001);
+        assert!((bin.crest_db - 10.0 * 3.0_f64.log10()).abs() < 1e-10);
+    }
+    #[test]
     fn window_gain_silence_and_invalid_input() {
         let mut a = VisualMeter::new(48000, 2).unwrap();
         let mut b = VisualMeter::new(48000, 2).unwrap();
@@ -241,6 +253,10 @@ mod tests {
             assert!((av.rms[0] - 0.1 / 2.0_f64.sqrt()).abs() < 1e-7);
             assert!((av.peak[0] - 2.0 * bv.peak[0]).abs() < 1e-7);
             assert!((av.crest_db - bv.crest_db).abs() < 0.001);
+            assert!(
+                (av.crest_db - 20.0 * (av.peak[0].max(av.peak[1]) / av.rms[0]).log10()).abs()
+                    < 1e-10
+            );
             if bin < 29 {
                 assert!(av.short_lufs.is_nan());
             } else {

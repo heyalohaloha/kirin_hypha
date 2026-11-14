@@ -356,8 +356,11 @@ void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, con
             next.measurementAvailable = true;
         }
         // Cue の Kirin OS の値（ranges）。C の Match と B の追従に使う。V は曲全体の位置合わせで合わせる。
+        // 曲全体の範囲（SONG の比べる値）も同じ ranges から読む。
         if (! versionComparison)
-            if (const auto level = readCueLevel (root, *workspace, *candidate, *cue, *selectedSource))
+        {
+            const auto levels = readRangeLevels (root, *workspace, *candidate, *cue, *selectedSource);
+            if (const auto& level = levels.cue)
             {
                 next.cueLevelAvailable = true;
                 next.cueIntegratedLoudness = level->integratedLoudness;
@@ -365,6 +368,8 @@ void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, con
                 next.cueSpectrum = level->spectrum;
                 next.cuePart = level->part;
             }
+            if (levels.song) { next.songSpectrum = levels.song->spectrum; next.songIntegratedLoudness = levels.song->integratedLoudness; }
+        }
         next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
         next.cueLengthBlocks = cueLengthBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
         if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // C の画面の Cue の時間軸

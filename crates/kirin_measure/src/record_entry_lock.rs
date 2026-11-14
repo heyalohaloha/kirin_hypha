@@ -115,7 +115,7 @@ pub(crate) fn claim_record_entry(
     }
 
     let dir = entry_lock_dir(base_dir, project_hash, session_id);
-    fs::create_dir_all(&dir)?;
+    crate::atomic_file::durable::create_dir_all(&dir)?;
     let path = entry_lock_path(base_dir, project_hash, session_id, role, instance_id);
     let now = now_epoch_ms();
     let lock = RecordEntryLockFile {

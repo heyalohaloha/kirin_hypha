@@ -331,7 +331,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
         }
     }
     g.setColour (COL_TEXT_SECONDARY);
-    const auto unit = showingCrest ? "TP/RMS  " : "3s  ";
+    const auto unit = showingCrest ? "CREST  " : "3s  ";
     text_style::drawEllipsized (g, juce::String (unit) + valuesAt (time), viewLayout.readout.toNearestInt(), juce::Justification::centredLeft);
 }
 double ComparisonView::timeAt (float x) const
