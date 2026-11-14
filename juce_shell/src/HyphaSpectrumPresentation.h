@@ -156,11 +156,22 @@ void advanceAbsoluteCurve (std::array<float, Size>& displayed,
                            double elapsedMs, double averageMs = 0.0, bool smoothAttack = false,
                            float releaseDbPerSecond = absoluteReleaseDb * 1000.0f / (float) absoluteReleaseDurationMs) noexcept
 {
-    if (averageMs > 0.0) { advanceAverageCurve (displayed, target, elapsedMs, averageMs); return; }
     const double boundedElapsedMs = std::isfinite (elapsedMs) && elapsedMs > 0.0
                                   ? elapsedMs : 0.0;
     const float releaseDb = static_cast<float> (
         boundedElapsedMs * (double) releaseDbPerSecond / 1000.0);
+    if (averageMs > 0.0)
+    {
+        // An averaged line (AVG, LOW) keeps its own rule. Only a chosen slower FALL adds a limit to
+        // how fast it may fall; the established rate leaves the average exactly as it was.
+        const auto before = displayed;
+        advanceAverageCurve (displayed, target, elapsedMs, averageMs);
+        if (releaseDbPerSecond < absoluteReleaseDb * 1000.0f / (float) absoluteReleaseDurationMs)
+            for (std::size_t index = 0; index < Size; ++index)
+                if (std::isfinite (before[index]) && displayed[index] < before[index] - releaseDb)
+                    displayed[index] = before[index] - releaseDb;
+        return;
+    }
     for (std::size_t index = 0; index < Size; ++index)
     {
         if (! std::isfinite (target[index]))

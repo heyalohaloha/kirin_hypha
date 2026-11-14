@@ -66,6 +66,28 @@ inline void verifyFreqRichMotionRules()
             for (int x = 0; x < stopped.getWidth(); ++x) lineInk += stopped.getPixelAt (x, y) != without.getPixelAt (x, y);
         check (lineInk > 150, "the slow peak line stays visible while stopped");
     }
+    {
+        // FALL also limits how fast an averaged (AVG, LOW) line falls; 40 dB/s leaves averaging as it was.
+        std::array<float, 2> averaged { 0, 0 }, established { 0, 0 }, slow { 0, 0 };
+        const std::array<float, 2> target { -60, 6 };
+        spectrum_presentation::advanceAverageCurve (averaged, target, 100.0, 250.0);
+        spectrum_presentation::advanceAbsoluteCurve (established, target, 100.0, 250.0, true);
+        spectrum_presentation::advanceAbsoluteCurve (slow, target, 100.0, 250.0, true, 6.0f);
+        check (established == averaged, "the established fall leaves every averaged motion exactly as it was");
+        check (std::abs (slow[0] + 0.6f) < 1.0e-4f && slow[1] == averaged[1], "FALL 6 dB/s limits an averaged fall and nothing else");
+        float shown[2] {};
+        for (const int fall : { 0, 3 })
+        {
+            SpectrumComponent view; view.setSize (576, 280); view.setAbsoluteObservation (true); view.setSignalActive (true);
+            settings::Values chosen; chosen.selected[settings::fall] = fall; view.setDisplaySettings (chosen);
+            view.setAverageChoice (spectrum_average::Choice::ms200);
+            view.setSnapshot (spectrumPerformanceFixture());
+            view.queueSnapshot (quieter (spectrumPerformanceFixture(), 40, 1'600));
+            view.presentationTickAt (view.curveUpdateTimeForTest() + 100);
+            shown[fall != 0] = view.displayedPostForTest (128);
+        }
+        check (shown[1] > shown[0] + 5.0f, "FREQ with AVG on falls more slowly when FALL 6 dB/s is chosen");
+    }
     if (failures != 0) std::exit (1);
 }
 
