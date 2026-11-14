@@ -44,6 +44,12 @@ inline AlignContext alignOwner (AlignContext context, const Ring& ring) noexcept
     return context;
 }
 
+// INV-LC28: what is told once a wait ended without a position. unserved: a short correction's hold
+// ended and PRE (A) plays at K until its run serves it. One rule for LISTEN, BLIND and A/B.
+struct AlignNotice { bool unmeasured = false, notRemeasured = false; };
+inline AlignNotice alignNotice (bool unserved, bool unmeasured, bool notRemeasured) noexcept
+{ return { unserved || unmeasured, ! unserved && notRemeasured }; }
+
 struct AlignPlayback
 {
     AlignContext context;

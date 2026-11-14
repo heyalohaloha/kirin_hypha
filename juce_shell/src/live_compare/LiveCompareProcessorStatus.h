@@ -32,10 +32,12 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.gain = gains.pre;
     status.postTarget = gains.coherent ? gains.post : status.postActual;
     status.contentHeld = liveCompare.contentHold.held();
-    // INV-LC28: a short correction's hold ended before PRE's run served it; PRE plays at K meanwhile.
-    const bool unserved = liveCompare.renderer.alignUnserved();
-    status.contentUnmeasured = unserved ? ! candidateCompareActive() : liveCompare.contentUnmeasured.load (std::memory_order_acquire);
-    status.contentNotRemeasured = ! unserved && liveCompare.contentNotRemeasured.load (std::memory_order_acquire);
+    // INV-LC28: a short correction's hold ended before PRE's run served it; PRE (A) plays at K
+    // meanwhile, told with the same words in LISTEN, BLIND and A/B.
+    const auto told = hypha::live_compare::alignNotice (liveCompare.renderer.alignUnserved(),
+        liveCompare.contentUnmeasured.load (std::memory_order_acquire), liveCompare.contentNotRemeasured.load (std::memory_order_acquire));
+    status.contentUnmeasured = told.unmeasured;
+    status.contentNotRemeasured = told.notRemeasured;
     if (status.contentHeld)
         status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
     status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);

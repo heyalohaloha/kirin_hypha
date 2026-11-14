@@ -1,5 +1,7 @@
 #pragma once
 #include "CandidateProductHost.h"
+#include "../src/HyphaLiveBlindComponent.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 
 namespace hypha::tests
 {
@@ -131,6 +133,24 @@ template<class Require> void verifyCandidateKeptCorrection (Require require)
              && post.liveCompareAlignFrames() == 0,
              "another candidate never gets the kept correction");
     finish();
+}
+
+// INV-LC28: an ended hold is told in A/B and its BLIND with the words LISTEN and BLIND use, the same
+// for both sources (the renderer's hold and the status rule have their own tests).
+template<class Require> void verifyCandidateHoldNotice (Require require)
+{
+    using namespace live_compare;
+    const auto label = juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice();
+    for (const bool candidate : { false, true })
+        for (const int source : { 1, 2 })
+        {
+            LiveBlindStatus status;
+            status.stage = BlindStage::active; status.candidate = candidate; status.trial.selected = source;
+            const auto told = alignNotice (true, false, true);
+            status.contentUnmeasured = told.unmeasured; status.contentNotRemeasured = told.notRemeasured;
+            require (live_blind_ui::screenFor (status, true, 1.0f).detail == label,
+                     "an ended hold shows the same unmeasured label for both sources, in A/B as in BLIND");
+        }
 }
 
 // Real units differ, so the two sides share a position, not a waveform. The processor's own

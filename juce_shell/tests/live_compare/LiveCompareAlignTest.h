@@ -323,6 +323,10 @@ static void alignHoldIsOneLatchedDeadline()
     trial.newSession();
     require (! trial.unservedCorrection() && trial.update (playback, true, true, weight, 1024, rate, 256).deferred,
              "a new session has the whole hold again");
+    // What is told is one rule for every mode: an ended hold plays PRE at K, so it is unmeasured.
+    const auto told = alignNotice (true, false, true), kept = alignNotice (false, false, true);
+    require (told.unmeasured && ! told.notRemeasured && kept.notRemeasured && ! kept.unmeasured
+             && alignNotice (false, true, false).unmeasured, "an ended hold is told as unmeasured, never as the kept correction");
 }
 
 static void liveCompareAlignContract()

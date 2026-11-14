@@ -45,6 +45,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateAlignment (require);
     verifyCandidateAlignmentEpoch (require);
     verifyCandidateKeptCorrection (require);
+    verifyCandidateHoldNotice (require);
     verifyCandidateContentConfirmation (require);
     verifyLiveCompareRestartAlignment (require);
     ProductTestClock wall;
