@@ -26,7 +26,7 @@ function fixture(t, { delivery = false } = {}) {
   const notes = path.join(root, 'notes.md');
   fs.writeFileSync(notes, '## Fixes in 1.2.3\n\n- The clock keeps every frame.\n- Pairs recover.\n\nmacOS: AU.\n\n---\n\n## 1.2.3 の修正\n\n- 時計\n');
   const row = { id: 'fixed-clock', kind: 'host', promise: 'The clock keeps every frame.', hosts: ['macOS/x86_64/AU'],
-    daw: 'Logic Pro', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
+    daw: 'Logic Pro', os: 'macos', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
   const spec = { schema: FIX_ROWS_SCHEMA, release: '1.2.3', rows: [row,
     { id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], depth: 'deep', oracle: 'pair-recovery-parity', expected: { passed: true } },
     { ...row, id: 'fixed-pair', promise: 'Pairs recover.' },
@@ -149,6 +149,37 @@ test('each promise requires each DAW once, with aliases and whitespace normalize
   assert.throws(init, /Release-note promise is not verified in REAPER: Pairs recover\./);
   f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 5 ? { ...row, daw: 'Ableton Live' } : row) });
   assertState(init());
+});
+
+test('platform-sensitive promises cover both systems without repeated DAW and OS checks', t => {
+  const f = fixture(t), promise = 'The clock keeps every frame.';
+  const init = () => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE);
+  const write = spec => f.write('fixes.json', spec);
+  const spec = { ...f.spec, platformSensitive: [promise] };
+  write(spec);
+  assert.throws(init, /Release-note promise may differ by OS and is not verified on windows: The clock keeps every frame\./);
+  const windows = { ...spec.rows.find(row => row.daw === 'REAPER' && row.promise === promise), id: 'windows-reaper', os: 'windows' };
+  write({ ...spec, rows: [...spec.rows, windows] });
+  assertState(init());
+  write({ ...spec, rows: [...spec.rows, windows, { ...windows, id: 'windows-again', daw: 'Reaper' }] });
+  assert.throws(init, /Promise The clock keeps every frame\. is already verified in REAPER/);
+  write({ ...f.spec, rows: [...f.spec.rows, windows] });
+  assert.throws(init, /Promise The clock keeps every frame\. is already verified in REAPER/);
+  const windowsOnly = spec.rows.map(row => row.daw !== 'Logic Pro' && row.promise === promise ? { ...row, os: 'windows' } : row)
+    .filter(row => !(row.daw === 'Logic Pro' && row.promise === promise));
+  // A missing DAW is diagnosed before platform coverage.
+  write({ ...spec, rows: windowsOnly });
+  assert.throws(init, /not verified in Logic Pro/);
+  for (const invalid of [['Unknown.'], [promise, promise], null, 'not an array', [42]]) {
+    write({ ...f.spec, platformSensitive: invalid });
+    assert.throws(init, /platformSensitive must list distinct promises/);
+  }
+  for (const os of [undefined, null, '', 'MacOS', 'linux']) {
+    write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os } : row) });
+    assert.throws(init, /needs os macos or windows/);
+  }
+  write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os: 'windows', daw: 'logic' } : row) });
+  assert.throws(init, /Logic Pro requires macos/);
 });
 
 test('promises are every English list item, whatever its marker, with continuation lines joined', t => {

@@ -60,6 +60,11 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   }
   const promises = notePromises(notes);
   if (!promises) throw new Error('Fix rows need the release notes whose promises they prove');
+  const sensitive = Object.hasOwn(spec, 'platformSensitive') ? spec.platformSensitive : [];
+  if (!Array.isArray(sensitive) || sensitive.some(promise => !text(promise) || !promises.includes(promise))
+      || new Set(sensitive).size !== sensitive.length) {
+    throw new Error('platformSensitive must list distinct promises from the release notes');
+  }
   const seen = new Set([...HOST_TESTS, ...CONDITIONAL_HOST_TESTS, ...DISTRIBUTION_TESTS, ...POST_TESTS, ...reserved]);
   const coverage = new Map();
   for (const row of spec.rows) {
@@ -81,10 +86,17 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
     if (row.kind === 'host') {
       const daw = canonicalDaw(row.daw);
       if (!daw) throw new Error(`Fix row ${row.id} names an unknown DAW: ${row.daw}`);
+      if (!['macos', 'windows'].includes(row.os)) throw new Error(`Fix row ${row.id} needs os macos or windows`);
+      if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
       for (const promise of names) {
-        if (!coverage.has(promise)) coverage.set(promise, new Set());
-        if (coverage.get(promise).has(daw)) throw new Error(`Promise ${promise} is already verified in ${daw}`);
-        coverage.get(promise).add(daw);
+        if (!coverage.has(promise)) coverage.set(promise, new Map());
+        const daws = coverage.get(promise);
+        if (!daws.has(daw)) daws.set(daw, new Set());
+        const systems = daws.get(daw);
+        if (systems.has(row.os) || (systems.size && !sensitive.includes(promise))) {
+          throw new Error(`Promise ${promise} is already verified in ${daw}`);
+        }
+        systems.add(row.os);
       }
     }
     seen.add(row.id);
@@ -97,6 +109,13 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   for (const promise of promises) {
     for (const daw of REQUIRED_DAWS) {
       if (!coverage.get(promise)?.has(daw)) throw new Error(`Release-note promise is not verified in ${daw}: ${promise}`);
+    }
+    if (sensitive.includes(promise)) {
+      for (const os of ['macos', 'windows']) {
+        if (![...coverage.get(promise).values()].some(systems => systems.has(os))) {
+          throw new Error(`Release-note promise may differ by OS and is not verified on ${os}: ${promise}`);
+        }
+      }
     }
   }
   return { rows: spec.rows, decision: fileFact(file) };
