@@ -104,7 +104,7 @@ const Entry entries[] = {
     { "dB LOWER", u8"dB低い" },
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
     // 範囲の帯（HyphaReferenceRangeStrips.cpp）の項目名と、V の時間の線の見出し（「CREST / OVER TIME」）。
-    { "CREST (OLD)", u8"CREST (前の式)" },
+    { "CREST (OLD)", u8"CREST（旧式）" },
     { "LOUDNESS MOVEMENT (LUFS-S)", u8"音量の動き（LUFS-S）" },
     { "ONSET (RISE PER HOP)", u8"ONSET（立ち上がり）" },
     { "ATTACK (PEAK - LUFS-M)", u8"ATTACK（PEAK−LUFS-M）" },

@@ -18,7 +18,7 @@ void verifyCrestMarkerUi (Panel& panel, State& state, Measurement& measurement, 
         require (differentPixels (oldImage, panel.createComponentSnapshot (panel.getLocalBounds())) > 0,
                  "the old crest marker is drawn in both languages");
     }
-    require (i18n::translate ("CREST (OLD)", i18n::Language::japanese) == juce::String::fromUTF8 (u8"CREST (前の式)"),
+    require (i18n::translate ("CREST (OLD)", i18n::Language::japanese) == juce::String::fromUTF8 (u8"CREST（旧式）"),
              "the old crest marker has the requested Japanese text");
     measurement->dynamics->samplePeakCrest = false;
 }
