@@ -360,6 +360,48 @@ static void alignHoldIsOneLatchedDeadline()
              "a buffer-like, opposite, unchanged or uncomputable change of K keeps the correction");
 }
 
+// INV-LC28: a Blind trial moves PRE's address without the listener's switch only while PRE is silent
+// (here: the first block after a seek, PRE's reach not known yet), and both assignments move alike.
+static void blindMovesOnlyWhilePreIsSilent()
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t rate = 48000, correction = 1065, unknown = std::numeric_limits<std::int64_t>::max();
+    const AlignContext context { 2, 4, 6, 8 };
+    AlignPlayback playback; playback.context = context;
+    for (bool sounding : { false, true })
+    {
+        // X: source 1 is PRE. Y: source 1 is POST. The listener starts on source 2, then switches to 1.
+        RendererAlignment x, y; float xWeight = 0.0f, yWeight = 1.0f;
+        x.request ({ correction }, context); y.request ({ correction }, context);
+        const auto block = [&] (bool onSourceOne, std::int64_t readable)
+        {
+            const auto xUpdate = x.update (playback, true, onSourceOne, xWeight, readable, rate, 256);
+            const auto yUpdate = y.update (playback, true, ! onSourceOne, yWeight, readable, rate, 256);
+            const auto reads = [readable] (const RendererAlignment& a) { return readable == unknown ? a.value().frames == 0 : a.value().frames <= readable; };
+            x.observed (reads (x) && ! xUpdate.deferred, true, xUpdate); y.observed (reads (y) && ! yUpdate.deferred, true, yUpdate);
+            require (xUpdate.deferred == yUpdate.deferred && ! xUpdate.deferred && x.unservedCorrection() == y.unservedCorrection()
+                     && x.pathProven() == y.pathProven() && x.budgetSpent() == y.budgetSpent() && ! x.budgetSpent(),
+                     "both assignments wait and are told alike, and neither waits here");
+        };
+        for (int i = 0; i < 4; ++i) block (false, rate);
+        require (x.value().frames == correction && y.value().frames == 0, "the silent PRE takes the correction; the sounding one keeps K");
+        xWeight = 1.0f; yWeight = 0.0f; // the switch to source 1, after its fade
+        for (int i = 0; i < 4; ++i) block (true, rate);
+        require (x.value().frames == correction && y.value().frames == correction, "the switch brings the other assignment there");
+        x.request ({}, context); y.request ({}, context); // the same clock mapping now confirms no correction
+        for (int i = 0; i < 200; ++i)
+        {
+            block (true, rate);
+            require (x.value().frames == correction, "PRE that sounds keeps its address until the listener switches");
+        }
+        if (! sounding) xWeight = 0.0f; // a seek: PRE is silent until the new run is proven
+        block (true, unknown);
+        require (sounding ? x.value().frames == correction : x.value().frames == 0, sounding
+                 ? "the address never moves while PRE sounds" : "after a seek the silent PRE moves to the confirmed position");
+        require (y.value().frames == 0, "the other assignment is at the confirmed position already");
+    }
+}
+
 static void liveCompareAlignContract()
 {
     // A contended publication retains the last proven context's value, never a torn tuple or
@@ -388,4 +430,5 @@ static void liveCompareAlignContract()
     aaxPendingCycleCannotSurviveASeek();
     candidateAlignWaitFadesFromTheLastOutput();
     alignHoldIsOneLatchedDeadline();
+    blindMovesOnlyWhilePreIsSilent();
 }

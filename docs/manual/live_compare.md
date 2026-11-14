@@ -236,7 +236,9 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   heavy processing can look the same, and silence cannot establish a position. Repeated audio uses a check of each current block, with a short notice; a nonmatching block uses POST immediately. Only the
   audition's read position moves: the clock proof, MATCH, A, the meters and Record stay as they are.
 - During a BLIND trial a new alignment waits until you switch to POST and the fade finishes.
-  A seek, stop or timing interruption alone does not move it under the same selected source.
+  While PRE sounds, a seek, stop or timing interruption alone does not move it. After a seek or a
+  restart, while PRE is still silent, the position may move to the newly confirmed one; both sources
+  do this at the same block, so it does not show which one is PRE.
   When the clock mapping changes, an unverified correction uses POST until fresh content
   confirms the new read position, including when the previous correction was zero, for at most
   one second of proven playback; then PRE plays at its clock position plus the correction
