@@ -129,7 +129,7 @@ void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next
     inputChannels = next.channels;
     const auto nextLayout = layoutView (next);
     haveSnapshot = true;
-    absoluteHistory.clear();
+    absoluteHistory.clear(); peakFall.clear();
     if (valid)
     {
         std::copy (std::begin (next.mid_dbfs), std::end (next.mid_dbfs), pendingPre.begin());

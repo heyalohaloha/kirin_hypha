@@ -102,6 +102,7 @@ void KirinHyphaEditor::handleOperationsMenu (int result)
     if (hypha::display_settings::choose (display, result))
     { processorRef.setDisplaySettingsPreference (display); refreshWatchSnapshot();
      #if ! KIRIN_HYPHA_PRE_DISPLAY
+      if (hypha::display_settings::reselectsPeak (spectrumView.displaySettingsForTest(), result)) spectrumView.restartPeakLine();
       spectrumView.setDisplaySettings (display);
      #endif
       return; }

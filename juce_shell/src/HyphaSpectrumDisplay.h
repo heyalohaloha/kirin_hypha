@@ -33,6 +33,8 @@ inline Bins spatial (const Bins& source, float minimumHz, float maximumHz, int c
         return result;
     }
     if (choice == 1) return source;
+    if (choice >= 5) return spectrum_presentation::smoothWidening (source, minimumHz, maximumHz,
+        std::array<float, 3> { 1.0f / 24, 1.0f / 12, 1.0f / 6 }[(size_t) std::min (choice, 7) - 5], valid);
     const auto widthOct = std::array<float, 5> { 0, 0, 1.0f / 24, 1.0f / 12, 1.0f / 6 }[(size_t) choice];
     const auto radius = widthOct * 0.5f * 256 / std::log2 (maximumHz / minimumHz);
     Bins output = source;

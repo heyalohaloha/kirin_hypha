@@ -107,7 +107,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     const bool layoutChanged = nextValid && haveInteractionDefinition
         && ! sameLayoutDefinition (interactionDefinition, next);
     if (layoutChanged)
-    { clearInteractionState(); backdrop.invalidate(); absoluteHistory.clear(); }
+    { clearInteractionState(); backdrop.invalidate(); absoluteHistory.clear(); peakFall.clear(); }
     snapshot = next;
     spectrumContinuity = 0;
     midSideObservation = false;
@@ -178,7 +178,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     lastCurvePresentationMs = nowMs;
     lastCurveUpdateMs = nowMs;
     lastNumericPresentationMs = nowMs;
-    if (nextValid) peakReadout.update (pendingPost, snapshot.min_hz, snapshot.max_hz, nowMs);
+    if (nextValid) { peakReadout.update (pendingPost, snapshot.min_hz, snapshot.max_hz, nowMs); notePeak (nowMs); }
     else peakReadout.clear();
     repaint();
 }
@@ -295,8 +295,8 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next, uint64_t c
     }
     pendingSnapshot = next;
     havePendingSnapshot = true;
-    curveDirty = true;
-    numericDirty = true;
+    curveDirty = numericDirty = true;
+    notePeak (juce::Time::getMillisecondCounterHiRes());
     if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
         channelMode = next.channel_mode;
     if (next.channels == 1u || next.channels == 2u)
@@ -338,7 +338,7 @@ void SpectrumComponent::clearSnapshot()
     lastCurveUpdateMs = 0.0;
     lastNumericPresentationMs = 0.0;
     guideOverlay = {};
-    absoluteHistory.clear();
+    absoluteHistory.clear(); peakFall.clear();
     repaint();
 }
 
@@ -378,8 +378,8 @@ void SpectrumComponent::presentationTickAt (double nowMs)
             shapeObservation && displaySettings[display_settings::smooth] == 0 ? 1 : displaySettings[display_settings::smooth], &pendingDeltaValid);
         const auto averageMs = average == Average::live && lowScope ? 250.0
             : spectrum_average::milliseconds (average);
-        spectrum_presentation::advanceAbsoluteCurve (displayedPre, pre, elapsedMs, averageMs, true);
-        spectrum_presentation::advanceAbsoluteCurve (displayedPost, post, elapsedMs, averageMs, true);
+        spectrum_presentation::advanceAbsoluteCurve (displayedPre, pre, elapsedMs, averageMs, true, displaySettings.fallDbPerSecond());
+        spectrum_presentation::advanceAbsoluteCurve (displayedPost, post, elapsedMs, averageMs, true, displaySettings.fallDbPerSecond());
         spectrum_presentation::advanceSignedDeltaCurve (
             displayedDelta, delta, averagedDeltaValid, pendingDeltaValid, elapsedMs, averageMs);
         displayedDeltaValid = pendingDeltaValid;
@@ -408,13 +408,10 @@ void SpectrumComponent::presentationTickAt (double nowMs)
                                   ? nowMs : lastNumericPresentationMs + intervalMs;
         needsRepaint = true;
     }
-    if (noticeExpired)
-    {
-        modeActionNotice.clear();
-        modeActionNoticeUntilMs = 0.0;
-    }
-    if (needsRepaint)
-        repaint();
+    if (noticeExpired) { modeActionNotice.clear(); modeActionNoticeUntilMs = 0.0; }
+    // The slow PEAK line falls by time alone; once it rests on the line nothing is repainted.
+    if (signalActive && peakFall.advance (displayedPost, nowMs) && absoluteObservation) needsRepaint = true;
+    if (needsRepaint) { ++tickRepaints; repaint(); }
 }
 
 }

@@ -1,4 +1,5 @@
 #include "HyphaSpectrumChromePainter.h"
+#include "HyphaSpectrumPostBody.h"
 #include "HyphaSpectrumPeakTags.h"
 #include "HyphaSpectrumProbePainter.h"
 
@@ -215,10 +216,10 @@ namespace
             if (state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR)
                 lead += scale > 1.4f ? " / 6s field" : " / 6s";
             if (tilted) lead += "  TILT " + slope;
-            if (scale > 1.4f && state.settings[display_settings::peak] == 0) lead += " / ";
+            if (scale > 1.4f && state.settings[display_settings::peak] != 1) lead += " / ";
             g.setColour (COL_TEXT_SECONDARY);
             text_style::drawText (g, lead, legend, juce::Justification::centredLeft);
-            if (scale > 1.4f && state.settings[display_settings::peak] == 0)
+            if (scale > 1.4f && state.settings[display_settings::peak] != 1)
             {
                 // The hold curve's own colour names it, as MID and SIDE are named in theirs.
                 const auto style = typography::resolve (state.presentation, typography::TextRole::legend,
@@ -335,14 +336,10 @@ void paint (juce::Graphics& g,
     const float probeNormalisedX = state.snapshotValid && state.hoverNormalisedX >= 0.0f
         ? spectrum_geometry::clampToBandCentreRange (state.hoverNormalisedX)
         : state.snapshotValid && state.focusFrequencyHz > 0.0f
-            ? spectrum_geometry::clampToBandCentreRange (
-                spectrum_geometry::normalisedXForFrequency (
-                    state.focusFrequencyHz, minimumHz, maximumHz))
+            ? spectrum_geometry::clampToBandCentreRange (spectrum_geometry::normalisedXForFrequency (state.focusFrequencyHz, minimumHz, maximumHz))
             : -1.0f;
     const float focusNormalisedX = state.snapshotValid && state.focusFrequencyHz > 0.0f
-        ? spectrum_geometry::clampToBandCentreRange (
-            spectrum_geometry::normalisedXForFrequency (
-                state.focusFrequencyHz, minimumHz, maximumHz))
+        ? spectrum_geometry::clampToBandCentreRange (spectrum_geometry::normalisedXForFrequency (state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
     auto pre = state.pre, post = state.post, hold = state.absolutePeakHold;
@@ -379,6 +376,9 @@ void paint (juce::Graphics& g,
             && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
             stopped_history::paintDimmed (g, [&] {
                 spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory, state.backdrop, state.settings, minimumHz, maximumHz); });
+        // Stopped with PEAK SLOW: the held line stays in the picture (its clock stands still).
+        if (state.absoluteObservation && ! state.midSideObservation && ! state.signalActive && state.haveSnapshot && state.settings.slowPeak())
+            spectrum_painter::post_body::stoppedPeak (g, plot, hold, range, scale, brightness);
         const auto status = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
                             : ! state.signalActive ? juce::String ("INACTIVE")
@@ -418,7 +418,7 @@ void paint (juce::Graphics& g,
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.deltaValid,
                                        state.haveMark ? &state.mark : nullptr,
-                                       state.haveMark ? &state.markValid : nullptr, range, brightness);
+                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill());
     if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
         paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range);
     if (! state.midSideObservation)

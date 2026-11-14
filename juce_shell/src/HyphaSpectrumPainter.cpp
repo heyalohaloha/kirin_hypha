@@ -1,6 +1,7 @@
 #include "HyphaSpectrumPainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSpectrumPostBody.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
@@ -10,9 +11,7 @@
 #include "HyphaTextStyle.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstdint>
 
 namespace hypha::spectrum_painter
 {
@@ -119,18 +118,14 @@ void paintCurves (juce::Graphics& g,
                   const SpectrumBins& delta,
                   const SpectrumValidity& deltaValid,
                   const SpectrumBins* mark,
-                  const SpectrumValidity* markValid, float range, float brightness)
+                  const SpectrumValidity* markValid, float range, float brightness, bool richPost)
 {
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float glowScale = ui_contract::spectrumGlowScale (visualScale);
     const auto scaledStroke = [strokeScale] (float value) { return value * strokeScale; };
     const auto scaledGlow = [glowScale] (float value) { return value * glowScale; };
     const float zeroY = yForDeltaDb (0.0f, plot);
-    SpectrumBins x {};
-    SpectrumBins preY {};
-    SpectrumBins postY {};
-    SpectrumBins deltaY {};
-    SpectrumBins markY {};
+    SpectrumBins x {}, preY {}, postY {}, deltaY {}, markY {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
         x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
@@ -213,7 +208,9 @@ void paintCurves (juce::Graphics& g,
                   juce::PathStrokeType (scaledStroke (ui_contract::spectrumPreStrokeWidth),
                                         juce::PathStrokeType::curved,
                                         juce::PathStrokeType::rounded));
+    if (richPost) post_body::fill (g, plot, x, postY, brightness);
     strokePostCurve (g, postCurve, visualScale, brightness);
+    if (richPost) post_body::edge (g, postCurve, strokeScale, brightness);
 
     juce::Path deltaFill;
     deltaFill.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 9u));
@@ -391,11 +388,7 @@ void paintAbsolute (juce::Graphics& g,
     monotone_curve::append (fill, x, currentY, 0, KIRIN_SPECTRUM_BAND_COUNT - 1, false, true);
     fill.lineTo (x.back(), plot.getBottom());
     fill.closeSubPath();
-    juce::ColourGradient gradient (COL_SPECTRUM_POST.withMultipliedBrightness (brightness).withAlpha (0.19f),
-                                   plot.getX(), plot.getY(),
-                                   COL_SPECTRUM_POST.withMultipliedBrightness (brightness).withAlpha (0.015f),
-                                   plot.getX(), plot.getBottom(), false);
-    g.setGradientFill (gradient);
+    g.setGradientFill (post_body::gradient (plot, brightness, settings.richFill()));
     g.fillPath (fill);
 
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
@@ -407,7 +400,8 @@ void paintAbsolute (juce::Graphics& g,
     g.strokePath (current, juce::PathStrokeType (1.8f * strokeScale,
                                                   juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));
-    if (settings[display_settings::peak] == 0)
+    if (settings.richFill()) post_body::edge (g, current, strokeScale, brightness);
+    if (settings[display_settings::peak] != 1)
     {
     g.setColour (COL_FLORA_BR.withMultipliedBrightness (brightness).withAlpha (ui_contract::spectrumHoldAlpha));
     g.strokePath (hold, juce::PathStrokeType (0.85f * strokeScale,
