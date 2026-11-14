@@ -273,7 +273,6 @@ public:
             checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
         const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),
                                           block.playing ? block.frames : 0);
-        const bool alignFading = aligned.fading;
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
         if (decision.verdict == Verdict::accepted) alignment.publishApplied();
@@ -377,7 +376,8 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        const float target = preSelected && align.outputAllowed && ! alignFading ? 1.0f : 0.0f;
+        const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
+        if (target > 0.0f && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays; any other block counted
         if (weight <= 0.0f && target <= 0.0f)
         {
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;

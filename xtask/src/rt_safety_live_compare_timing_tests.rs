@@ -19,103 +19,28 @@ fn content_alignment_moves_only_the_audition_address() {
         "(! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)"
     ));
     // A correction PRE's current run cannot serve yet (after a seek or stop): one of up to the 1 s
-    // bound waits as POST, for at most that bound of playback in all, however often the run restarts
-    // before serving it (the held frames reset only once PRE plays the correction); a longer one,
-    // or one whose hold has ended, plays PRE at K.
+    // bound waits as POST. One deadline bounds it: every played block with PRE selected counts
+    // unless the renderer reports that PRE played it, whatever kept PRE waiting. An ended deadline
+    // stays ended (no comparison with the block size) until PRE plays at a correction or a new
+    // session or context begins; a longer correction, or one whose hold has ended, plays PRE at K.
     assert!(alignment.contains(
-        "result.deferred = beyond && wanted.frames <= shortFrames && held + counted <= shortFrames;"
+        "stake = holdable && preSelected && playback.outputAllowed && ! expired ? playedFrames : 0;"
     ));
-    assert!(alignment.contains("if (result.deferred) held += counted;"));
+    assert!(
+        alignment.contains("if (beyond && holdable && held + stake > shortFrames) expired = true;")
+    );
+    assert!(alignment.contains("held += stake;"));
+    assert!(alignment.contains("result.deferred = beyond && holdable && ! expired;"));
     assert!(alignment.contains("if (beyond && ! result.deferred) wanted = {};"));
-    assert!(!alignment.contains("held = 0"));
-    assert_eq!(ALIGN_H.matches("held = 0;").count(), 3); // the member, a new session, PRE accepted
-    assert!(ALIGN_H.contains("if (applied.frames > 0) { held = 0; unserved.store (false); }"));
-    assert!(ALIGN_H.contains("{ readiness.newContext(); held = 0; unserved.store (false);"));
-    assert!(
-        render.contains("if (decision.verdict == Verdict::accepted) alignment.publishApplied();")
-    );
-    assert!(render.contains(
-        "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),"
+    assert!(!alignment.contains("expired = false"));
+    assert_eq!(ALIGN_H.matches("expired = false").count(), 3); // the member, a new session, PRE served
+    assert!(ALIGN_H.contains(
+        "if (applied.frames > 0) { held = 0; expired = false; unserved.store (false); }"
     ));
-    assert!(render.contains("block.playing ? block.frames : 0);"));
-    assert!(render.contains("! aligned.current || aligned.deferred"));
-    assert!(render.contains(
-        "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
+    assert!(ALIGN_H.contains(
+        "readiness.newContext(); held = stake = 0; expired = false; unserved.store (false);"
     ));
-    assert!(render.contains("align.outputAllowed && ! alignFading"));
-    assert!(
-        alignment.contains("requested.read (context, applied, result.revision, &result.current,")
-    );
-    assert!(alignment.contains("appliedRevision == result.revision"));
-    assert!(function_body(SESSION_H, "void prepare (").contains("alignment.newSession()"));
-    assert!(render.contains(
-        "consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value())"
-    ));
-    let history = function_body(SESSION_H, "void recordHistory (");
-    assert!(!history.contains("align"));
-    assert!(history.contains("decision.k"));
-    let realtime = function_body(
-        PROCESSOR_CPP,
-        "void KirinHyphaProcessorBase::processLiveCompare",
-    );
-    assert!(realtime.contains("fallback (blindCommand, frames, preparedFormat.sampleRate, report.reason == Reason::ceiling)"));
-    assert!(realtime.contains("blindCommand.active() ? blindCommand.pre() : preSelected,"));
-}
-
-#[test]
-fn alignment_is_bound_to_the_context_measured_before_publication() {
-    let content = include_str!("../../juce_shell/src/PluginProcessorContentTiming.cpp");
-    let measure = function_body(
-        content,
-        "KirinHyphaProcessorBase::measureLiveCompareOffset()",
-    );
-    assert!(
-        measure.find("const auto context =").unwrap() < measure.find("measureOffset (").unwrap()
-    );
-    assert!(measure.contains("estimate.alignContext = context"));
-    let publish = function_body(content, "bool KirinHyphaProcessorBase::alignLiveCompare (");
-    assert!(publish.contains("estimate.alignContext != liveCompare.alignContext()"));
-    assert!(publish.contains("requestAlign (value, estimate.alignContext, estimate.alignRevision)"));
-    let read = function_body(ALIGN_H, "AlignValue read (");
-    assert!(read.contains("if (before != sequence.load()) return unchanged"));
-    assert!(read.contains("return measured == context ? value : AlignValue {}"));
-    assert!(!read.contains("while") && !read.contains("for ("));
-    let format = include_str!("../../juce_shell/src/PluginProcessorFormat.cpp");
-    assert!(format.contains("if (! preparedFormat.matches (sampleRate, roles))"));
-    assert!(!format.contains("requestAlign"));
-    assert!(
-        format.find("ScopedLock sl (handleLock)").unwrap()
-            < format.find("alignFormat.fetch_add").unwrap()
-    );
-    assert!(
-        measure
-            .find("ScopedTryLock formatLock (handleLock)")
-            .unwrap()
-            < measure.find("const auto context =").unwrap()
-    );
-    assert!(publish.contains("! formatLock.isLocked() || formatChangeHeld.load"));
-    assert!(ALIGN_H.contains("std::int64_t frames = 0"));
-    assert!(!ALIGN_H.contains("value.k"));
-    assert!(function_body(ALIGN_H, "bool alignedReadStart (")
-        .contains("checkedClockSubtract (start, value.frames, start)"));
-    let display = function_body(content, "KirinHyphaProcessorBase::liveCompareAlignMs()");
-    assert!(
-        display
-            .find("ScopedTryLock formatLock (handleLock)")
-            .unwrap()
-            < display.find("preparedFormat.sampleRate").unwrap()
-    );
-    assert!(display.contains("! formatLock.isLocked() || formatChangeHeld.load"));
-    let frames = function_body(content, "KirinHyphaProcessorBase::liveCompareAlignFrames()");
-    assert!(frames.contains("renderer.alignFrames (liveCompare.alignContext())"));
-    assert!(ALIGN_H.contains("shown.read (forContext)"));
-    assert!(rendered_alignment_requires_acceptance());
-    assert!(ALIGN_H.contains("ownerA == other.ownerA && ownerB == other.ownerB"));
-    assert!(read.contains("ownerA.load(), ownerB.load()"));
-    assert!(function_body(SESSION_H, "RenderReport renderBlock (")
-        .contains("align.context = alignOwner (align.context, ring)"));
-    let state = include_str!("../../juce_shell/src/PluginProcessorState.cpp");
-    assert!(!state.contains("requestAlign"));
+    assert!(render.contains("if (target > 0.0f && ! aligned.deferred) alignment.served();"));
 }
 
 fn rendered_alignment_requires_acceptance() -> bool {

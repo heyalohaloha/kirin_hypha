@@ -278,6 +278,53 @@ static void candidateAlignWaitFadesFromTheLastOutput()
     require (first >= last && first <= last, "the wait continues from A's last sample instead of stepping to B");
 }
 
+// INV-LC28: every block PRE is selected in and does not play counts against one deadline, whatever
+// keeps it waiting, and the deadline stays ended once it has ended, whatever the block size.
+static void alignHoldIsOneLatchedDeadline()
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t rate = 48000, correction = 38400, unknown = std::numeric_limits<std::int64_t>::max();
+    const AlignContext context { 2, 4, 6, 8 };
+    AlignPlayback playback; playback.context = context;
+    RendererAlignment alignment; float weight = 0.0f;
+    alignment.update (playback, false, true, weight, unknown, rate, 0);
+    alignment.request ({ correction }, context);
+    // A seek every 0.4 s: each run first has no proven mapping, then a proven one that is still short.
+    std::int64_t waited = 0; bool ended = false;
+    for (int block = 0; block < 600 && ! ended; ++block)
+    {
+        const bool proven = block % 75 >= 37;
+        ended = ! alignment.update (playback, false, true, weight, proven ? (block % 75) * 256 : unknown, rate, 256).deferred && proven;
+        if (! ended) waited += 256;
+    }
+    std::printf ("hold under seeks every 0.4 s: %.3f s of selected PRE waited before PRE played at K\n", static_cast<double> (waited) / rate);
+    require (ended && waited <= rate && alignment.unservedCorrection(), "unproven blocks count against the same one second as held ones");
+    for (const int frames : { 64, 256, 1, 64 })
+        require (! alignment.update (playback, false, true, weight, 1024, rate, frames).deferred,
+                 "an ended hold stays ended whatever the block size");
+    alignment.update (playback, false, true, weight, rate, rate, 256);
+    alignment.served();
+    require (alignment.value().frames == correction && ! alignment.unservedCorrection()
+             && alignment.update (playback, false, true, weight, 1024, rate, 256).deferred,
+             "once PRE has played at the correction, a later restart may hold again");
+    // A Blind trial that plays PRE at K until the listener switches waits for nothing.
+    RendererAlignment trial; weight = 1.0f;
+    trial.update (playback, true, true, weight, unknown, rate, 0);
+    trial.request ({ correction }, context);
+    for (int block = 0; block < 400; ++block)
+    {
+        require (! trial.update (playback, true, true, weight, rate, rate, 256).deferred, "a served correction is not held");
+        trial.served();
+    }
+    require (trial.value().frames == 0 && ! trial.unservedCorrection()
+             && trial.update (playback, true, true, weight, 1024, rate, 256).deferred, "PRE that plays uses none of the hold");
+    for (int block = 0; block < 200; ++block) trial.update (playback, true, true, weight, 1024, rate, 256);
+    require (trial.unservedCorrection(), "the trial's hold ends as any other");
+    trial.newSession();
+    require (! trial.unservedCorrection() && trial.update (playback, true, true, weight, 1024, rate, 256).deferred,
+             "a new session has the whole hold again");
+}
+
 static void liveCompareAlignContract()
 {
     // A contended publication retains the last proven context's value, never a torn tuple or
@@ -305,4 +352,5 @@ static void liveCompareAlignContract()
     alignLoopProofStopsAtWhatPreWrote();
     aaxPendingCycleCannotSurviveASeek();
     candidateAlignWaitFadesFromTheLastOutput();
+    alignHoldIsOneLatchedDeadline();
 }

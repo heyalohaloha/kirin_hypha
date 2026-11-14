@@ -190,10 +190,13 @@ public:
     // about with the usual fades and a Blind trial leaves to the listener's own switching.
     // readableFrames: the largest correction PRE's current run can serve at this block. A longer one
     // (after a seek, stop or new start) is kept but not used until PRE has written that far. One of up
-    // to shortFrames (the 1 s bound) waits as POST, for at most shortFrames of playback with PRE
-    // selected in all, however often seeks, stops or loop wraps restart the run before it serves the
-    // correction; then, as a longer one (seconds) at once, PRE plays at K meanwhile, as with alignment
-    // off, never POST for want of the correction. playedFrames: this block's frames while playing.
+    // to shortFrames (the 1 s bound) waits as POST. One deadline bounds that hold: every block of
+    // playback with PRE selected that does not play PRE (served() below) counts against shortFrames,
+    // whatever keeps PRE waiting (an unproven clock, a short run, a content check), however often
+    // seeks, stops or loop wraps restart the run. Once it has ended it stays ended, whatever the block
+    // size, until PRE plays at a correction or a new session or context begins; then, as a longer one
+    // (seconds) at once, PRE plays at K meanwhile, as with alignment off, never POST for want of the
+    // correction. playedFrames: this block's frames while playing.
     AlignUpdate update (AlignPlayback playback, bool blind, bool preSelected, float& weight,
                         std::int64_t readableFrames = std::numeric_limits<std::int64_t>::max(),
                         std::int64_t shortFrames = 0, std::int64_t playedFrames = 0) noexcept
@@ -213,10 +216,13 @@ public:
         const bool unreadable = applied.frames > 0 && applied.frames > readableFrames; // BLIND may leave it while PRE is silent
         const auto correction = wanted;
         const bool beyond = playback.enabled && wanted.frames > 0 && wanted.frames > readableFrames;
-        const auto counted = preSelected ? playedFrames : 0;
-        result.deferred = beyond && wanted.frames <= shortFrames && held + counted <= shortFrames;
-        if (result.deferred) held += counted;
-        else if (beyond && wanted.frames <= shortFrames) unserved.store (true); // told as unmeasured meanwhile
+        const bool holdable = playback.enabled && wanted.frames > 0 && wanted.frames <= shortFrames;
+        stake = holdable && preSelected && playback.outputAllowed && ! expired ? playedFrames : 0;
+        if (beyond && holdable && held + stake > shortFrames) expired = true; // latched: see served()
+        if (expired) stake = 0;
+        held += stake; // counted unless this block plays PRE
+        result.deferred = beyond && holdable && ! expired;
+        if (beyond && holdable && expired) unserved.store (true); // told as unmeasured meanwhile
         if (beyond && ! result.deferred) wanted = {};
         if (wanted != applied && weight <= 0.0f
             && (! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)) adopt (wanted);
@@ -228,17 +234,22 @@ public:
     }
     // A new session or context: its first hold has the whole bound again.
     void newSession() noexcept
-    { readiness.newContext(); held = 0; unserved.store (false); reach.store (std::numeric_limits<std::int64_t>::max()); }
+    {
+        readiness.newContext(); held = stake = 0; expired = false; unserved.store (false);
+        reach.store (std::numeric_limits<std::int64_t>::max());
+    }
     // The largest correction PRE's run served at POST's latest block; the maximum while unknown.
     std::int64_t servable() const noexcept { return reach.load (std::memory_order_relaxed); }
     // The hold ended before PRE's run served the correction: PRE plays at K until it does.
     bool unservedCorrection() const noexcept { return unserved.load(); }
     AlignValue value() const noexcept { return applied; }
-    // An accepted block at a correction: PRE's run serves it, so a later restart may hold again.
-    void publishApplied() noexcept
+    void publishApplied() noexcept { shown.publishDisplay (applied, context); }
+    // This block plays PRE at the applied address: it used none of the hold. At a correction PRE's
+    // run serves it, so the hold is whole again for a later restart.
+    void served() noexcept
     {
-        shown.publishDisplay (applied, context);
-        if (applied.frames > 0) { held = 0; unserved.store (false); }
+        held -= stake; stake = 0;
+        if (applied.frames > 0) { held = 0; expired = false; unserved.store (false); }
     }
     void confirmApplied (std::uint64_t revision) noexcept { appliedRevision = revision; }
     AlignReadiness readiness;
@@ -253,7 +264,10 @@ private:
     std::uint64_t appliedRevision = 0; // Audio Thread: contention never grants a new address
     AlignContext context; // Audio Thread only
     AlignValue applied; // Audio Thread only
-    std::int64_t held = 0; // Audio Thread only: POST frames held for the correction since PRE last served it
+    // Audio Thread only. held: frames of selected playback without PRE since PRE last played at a
+    // correction; stake: this block's share of it; expired: the hold has ended (latched).
+    std::int64_t held = 0, stake = 0;
+    bool expired = false;
     std::atomic<bool> unserved { false };
     std::atomic<std::int64_t> reach { std::numeric_limits<std::int64_t>::max() };
 };
