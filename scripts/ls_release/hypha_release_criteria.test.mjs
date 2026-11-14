@@ -28,7 +28,8 @@ function fixture(t, { delivery = false } = {}) {
   const row = { id: 'fixed-clock', kind: 'host', promise: 'The clock keeps every frame.', hosts: ['macOS/x86_64/AU'],
     daw: 'Logic Pro', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
   const spec = { schema: FIX_ROWS_SCHEMA, release: '1.2.3', rows: [row,
-    { ...row, id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], oracle: 'pair-recovery-parity', expected: { passed: true } }] };
+    { id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], depth: 'deep', oracle: 'pair-recovery-parity', expected: { passed: true } },
+    { ...row, id: 'fixed-pair', promise: 'Pairs recover.' }] };
   const fixes = write('fixes.json', spec);
   const statePath = path.join(root, 'release_state/profile.json');
   let state = makeState(root, { state: statePath, fixRows: fixes, notes,
@@ -75,7 +76,7 @@ test('fix rows refuse duplicate or reserved ids, missing kinds and unknown CI or
   const f = fixture(t);
   for (const patch of [{ id: HOST_TESTS[0] }, { id: 'high-rate-192k' }, { kind: undefined }, { kind: 'other' },
     { hosts: [] }, { expected: {} }, { depth: 'shallow' }, { oracle: '' }, { expected: null },
-    { kind: 'ci', oracle: 'missing' }, { daw: '' }, { chain: undefined }, { promise: 'Not in the notes.' }]) {
+    { kind: 'ci', oracle: 'missing' }, { daw: '' }, { chain: undefined }, { promises: ['Not in the notes.'] }]) {
     f.write('fixes.json', { ...f.spec, rows: [{ ...f.spec.rows[0], ...patch }] });
     assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   }
@@ -88,17 +89,41 @@ test('fix rows refuse duplicate or reserved ids, missing kinds and unknown CI or
 
 test('every release-note promise needs a proving row, and promises without rows stop --init', t => {
   const f = fixture(t);
-  f.write('fixes.json', { ...f.spec, rows: [f.spec.rows[0]] });
-  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Pairs recover/);
+  const host = f.spec.rows[0];
+  f.write('fixes.json', { ...f.spec, rows: [host] });
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Release-note promise has no acceptance row: Pairs recover\./);
+  f.write('fixes.json', { ...f.spec, rows: [host, f.spec.rows[1]] });
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Release-note promise has no real-host acceptance row: Pairs recover\./);
   assert.throws(() => makeState(f.root, { state: f.statePath, notes: f.notes }, () => SOURCE), /need --fix-rows/);
   f.write('fixes.json', f.spec);
   assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE), /release notes/);
   // The Japanese section mirrors the English promises and is not matched twice.
-  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 2);
+  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 3);
   fs.appendFileSync(f.notes, '\n- A late promise.\n');
   assert.ok(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   fs.writeFileSync(f.notes, fs.readFileSync(f.notes, 'utf8').replace('- Pairs recover.', '- Pairs recover.\n- Another promise.'));
   assert.throws(() => assertState(f.state), /changed|Another promise/);
+});
+
+test('host rows accept multiple distinct known promises and CI rows retain one promise', t => {
+  const f = fixture(t);
+  const { promise: _, ...single } = f.spec.rows[0];
+  const host = { ...single, promises: ['The clock keeps every frame.', 'Pairs recover.'] };
+  f.write('fixes.json', { ...f.spec, rows: [host, f.spec.rows[1]] });
+  assertState(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+  for (const promises of [['The clock keeps every frame.', 'Unknown.'],
+    ['The clock keeps every frame.', 'The clock keeps every frame.'], [], [''], [42]]) {
+    f.write('fixes.json', { ...f.spec, rows: [{ ...host, promises }, f.spec.rows[1]] });
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+  }
+  for (const row of [{ ...host, id: 'both-forms', promise: 'The clock keeps every frame.' },
+    { ...f.spec.rows[1], promises: ['Pairs recover.'] }]) {
+    f.write('fixes.json', { ...f.spec, rows: [host, row] });
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+  }
+  f.write('fixes.json', { ...f.spec, rows: [{ ...single, promise: 'The clock keeps every frame.' },
+    { ...single, id: 'host-pair', promise: 'Pairs recover.' }, f.spec.rows[1]] });
+  assertState(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
 });
 
 test('promises are every English list item, whatever its marker, with continuation lines joined', t => {

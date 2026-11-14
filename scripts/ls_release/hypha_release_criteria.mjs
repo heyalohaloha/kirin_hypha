@@ -47,7 +47,7 @@ export function notePromises(file) {
   return promises;
 }
 
-// Every promise needs a row that proves it, and every row names the promise it proves. A host
+// Every promise needs a host row, and every row names the promise(s) it proves. A host
 // row names the DAW, the format(s) and the chain it runs. Checked at --init and on every stage.
 export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const spec = readJson(file);
@@ -67,11 +67,19 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
         || Object.keys(row.expected).length === 0) {
       throw new Error('Fix row needs a unique id, kind, hosts, DAW and chain (host), deep oracle and expected values');
     }
-    if (!promises.includes(row.promise)) throw new Error(`Fix row ${row.id} names no promise of the release notes`);
+    const names = row.kind === 'host' && Object.hasOwn(row, 'promises') ? row.promises : [row.promise];
+    if ((Object.hasOwn(row, 'promises') && (row.kind !== 'host' || Object.hasOwn(row, 'promise')))
+        || !Array.isArray(names) || !names.length || names.some(name => !text(name))
+        || new Set(names).size !== names.length || names.some(name => !promises.includes(name))) {
+      throw new Error(`Fix row ${row.id} names no promise of the release notes`);
+    }
     seen.add(row.id);
   }
-  const unproved = promises.find(promise => !spec.rows.some(row => row.promise === promise));
+  const namesPromise = (row, promise) => row.promise === promise || row.promises?.includes(promise);
+  const unproved = promises.find(promise => !spec.rows.some(row => namesPromise(row, promise)));
   if (unproved) throw new Error(`Release-note promise has no acceptance row: ${unproved}`);
+  const missingHost = promises.find(promise => !spec.rows.some(row => row.kind === 'host' && namesPromise(row, promise)));
+  if (missingHost) throw new Error(`Release-note promise has no real-host acceptance row: ${missingHost}`);
   return { rows: spec.rows, decision: fileFact(file) };
 }
 

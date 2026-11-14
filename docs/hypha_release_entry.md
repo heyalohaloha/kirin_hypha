@@ -216,14 +216,15 @@ reportで事後に期待値を変更して通すことはできない。
 
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
 `--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の
-箇条が約束で、どの約束にも証明する行が要り、どの行も`promise`に約束の文をそのまま書く。漏れがあると`--init`が止まる。
+箇条が約束で、各約束に実host行が必要であり、CI行はその補足とする。
+host行は`promise`に一つ、または`promises`に複数の約束の文をそのまま書ける（CI行は`promise`に一つ）。
 host行は`daw`と`chain`も名指しする。ファイルと公開ノートのhash、全行・期待値を受入条件へ凍結する。
 `kind: host`だけをhosts.jsonへ要求し、`kind: ci`は名前付きCI oracleへ結ぶ。
 CIの標準の期待は`{ "passed": true }`。追加の数値条件には実測oracleの証拠が必要で、無ければ確認待ちにする。
 
 ```json
 { "schema": "hypha-release-fix-rows-v2", "release": "X.Y.Z", "rows": [
-  { "id": "clock-recovery", "kind": "host", "promise": "LISTEN stays on PRE through a loop.",
+  { "id": "clock-recovery", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."],
     "hosts": ["macOS/x86_64/AU"], "daw": "Logic Pro", "chain": "PRE -> limiter -> POST",
     "depth": "deep", "oracle": "independent callback capture", "expected": { "lostFrames": 0 } },
   { "id": "pair-recovery", "kind": "ci", "promise": "PRE and POST pair again after a restart.", "hosts": [],
