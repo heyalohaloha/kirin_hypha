@@ -6,7 +6,7 @@ import test from 'node:test';
 import { makeState, parseReleaseArgs, realActions, executeRelease, STAGES } from '../release_hypha.mjs';
 import { SCHEMA, HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, assertState, digest, fileFact, reportTemplate,
   validateReport, acceptanceCriteria, atomicJson, Checkpoint } from './hypha_release_contract.mjs';
-import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES, notePromises,
+import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES, REQUIRED_DAWS, notePromises,
   hostTestIds, bindOwnerDecisions, checkOwnerDecisions, checkFixRows, ciFixRows } from './hypha_release_criteria.mjs';
 import { verifyCi, RELEASE_SOURCE_PHASES } from './hypha_release_local.mjs';
 import { updateBinding } from '../updates/update_key_binding.mjs';
@@ -26,9 +26,15 @@ function fixture(t, { delivery = false } = {}) {
   const notes = path.join(root, 'notes.md');
   fs.writeFileSync(notes, '## Fixes in 1.2.3\n\n- The clock keeps every frame.\n- Pairs recover.\n\nmacOS: AU.\n\n---\n\n## 1.2.3 の修正\n\n- 時計\n');
   const row = { id: 'fixed-clock', kind: 'host', promise: 'The clock keeps every frame.', hosts: ['macOS/x86_64/AU'],
-    daw: 'Logic Pro', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
+    daw: 'Logic Pro', os: 'macos', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
   const spec = { schema: FIX_ROWS_SCHEMA, release: '1.2.3', rows: [row,
-    { ...row, id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], oracle: 'pair-recovery-parity', expected: { passed: true } }] };
+    { id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], depth: 'deep', oracle: 'pair-recovery-parity', expected: { passed: true } },
+    { ...row, id: 'fixed-pair', promise: 'Pairs recover.' },
+    ...REQUIRED_DAWS.filter(daw => daw !== 'Logic Pro').flatMap((daw, index) => [
+      { ...row, id: `clock-${index}`, daw, os: daw === 'Cakewalk' ? 'windows' : 'macos',
+        hosts: [daw === 'Cakewalk' ? 'Windows/x86_64/VST3' : 'macOS/x86_64/AU'] },
+      { ...row, id: `pair-${index}`, daw, os: daw === 'Cakewalk' ? 'windows' : 'macos',
+        hosts: [daw === 'Cakewalk' ? 'Windows/x86_64/VST3' : 'macOS/x86_64/AU'], promise: 'Pairs recover.' }])] };
   const fixes = write('fixes.json', spec);
   const statePath = path.join(root, 'release_state/profile.json');
   let state = makeState(root, { state: statePath, fixRows: fixes, notes,
@@ -75,7 +81,7 @@ test('fix rows refuse duplicate or reserved ids, missing kinds and unknown CI or
   const f = fixture(t);
   for (const patch of [{ id: HOST_TESTS[0] }, { id: 'high-rate-192k' }, { kind: undefined }, { kind: 'other' },
     { hosts: [] }, { expected: {} }, { depth: 'shallow' }, { oracle: '' }, { expected: null },
-    { kind: 'ci', oracle: 'missing' }, { daw: '' }, { chain: undefined }, { promise: 'Not in the notes.' }]) {
+    { kind: 'ci', oracle: 'missing' }, { daw: '' }, { chain: undefined }, { promises: ['Not in the notes.'] }]) {
     f.write('fixes.json', { ...f.spec, rows: [{ ...f.spec.rows[0], ...patch }] });
     assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   }
@@ -88,17 +94,124 @@ test('fix rows refuse duplicate or reserved ids, missing kinds and unknown CI or
 
 test('every release-note promise needs a proving row, and promises without rows stop --init', t => {
   const f = fixture(t);
-  f.write('fixes.json', { ...f.spec, rows: [f.spec.rows[0]] });
-  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Pairs recover/);
+  const host = f.spec.rows[0];
+  f.write('fixes.json', { ...f.spec, rows: [host] });
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Release-note promise has no acceptance row: Pairs recover\./);
+  f.write('fixes.json', { ...f.spec, rows: [host, f.spec.rows[1]] });
+  assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /Release-note promise has no real-host acceptance row: Pairs recover\./);
   assert.throws(() => makeState(f.root, { state: f.statePath, notes: f.notes }, () => SOURCE), /need --fix-rows/);
   f.write('fixes.json', f.spec);
   assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE), /release notes/);
   // The Japanese section mirrors the English promises and is not matched twice.
-  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 2);
+  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 15);
   fs.appendFileSync(f.notes, '\n- A late promise.\n');
   assert.ok(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   fs.writeFileSync(f.notes, fs.readFileSync(f.notes, 'utf8').replace('- Pairs recover.', '- Pairs recover.\n- Another promise.'));
   assert.throws(() => assertState(f.state), /changed|Another promise/);
+});
+
+test('host rows accept multiple distinct known promises and CI rows retain one promise', t => {
+  const f = fixture(t);
+  const { promise: _, ...single } = f.spec.rows[0];
+  const host = { ...single, promises: ['The clock keeps every frame.', 'Pairs recover.'] };
+  const hosts = REQUIRED_DAWS.map((daw, index) => ({ ...host, id: `host-${index}`, daw,
+    os: daw === 'Cakewalk' ? 'windows' : 'macos', hosts: [daw === 'Cakewalk' ? 'Windows/x86_64/VST3' : 'macOS/x86_64/AU'] }));
+  f.write('fixes.json', { ...f.spec, rows: [...hosts, f.spec.rows[1]] });
+  assertState(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+  for (const promises of [['The clock keeps every frame.', 'Unknown.'],
+    ['The clock keeps every frame.', 'The clock keeps every frame.'], [], [''], [42]]) {
+    f.write('fixes.json', { ...f.spec, rows: [{ ...hosts[0], promises }, ...hosts.slice(1), f.spec.rows[1]] });
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /names no promise/);
+  }
+  for (const row of [{ ...hosts[0], promise: 'The clock keeps every frame.' },
+    { ...f.spec.rows[1], promises: ['Pairs recover.'] }]) {
+    const rows = row.kind === 'host' ? [row, ...hosts.slice(1), f.spec.rows[1]] : [...hosts, row];
+    f.write('fixes.json', { ...f.spec, rows });
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /names no promise/);
+  }
+  f.write('fixes.json', { ...f.spec, rows: f.spec.rows });
+  assertState(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+});
+
+test('each promise requires each DAW once, with aliases and whitespace normalized', t => {
+  const f = fixture(t);
+  const { promise: _, ...base } = f.spec.rows[0];
+  const aliases = [' sTuDiO  oNe ', 'lOgIc', 'Reaper', 'pRo  ToOlS', 'CUBASE', 'LiVe', 'Cakewalk'];
+  const rows = aliases.map((daw, index) => ({ ...base, id: `daw-${index}`, daw, os: index === 6 ? 'windows' : 'macos',
+    hosts: [index === 6 ? 'Windows/x86_64/VST3' : 'macOS/x86_64/AU'],
+    promises: ['The clock keeps every frame.', 'Pairs recover.'] }));
+  const init = () => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE);
+  f.write('fixes.json', { ...f.spec, rows });
+  assertState(init());
+  f.write('fixes.json', { ...f.spec, rows: rows.filter((_, index) => index !== 5) });
+  assert.throws(init, /Release-note promise is not verified in Ableton Live: The clock keeps every frame\./);
+  f.write('fixes.json', { ...f.spec, rows: rows.slice(0, -1) });
+  assert.throws(init, /Release-note promise is not verified in Cakewalk: The clock keeps every frame\./);
+  for (const daw of ['Cakewalk', ' CAKEWALK by BANDLAB ', 'Cakewalk Sonar', ' s O n A r ']) {
+    f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 6 ? { ...row, daw } : row) });
+    assertState(init());
+    f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 6 ? { ...row, daw, os: 'macos', hosts: ['macOS/x86_64/AU'] } : row) });
+    assert.throws(init, /Cakewalk requires windows/);
+  }
+  f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 0 ? { ...row, daw: 'Unknown DAW' } : row) });
+  assert.throws(init, /unknown DAW: Unknown DAW/);
+  f.write('fixes.json', { ...f.spec, rows: [...rows, { ...rows[1], id: 'duplicate', daw: 'Logic Pro' }] });
+  assert.throws(init, /Promise The clock keeps every frame\. is already verified in Logic Pro/);
+  f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 2
+    ? { ...row, promises: ['The clock keeps every frame.'] } : row) });
+  assert.throws(init, /Release-note promise is not verified in REAPER: Pairs recover\./);
+  f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 5 ? { ...row, daw: 'Ableton Live' } : row) });
+  assertState(init());
+});
+
+test('platform-sensitive promises cover both systems without repeated DAW and OS checks', t => {
+  const f = fixture(t), promise = 'The clock keeps every frame.';
+  const init = () => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE);
+  const write = spec => f.write('fixes.json', spec);
+  const spec = { ...f.spec, platformSensitive: [promise] };
+  write(spec);
+  assertState(init());
+  const windows = { ...spec.rows.find(row => row.daw === 'REAPER' && row.promise === promise), id: 'windows-reaper', os: 'windows', hosts: ['Windows/x86_64/VST3'] };
+  write({ ...spec, rows: [...spec.rows, windows] });
+  assertState(init());
+  write({ ...spec, rows: [...spec.rows, windows, { ...windows, id: 'windows-again', daw: 'Reaper' }] });
+  assert.throws(init, /Promise The clock keeps every frame\. is already verified in REAPER/);
+  write({ ...f.spec, rows: [...f.spec.rows, windows] });
+  assert.throws(init, /Promise The clock keeps every frame\. is already verified in REAPER/);
+  const windowsOnly = spec.rows.map(row => row.daw !== 'Logic Pro' && row.promise === promise ? { ...row, os: 'windows', hosts: ['Windows/x86_64/VST3'] } : row)
+    .filter(row => !(row.daw === 'Logic Pro' && row.promise === promise));
+  // A missing DAW is diagnosed before platform coverage.
+  write({ ...spec, rows: windowsOnly });
+  assert.throws(init, /not verified in Logic Pro/);
+  for (const invalid of [['Unknown.'], [promise, promise], null, 'not an array', [42]]) {
+    write({ ...f.spec, platformSensitive: invalid });
+    assert.throws(init, /platformSensitive must list distinct promises/);
+  }
+  for (const os of [undefined, null, '', 'MacOS', 'linux']) {
+    write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os } : row) });
+    assert.throws(init, /needs os macos or windows/);
+  }
+  write({ ...f.spec, rows: f.spec.rows.map((row, index) => index === 0 ? { ...row, os: 'windows', daw: 'logic', hosts: ['Windows/x86_64/VST3'] } : row) });
+  assert.throws(init, /Logic Pro requires macos/);
+});
+
+test('every host entry names the row OS as its first segment', t => {
+  const f = fixture(t);
+  const init = () => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE);
+  const replace = (index, hosts) => f.write('fixes.json', { ...f.spec,
+    rows: f.spec.rows.map((row, i) => i === index ? { ...row, hosts } : row) });
+  const cakewalk = f.spec.rows.findIndex(row => row.daw === 'Cakewalk');
+  for (const hosts of [['macOS/x86_64/AU'], ['Windows/x86_64/VST3', 'macOS/x86_64/AU'],
+    ['WindowsExtra/x86_64/VST3'], ['/Windows/x86_64/VST3']]) {
+    replace(cakewalk, hosts);
+    assert.throws(init, /hosts OS must match windows/);
+  }
+  replace(0, ['Windows/x86_64/VST3']);
+  assert.throws(init, /hosts OS must match macos/);
+  replace(cakewalk, ['wInDoWs/x86_64/VST3', 'WINDOWS/x86_64/AAX']);
+  assertState(init());
+  replace(0, ['MaCoS/x86_64/AU']);
+  assertState(init());
 });
 
 test('promises are every English list item, whatever its marker, with continuation lines joined', t => {
