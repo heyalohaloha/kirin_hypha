@@ -1,4 +1,5 @@
 #include "HyphaSpectrumChromePainter.h"
+#include "HyphaSpectrumPostBody.h"
 #include "HyphaSpectrumPeakTags.h"
 #include "HyphaSpectrumProbePainter.h"
 
@@ -335,14 +336,10 @@ void paint (juce::Graphics& g,
     const float probeNormalisedX = state.snapshotValid && state.hoverNormalisedX >= 0.0f
         ? spectrum_geometry::clampToBandCentreRange (state.hoverNormalisedX)
         : state.snapshotValid && state.focusFrequencyHz > 0.0f
-            ? spectrum_geometry::clampToBandCentreRange (
-                spectrum_geometry::normalisedXForFrequency (
-                    state.focusFrequencyHz, minimumHz, maximumHz))
+            ? spectrum_geometry::clampToBandCentreRange (spectrum_geometry::normalisedXForFrequency (state.focusFrequencyHz, minimumHz, maximumHz))
             : -1.0f;
     const float focusNormalisedX = state.snapshotValid && state.focusFrequencyHz > 0.0f
-        ? spectrum_geometry::clampToBandCentreRange (
-            spectrum_geometry::normalisedXForFrequency (
-                state.focusFrequencyHz, minimumHz, maximumHz))
+        ? spectrum_geometry::clampToBandCentreRange (spectrum_geometry::normalisedXForFrequency (state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
     auto pre = state.pre, post = state.post, hold = state.absolutePeakHold;
@@ -379,6 +376,9 @@ void paint (juce::Graphics& g,
             && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
             stopped_history::paintDimmed (g, [&] {
                 spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory, state.backdrop, state.settings, minimumHz, maximumHz); });
+        // Stopped with PEAK SLOW: the held line stays in the picture (its clock stands still).
+        if (state.absoluteObservation && ! state.midSideObservation && ! state.signalActive && state.haveSnapshot && state.settings.slowPeak())
+            spectrum_painter::post_body::stoppedPeak (g, plot, hold, range, scale, brightness);
         const auto status = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
                             : ! state.signalActive ? juce::String ("INACTIVE")

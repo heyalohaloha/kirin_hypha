@@ -48,6 +48,24 @@ inline void verifyFreqRichMotionRules()
         check (std::abs (view.slowPeakForTest (128) - expected) < 0.2f,
                "after a stall the slow peak has fallen for all of the elapsed time");
     }
+    {
+        // Stopped: the slow peak line is still in the picture, with its clock standing still.
+        SpectrumComponent view; slowView (view);
+        view.setSnapshot (spectrumPerformanceFixture());
+        view.queueSnapshot (quieter (spectrumPerformanceFixture(), 40, 1'600));
+        view.presentationTickAt (view.curveUpdateTimeForTest() + 16);
+        view.setSignalActive (false);
+        const auto held = view.slowPeakForTest (128);
+        const auto stopped = view.createComponentSnapshot (view.getLocalBounds(), false, 1.0f);
+        view.presentationTickAt (view.curveUpdateTimeForTest() + 30'000);
+        check (view.slowPeakForTest (128) == held, "the stopped line does not fall");
+        view.restartPeakLine();
+        const auto without = view.createComponentSnapshot (view.getLocalBounds(), false, 1.0f);
+        int lineInk = 0;
+        for (int y = 0; y < stopped.getHeight(); ++y)
+            for (int x = 0; x < stopped.getWidth(); ++x) lineInk += stopped.getPixelAt (x, y) != without.getPixelAt (x, y);
+        check (lineInk > 150, "the slow peak line stays visible while stopped");
+    }
     if (failures != 0) std::exit (1);
 }
 

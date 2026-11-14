@@ -1,13 +1,20 @@
 #pragma once
 
+#include <cmath>
 #include <juce_graphics/juce_graphics.h>
 
 #include "HyphaMonotoneCurve.h"
+#include "HyphaSpectrumGeometry.h"
+#include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "kirin_hypha_ffi.h"
 
 // The opt-in FILL RICH look of POST: one gradient body that thins towards the floor and one
 // fine light along its upper edge. No shadow and no blur, so nothing is filtered per frame.
+namespace hypha::spectrum_painter
+{
+float yForMagnitude (float dbfs, juce::Rectangle<float> plot, float range) noexcept;
+}
 namespace hypha::spectrum_painter::post_body
 {
 using Bins = std::array<float, KIRIN_SPECTRUM_BAND_COUNT>;
@@ -35,6 +42,25 @@ inline void fill (juce::Graphics& g, juce::Rectangle<float> plot, const Bins& x,
     body.closeSubPath();
     g.setGradientFill (gradient (plot, brightness, true, 0.24f));
     g.fillPath (body);
+}
+
+// The slow PEAK line while playback is stopped: the curve is not drawn then, the held line is.
+// `hold` is in dB with TILT applied; nothing is drawn before a value has been held.
+inline void stoppedPeak (juce::Graphics& g, juce::Rectangle<float> plot, const Bins& hold, float range,
+                         float visualScale, float brightness)
+{
+    Bins x {}, y {};
+    for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        if (! std::isfinite (hold[index])) return;
+        x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index), plot.getX(), plot.getRight());
+        y[index] = yForMagnitude (hold[index], plot, range);
+    }
+    juce::Path line;
+    monotone_curve::append (line, x, y, 0, KIRIN_SPECTRUM_BAND_COUNT - 1, true, true);
+    g.setColour (COL_FLORA_BR.withMultipliedBrightness (brightness).withAlpha (ui_contract::spectrumHoldAlpha));
+    g.strokePath (line, juce::PathStrokeType (0.85f * ui_contract::spectrumStrokeScale (visualScale),
+                                              juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
 inline void edge (juce::Graphics& g, const juce::Path& curve, float strokeScale, float brightness)
