@@ -269,7 +269,7 @@ fn claim_writer_with_attestation(
     attestation: Option<WriterGenerationAttestation>,
 ) -> Result<WriterClaimGuard, WriterClaimError> {
     let dir = writer_claim_dir(base_dir, project_hash, session_id);
-    fs::create_dir_all(&dir)?;
+    crate::atomic_file::durable::create_dir_all(&dir)?;
     let path = writer_claim_path(base_dir, project_hash, session_id, role, instance_id);
     let owner_id = next_owner_id();
     let now = now_epoch_ms();

@@ -40,17 +40,17 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_session_v2(
     out_size: u32,
     out: *mut KirinMeterSessionV2,
 ) -> u8 {
-    if version != 2 {
-        return KIRIN_SNAPSHOT_UNSUPPORTED;
-    }
-    if handle.is_null()
-        || out.is_null()
-        || (out_size as usize) < std::mem::size_of::<KirinMeterSessionV2>()
-        || !(out as usize).is_multiple_of(std::mem::align_of::<KirinMeterSessionV2>())
-    {
-        return KIRIN_SNAPSHOT_INVALID_REQUEST;
-    }
     catch_unwind(AssertUnwindSafe(|| {
+        if version != 2 {
+            return KIRIN_SNAPSHOT_UNSUPPORTED;
+        }
+        if handle.is_null()
+            || out.is_null()
+            || (out_size as usize) < std::mem::size_of::<KirinMeterSessionV2>()
+            || !(out as usize).is_multiple_of(std::mem::align_of::<KirinMeterSessionV2>())
+        {
+            return KIRIN_SNAPSHOT_INVALID_REQUEST;
+        }
         match unsafe { &*handle }.meter_session_v2() {
             Ok(packet) => {
                 unsafe { out.write(packet) };
