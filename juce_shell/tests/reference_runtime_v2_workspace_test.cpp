@@ -3,6 +3,7 @@
 #include "reference_runtime_v2_preset_test_support.h"
 #include "reference_runtime_v2_transaction_test_support.h"
 #include "ReferenceSourceFailureTest.h"
+#include "ReferenceCrestBasisTest.h"
 namespace { bool authorityRenameDiagnostic = false; }
 #include "reference_runtime_test_entries.h"
 #include "../src/AtomicFile.h"
@@ -24,6 +25,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
 {
     namespace control = hypha::tests::reference_control;
     verifyGlobalPresetCatalogOrder();
+    testCrestBasisFixtures (sandbox.getChildFile ("crest-fixtures").getChildFile ("plugin_data/reference/v2"));
     const auto source = sandbox.getChildFile ("version-a.wav");
     const auto v2Root = sandbox.getChildFile ("plugin_data").getChildFile ("reference").getChildFile ("v2");
     const auto aBindingFile = ref::RuntimeABindingRepository (v2Root).bindingFile (runtimeId);

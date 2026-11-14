@@ -11,6 +11,7 @@
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 #include "reference_audition/ReferenceDynamicsRange.h"
+#include "reference_audition/ReferenceCrestBasis.h"
 
 #include <algorithm>
 #include <cmath>
@@ -43,7 +44,7 @@ std::vector<Row> rowsFor (const juce::String& binding)
     namespace text = help_text;
     const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu, AWords::size, text::movement };
     if (binding == "dynamics")
-        return { { "CREST (TP/RMS)", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size, text::crest }, movement };
+        return { { "CREST", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size, text::crest }, movement };
     if (binding == "loudness")
         return { { "MOMENTARY (LUFS-M)", DynamicsFact::lufsM, false, true, 0.0, 0.0, 6.0, Unit::lufs, AWords::loudness, text::momentary }, movement };
     if (binding == "stereo")
@@ -138,6 +139,7 @@ struct Sides
 {
     reference_audition::DynamicsHops a, other;
     bool aReady = false;
+    const char* crestName = "CREST";
     double shift = 0.0;  // 比べる側の gain（合わせていなければ 0）
     const char* letter = "C";
 };
@@ -214,7 +216,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         auto axis = block.removeFromTop (std::min (15.0f, block.getHeight()));
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
-        text_style::drawEllipsized (g, item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
+        text_style::drawEllipsized (g, item.row.fact == DynamicsFact::crest ? sides.crestName : item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
         text_style::drawEllipsized (g, item.row.spread ? "P90-P10" : "MEDIAN",
             title.withLeft (barRight + gap).withWidth (numberWidth).toNearestInt(), juce::Justification::centredRight);
         for (auto value = item.minimum; value <= item.maximum + 1.0e-9; value += item.row.step)
@@ -334,6 +336,7 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
         const auto start = std::isfinite (state.cueStartSeconds) ? std::llround (state.cueStartSeconds * rate) : 0;
         const auto end = std::isfinite (state.cueEndSeconds) ? std::llround (state.cueEndSeconds * rate) : measurement->audio.totalSampleFrames;
         sides.other = reference_audition::kirinHops (*measurement, start, end);
+        sides.crestName = reference_audition::crestLabel (measurement);
     }
     const auto timeline = state.visualTimeline;
     const auto& ticks = timeline ? timeline->aTicks : nullptr;
