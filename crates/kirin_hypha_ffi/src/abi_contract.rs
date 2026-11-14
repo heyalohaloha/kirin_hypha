@@ -84,10 +84,13 @@ pub fn abi_contract() -> KirinAbiContract {
 /// `out` は null か、`KirinAbiContract` 1 個分の書き込み可能な領域であること。
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_abi_contract(out: *mut KirinAbiContract) {
-    if out.is_null() {
-        return;
-    }
-    unsafe { out.write(abi_contract()) };
+    // A panic writes nothing; the caller's zeroed contract then reads as a mismatch.
+    let _ = std::panic::catch_unwind(|| {
+        if out.is_null() {
+            return;
+        }
+        unsafe { out.write(abi_contract()) };
+    });
 }
 
 #[cfg(test)]

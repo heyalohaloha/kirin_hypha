@@ -63,7 +63,7 @@ pub(crate) struct ProjectLock(File);
 
 impl ProjectLock {
     pub(crate) fn acquire(dir: &Path) -> std::io::Result<Self> {
-        fs::create_dir_all(dir)?;
+        crate::atomic_file::durable::create_dir_all(dir)?;
         let file = OpenOptions::new()
             .read(true)
             .write(true)

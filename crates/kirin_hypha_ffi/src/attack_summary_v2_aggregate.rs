@@ -104,8 +104,8 @@ pub(crate) fn assemble_summary(
         result.pair_kind[i] = event.kind;
         result.evidence[i] = event.lanes;
     }
-    for lane in 0..4 {
-        result.lanes[lane] = summarize_lane(events, lane, header.target)?;
+    for (lane, summary) in result.lanes.iter_mut().enumerate() {
+        *summary = summarize_lane(events, lane, header.target)?;
     }
     result.head = average_points(events, header.target, true)?;
     result.tail = average_points(events, header.target, false)?;

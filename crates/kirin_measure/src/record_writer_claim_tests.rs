@@ -330,3 +330,20 @@ fn concurrent_claims_exactly_one_writer_wins() {
         THREADS - 1
     );
 }
+
+#[test]
+fn the_first_claim_makes_its_new_project_directory_durable_in_the_base() {
+    let base = isolated_base();
+    let syncs = crate::atomic_file::durable::test_hook::syncs_during(false, || {
+        let _claim = claim_writer(&base, "ph-durable", "session-a", Role::Pre, "pre-1").unwrap();
+    });
+    if cfg!(unix) {
+        let synced_base = syncs
+            .iter()
+            .any(|(kind, path)| *kind == "directory" && path == &base);
+        assert!(
+            synced_base,
+            "the project entry in the base was not synced: {syncs:?}"
+        );
+    }
+}

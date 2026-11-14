@@ -46,21 +46,28 @@ pub unsafe extern "C" fn kirin_reference_analysis_same(
     a: *const ReferenceAnalysisOwner,
     b: *const ReferenceAnalysisOwner,
 ) -> bool {
-    !a.is_null() && !b.is_null() && unsafe { (&*a).same_owner(&*b) }
+    catch_unwind(AssertUnwindSafe(|| {
+        !a.is_null() && !b.is_null() && unsafe { (&*a).same_owner(&*b) }
+    }))
+    .unwrap_or(false)
 }
 /// # Safety
 /// Uniquely owned opaque handle or null. No concurrent access through this handle.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_reference_analysis_owner_drop(owner: *mut ReferenceAnalysisOwner) {
-    if !owner.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(owner) })));
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !owner.is_null() {
+            drop(unsafe { Box::from_raw(owner) })
+        }
+    }));
 }
 /// # Safety
 /// Uniquely owned opaque grant or null. Non-RT only.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_reference_analysis_grant_drop(grant: *mut ReferenceAnalysisGrant) {
-    if !grant.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(grant) })));
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !grant.is_null() {
+            drop(unsafe { Box::from_raw(grant) })
+        }
+    }));
 }
