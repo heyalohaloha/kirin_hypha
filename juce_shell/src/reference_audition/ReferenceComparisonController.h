@@ -56,6 +56,9 @@ public:
     // 中で行うので、別のスレッドから来る restoreSettings と交差しても、復元した値を古い回答が上書きしない。
     bool selectAWindow (AWindowTarget, AWindowChoice, int seconds = 10);
     bool resetAWindow (AWindowTarget);
+    // B の Balance の重ね比べ（見せ方だけ、project に保存する）。変わったら state が変わったと知らせる。
+    bool setOverlay (const BalanceOverlay&);
+    bool setCheckSong (bool);  // C の比べる値（CUE／SONG）。保存し、host に知らせる
     bool retryPresetSelection();
     bool retryCandidatePreparation();
     bool requestRecovery();
@@ -66,6 +69,18 @@ public:
     bool selectSong (const juce::String& songId, double loudness = std::numeric_limits<double>::quiet_NaN(),
                      double peak = std::numeric_limits<double>::quiet_NaN());
     bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
+    // B・C の流し方（LOOP が既定、FOLLOW A は A の DAW の位置から曲全体）。B と C で 1 つ、plugin の state に保存する。
+    // 切り替えも復元も鳴らし始めない。手のずらしは見ている役（2 C・3 B）に足し、曲・役が替わると 0 に戻る。
+    // loudness・peak：鳴っている役（selectedSlot）の、新しい流し方の窓（windowBlocksFor）の A。無ければ NaN（合わせられ
+    // ない役は A へ戻して、新しい MATCH の押し直しを待つ）。止めている間の戻しも新しい MATCH で鳴らし直す。
+    void setFollowA (bool follow, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                     double peak = std::numeric_limits<double>::quiet_NaN()) noexcept;
+    int windowBlocksFor (int slot, bool follow) const { return slotController (slot).matchWindowBlocksFor (follow); }
+    bool followA() const noexcept { return followMode.load (std::memory_order_acquire); }
+    bool nudgeFollowOffset (int slot, double seconds) noexcept;
+    bool resetFollowOffset (int slot) noexcept;
+    int selectedSlot() const noexcept  // 選んで鳴らしている役（1 V、2 C、3 B、無ければ 0）
+    { return version.outputSelected() ? 1 : check.outputSelected() ? 2 : reference.outputSelected() ? 3 : 0; }
     // C の MATCH の試みを 1 度だけ見る（窓を開き直しても、同じ試みの合わせ直しを立て直さない）。メッセージスレッド。
     bool takeCheckAttempt (std::uint64_t attempt) noexcept
     { if (attempt == checkAttemptSeen) return false; checkAttemptSeen = attempt; return true; }
@@ -124,6 +139,12 @@ public:
 
 private:
     bool admit (int, bool);
+    bool requestAuditionOnce (int, double, double);
+    void restartWithNewMatch (int slot);  // 選んでいた役を新しい MATCH の押し直しの待ちにする（selectionLock の外）
+    // 曲の外で押して覚えた役の、押した時の A（決めるのは押した時、の決まり）。その役の替えの世代と一緒に持つ（selectionLock）。
+    struct PressLevel { int slot = 0; std::uint64_t generation = 0; double loudness = 0.0, peak = 0.0; } rememberedPress;
+    std::atomic<bool> followMode { false };
+    std::atomic<int> followRole { 0 };  // 最後に押した役（替われば離れた役のずらしを 0 に戻す）
     output_owner::States ownStatesLocked() const;  // gateLock を持って呼ぶ（atomic と gateLock の値だけを読む）
     output_owner::States external() const { return externalStates ? externalStates() : 0; }  // gateLock の外で呼ぶ
     // VERSION BLIND の持ち物。始まりで A を観測へ渡すのを止め、ほかの Blind を締め出す（Blind の枠と barrier）。終わりは
@@ -170,6 +191,7 @@ private:
         bool sawPlayback = false;
         bool resume = false; // 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
         bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）
+        double pressLoudness = std::numeric_limits<double>::quiet_NaN(), pressPeak = std::numeric_limits<double>::quiet_NaN();
     } pendingAudition; // selectionLock; control thread only.
     bool resumeWanted() const;
     bool armResume();
@@ -184,8 +206,10 @@ private:
     // 終わった役の印を残すと、選択を替えただけで鳴り出し、timer が回り続け、V の AUTO が止まる。ライブラリが公開を
     // 引っ込めて控えが消えたときは、その役を「音源が変わった」で止めたと言う。
     void reconcileOutputMark();
-    bool waitWhilePreparing (int slot);
-    bool queueAudition (int slot, std::uint64_t safetyEpoch);
+    bool waitWhilePreparing (int slot, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                             double peak = std::numeric_limits<double>::quiet_NaN());
+    bool queueAudition (int slot, std::uint64_t safetyEpoch, double loudness = std::numeric_limits<double>::quiet_NaN(),
+                        double peak = std::numeric_limits<double>::quiet_NaN());
     bool selectCheckRole (const std::function<bool()>& apply);
     bool preparingCheck() const { return switchSlot.load() == 2 && normalOutputSlot.load() == 2; }
     bool preparingReference() const { return switchSlot.load() == 3 && normalOutputSlot.load() == 3; }

@@ -159,6 +159,7 @@ void Component::mouseExit (const juce::MouseEvent&)
 void Component::setState (State next)
 {
     next.chartPointer = current.chartPointer;
+    next.overlayPointed = current.overlayPointed;
     current = std::move (next);
     prepareDisplayNames (current);
     setTitle (current.title);
@@ -202,6 +203,7 @@ void Component::setState (State next)
         && !current.cues.empty());
     syncRoles (blindSession);
     syncCheckPage (blindSession);
+    syncPlayback (blindSession);
     targetBar.setVisible (current.targetsEnabled && current.comparisonSlot == 2 && ! blindSession);
     targetBar.update (current.targets, presentationContext, current.aKirin && current.aKirin->frames >= 30, shortPanel());
     const bool numericalC = current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr;

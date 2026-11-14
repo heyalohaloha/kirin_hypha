@@ -29,6 +29,16 @@ struct CueLevel
 std::optional<CueLevel> readCueLevel (const juce::File& root, const RuntimeWorkspace&, const RuntimeCandidate&,
                                       const RuntimeCue&, const RuntimeSource&);
 
+// Cue の値と、同じ ranges の「曲全体の範囲」（頭から終わりまでの範囲。Kirin OS 1.6.1 から全曲に 1 つ入る。範囲は
+// 開始の順なので先頭とは限らず、探して引く）の値。C の画面の SONG が曲全体の値に使う。古い Kirin OS の ranges に
+// 曲全体の範囲が無ければ song は空（Cue が曲全体なら、その Cue の範囲が曲全体の範囲）。ranges を 1 度だけ読む。
+struct RangeLevels
+{
+    std::optional<CueLevel> cue, song;
+};
+RangeLevels readRangeLevels (const juce::File& root, const RuntimeWorkspace&, const RuntimeCandidate&,
+                             const RuntimeCue&, const RuntimeSource&);
+
 // C の A 側の窓の長さ（10 Hz のブロック数）：Cue と同じ長さ。10 秒より短い Cue は 10 秒
 // （短い窓の音量は揺れる）、長い Cue はメーター履歴の 10 分まで。
 int cueWindowBlocks (std::int64_t cueStartSample, std::int64_t cueEndSample, std::int64_t sampleRateHz) noexcept;

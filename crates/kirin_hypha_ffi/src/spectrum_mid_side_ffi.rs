@@ -118,8 +118,11 @@ pub unsafe extern "C" fn kirin_hypha_poll_mid_side_spectrum(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinMidSideSpectrumView,
 ) -> bool {
-    let mut continuity = 0;
-    unsafe { kirin_hypha_poll_mid_side_spectrum_continuous(handle, out, &mut continuity) }
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut continuity = 0;
+        unsafe { kirin_hypha_poll_mid_side_spectrum_continuous(handle, out, &mut continuity) }
+    }))
+    .unwrap_or(false)
 }
 
 /// Poll one coherent observation and its worker aperture continuity identity.

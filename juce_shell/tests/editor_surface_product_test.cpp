@@ -112,6 +112,7 @@ void verifySavedReferenceChoices()
     hypha::reference_audition::ReferenceComparisonSettings settings;
     settings.version = { "preset-b", "check-b", "candidate-b", "cue-b" };
     settings.check = { "preset-c", "check-c", "candidate-c", "cue-c" }; settings.aWindows.check = hypha::reference_audition::AWindowChoice::all;
+    settings.overlay = { true, hypha::reference_audition::BalanceOverlay::Drawing::shape, { { "preset-b/check-b/candidate-b", 2 }, { "target-1a", 0 } }, true };
     settings.write (xml);
     juce::MemoryBlock bytes;
     juce::AudioProcessor::copyXmlToBinary (xml, bytes);
@@ -123,7 +124,8 @@ void verifySavedReferenceChoices()
     require (output != nullptr, "Reference host XML state round trip");
     const auto choices = hypha::reference_audition::ReferenceComparisonSettings::read (*output);
     require (choices.version.target() == settings.version.target()
-        && choices.check.target() == settings.check.target() && choices.aWindows.check == settings.aWindows.check, "shipping processor retains B/C before prepare");
+        && choices.check.target() == settings.check.target() && choices.aWindows.check == settings.aWindows.check
+        && choices.overlay == settings.overlay, "shipping processor retains B/C and B's overlay before prepare");
     require (! restored.referenceAuditionSnapshot().bSelected, "restoring the processor never selects reference audio");
 }
 

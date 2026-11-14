@@ -525,7 +525,7 @@ impl PluginDataWriter {
         pair_pre_name: Option<String>,
     ) -> Result<Self, WriterError> {
         if let Some(parent) = paths.final_path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::atomic_file::durable::create_dir_all(parent)?;
         }
         let data = PluginDataFile::new(
             installation_id,
@@ -3361,7 +3361,7 @@ fn write_pair_commit_manifest_atomic(
         post: pair_commit_side(post_paths, post_data, "POST"),
     };
     let json = serde_json::to_vec(&manifest)?;
-    crate::atomic_file::write_bytes_atomic(manifest_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(manifest_path, &json)?;
     Ok(())
 }
 

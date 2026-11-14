@@ -17,6 +17,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           if (slot == 2) if (const auto blocks = targets.cueBlocks(); blocks > 0) binding.cueLengthBlocks = blocks;
           if (slot != 1)  // V の図は A の窓を使わない
               binding.aDisplayWindowBlocks = visualPreferences->aWindows().blocksOf (slot, binding.cueLengthBlocks);
+          binding.songWanted = slot == 2 && visualPreferences->checkSong();
           return binding;
       },analysis)
 {
@@ -139,7 +140,14 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
 {
     const auto b = version.snapshot();
     const juce::ScopedLock lock (selectionLock);
-    if (pendingSettings) { auto saved = *pendingSettings; saved.targets = targets.snapshot().collection; return saved; }
+    if (pendingSettings)
+    {
+        auto saved = *pendingSettings;
+        saved.targets = targets.snapshot().collection;
+        saved.overlay = visualPreferences->overlay();
+        saved.checkSong = visualPreferences->checkSong();
+        return saved;
+    }
     ReferenceComparisonSettings result;
     result.targets = targets.snapshot().collection;
     result.version = versionId.isEmpty() ? ReferenceChoice {} : version.savedChoice();
@@ -157,7 +165,10 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
     result.aWindows = visualPreferences->aWindows();
+    result.overlay = visualPreferences->overlay();
+    result.checkSong = visualPreferences->checkSong();
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
+    result.followA = followA();
     return result;
 }
 
@@ -166,10 +177,15 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     const juce::ScopedLock transaction (targetChoiceLock);
     ReferenceComparisonSettings value = input;
     visualPreferences->set (value.visualView);
+    visualPreferences->setOverlay (value.overlay);
+    visualPreferences->setCheckSong (value.checkSong);  // 比べる値を覚えた形に戻すだけ
     if (! value.version.valid() || value.version.candidateId.isEmpty()) value.version = {};
     if (! value.check.valid()) value.check = {};
     if (! value.reference.valid() || value.reference.candidateId.isEmpty()) value.reference = {};
     selectA();
+    // 流し方は覚えた形に戻すだけ（鳴らし始めない。R-12）。
+    followMode.store (value.followA, std::memory_order_release);
+    check.setFollowA (value.followA); reference.setFollowA (value.followA);  // selectA の後：鳴っている役は無い
     targets.restore (value.targets);
     bool apply = false;
     {
@@ -234,6 +250,7 @@ Snapshot ReferenceComparisonController::snapshot()
     }
     result.separateComparisons = true;
     result.comparisonSlot = slot;
+    result.followA = followA();  // B と C で 1 つの選択（見ている役の値は手のずらしと曲の外だけ）
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : r.bSelected ? 3 : 0;
     result.bSelected = result.audibleComparisonSlot != 0;
     result.checkSelection = std::make_shared<const Snapshot> (c);
@@ -311,6 +328,7 @@ bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>
     if (viewedSlot.load (std::memory_order_acquire) != 1) viewedSlot.store (2, std::memory_order_release);
     // 同じ選択（世代が進まない）は鳴らしたまま。Kirin OS の準備を待つ CHECK SET は C を止めて手放す。
     const auto after = check.requestedGeneration();
+    if (after != before) check.setFollowOffsetSeconds (0.0);  // C の曲・Cue が替われば手のずらしは 0
     if (after != before) continueAfterSwitch (2);
     else if (check.snapshot().presetSelectionStatus == "pending") continueAfterSwitch (2, false);
     return true;
@@ -386,6 +404,20 @@ bool ReferenceComparisonController::selectAWindow (AWindowTarget target, AWindow
         changed = visualPreferences->setAWindow (target.slot, choice, seconds);
     }
     if (changed && stateChanged) stateChanged();
+    return true;
+}
+bool ReferenceComparisonController::setOverlay (const BalanceOverlay& value)
+{
+    if (visualPreferences->overlay() == value) return false;
+    visualPreferences->setOverlay (value);
+    if (stateChanged) stateChanged();  // the host learns the project changed (it asks to save)
+    return true;
+}
+bool ReferenceComparisonController::setCheckSong (bool song)
+{
+    if (visualPreferences->checkSong() == song) return false;
+    visualPreferences->setCheckSong (song);
+    if (stateChanged) stateChanged();  // the host learns the project changed (it asks to save)
     return true;
 }
 bool ReferenceComparisonController::resetAWindow (AWindowTarget target)

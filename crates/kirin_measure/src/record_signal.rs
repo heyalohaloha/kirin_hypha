@@ -302,7 +302,7 @@ fn with_signal_lock<T>(
 ) -> Result<T, SignalError> {
     let lock_path = signal_lock_path(base_dir, project_hash, post_instance_id);
     if let Some(parent) = lock_path.parent() {
-        crate::atomic_file::create_private_dir_all(parent)?;
+        crate::atomic_file::durable::create_private_dir_all(parent)?;
     }
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);

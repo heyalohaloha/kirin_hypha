@@ -123,3 +123,25 @@ void KirinHyphaProcessorBase::setDisplaySettingsPreference (hypha::display_setti
     if (displaySettings.set (value))
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
+
+// B の Balance の重ね比べ（ONE／ALL・描き方・出した線）。保存する表示の選択なので、ほかの表示の選択と並べる。
+bool KirinHyphaProcessorBase::setReferenceOverlay (const hypha::reference_audition::BalanceOverlay& overlay)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr && referenceAuditionController->setOverlay (overlay);
+   #else
+    juce::ignoreUnused (overlay);
+    return false;
+   #endif
+}
+
+// C の画面の CUE／SONG（比べる値）。保存する表示の選択なので、重ね比べと並べる。
+bool KirinHyphaProcessorBase::setReferenceCheckSong (bool song)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr && referenceAuditionController->setCheckSong (song);
+   #else
+    juce::ignoreUnused (song);
+    return false;
+   #endif
+}

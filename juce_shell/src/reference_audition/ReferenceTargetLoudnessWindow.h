@@ -6,6 +6,35 @@
 
 namespace hypha::reference_audition
 {
+// BS.1770 の K 特性（shelf と RLB）。KirinFingerprintMeter と同じ式。状態は ch ごとに呼ぶ側が持つ。
+struct KWeighting
+{
+    using State = std::array<double, 4>;
+    std::array<double, 3> shelfB {}, shelfA {}, passA {};
+    void configure (int rate)
+    {
+        const auto pi = std::acos (-1.0);
+        const auto k = std::tan (pi * 1681.974450955533 / rate), q = 0.7071752369554196;
+        const auto vh = std::pow (10.0, 3.999843853973347 / 20.0), vb = std::pow (vh, 0.4996667741545416);
+        const auto a0 = 1.0 + k / q + k * k;
+        shelfB = { (vh + vb * k / q + k * k) / a0, 2.0 * (k * k - vh) / a0, (vh - vb * k / q + k * k) / a0 };
+        shelfA = { 1.0, 2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0 };
+        const auto r = std::tan (pi * 38.13547087602444 / rate), rq = 0.5003270373238773;
+        const auto r0 = 1.0 + r / rq + r * r;
+        passA = { 1.0, 2.0 * (r * r - 1.0) / r0, (1.0 - r / rq + r * r) / r0 };
+    }
+    double filter (double sample, State& state) const
+    {
+        const auto shelf = shelfB[0] * sample + state[0];
+        state[0] = shelfB[1] * sample - shelfA[1] * shelf + state[1];
+        state[1] = shelfB[2] * sample - shelfA[2] * shelf;
+        const auto output = shelf + state[2];
+        state[2] = -2.0 * shelf - passA[1] * output + state[3];
+        state[3] = shelf - passA[2] * output;
+        return output;
+    }
+};
+
 // Worker-only K-weighted window facts. A tick is an affine state transition and a quadratic
 // energy function of its initial filter state. Composing those numbers from a zero state
 // excludes all audio before the selected window, without retaining or replaying its PCM.
@@ -79,33 +108,15 @@ public:
     }
 private:
     int rate = 0, channels = 0;
-    std::array<double, 3> shelfB {}, shelfA {}, passA {};
+    KWeighting weighting;
     std::vector<State> response;
     Matrix gram {}, transition {};
     std::deque<Tick> ticks;
-    double filter (double sample, State& state) const
-    {
-        const auto shelf = shelfB[0] * sample + state[0];
-        state[0] = shelfB[1] * sample - shelfA[1] * shelf + state[1];
-        state[1] = shelfB[2] * sample - shelfA[2] * shelf;
-        const auto output = shelf + state[2];
-        state[2] = -2.0 * shelf - passA[1] * output + state[3];
-        state[3] = shelf - passA[2] * output;
-        return output;
-    }
+    double filter (double sample, State& state) const { return weighting.filter (sample, state); }
     void configure (int nextRate, int nextChannels)
     {
         reset(); rate = nextRate; channels = nextChannels;
-        // Same BS.1770 shelf/RLB equations as KirinFingerprintMeter; no change to A's meters.
-        const auto pi = std::acos (-1.0);
-        const auto k = std::tan (pi * 1681.974450955533 / rate), q = 0.7071752369554196;
-        const auto vh = std::pow (10.0, 3.999843853973347 / 20.0), vb = std::pow (vh, 0.4996667741545416);
-        const auto a0 = 1.0 + k / q + k * k;
-        shelfB = { (vh + vb * k / q + k * k) / a0, 2.0 * (k * k - vh) / a0, (vh - vb * k / q + k * k) / a0 };
-        shelfA = { 1.0, 2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0 };
-        const auto r = std::tan (pi * 38.13547087602444 / rate), rq = 0.5003270373238773;
-        const auto r0 = 1.0 + r / rq + r * r;
-        passA = { 1.0, 2.0 * (r * r - 1.0) / r0, (1.0 - r / rq + r * r) / r0 };
+        weighting.configure (rate);  // no change to A's meters
         response.assign (static_cast<size_t> (rate / 10), {});
         gram = {}; transition = {};
         std::array<State, 4> basis {};

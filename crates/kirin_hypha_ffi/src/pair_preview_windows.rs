@@ -42,15 +42,19 @@ pub(super) fn submit(service: Arc<Service>) -> bool {
     false
 }
 unsafe extern "system" fn callback(instance: PTP_CALLBACK_INSTANCE, context: *mut c_void) {
-    let work = unsafe { Box::from_raw(context.cast::<Work>()) };
-    unsafe {
-        FreeLibraryWhenCallbackReturns(instance, work.module);
-    }
-    // Rust state is retired while code is still mapped; the system returns from the callback
-    // before releasing the last module reference. Never unwind through the Windows ABI.
-    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work.service.run())).is_err() {
-        work.service
-            .quit
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
+    // Never unwind through the Windows ABI: the whole callback, including the drop of `work`,
+    // runs inside the guard.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let work = unsafe { Box::from_raw(context.cast::<Work>()) };
+        unsafe {
+            FreeLibraryWhenCallbackReturns(instance, work.module);
+        }
+        // Rust state is retired while code is still mapped; the system returns from the callback
+        // before releasing the last module reference.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work.service.run())).is_err() {
+            work.service
+                .quit
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }));
 }

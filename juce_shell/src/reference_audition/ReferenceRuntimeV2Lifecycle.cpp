@@ -49,6 +49,7 @@ namespace hypha::reference_audition
             sampleLocked.store (false, std::memory_order_relaxed);
             bHostAnchor.store (0, std::memory_order_relaxed);
             bSourceAnchor.store (0, std::memory_order_relaxed);
+            followOffset.store (0, std::memory_order_relaxed);  // 流し方（followA）は利用者の選択なので残す
             mappingGeneration.fetch_add (1, std::memory_order_release);
         }
         blindContextKey.clear();

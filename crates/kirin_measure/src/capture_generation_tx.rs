@@ -56,7 +56,7 @@ impl CaptureGenerationTransaction {
             .join(CAPTURE_GENERATION_SUBDIR)
             .join(PUBLISH_LOCK_FILENAME);
         if let Some(parent) = lock_path.parent() {
-            crate::atomic_file::create_private_dir_all(parent)?;
+            crate::atomic_file::durable::create_private_dir_all(parent)?;
         }
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);

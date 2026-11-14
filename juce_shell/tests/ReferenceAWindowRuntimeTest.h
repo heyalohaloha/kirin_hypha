@@ -74,6 +74,8 @@ class AWindowRing
     bool parked = false;
     std::int64_t position = 0;
     int displayBlocks = 100;
+    bool song = false;  // C の SONG（A FROM START を集計する）
+    std::uint64_t discontinuity = 1;  // 送り手の途切れの印（停止・遅延の変化で進む）
 public:
     ref::VisualObservation observation { [this] { return step(); } };
     static constexpr int blocksPerFrame = 20;
@@ -99,7 +101,7 @@ public:
             for (int n = 0; n < 240; ++n)
                 for (int channel = 0; channel < 2; ++channel)
                     pcm[static_cast<size_t> (n * 2 + channel)] = sample (position + n, channel);
-            observation.enqueue (pcm.data(), 240, 2, position, observation.inputGeneration(), 1);
+            observation.enqueue (pcm.data(), 240, 2, position, observation.inputGeneration(), discontinuity);
         }
     }
     // 止まっている観測スレッドを `iterations` 周だけ進めて、また止める。
@@ -110,6 +112,9 @@ public:
         waitParked();
     }
     void park() { { const std::lock_guard<std::mutex> lock (mutex); stepsLeft = 0; } waitParked(); }
+    void seek (std::int64_t next) { position = next; }  // 次に入れる塊の DAW の位置
+    void interruptInput() { ++discontinuity; }          // 停止して遅延を替えた（同じ位置から続けても途切れ）
+    void setSong (bool value) { const std::lock_guard<std::mutex> lock (mutex); song = value; }
     void release() { { const std::lock_guard<std::mutex> lock (mutex); stepsLeft = running; parked = false; } wake.notify_all(); }
     // 走らせて受け口を空にし、測った物が publish されるまで待って止める。
     std::shared_ptr<const ref::VisualTimeline> drain()
@@ -159,6 +164,7 @@ private:
         if (stepsLeft != running) --stepsLeft;
         ref::VisualBinding binding;
         binding.aDisplayWindowBlocks = displayBlocks;
+        binding.songWanted = song;
         return binding;
     }
     void waitParked()
@@ -167,8 +173,88 @@ private:
     }
 };
 
+// C の SONG の A を観測スレッドで：DAW の位置ごとに溜め（同じ位置は上書き）、RESET と形式の変化（塊が来る前でも）で
+// 消え、SONG を見ていなければ出さない。
+void testASongRing()
+{
+    AWindowRing ring;
+    ring.setSong (true);
+    const auto holds = [&ring] (int slots, const char* why)
+    {
+        ring.release();
+        hypha::tests::reference_control::await ([&] {
+            const auto state = ring.observation.snapshot();
+            return state && state->aSong && state->aSong->slots == slots;
+        }, why);
+        ring.park();
+    };
+    ring.enqueue (200, 0.1f);  // 1 秒
+    holds (10, "SONG publishes A from the DAW's start");
+    ring.seek (0);
+    ring.enqueue (200, 0.1f);  // 同じ 1 秒をもう一度
+    ring.seek (5 * 48'000);
+    ring.enqueue (200, 0.1f);  // 新しい 1 秒
+    holds (20, "a replayed second keeps its place, a new one adds to A from the start");
+    ring.observation.resetAWindow();
+    holds (0, "RESET A WINDOW empties A from the start");
+    ring.enqueue (100, 0.1f);
+    holds (5, "A from the start fills again after RESET");
+    // 止めている間に形式が替わって戻った（48 → 96 → 48 kHz、次の塊はまだ無い）：その時に空になる。
+    ring.observation.configure (96'000, 2);
+    ring.observation.configure (48'000, 2);
+    holds (0, "a format change empties A from the start before the next block arrives");
+    ring.enqueue (100, 0.1f);
+    holds (5, "A from the start fills again after the format change");
+    ring.setSong (false);
+    ring.release();
+    hypha::tests::reference_control::await ([&] { const auto state = ring.observation.snapshot(); return state && ! state->aSong; },
+                                            "CUE does not publish A from the start");
+    ring.park();
+    // 送り手の途切れの印：大きな音を 2,400 サンプルで止め、遅延を替えて同じ位置から小さな音で再開。半端の区切りは
+    // 持たない（9 つ）ので、大きな音は A FROM START に入らない（入れば音量の 400 ms が大きな音に引かれる）。
+    AWindowRing fresh;
+    fresh.setSong (true);
+    fresh.enqueue (10, 0.9f);
+    fresh.interruptInput();
+    fresh.enqueue (190, 0.01f);
+    fresh.release();
+    hypha::tests::reference_control::await ([&] {
+        const auto state = fresh.observation.snapshot();
+        return state && state->aSong && state->aSong->slots == 9 && std::isfinite (state->aSong->loudness)
+            && state->aSong->loudness < -30.0 && ! fresh.observation.pendingInput();
+    }, "an interruption the shared meter sees also ends A from the start's measuring");
+    fresh.park();
+}
+
+// C の CUE／SONG は保存する選択：変わった時だけ host に知らせ、state を往復し、復元で戻る。前の版の state は CUE。
+void testCheckSongNotifies (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("check-song");
+    require (root.createDirectory().wasOk(), "CUE / SONG fixture directory");
+    int changes = 0;
+    ref::ReferenceComparisonController controller (root, {}, {}, [&] { ++changes; });
+    require (! controller.savedSettings().checkSong, "CUE is the default");
+    require (controller.setCheckSong (true) && changes == 1 && controller.savedSettings().checkSong
+                 && controller.snapshot().visualPreferences && controller.snapshot().visualPreferences->checkSong(),
+             "SONG is saved and the host is told");
+    require (! controller.setCheckSong (true) && changes == 1, "SONG again is not a change");
+    juce::XmlElement saved ("State");
+    controller.savedSettings().write (saved);
+    require (ref::ReferenceComparisonSettings::read (saved).checkSong && ! ref::ReferenceComparisonSettings::read (saved).followA,
+             "SONG round trips through the project state, apart from how B and C play");
+    auto restored = controller.savedSettings();
+    restored.checkSong = false;
+    controller.restoreSettings (restored);
+    require (! controller.savedSettings().checkSong, "a restore brings back CUE");
+    juce::XmlElement older ("State");
+    ref::ReferenceComparisonSettings {}.write (older);
+    if (auto* choices = older.getChildByName ("ReferenceChoices")) choices->setAttribute ("check_values", "song-later");
+    require (! ref::ReferenceComparisonSettings::read (older).checkSong, "an unknown value reads as CUE");
+}
+
 void testAWindowResetRing()
 {
+    testASongRing();
     const auto queue = static_cast<int> (ringSize ({}));
     const auto drop = [] (AWindowRing& ring, int blocks, const char* why)
     {
@@ -212,9 +298,28 @@ void testAWindowResetRing()
     }
 }
 
+// B の Balance の重ね比べは他の保存する選択と同じく、変わった時だけ state が変わったと知らせる（DAW が保存を促す）。
+void testOverlayNotifies (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("overlay-notifies");
+    require (root.createDirectory().wasOk(), "overlay fixture directory");
+    int changes = 0;
+    ref::ReferenceComparisonController controller (root, {}, {}, [&] { ++changes; });
+    ref::BalanceOverlay overlay;
+    overlay.all = true; overlay.lines = { { "set/check/song-1", 0 } };
+    require (controller.setOverlay (overlay) && changes == 1 && controller.savedSettings().overlay == overlay,
+             "an overlay change is saved and the host is told");
+    require (! controller.setOverlay (overlay) && changes == 1, "the same overlay again is not a change");
+    overlay.drawing = ref::BalanceOverlay::Drawing::allShape;
+    require (controller.setOverlay (overlay) && changes == 2 && controller.savedSettings().overlay.drawing == overlay.drawing,
+             "a drawing change is a change");
+}
+
 // 開いたリストの回答は、開いた後に役の切替・復元・形式の変更・Blind の開始があれば何も変えない。RESET も同じ。
 void testAWindowTargets (const juce::File& sandbox)
 {
+    testOverlayNotifies (sandbox);
+    testCheckSongNotifies (sandbox);
     const auto root = sandbox.getChildFile ("a-window-targets");
     require (root.createDirectory().wasOk(), "A window fixture directory");
     ref::ReferenceComparisonController controller (root, [] (bool) { return true; });

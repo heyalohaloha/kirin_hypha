@@ -213,7 +213,7 @@ private:
             {
                 // The latency changed with the clocks unchanged: PRE keeps sounding at K and the
                 // status line tells the measured change (INV-LC10).
-                const juce::String notice ("PRE 62.50 ms early / Check chain delay and DAW compensation");
+                const juce::String notice ("PRE 62.50 ms early / Check delay compensation");
                 heldNoticeSeen = heldNoticeSeen || footer() == notice;
                 if (! post->liveCompareStatus().contentHeld || ! heldNoticeSeen) break;
                 require (post->liveCompareStatus().preAudible == post->liveCompareStatus().preSelected
@@ -303,13 +303,13 @@ private:
             {
                 const auto status = post->liveCompareStatus();
                 // INV-LC10: a confirmed late PRE sounds at its clock position; the footer tells it.
-                const juce::String expected ("PRE 10.42 ms late / Check chain delay and DAW compensation");
+                const juce::String expected ("PRE 10.42 ms late / Check delay compensation");
                 if (! status.contentHeld || footer() != expected) break;
                 require (status.preSelected && ! status.preWaiting && status.preAudible
                          && status.observation != hypha::live_compare::RecoveryReason::preLate,
                          "a confirmed late PRE keeps sounding at K instead of POST");
                 const auto japanese = hypha::i18n::translate (footer(), hypha::i18n::Language::japanese);
-                require (japanese.contains ("10.42") && japanese.contains (juce::String::fromUTF8 (u8"遅れ"))
+                require (japanese.contains ("10.42") && japanese.contains (juce::String::fromUTF8 (u8"PREが10.42 ms遅い"))
                          && japanese.contains (juce::String::fromUTF8 (u8"遅延補正")),
                          "the actual footer translates both the measured delay and the chain remedy");
                 auto* view = findView (*editor);

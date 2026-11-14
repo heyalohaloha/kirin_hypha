@@ -142,17 +142,21 @@ pub unsafe extern "C" fn kirin_hypha_snapshot_abi_contract(
     out_size: u32,
     out: *mut KirinSnapshotAbiContract,
 ) -> u8 {
-    if version != KIRIN_SNAPSHOT_ABI_VERSION {
-        return crate::KIRIN_SNAPSHOT_UNSUPPORTED;
-    }
-    if out_size < size_of::<KirinSnapshotAbiContract>() as u32
-        || out.is_null()
-        || !(out as usize).is_multiple_of(align_of::<KirinSnapshotAbiContract>())
-    {
-        return crate::KIRIN_SNAPSHOT_INVALID_REQUEST;
-    }
-    unsafe { out.write(snapshot_abi_contract()) };
-    crate::KIRIN_SNAPSHOT_SUCCESS
+    // A panic is a failed handshake like every other snapshot entry's BUSY: nothing is written.
+    std::panic::catch_unwind(|| {
+        if version != KIRIN_SNAPSHOT_ABI_VERSION {
+            return crate::KIRIN_SNAPSHOT_UNSUPPORTED;
+        }
+        if out_size < size_of::<KirinSnapshotAbiContract>() as u32
+            || out.is_null()
+            || !(out as usize).is_multiple_of(align_of::<KirinSnapshotAbiContract>())
+        {
+            return crate::KIRIN_SNAPSHOT_INVALID_REQUEST;
+        }
+        unsafe { out.write(snapshot_abi_contract()) };
+        crate::KIRIN_SNAPSHOT_SUCCESS
+    })
+    .unwrap_or(crate::KIRIN_SNAPSHOT_BUSY)
 }
 
 #[cfg(test)]

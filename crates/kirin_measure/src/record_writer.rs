@@ -2137,7 +2137,7 @@ fn recover_one_pair_pending_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
         report.orphaned += 1;
         return;
     }
-    if let Err(e) = fs::rename(tmp_path, &pending_path) {
+    if let Err(e) = crate::atomic_file::durable::sync_and_rename(tmp_path, &pending_path) {
         log::warn!(
             "[recover] pair pending tmp rename failed (orphan kept): {} ({})",
             tmp_path.display(),
@@ -2266,7 +2266,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
             }
         };
         let recover_path = PathBuf::from(format!("{}.recover", source_path.to_string_lossy()));
-        if let Err(e) = fs::write(&recover_path, json.as_bytes()) {
+        if let Err(e) = crate::atomic_file::durable::write(&recover_path, json.as_bytes()) {
             log::warn!(
                 "[recover] recovered write failed (orphan kept): {} ({})",
                 recover_path.display(),
@@ -2275,7 +2275,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
             report.orphaned += 1;
             return;
         }
-        if let Err(e) = fs::rename(&recover_path, &recovery_path) {
+        if let Err(e) = crate::atomic_file::durable::rename(&recover_path, &recovery_path) {
             log::warn!(
                 "[recover] recovered rename failed: {} → {} ({})",
                 recover_path.display(),
@@ -2334,7 +2334,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
         }
     };
     if let Some(parent) = recovery_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
+        if let Err(e) = crate::atomic_file::durable::create_dir_all(parent) {
             log::warn!(
                 "[recover] failed dir create failed (orphan kept): {} ({})",
                 parent.display(),
@@ -2345,7 +2345,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
         }
     }
     let recover_path = PathBuf::from(format!("{}.recover", source_path.to_string_lossy()));
-    if let Err(e) = fs::write(&recover_path, &json) {
+    if let Err(e) = crate::atomic_file::durable::write(&recover_path, &json) {
         log::warn!(
             "[recover] failed write failed (orphan kept): {} ({})",
             recover_path.display(),
@@ -2354,7 +2354,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
         report.orphaned += 1;
         return;
     }
-    if let Err(e) = fs::rename(&recover_path, &recovery_path) {
+    if let Err(e) = crate::atomic_file::durable::rename(&recover_path, &recovery_path) {
         log::warn!(
             "[recover] rename failed: {} → {} ({})",
             recover_path.display(),
@@ -2397,7 +2397,7 @@ fn recover_legacy_pair_pending_artifact(
         return;
     }
     if let Some(parent) = pending_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
+        if let Err(e) = crate::atomic_file::durable::create_dir_all(parent) {
             log::warn!(
                 "[recover] pair pending dir create failed (orphan kept): {} ({})",
                 parent.display(),
@@ -2407,7 +2407,7 @@ fn recover_legacy_pair_pending_artifact(
             return;
         }
     }
-    if let Err(e) = fs::rename(source_path, &pending_path) {
+    if let Err(e) = crate::atomic_file::durable::sync_and_rename(source_path, &pending_path) {
         log::warn!(
             "[recover] pair pending artifact rename failed (orphan kept): {} → {} ({})",
             source_path.display(),
@@ -2715,7 +2715,7 @@ fn try_close_one_stale(path: &Path, report: &mut StaleSweepReport) {
     let mut tmp_os = path.as_os_str().to_os_string();
     tmp_os.push(".tmp");
     let tmp = PathBuf::from(tmp_os);
-    if let Err(e) = fs::write(&tmp, &json) {
+    if let Err(e) = crate::atomic_file::durable::write(&tmp, &json) {
         log::warn!(
             "[Gap-9] tmp write failed (skip): {} ({})",
             path.display(),
@@ -2724,7 +2724,7 @@ fn try_close_one_stale(path: &Path, report: &mut StaleSweepReport) {
         report.skipped += 1;
         return;
     }
-    if let Err(e) = fs::rename(&tmp, path) {
+    if let Err(e) = crate::atomic_file::durable::rename(&tmp, path) {
         log::warn!("[Gap-9] rename failed (skip): {} ({})", path.display(), e);
         report.skipped += 1;
         return;

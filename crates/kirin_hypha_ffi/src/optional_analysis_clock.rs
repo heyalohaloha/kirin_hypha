@@ -109,9 +109,12 @@ pub unsafe extern "C" fn kirin_hypha_set_aax_analysis_ingress(
     enabled: bool,
     post: bool,
 ) {
-    if let Some(engine) = unsafe { handle.as_ref() } {
-        engine.aax_analysis.configure(enabled, post);
-    }
+    // A panic stops at this boundary; the optional analysis may stay off, the audio passes through.
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(engine) = unsafe { handle.as_ref() } {
+            engine.aax_analysis.configure(enabled, post);
+        }
+    }));
 }
 
 /// Prepare-thread only. Enable the separate certified VST3 content-coordinate route for FREQ
@@ -123,10 +126,12 @@ pub unsafe extern "C" fn kirin_hypha_set_content_analysis_ingress(
     handle: *mut KirinHyphaEngine,
     post: bool,
 ) {
-    if let Some(engine) = unsafe { handle.as_ref() } {
-        engine.aax_analysis.configure(true, post);
-        engine.aax_analysis.content.store(true, Ordering::Release);
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(engine) = unsafe { handle.as_ref() } {
+            engine.aax_analysis.configure(true, post);
+            engine.aax_analysis.content.store(true, Ordering::Release);
+        }
+    }));
 }
 
 /// Prepare-thread only. AU FREQ/Perceptual use a distinct render coordinate with the callback's
@@ -138,14 +143,16 @@ pub unsafe extern "C" fn kirin_hypha_set_audio_unit_analysis_ingress(
     handle: *mut KirinHyphaEngine,
     post: bool,
 ) {
-    if let Some(engine) = unsafe { handle.as_ref() } {
-        engine.aax_analysis.configure(true, post);
-        engine.aax_analysis.content.store(true, Ordering::Release);
-        engine
-            .aax_analysis
-            .audio_unit
-            .store(true, Ordering::Release);
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(engine) = unsafe { handle.as_ref() } {
+            engine.aax_analysis.configure(true, post);
+            engine.aax_analysis.content.store(true, Ordering::Release);
+            engine
+                .aax_analysis
+                .audio_unit
+                .store(true, Ordering::Release);
+        }
+    }));
 }
 
 /// Audio Thread only. Feed the original, pre-audition scratch exactly once after timing preparation.
@@ -174,95 +181,100 @@ pub unsafe extern "C" fn kirin_hypha_push_paired_analysis(
     paired_start: i64,
     paired_revision: u64,
 ) -> bool {
-    let Some(engine) = (unsafe { handle.as_ref() }) else {
-        return false;
-    };
-    if !engine
-        .aax_analysis
-        .deferred(engine.spectrum_runtime.analysis_mode())
-        || !engine.spectrum_runtime.is_enabled()
-    {
-        return false;
-    }
-    let staged = engine.aax_analysis.frames.swap(0, Ordering::AcqRel);
-    let content = engine.aax_analysis.content.load(Ordering::Acquire);
-    let post = engine.aax_analysis.post.load(Ordering::Acquire);
-    let audio_unit = engine.aax_analysis.audio_unit.load(Ordering::Acquire);
-    // Local FREQ needs no correspondence proof. AU PRE may lack an independent project clock;
-    // LocalRender retains its observation but cannot be published by the PRE exchange.
-    let local_spectrum = content
-        && if post {
-            !paired_valid
-        } else {
-            audio_unit && !local_valid
-        }
-        && engine.spectrum_runtime.analysis_mode() == AnalysisViewMode::Spectrum;
-    let (valid, start, revision) = if audio_unit && local_spectrum {
-        (
-            engine
-                .aax_analysis
-                .local_spectrum_valid
-                .load(Ordering::Relaxed),
-            engine
-                .aax_analysis
-                .local_spectrum_start
-                .load(Ordering::Relaxed),
-            1,
-        )
-    } else if post && !local_spectrum {
-        (paired_valid, paired_start, paired_revision)
-    } else {
-        (local_valid, local_start, local_revision)
-    };
-    let revision_limit = 1_u64
-        << if audio_unit {
-            60
-        } else if content {
-            61
-        } else {
-            62
+    // A panic drops this optional analysis block only (no-op, like push_samples); the audio
+    // callback and the A path continue. catch_unwind allocates nothing unless it unwinds.
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(engine) = (unsafe { handle.as_ref() }) else {
+            return false;
         };
-    let samples = num_frames.checked_mul(num_channels as usize);
-    if !valid
-        || revision == 0
-        || revision >= revision_limit
-        || interleaved.is_null()
-        || num_frames == 0
-        || num_frames > MAX_AUDIO_BLOCK_FRAMES
-        || start.checked_add(num_frames as i64).is_none()
-        || staged != num_frames as u64
-        || num_channels as usize != engine.num_channels
-        || !(1..=2).contains(&num_channels)
-        || samples.is_none_or(|n| n > isize::MAX as usize / std::mem::size_of::<f32>())
-    {
-        engine
-            .spectrum_runtime
-            .note_analysis_clock_drop_from_audio();
-        return false;
-    }
-    let audio = unsafe { std::slice::from_raw_parts(interleaved, samples.unwrap_or(0)) };
-    engine.spectrum_runtime.push_block_from_audio_with_clock(
-        audio,
-        engine.num_channels,
-        Some(if local_spectrum {
-            SpectrumInputClock::LocalRender(start)
-        } else if audio_unit {
-            SpectrumInputClock::VerifiedAudioUnit {
-                start_samples: start,
-                proof_revision: revision,
+        if !engine
+            .aax_analysis
+            .deferred(engine.spectrum_runtime.analysis_mode())
+            || !engine.spectrum_runtime.is_enabled()
+        {
+            return false;
+        }
+        let staged = engine.aax_analysis.frames.swap(0, Ordering::AcqRel);
+        let content = engine.aax_analysis.content.load(Ordering::Acquire);
+        let post = engine.aax_analysis.post.load(Ordering::Acquire);
+        let audio_unit = engine.aax_analysis.audio_unit.load(Ordering::Acquire);
+        // Local FREQ needs no correspondence proof. AU PRE may lack an independent project clock;
+        // LocalRender retains its observation but cannot be published by the PRE exchange.
+        let local_spectrum = content
+            && if post {
+                !paired_valid
+            } else {
+                audio_unit && !local_valid
             }
-        } else if content {
-            SpectrumInputClock::VerifiedVst3 {
-                start_samples: start,
-                proof_revision: revision,
-            }
+            && engine.spectrum_runtime.analysis_mode() == AnalysisViewMode::Spectrum;
+        let (valid, start, revision) = if audio_unit && local_spectrum {
+            (
+                engine
+                    .aax_analysis
+                    .local_spectrum_valid
+                    .load(Ordering::Relaxed),
+                engine
+                    .aax_analysis
+                    .local_spectrum_start
+                    .load(Ordering::Relaxed),
+                1,
+            )
+        } else if post && !local_spectrum {
+            (paired_valid, paired_start, paired_revision)
         } else {
-            SpectrumInputClock::VerifiedAax {
-                start_samples: start,
-                proof_revision: revision,
-            }
-        }),
-    )
+            (local_valid, local_start, local_revision)
+        };
+        let revision_limit = 1_u64
+            << if audio_unit {
+                60
+            } else if content {
+                61
+            } else {
+                62
+            };
+        let samples = num_frames.checked_mul(num_channels as usize);
+        if !valid
+            || revision == 0
+            || revision >= revision_limit
+            || interleaved.is_null()
+            || num_frames == 0
+            || num_frames > MAX_AUDIO_BLOCK_FRAMES
+            || start.checked_add(num_frames as i64).is_none()
+            || staged != num_frames as u64
+            || num_channels as usize != engine.num_channels
+            || !(1..=2).contains(&num_channels)
+            || samples.is_none_or(|n| n > isize::MAX as usize / std::mem::size_of::<f32>())
+        {
+            engine
+                .spectrum_runtime
+                .note_analysis_clock_drop_from_audio();
+            return false;
+        }
+        let audio = unsafe { std::slice::from_raw_parts(interleaved, samples.unwrap_or(0)) };
+        engine.spectrum_runtime.push_block_from_audio_with_clock(
+            audio,
+            engine.num_channels,
+            Some(if local_spectrum {
+                SpectrumInputClock::LocalRender(start)
+            } else if audio_unit {
+                SpectrumInputClock::VerifiedAudioUnit {
+                    start_samples: start,
+                    proof_revision: revision,
+                }
+            } else if content {
+                SpectrumInputClock::VerifiedVst3 {
+                    start_samples: start,
+                    proof_revision: revision,
+                }
+            } else {
+                SpectrumInputClock::VerifiedAax {
+                    start_samples: start,
+                    proof_revision: revision,
+                }
+            }),
+        )
+    }))
+    .unwrap_or(false)
 }
 
 /// Compatibility entry for callers of the original AAX-only ABI.
@@ -282,7 +294,7 @@ pub unsafe extern "C" fn kirin_hypha_push_aax_analysis(
     paired_start: i64,
     paired_revision: u64,
 ) -> bool {
-    unsafe {
+    catch_unwind(AssertUnwindSafe(|| unsafe {
         kirin_hypha_push_paired_analysis(
             handle,
             interleaved,
@@ -295,7 +307,8 @@ pub unsafe extern "C" fn kirin_hypha_push_aax_analysis(
             paired_start,
             paired_revision,
         )
-    }
+    }))
+    .unwrap_or(false)
 }
 
 /// Missing optional latency retains project coordinates; FREQ pairs only the same clock kind.

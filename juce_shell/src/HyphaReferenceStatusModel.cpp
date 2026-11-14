@@ -26,6 +26,16 @@ juce::String publicationReturnLine (int change, int slot)
                        : letter + ": REMOVED IN KIRIN OS / CHOOSE AGAIN";
 }
 
+// C の SONG が使えない・一部だけの理由（2026-11-12）：C の曲全体の値が無い（CUE の値で比べている）、A が DAW の
+// 30 分より後を鳴らした。C を鳴らしている間も後ろの区切りで言う（使えない時は必ず理由を出す）。
+static juce::String songLine (const State& state)
+{
+    if (state.comparisonSlot != 2) return {};
+    if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1";
+    if (state.song.shown && state.song.aBeyond) return "A FROM START HOLDS THE DAW'S FIRST 30 MIN";
+    return {};
+}
+
 static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 {
     using Tracking = reference_audition::TrackingState;
@@ -71,7 +81,9 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         const auto range = tag + juce::String (std::abs (state.rangeShortfallDb), 1)
             + (state.rangeShortfallDb > 0.0 ? " DB UNDER A (FOLLOW LIMIT)" : " DB OVER A (FOLLOW LIMIT)");
         // 区間が無い（V、区間の分からない役）ときは今までの短い札（300% の足元で Blind のボタンの横に入る長さ）。
+        // FOLLOW A は押した時に曲全体の値と A の ALL の窓で合わせて固定する（追従しない）。
         const auto level = state.originalAudition ? tag + "ORIGINAL LEVEL"
+            : state.followA && section.isNotEmpty() && state.tracking == Tracking::fixed ? juce::String ("WHOLE SONG MATCHED TO A (ALL), FIXED")
             : rangeLimited ? range
             : state.tracking == Tracking::following ? (section.isNotEmpty() ? juce::String ("LEVEL FOLLOWS A (LAST 10 S)") : role + " FOLLOWING A (LAST 10 S)")
             : state.tracking == Tracking::fixed && state.matchProvisional && state.aWindowNeededBlocks > 0
@@ -92,7 +104,9 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         if (state.action.kind == ActionKind::lowerAAndPlay && state.peakShortfallDb > 0.05)
             return { StatusKind::ready, juce::String (std::max (state.peakShortfallDb, state.rangeShortfallDb), 1) + " DB UNDER A" };
         // B の画面は、Kirin OS の新しい公開を読めず前の公開で鳴らしている理由も言い続ける（2026-11-11）。
-        const auto storage = (state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
+        const auto song = songLine (state);
+        const auto storage = (song.isNotEmpty() ? "  /  " + song : juce::String {})
+            + (state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
             || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {})
             + (state.comparisonSlot == 3 && state.publicationIssue.isNotEmpty() ? "  /  " + state.publicationIssue : juce::String {});
         // V の Version を替えている間は、前の Version が鳴ったまま新しい Version の位置を合わせる。どちらが鳴っているかを
@@ -154,9 +168,13 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     if (state.kirinOsRequest) return { kind, state.status };
     // C の Cue の値がまだ無い：曲全体で比べている、または曲全体のスペクトルを出さないことを、理由と直し方で言う
     // （2026-10-06：黙って曲全体の値を使い、手がかりは凡例の「C WHOLE」だけだった）。
+    // C の SONG（2026-11-12）：C の曲全体の値が無い（古い Kirin OS。CUE の値のまま描く）、A FROM START が上限を超えた。
     if (slot == 2 && (step == SourceStep::ready || step == SourceStep::playDaw))
+    {
+        if (const auto song = songLine (state); song.isNotEmpty()) return { kind, song };
         if (const auto substitute = cueSubstituteLine (state.cueSubstitute); substitute.isNotEmpty())
             return { kind, substitute };
+    }
     // 文の無い理由は、状態の行にそのコードを出す（2026-10-18：B のページは案内を出さず、コードが見えなかった）。
     const auto& code = slot == 1 ? state.versionRejectionCode : slot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
     if (step == SourceStep::attention && code.isNotEmpty())

@@ -3,6 +3,7 @@
 #include <algorithm>
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceNotices.h"
 #include "HyphaReferenceGuide.h"
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
@@ -44,6 +45,13 @@ void KirinHyphaEditor::wireReferenceRoles()
     };
     referenceView.onSelectSongSet = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSongSet (id)) showToast ("Reference set selection was not changed"); };
+    // B・C の流し方（B と C で 1 つ、state に保存）と FOLLOW A の手のずらし。切り替えても鳴らし始めない。すぐ描き直す。
+    const auto refreshNow = [this]
+    { KirinObservatoryFrame frame {}; const bool available = processorRef.pollObservatoryFrame (frame); refreshReferenceAudition (frame, available); };
+    referenceView.onSetFollowA = [this, refreshNow] (bool follow) { processorRef.setReferenceFollowA (follow); refreshNow(); };
+    referenceView.onNudgeFollow = [this, refreshNow] (int slot, double seconds)
+    { if (! processorRef.nudgeReferenceFollow (slot, seconds)) showToast ("Choose FOLLOW A to move the song against A"); refreshNow(); };
+    referenceView.onResetFollow = [this, refreshNow] (int slot) { processorRef.resetReferenceFollow (slot); refreshNow(); };
     // C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
     referenceView.onMatch = [this]
     {
@@ -243,8 +251,17 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;
     state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
-    state.cueLoops = checkRole.cueLoops || checkRole.cueWraps;
+    // C の SONG：比べる値を A FROM START と C の曲全体の範囲にする（無ければ CUE のまま理由を言う。HyphaReferenceCueSummary.h）。
+    hypha::reference_ui::applySongComparison (state, runtime.visualTimeline ? runtime.visualTimeline->aSong.get() : nullptr,
+                                              checkRole.songSpectrum, checkRole.songIntegratedLoudness);
+    state.cueLoops = ! runtime.followA && (checkRole.cueLoops || checkRole.cueWraps);  // FOLLOW A は Cue を繰り返さない
     state.referenceWraps = runtime.referenceSelection != nullptr && runtime.referenceSelection->cueWraps;
+    state.followA = runtime.followA;
+    state.followOffsetSeconds = runtime.comparisonSlot == 2 || runtime.comparisonSlot == 3 ? runtime.followOffsetSeconds : 0.0;
+    state.wholeSongLoudness = runtime.comparisonSlot == 2 || runtime.comparisonSlot == 3 ? runtime.sourceIntegratedLoudness
+                                                                                         : std::numeric_limits<double>::quiet_NaN();
+    state.audibleFollowOffsetSeconds = runtime.audibleComparisonSlot == 2 || runtime.audibleComparisonSlot == 3
+        ? audibleRole.followOffsetSeconds : 0.0;  // 鳴っている役（B・C）のずらし
     const auto* pageRole = runtime.comparisonSlot == 1 ? runtime.versionSelection.get()
         : runtime.comparisonSlot == 3 ? runtime.referenceSelection.get() : runtime.checkSelection.get();
     state.publicationReturn = pageRole != nullptr ? pageRole->publicationReturn : 0;
@@ -308,6 +325,7 @@ void KirinHyphaEditor::armCheckRematch (const hypha::reference_audition::Snapsho
                                         const hypha::reference_audition::Snapshot& check)
 {
     if (! runtime.bSelected || runtime.audibleComparisonSlot != 2 || ! processorRef.takeReferenceCheckAttempt (check.matchAttempt)) return;
+    if (runtime.followA) return;  // FOLLOW A は押した時の MATCH で固定（黙って合わせ直さない）
     if (referenceRematchUntil > 0.0 || check.comparisonMode != "loudness_match") return;
     if (std::isfinite (processorRef.referenceWindowLoudness (2).loudness)) return;  // 窓の値で合わせてある
     referenceRematchUntil = nowSecs() + 40.0;

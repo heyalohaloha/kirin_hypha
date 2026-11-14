@@ -109,11 +109,18 @@ namespace hypha::reference_audition
         int cueLengthBlocks = 100;  // Cue の長さ（同じ単位。cueWindowBlocks と違い 10 秒の下限が無い。図の窓の CUE が使う）
         // C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
         std::shared_ptr<const KirinSpectrumWindow> cueSpectrum;
+        // C の画面の SONG：ranges の曲全体の範囲の 64 帯域・4 帯域と LUFS-I（無ければ null と NaN。ReferenceCueMatch.h）。
+        std::shared_ptr<const KirinSpectrumWindow> songSpectrum;
+        double songIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
         CuePart cuePart = CuePart::unknown;  // Cue が曲のどの部分か（C の図の凡例）
         double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
         double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN();
         bool cueLoops = false;
         bool cueWraps = false;
+        // B・C の FOLLOW A（A の位置から曲全体）と手のずらし（秒）。A の位置＋ずらしが曲の外：-1 は曲の頭より前、+1 は終わりの後。
+        bool followA = false;
+        double followOffsetSeconds = 0.0;
+        int followOutside = 0;
         // Kirin OS の公開で鳴っていた区間が変わった（1）・曲や区間が無くなった（2）ので A へ戻した。次に鳴らすまで残る。
         int publicationReturn = 0;
         // Kirin OS の新しい公開を読めず前の公開のまま（版の巻き戻し・同じ版の別内容・中身の不正など）。読めたら空。

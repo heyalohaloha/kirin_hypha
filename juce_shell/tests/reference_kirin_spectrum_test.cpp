@@ -9,6 +9,7 @@
 #include "../src/reference_audition/ReferenceKirinSpectrum.h"
 #include "../src/reference_audition/ReferenceCueMatch.h"
 #include "../src/reference_audition/ReferenceVisualPreferences.h"
+#include "../src/reference_audition/ReferenceComparisonSettings.h"
 
 #include <chrono>
 #include <cmath>
@@ -42,6 +43,53 @@ std::vector<float> syntheticSignal (int rate, int frames)
 }
 
 void check (bool condition, const juce::String& message) { require (condition, message.toRawUTF8()); }
+
+// B の Balance の重ね比べ：色は出した時に決まり、ほかの線を出し入れしても変わらない。一覧に無くなった線は次の
+// 出し入れで外れて色を空ける。project には ONE／ALL と線と色を書き、前の版の state は ONE のまま。
+void testBalanceOverlay()
+{
+    namespace ref = hypha::reference_audition;
+    ref::BalanceOverlay overlay;
+    const std::vector<juce::String> listed { "p/c/one", "p/c/two", "p/c/three", "target-1a" };
+    juce::XmlElement none ("ReferenceChoices"); overlay.write (none);
+    check (none.getNumChildElements() == 0, "ONE with no lines writes nothing");
+    for (const auto& id : listed) overlay.toggle (id, listed);
+    check (overlay.lines.size() == 4 && overlay.find ("p/c/three")->colour == 2 && overlay.find ("target-1a")->colour == 3,
+           "lines take colours in the order shown");
+    overlay.toggle ("p/c/two", listed);
+    check (overlay.find ("p/c/two") == nullptr && overlay.find ("p/c/one")->colour == 0 && overlay.find ("p/c/three")->colour == 2
+           && overlay.find ("target-1a")->colour == 3, "hiding a line keeps every other colour");
+    overlay.toggle ("p/c/two", listed);
+    check (overlay.find ("p/c/two")->colour == 1 && overlay.find ("p/c/three")->colour == 2, "a line shown again takes a free colour");
+    overlay.toggle ("p/c/one", { "p/c/one", "p/c/three", "target-1a" });
+    check (overlay.find ("p/c/two") == nullptr && overlay.find ("p/c/one") == nullptr && overlay.lines.size() == 2,
+           "a line the list no longer has is dropped at the next press");
+    overlay.toggle ("p/c/one", listed);
+    check (overlay.find ("p/c/one")->colour == 0, "its colour is free again");
+    overlay.toggle ("bad id", listed);
+    check (overlay.find ("bad id") == nullptr, "an ID outside the saved form is not shown");
+    overlay.all = overlay.used = true; overlay.drawing = ref::BalanceOverlay::Drawing::allShape;
+    juce::XmlElement saved ("ReferenceChoices"); overlay.write (saved);
+    check (ref::BalanceOverlay::read (saved) == overlay && ref::BalanceOverlay::read (saved).drawing == ref::BalanceOverlay::Drawing::allShape,
+           "ALL, ALL SHAPE, the lines and their colours round trip");
+    auto* written = saved.getChildByName ("Overlay");
+    for (const auto* broken : { R"(<Line id="p/c/x" colour="0"/>)", R"(<Line id="p/c/three" colour="9"/>)",
+                                R"(<Line id="has space" colour="9"/>)", R"(<Line id="p/c/y" colour="99"/>)", R"(<Line colour="8"/>)" })
+        written->addChildElement (juce::parseXML (broken).release());
+    check (ref::BalanceOverlay::read (saved) == overlay, "a repeated colour or ID, an invalid ID or colour is skipped");
+    ref::ReferenceComparisonSettings settings; settings.overlay = overlay;
+    juce::XmlElement state ("KirinHyphaState"); settings.write (state);
+    check (ref::ReferenceComparisonSettings::read (state).overlay == overlay, "the project keeps the overlay");
+    state.getChildByName ("ReferenceChoices")->removeChildElement (state.getChildByName ("ReferenceChoices")->getChildByName ("Overlay"), true);
+    const auto older = ref::ReferenceComparisonSettings::read (state).overlay;
+    check (! older.all && older.lines.empty() && ! older.used, "a project saved before the overlay opens on ONE, never used");
+    // Used once and emptied: kept as used (the next ALL stays empty). An overlay saved without the mark was used.
+    ref::BalanceOverlay emptied; emptied.used = true;
+    juce::XmlElement kept ("ReferenceChoices"); emptied.write (kept);
+    check (ref::BalanceOverlay::read (kept) == emptied, "an emptied selection keeps that ALL was used");
+    juce::XmlElement unmarked ("ReferenceChoices"); unmarked.createNewChildElement ("Overlay")->setAttribute ("all", true);
+    check (ref::BalanceOverlay::read (unmarked).used, "an overlay saved without the mark counts as used");
+}
 
 // 図の窓（3 S・10 S・30 S・CUE・ALL）：新しいフレームから数え、足りなければあるだけで集計する。
 void testDisplayWindows()
@@ -78,6 +126,7 @@ void testDisplayWindows()
            "one invalid saved window keeps the other role");
     const auto old = ref::AWindowChoices::read (defaults);
     check (old.reference == ref::AWindowChoice::seconds10 && old.check == ref::AWindowChoice::cue, "old state keeps the old defaults");
+    testBalanceOverlay();
     const int rate = 48'000, frame = rate / 10;
     constexpr double tau = 6.283185307179586476925286766559;
     KirinSpectrumMeter meter;

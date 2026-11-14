@@ -130,10 +130,7 @@ impl SpectrumExchangeWorker {
             return false;
         }
         supervisor.unchanged_service_ticks = supervisor.unchanged_service_ticks.saturating_add(1);
-        if supervisor.unchanged_service_ticks < SUPERVISOR_STALL_SERVICE_TICKS {
-            return false;
-        }
-        true
+        supervisor.unchanged_service_ticks >= SUPERVISOR_STALL_SERVICE_TICKS
     }
 
     fn observe_supervisor_progress(&self) {

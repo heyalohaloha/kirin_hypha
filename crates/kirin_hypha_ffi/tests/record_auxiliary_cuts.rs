@@ -139,6 +139,19 @@ fn continuous_keep_keeps_every_trace_slot_across_auxiliary_cuts() {
             let frames = member["frames"].as_array().unwrap();
             let quality = &member["record_quality"];
             eprintln!("{role}: {} slots, quality={quality}", frames.len());
+            if frames.len() != expected_slots {
+                // Name the lost slot and the recorded reason, so a failure on a loaded host
+                // shows whether the head, the tail or a middle slot went missing.
+                let present: Vec<u64> = frames.iter().filter_map(|f| f["t_ms"].as_u64()).collect();
+                let lost: Vec<u64> = (1..=expected_slots as u64)
+                    .map(|slot| slot * 100)
+                    .filter(|t_ms| !present.contains(t_ms))
+                    .collect();
+                eprintln!(
+                    "{role}: lost t_ms={lost:?} integrity_reasons={} trace_diagnostics={} take={}",
+                    member["integrity_reasons"], member["trace_diagnostics"], member["bounce_take"]
+                );
+            }
             assert_eq!(
                 frames.len(),
                 expected_slots,
