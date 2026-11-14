@@ -6,7 +6,7 @@ import test from 'node:test';
 import { makeState, parseReleaseArgs, realActions, executeRelease, STAGES } from '../release_hypha.mjs';
 import { SCHEMA, HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, assertState, digest, fileFact, reportTemplate,
   validateReport, acceptanceCriteria, atomicJson, Checkpoint } from './hypha_release_contract.mjs';
-import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES, notePromises,
+import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES, REQUIRED_DAWS, notePromises,
   hostTestIds, bindOwnerDecisions, checkOwnerDecisions, checkFixRows, ciFixRows } from './hypha_release_criteria.mjs';
 import { verifyCi, RELEASE_SOURCE_PHASES } from './hypha_release_local.mjs';
 import { updateBinding } from '../updates/update_key_binding.mjs';
@@ -29,7 +29,9 @@ function fixture(t, { delivery = false } = {}) {
     daw: 'Logic Pro', chain: 'PRE -> limiter -> POST', depth: 'deep', oracle: 'independent callback capture', expected: { lostFrames: 0 } };
   const spec = { schema: FIX_ROWS_SCHEMA, release: '1.2.3', rows: [row,
     { id: 'fixed-ci', kind: 'ci', promise: 'Pairs recover.', hosts: [], depth: 'deep', oracle: 'pair-recovery-parity', expected: { passed: true } },
-    { ...row, id: 'fixed-pair', promise: 'Pairs recover.' }] };
+    { ...row, id: 'fixed-pair', promise: 'Pairs recover.' },
+    ...REQUIRED_DAWS.filter(daw => daw !== 'Logic Pro').flatMap((daw, index) => [
+      { ...row, id: `clock-${index}`, daw }, { ...row, id: `pair-${index}`, daw, promise: 'Pairs recover.' }])] };
   const fixes = write('fixes.json', spec);
   const statePath = path.join(root, 'release_state/profile.json');
   let state = makeState(root, { state: statePath, fixRows: fixes, notes,
@@ -98,7 +100,7 @@ test('every release-note promise needs a proving row, and promises without rows 
   f.write('fixes.json', f.spec);
   assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes }, () => SOURCE), /release notes/);
   // The Japanese section mirrors the English promises and is not matched twice.
-  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 3);
+  assert.equal(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE).fixRows.rows.length, 13);
   fs.appendFileSync(f.notes, '\n- A late promise.\n');
   assert.ok(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   fs.writeFileSync(f.notes, fs.readFileSync(f.notes, 'utf8').replace('- Pairs recover.', '- Pairs recover.\n- Another promise.'));
@@ -109,21 +111,44 @@ test('host rows accept multiple distinct known promises and CI rows retain one p
   const f = fixture(t);
   const { promise: _, ...single } = f.spec.rows[0];
   const host = { ...single, promises: ['The clock keeps every frame.', 'Pairs recover.'] };
-  f.write('fixes.json', { ...f.spec, rows: [host, f.spec.rows[1]] });
+  const hosts = REQUIRED_DAWS.map((daw, index) => ({ ...host, id: `host-${index}`, daw }));
+  f.write('fixes.json', { ...f.spec, rows: [...hosts, f.spec.rows[1]] });
   assertState(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
   for (const promises of [['The clock keeps every frame.', 'Unknown.'],
     ['The clock keeps every frame.', 'The clock keeps every frame.'], [], [''], [42]]) {
-    f.write('fixes.json', { ...f.spec, rows: [{ ...host, promises }, f.spec.rows[1]] });
-    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+    f.write('fixes.json', { ...f.spec, rows: [{ ...hosts[0], promises }, ...hosts.slice(1), f.spec.rows[1]] });
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /names no promise/);
   }
-  for (const row of [{ ...host, id: 'both-forms', promise: 'The clock keeps every frame.' },
+  for (const row of [{ ...hosts[0], promise: 'The clock keeps every frame.' },
     { ...f.spec.rows[1], promises: ['Pairs recover.'] }]) {
-    f.write('fixes.json', { ...f.spec, rows: [host, row] });
-    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+    const rows = row.kind === 'host' ? [row, ...hosts.slice(1), f.spec.rows[1]] : [...hosts, row];
+    f.write('fixes.json', { ...f.spec, rows });
+    assert.throws(() => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE), /names no promise/);
   }
-  f.write('fixes.json', { ...f.spec, rows: [{ ...single, promise: 'The clock keeps every frame.' },
-    { ...single, id: 'host-pair', promise: 'Pairs recover.' }, f.spec.rows[1]] });
+  f.write('fixes.json', { ...f.spec, rows: f.spec.rows });
   assertState(makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE));
+});
+
+test('each promise requires each DAW once, with aliases and whitespace normalized', t => {
+  const f = fixture(t);
+  const { promise: _, ...base } = f.spec.rows[0];
+  const aliases = [' sTuDiO  oNe ', 'lOgIc', 'Reaper', 'pRo  ToOlS', 'CUBASE', 'LiVe'];
+  const rows = aliases.map((daw, index) => ({ ...base, id: `daw-${index}`, daw,
+    promises: ['The clock keeps every frame.', 'Pairs recover.'] }));
+  const init = () => makeState(f.root, { state: f.statePath, fixRows: f.fixes, notes: f.notes }, () => SOURCE);
+  f.write('fixes.json', { ...f.spec, rows });
+  assertState(init());
+  f.write('fixes.json', { ...f.spec, rows: rows.slice(0, -1) });
+  assert.throws(init, /Release-note promise is not verified in Ableton Live: The clock keeps every frame\./);
+  f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 0 ? { ...row, daw: 'Unknown DAW' } : row) });
+  assert.throws(init, /unknown DAW: Unknown DAW/);
+  f.write('fixes.json', { ...f.spec, rows: [...rows, { ...rows[1], id: 'duplicate', daw: 'Logic Pro' }] });
+  assert.throws(init, /Promise The clock keeps every frame\. is already verified in Logic Pro/);
+  f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 2
+    ? { ...row, promises: ['The clock keeps every frame.'] } : row) });
+  assert.throws(init, /Release-note promise is not verified in REAPER: Pairs recover\./);
+  f.write('fixes.json', { ...f.spec, rows: rows.map((row, i) => i === 5 ? { ...row, daw: 'Ableton Live' } : row) });
+  assertState(init());
 });
 
 test('promises are every English list item, whatever its marker, with continuation lines joined', t => {

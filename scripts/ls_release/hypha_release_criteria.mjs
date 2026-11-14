@@ -6,6 +6,10 @@ import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
 export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v2';
 export const OWNER_DECISION_SCHEMA = 'hypha-owner-acceptance-decision-v1';
 export const OWNER_DEFERRED = 'OWNER_DEFERRED';
+export const REQUIRED_DAWS = ['Studio One', 'Logic Pro', 'REAPER', 'Pro Tools', 'Cubase', 'Ableton Live'];
+const dawKey = value => value.toLowerCase().replace(/\s+/g, '');
+const dawAliases = new Map([['logic', 'Logic Pro'], ['live', 'Ableton Live']]);
+const canonicalDaw = value => dawAliases.get(dawKey(value)) || REQUIRED_DAWS.find(daw => dawKey(daw) === dawKey(value));
 const shippingStep = 'Test shipping source contract';
 export const CI_ORACLES = {
   'pair-recovery-parity': { checks: [
@@ -47,7 +51,7 @@ export function notePromises(file) {
   return promises;
 }
 
-// Every promise needs a host row, and every row names the promise(s) it proves. A host
+// Every promise needs a host row for each required DAW. A host
 // row names the DAW, the format(s) and the chain it runs. Checked at --init and on every stage.
 export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const spec = readJson(file);
@@ -57,6 +61,7 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const promises = notePromises(notes);
   if (!promises) throw new Error('Fix rows need the release notes whose promises they prove');
   const seen = new Set([...HOST_TESTS, ...CONDITIONAL_HOST_TESTS, ...DISTRIBUTION_TESTS, ...POST_TESTS, ...reserved]);
+  const coverage = new Map();
   for (const row of spec.rows) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,95}$/.test(row.id || '') || seen.has(row.id)
         || !['host', 'ci'].includes(row.kind) || row.depth !== 'deep'
@@ -73,6 +78,15 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
         || new Set(names).size !== names.length || names.some(name => !promises.includes(name))) {
       throw new Error(`Fix row ${row.id} names no promise of the release notes`);
     }
+    if (row.kind === 'host') {
+      const daw = canonicalDaw(row.daw);
+      if (!daw) throw new Error(`Fix row ${row.id} names an unknown DAW: ${row.daw}`);
+      for (const promise of names) {
+        if (!coverage.has(promise)) coverage.set(promise, new Set());
+        if (coverage.get(promise).has(daw)) throw new Error(`Promise ${promise} is already verified in ${daw}`);
+        coverage.get(promise).add(daw);
+      }
+    }
     seen.add(row.id);
   }
   const namesPromise = (row, promise) => row.promise === promise || row.promises?.includes(promise);
@@ -80,6 +94,11 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   if (unproved) throw new Error(`Release-note promise has no acceptance row: ${unproved}`);
   const missingHost = promises.find(promise => !spec.rows.some(row => row.kind === 'host' && namesPromise(row, promise)));
   if (missingHost) throw new Error(`Release-note promise has no real-host acceptance row: ${missingHost}`);
+  for (const promise of promises) {
+    for (const daw of REQUIRED_DAWS) {
+      if (!coverage.get(promise)?.has(daw)) throw new Error(`Release-note promise is not verified in ${daw}: ${promise}`);
+    }
+  }
   return { rows: spec.rows, decision: fileFact(file) };
 }
 

@@ -216,7 +216,8 @@ reportで事後に期待値を変更して通すことはできない。
 
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
 `--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の
-箇条が約束で、各約束に実host行が必要であり、CI行はその補足とする。
+箇条が約束で、各約束をStudio One、Logic Pro、REAPER、Pro Tools、Cubase、Ableton Liveの全6 DAWの実host行で検証し、CI行はその補足とする。
+同じ約束とDAWの組合せを複数行に重ねない。
 host行は`promise`に一つ、または`promises`に複数の約束の文をそのまま書ける（CI行は`promise`に一つ）。
 host行は`daw`と`chain`も名指しする。ファイルと公開ノートのhash、全行・期待値を受入条件へ凍結する。
 `kind: host`だけをhosts.jsonへ要求し、`kind: ci`は名前付きCI oracleへ結ぶ。
@@ -224,9 +225,12 @@ CIの標準の期待は`{ "passed": true }`。追加の数値条件には実測o
 
 ```json
 { "schema": "hypha-release-fix-rows-v2", "release": "X.Y.Z", "rows": [
-  { "id": "clock-recovery", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."],
-    "hosts": ["macOS/x86_64/AU"], "daw": "Logic Pro", "chain": "PRE -> limiter -> POST",
-    "depth": "deep", "oracle": "independent callback capture", "expected": { "lostFrames": 0 } },
+  { "id": "studio-one", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Studio One", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  { "id": "logic", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AU"], "daw": "Logic Pro", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  { "id": "reaper", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "REAPER", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  { "id": "pro-tools", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AAX"], "daw": "Pro Tools", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  { "id": "cubase", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Cubase", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  { "id": "live", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Ableton Live", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
   { "id": "pair-recovery", "kind": "ci", "promise": "PRE and POST pair again after a restart.", "hosts": [],
     "depth": "deep", "oracle": "pair-recovery-parity", "expected": { "passed": true } }
 ] }
