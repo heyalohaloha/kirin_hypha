@@ -7,11 +7,12 @@ namespace hypha::tests
 template<class Require> void verifyCandidateHelpText (Require require)
 {
     using namespace live_compare;
-    const std::array<const char*, 4> descriptions {{
+    const std::array<const char*, 5> descriptions {{
         "Match A to B loudness over the latest four seconds",
-        "Press MATCH to match again or start AUTO (A follows B)",
-        "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO",
-        "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again" }};
+        "MATCH is on. Press MATCH to turn it off; MATCH again and AUTO are in MENU",
+        "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to turn MATCH off; MATCH again and AUTO are in MENU",
+        "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to turn MATCH off; MATCH again is in MENU",
+        "MATCH is off: A and B play at their own levels. Press MATCH to turn the same MATCH on" }};
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
@@ -21,10 +22,10 @@ template<class Require> void verifyCandidateHelpText (Require require)
         for (const auto size : observatory::sizePresets)
         {
             view.setSize (size.width, size.height);
-            for (int state = 0; state < 4; ++state)
+            for (int state = 0; state < 5; ++state)
             {
                 footer.matched = state == 1 || state == 2;
-                footer.following = state == 2; footer.matchLimited = state == 3;
+                footer.following = state == 2; footer.matchLimited = state == 3; footer.matchOff = state == 4;
                 view.setLiveCompareFooter (footer);
                 auto* button = dynamic_cast<juce::Button*> (candidateControl (view, "observatory-live-match"));
                 require (button && button->getDescription() == descriptions[static_cast<std::size_t> (state)]
@@ -33,8 +34,8 @@ template<class Require> void verifyCandidateHelpText (Require require)
                 require (text_style::shownText (button->getDescription()).isNotEmpty(), "MATCH help is translated");
                 const auto shortened = help_line::forLine (button->getDescription(), false);
                 require (shortened.isNotEmpty() && text_style::shownText (shortened).isNotEmpty(), "short help is translated");
-                if (state == 1) require (shortened.contains ("AUTO"), "matched help offers AUTO");
-                if (state == 2) require (shortened.contains ("stop AUTO"), "AUTO help retains its stop entry");
+                if (state == 1 || state == 2) require (shortened.contains ("off"), "matched help says a press turns MATCH off");
+                if (state == 4) require (shortened.contains ("turn it on"), "MATCH off help says a press turns it on");
             }
         }
     }

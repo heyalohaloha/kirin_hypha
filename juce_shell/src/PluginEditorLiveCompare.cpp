@@ -81,7 +81,7 @@ void KirinHyphaEditor::configureLiveCompare()
     const auto current = processorRef.liveCompareStatus();
     if (isPost && (rest.on || rest.matchKnown) && current.active && ! current.finishing
         && rest.session == processorRef.liveCompareListenSession() && rest.ticket == processorRef.restoreOrPairTicket()
-        && (current.matched || current.matchHeld) && ! current.matchLimited)
+        && (current.matched || current.matchHeld || current.matchOff) && ! current.matchLimited)
     {
         liveCompareAuto = { rest.on, false, rest.approvedPreDb, rest.ceilingDbtp,
                             nowSecs() + hypha::live_compare::followIntervalSeconds, rest.matchKnown };
@@ -307,7 +307,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
         liveCompareWarning = "MATCH: " + juce::String (processorRef.candidateMatchSecondsRemaining()) + " s remaining";
     if (newFault) liveCompareAuto.on = false;
     followLiveCompare (status, now);
-    if (liveCompareWarning.isEmpty() && liveCompareAuto.on)
+    if (liveCompareWarning.isEmpty() && liveCompareAuto.on && ! status.matchOff)
         liveCompareWarning = juce::String (hypha::live_compare_ui::autoLimitNotice (liveCompareAuto.limit, liveCompareAuto.shortDb, processorRef.candidateCompareActive()));
     // A press waiting for its start says what it waits for, every refresh until it starts or drops.
     if ((liveCompareWarning.isEmpty() || status.finishing) && liveCompareStartAfterReturnUntil > 0.0)
@@ -338,7 +338,8 @@ bool KirinHyphaEditor::refreshLiveCompare()
     footer.matched = status.active && (liveCompareMatched || status.matchHeld);
     footer.matchHeld = false; // the approved MATCH stays visible across timing recovery
     footer.matchLimited = footer.matched && liveCompareLimited;
-    footer.following = status.active && liveCompareAuto.on;
+    footer.matchOff = status.active && status.matchOff;
+    footer.following = status.active && liveCompareAuto.on && ! status.matchOff; // AUTO rests while MATCH is off
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
     const auto held = std::min (status.postActual, status.postTarget);
     footer.postHeldTenthsDb = held > 0.0f && held < 1.0f

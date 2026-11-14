@@ -95,7 +95,8 @@ Reference欠損、検証失敗時はA経路を維持する。
 だけでは受け入れない。確かめられない区間はPOSTを出力し、PREの選択と承認済みのgainは保持して、
 確かめられた最初のblockからPREへ戻す。PREの入力、A経路、正本のPRE/POST測定・Recordは変更せず、
 接続、読込、復元だけでBへ自動切替しない。2026-10-13の利用者の決定により、LISTENとBLINDは
-同じ明示選択・承認gain・匿名割当を保持する。遅延変化、seek、停止、時計／callback欠落、情報の期限切れ、
+同じ明示選択・承認gain・匿名割当を保持する。LISTENの押下は、最後にLISTENで選んだ側（PREかPOST）から
+始める（BLIND・A/Bは除く。覚えはprojectに保存するが、開き直し・復元でLISTENは始めない。2026-11-12）。遅延変化、seek、停止、時計／callback欠落、情報の期限切れ、
 読取り競合では未確認blockだけPOSTを出し、現在の同じpair／owner／formatの新しいPCMと対応を確かめた
 最初のblockから自動で戻す。古いKや履歴を新しい証拠として流用しない。つまみ、fader、mute／solo、
 automation、別trackの編集、自動保存、窓の開閉では選択を解除しない。初回準備と短い再確認は表示せず、
@@ -112,11 +113,15 @@ RESULTではPOSTを鳴らしたとは言わずにずれていた可能性を示�
 （技術契約: `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）
 PREの増幅が比較ceilingを超えるMATCHでは、利用者の明示承認の後だけ、PREを原音量に保ってPOSTの出力を
 差だけ固定減衰できる（Local Blindと同じ方式）。減衰は試聴の終了後も、利用者が明示して通常の音量へ
-戻すまで保持し、急に上げない。offline render、hostが知らせるbypass、他の試聴が出力を取るblockには
+戻す（END・RETURN・MATCHのOFF）まで保持し、急に上げない（0.5秒で上げ、DAWが止まって何も鳴っていない
+ときはすぐ戻す。2026-11-12）。offline render、hostが知らせるbypass、他の試聴が出力を取るblockには
 適用せず、正本のPRE/POST測定・Recordは減衰の前で取る。（2026-09-28技術契約）
 明示MATCHの後、利用者が明示して選んだ追従（AUTO）だけは、そのMATCHのgainから±6 dB以内、そのMATCHで
 承認したceiling以下で、PREの試聴コピーのgainを50 msのrampで動かせる。POSTとceilingは動かさず、範囲を
 出るときは範囲の端まで動かして追従を続け、届かない量を状態の行で言う（ceilingを守るためなら±6 dBより下げる）。追従はBlindへ持ち込まない。（2026-09-28技術契約、2026-11-05に変更）
+MATCHはLISTENの中でON／OFFできる。OFFはPREを原音量へ、POSTをそのLISTENの始めの音量へ戻し、AUTOを休ませ、
+BLINDの「MATCH済み」に数えない。ONは同じ承認済みのgain・ceiling・減衰へ戻す（上げた分は今のPREのTrue Peakで確かめ直し、
+ceilingを超えるなら止めずに上限まで下げて言う）。測り直し（MATCH again）は残す。（2026-11-12）
 Reference比較試聴（B・C・V）のMATCHが比較ceilingを超えるとき（大きなAに静かな参照曲）は、利用者の明示承認の
 後だけ、参照を原音量に保って（上げずに）POSTの出力（A）を差だけ固定減衰できる。減衰は試聴の終了後も、利用者が
 明示して通常の音量へ戻す（RETURN）まで保持し、急に上げない。下げ終わるまで参照を鳴らさず、戻すときは鳴っている役を

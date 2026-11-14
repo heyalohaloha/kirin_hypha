@@ -68,7 +68,7 @@ inline std::vector<Notice> notices()
     for (const char* text : { "LISTEN could not start", "Choose the PRE first",
         "Mono / stereo only", "PRE not running; choose again", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
-        "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
+        "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal", "MATCH off: original levels", "MATCH on",
         "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
         "End the current comparison first", "BLIND COMPARE COULD NOT START", live_compare_ui::realtimeBounceNotice }) add (text);
@@ -90,7 +90,7 @@ inline std::vector<Notice> notices()
         "VU calibration: connecting; try again in a moment", "DAW recording: showing Hybrid VU",
         "AUTO stopped at the TP limit", "AUTO stopped: press MATCH again", "No OS Guide from Kirin OS yet",
         "Capture could not be prepared; try again", "Available in POST", "NOTE requires an active Keep",
-        "Stop playback to change connection", "Ended; normal level returns with audio", "Keep waits for PRE; Stop cancels",
+        "Stop playback to change connection", "Ended; POST back to normal within 0.5 s", "Keep waits for PRE; Stop cancels",
         "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
         "16 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
         "A target is measured data with no audio. Compare it on C.", "ALL SHAPE uses every song. Choose SHAPE to pick songs.",

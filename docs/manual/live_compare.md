@@ -105,7 +105,9 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
 
 1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
    300% and above) in the footer.
-2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms.
+2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms. The next LISTEN
+   starts on the side you chose last, saved with the project; BLIND and A/B always start on their
+   own terms, and opening or restoring a project never starts LISTEN.
 3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
    least three, BS.1770 loudness, up to ±24 dB) and applies that gain to PRE only; the PRE control
    shows it, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
@@ -120,7 +122,13 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    would still peak above the ceiling later in the song, that block plays POST. PRE returns
    automatically when it is safe at the approved gain. BLIND does not play POST there: it matches
    on the quieter side for the rest of the trial ([BLIND](blind.md)). A new gain while PRE plays glides over 50 ms instead of jumping.
-4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
+4. Once matched, press **MATCH** again to turn it off: PRE returns to its own level and a lowered
+   POST rises back to where it was when LISTEN began, in half a second. Press it once more to turn
+   the same match back on, with the same gain, ceiling and approved attenuation. If PRE now peaks
+   higher, a raised PRE stops at the ceiling and MATCH reads **TP LIMIT** with the amount it needs
+   (with AUTO, the status line says how far PRE stays under POST). While MATCH is
+   off, AUTO rests and BLIND makes its own match. **MATCH again** (a new measurement) and **AUTO**
+   are in MENU and on the AUTO key. With AUTO, PRE follows POST:
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
    MATCH and moves PRE at most 6 dB from that MATCH, except lower when the ceiling needs it. At a
@@ -132,8 +140,9 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
-   then restores normal POST level with a slow ramp (two seconds for the full gain range).
-   Completion waits for actual audio output at unity; without callbacks it stays pending.
+   then restores normal POST level within half a second. While the DAW is stopped it returns at
+   once; when the DAW sends no audio at all, the return finishes after half a second of quiet and
+   the next playback starts at normal level.
 6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running.
    A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass

@@ -30,6 +30,8 @@ void KirinHyphaEditor::chooseLiveCompareFollow()
         menu.addItem (2, "Stop AUTO");
     else if (liveCompareLimited)
         menu.addItem (3, "AUTO needs a MATCH without TP LIMIT", false);
+    else if (processorRef.liveCompareStatus().matchOff)
+        menu.addItem (3, "AUTO needs MATCH on", false);
     else
         menu.addItem (3, processorRef.candidateCompareActive() ? "AUTO: follow B within 0.5 dB" : "AUTO: follow POST within 0.5 dB");
     const auto options = juce::PopupMenu::Options()
@@ -95,6 +97,8 @@ void KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& sta
         a.on = false;
         return;
     }
+    if (status.matchOff)
+        return; // MATCH off rests AUTO; MATCH on continues it from the same MATCH
     if (status.matchLimited || (!status.matched && !status.matchHeld))
     {
         stopLiveCompareAuto (status.matchLimited ? "AUTO stopped at the TP limit" : "AUTO stopped: press MATCH again");

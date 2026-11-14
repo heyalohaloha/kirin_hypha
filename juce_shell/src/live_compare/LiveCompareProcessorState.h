@@ -54,6 +54,7 @@ struct LiveBlindStatus
 struct Status
 {
     bool finishing = false, matched = false, matchLimited = false, matchReady = false, matchHeld = false;
+    bool matchOff = false; // MATCH turned off in this LISTEN; MATCH turns the same match on again
     float postActual = 1.0f;
     std::uint64_t sessionGeneration = 0;
     bool active = false;
@@ -79,6 +80,14 @@ struct Status
     RecoveryReason observation = RecoveryReason::none;
 };
 
+// MATCH on/off (INV-LC13): whether it turned, the PRE gain it left, and how far a kept boost stays under
+// the match because PRE's true peak now reaches the approved ceiling (0 when it does not).
+struct MatchToggle
+{
+    bool turned = false;
+    double gainDb = 0.0, shortDb = 0.0, peakDbtp = 0.0;
+};
+
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
 // the ring and the renderer. The message thread publishes and retires the mapping; the Audio
 // Thread reads it only through the slot and publishes its observations through the atomics.
@@ -90,6 +99,9 @@ struct ProcessorState
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
+    // INV-LC14: the last POST callback's wall time, and each return the message thread finished in a quiet.
+    std::atomic<std::uint64_t> lastCallbackNanos { 0 }, quietReturn { 0 };
+    std::uint64_t quietReturnSeen = 0; // Audio Thread only
     WaitNotice waitNotice;
     BlindSession blind;
     BlindPreparation blindTiming;
@@ -119,6 +131,19 @@ struct ProcessorState
     std::atomic<bool> timingReentryPending { false };
     std::atomic<bool> matched { false }, matchLimited { false };
     std::atomic<bool> matchRetained { false }; // fixed gains remain, independently of current proof
+    // MATCH on/off: what MATCH off kept for MATCH on, and POST's level when this LISTEN began (message
+    // thread only). A new MATCH, END and a new LISTEN forget it.
+    struct MatchMemory
+    {
+        float pre = 1.0f, post = 1.0f, ceiling = 1.0f;
+        bool limited = false;
+        double peakDbtp = 0.0; // PRE's loudest true peak known to the MATCH (the evidence its gain was checked on)
+        GainIdentity identity;
+    } matchMemory;
+    float listenBasePost = 1.0f;
+    double matchPeakDbtp = 0.0; // the last MATCH's PRE true peak (message thread)
+    GainSnapshot lastGains;     // Audio Thread only: the last whole tuple, kept while a writer holds the revision
+    std::atomic<bool> matchOff { false };
     std::atomic<std::uint32_t> matchRun { 0 };
     std::atomic<float> postActual { 1.0f };
     BlindStage blindStage = BlindStage::idle; // message thread only
@@ -177,6 +202,7 @@ struct ProcessorState
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved
     std::atomic<bool> autoAlign { true };         // INV-LC28; saved only when off
+    std::atomic<bool> listenPre { false };        // the side LISTEN last chose (INV-LC4); saved only when PRE
     std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 }, alignPeer { 0 };
     AlignmentConditions alignmentConditions; // Audio Thread only
     AlignContext alignServiced;                  // message thread: the monitor's pair and format

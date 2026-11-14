@@ -83,7 +83,8 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
     }
 }
 
-hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket)
+hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket,
+                                                                            bool lastSide)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     using hypha::live_compare::StartResult;
@@ -115,12 +116,13 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
         return StartResult::preMultiMono;
     liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
-    liveCompare.selection.select (false);
+    liveCompare.selection.select (lastSide && liveCompare.listenPre.load (std::memory_order_acquire));
     liveCompare.observationReason.store (hypha::live_compare::RecoveryReason::none, std::memory_order_release);
     { // each session approves its own MATCH; never publish a split gain tuple
         hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
         if (! update) return StartResult::notReady;
         liveCompare.gain.store (1.0f, std::memory_order_release);
+        liveCompare.listenBasePost = liveCompare.postTarget.load (std::memory_order_acquire); // MATCH off returns here
     }
     mapping->requestPcm();
     // Each opened reader owns one demand reference; closing another POST cannot clear it.
@@ -177,6 +179,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
     liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.matchRetained.store (false, std::memory_order_release);
+    liveCompare.matchOff.store (false, std::memory_order_release);
     if (liveCompare.blindStage != hypha::live_compare::BlindStage::idle
         && liveCompare.blindStage != hypha::live_compare::BlindStage::finishing)
         liveCompare.blindStage = hypha::live_compare::BlindStage::invalidated;
@@ -195,6 +198,9 @@ void KirinHyphaProcessorBase::selectLiveComparePre (bool pre) noexcept
         && ! liveCompare.completion.pending() && ! liveCompare.blind.command().active())
     {
         liveCompare.selection.select (pre);
+        // The next LISTEN starts here (INV-LC4). BLIND and A/B choices are not LISTEN's.
+        if (! candidateCompareActive() && liveCompare.blindStage == hypha::live_compare::BlindStage::idle)
+            liveCompare.listenPre.store (pre, std::memory_order_release);
     }
 }
 void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
@@ -205,6 +211,7 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
         if (! update) return;
         liveCompare.matched.store (false, std::memory_order_release);
         liveCompare.matchRetained.store (false, std::memory_order_release);
+        liveCompare.matchOff.store (false, std::memory_order_release);
         liveCompare.gain.store (linear, std::memory_order_release);
     }
 }
@@ -282,6 +289,8 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
     liveCompare.matched.store (true, std::memory_order_release);
     liveCompare.matchRetained.store (true, std::memory_order_release);
+    liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
+    liveCompare.matchPeakDbtp = plan.prePeakDbtp; // MATCH on checks a kept boost from here
     return {};
 }
 
@@ -318,7 +327,7 @@ void KirinHyphaProcessorBase::kirinHostInstanceGroup (juce::uint64 group, bool v
     liveCompare.aaxGroup.assign (static_cast<std::uint64_t> (group), valid);
 }
 
-// Message thread, the explicit RETURN: POST rises back to its normal level over half a second.
+// Message thread, the explicit RETURN: POST rises back to its normal level over half a second (INV-LC14).
 void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
     finishLiveCompare();
@@ -395,6 +404,19 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
             ? hypha::live_compare::RecoveryReason::pairChanged
             : hypha::live_compare::RecoveryReason::restored); // holds POST and explicit END
     }
+    // INV-LC14: half a second without a callback means nothing sounds (the DAW stopped), so END's
+    // return finishes now; the first block after the quiet rises at once.
+    if (role == Role::Post && liveCompare.completion.pending() && hypha::live_compare::quietSince (
+            liveCompare.lastCallbackNanos.load (std::memory_order_acquire), hypha::live_compare::callbackWallNanos()))
+        if (hypha::live_compare::GainUpdate update (liveCompare.gainRevision); update)
+        {
+            liveCompare.postTarget.store (1.0f, std::memory_order_release);
+            liveCompare.postActual.store (1.0f, std::memory_order_release);
+            liveCompare.preAudible.store (false, std::memory_order_release); // nothing to fade: a new LISTEN starts now
+            liveCompare.preWaiting.store (false, std::memory_order_release);
+            liveCompare.quietReturn.fetch_add (1, std::memory_order_acq_rel);
+            liveCompare.completion.complete (liveCompare.completion.command());
+        }
     if (role == Role::Post && liveCompare.completion.receipt() > liveCompare.finishServiced)
     {
         liveCompare.finishServiced = liveCompare.completion.receipt();
@@ -445,4 +467,5 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
 }
 
 #include "live_compare/LiveCompareProcessorStatus.h"
+#include "live_compare/LiveCompareMatchToggle.h"
 #include "live_compare/CandidateProcessorControl.h"

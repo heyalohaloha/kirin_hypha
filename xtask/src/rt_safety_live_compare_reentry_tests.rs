@@ -315,7 +315,10 @@ fn approved_gain_has_one_bounded_writer_and_one_current_audio_receipt() {
         "void KirinHyphaProcessorBase::processLiveCompare",
     );
     assert!(rt.find("readGainSnapshot").unwrap() < rt.find("float postTarget").unwrap());
-    assert!(rt.contains("if (! coherent) postTarget = liveCompare.postLevel.value();"));
+    // A block without a whole gain tuple (neither this snapshot nor the last coherent one)
+    // keeps POST at its level.
+    assert!(rt.contains("const bool steady = gains.coherent;"));
+    assert!(rt.contains("if (! steady) postTarget = liveCompare.postLevel.value();"));
     assert!(rt.contains("if (update) liveCompare.postTarget.store"));
     for body in [GAIN, REENTRY] {
         let code = without_line_comments(body);

@@ -167,4 +167,11 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
         ? MatchFailure::none : MatchFailure::outOfRange;
     return result;
 }
+
+double ceilingCappedGainDb (double gainDb, double ceilingDbtp, double peakDbtp) noexcept
+{
+    if (! (gainDb > 0.0)) return gainDb;
+    const double room = ceilingDbtp - peakDbtp;
+    return std::isfinite (room) ? std::min (gainDb, std::max (0.0, room)) : 0.0;
+}
 }

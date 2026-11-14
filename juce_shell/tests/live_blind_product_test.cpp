@@ -385,10 +385,10 @@ private:
                 ++stage;
                 break;
             case 10:
-                // No callbacks: audio time is frozen. Observe END across real message-thread ticks.
+                // No callbacks and a frozen callback clock: less than half a second of quiet (INV-LC14).
                 if (std::chrono::steady_clock::now() - pendingAt < std::chrono::milliseconds (250)) break;
                 require (post->liveCompareStatus().finishing && std::abs (post->liveCompareStatus().postActual - held) <= 0.0f,
-                         "without callbacks END stays pending and never claims unity");
+                         "a quiet under half a second keeps END pending and never claims unity");
                 offline.store (true);
                 suspendAudio.store (false);
                 observedBlock = audioBlocks.load();

@@ -16,7 +16,8 @@ vote, learn from it, or change audio from it. No Kirin OS is required.
 ![PRE/POST Blind after REVEAL: SOURCE 1 was POST and SOURCE 2 was PRE; switching continues until END](../media/readme/blind_result.jpg)
 
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
-another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match.
+another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match, and a MATCH
+you turned off is not reused: BLIND then matches on its own.
 
 BLIND matches by raising the quieter source, as long as it stays under the ceiling (the larger of
 −1 dBTP and the measured true peaks). When raising it would peak above the ceiling, already at MATCH
@@ -26,7 +27,7 @@ the two sources stay matched, and the louder source never stands in for the rais
 under the buttons then says why both are quieter and what END gives back, for example
 **Lowered 2.0 dB to avoid clipping; END restores it**.
 END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
-END, ramped over about two seconds, and confirmed by the Audio Thread. Closing the window alone never raises the level.
+END and returns within half a second, at once while the DAW is stopped. Closing the window alone never raises the level.
 A realtime bounce or export while BLIND is on records the source you hear, so press END first.
 If restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before
 starting a new LISTEN or BLIND session. Only a still-active session can carry its own approved

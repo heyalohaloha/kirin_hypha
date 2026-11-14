@@ -1,7 +1,9 @@
 // Class-scope declarations included by PluginProcessor.h; not a standalone header.
 // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
 // A press that waited passes the restore and pair ticket of its press; a new press takes the latest one.
-hypha::live_compare::StartResult startLiveCompare (std::optional<std::uint64_t> pressedTicket = std::nullopt);
+// lastSide: the LISTEN press starts on the side LISTEN last chose (INV-LC4); BLIND and A/B start on POST.
+hypha::live_compare::StartResult startLiveCompare (std::optional<std::uint64_t> pressedTicket = std::nullopt,
+                                                   bool lastSide = false);
 // LISTEN（reuseSession なら LIVE BLIND）を始めてよいか。出力の持ち主の表（outputDecision）の答え。
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 // INV-LC16：窓を閉じた間の AUTO（message thread だけ）。開き直した窓が同じ session なら続ける。
@@ -23,6 +25,9 @@ void serviceLiveCompareMatch();
 bool takeLiveCompareMatch (hypha::live_compare::MatchPlan&, bool& applied);
 hypha::live_compare::MatchApplication applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
 bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
+// MATCH on/off in a LISTEN (INV-LC13): off keeps the match for on; not turned when there is nothing to turn.
+// On caps a kept boost at the approved ceiling for PRE's true peak now; without AUTO (following) that reads TP LIMIT.
+hypha::live_compare::MatchToggle setLiveCompareMatchOn (bool on, bool following = false);
 void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
 void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC9, AAX only
 void returnLiveComparePostToNormal() noexcept;

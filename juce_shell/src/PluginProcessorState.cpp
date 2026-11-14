@@ -44,6 +44,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
         scaleModePreference()));
     xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
     if (! liveCompareAutoAlign()) xml.setAttribute ("live_auto_align", false); // on by default, never written
+    if (liveCompare.listenPre.load (std::memory_order_acquire)) xml.setAttribute ("live_listen_pre", true); // POST by default
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     {
         std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
@@ -81,7 +82,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     int restoredEditorHeight = hypha::observatory::defaultEditorSize().height;
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
-    bool restoredHybridVuOnRecord = true, restoredAutoAlign = true, restored = false;
+    bool restoredHybridVuOnRecord = true, restoredAutoAlign = true, restoredListenPre = false, restored = false;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     hypha::reference_audition::ReferenceComparisonSettings restoredReference;
    #endif
@@ -134,6 +135,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             if (displayStateVersion >= 5) restoredHybridVuOnRecord =
                 xml->getBoolAttribute ("hybrid_vu_on_record", true);
             restoredAutoAlign = xml->getBoolAttribute ("live_auto_align", true);
+            restoredListenPre = xml->getBoolAttribute ("live_listen_pre", false);
             restored = true;
         }
     }
@@ -161,6 +163,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         spectrumAverage.set (restoredSpectrumAverage);
         displaySettings.set (restoredDisplaySettings);
         liveCompare.autoAlign.store (restoredAutoAlign, std::memory_order_release);
+        liveCompare.listenPre.store (restoredListenPre, std::memory_order_release); // remembered only; never starts LISTEN
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (role == Role::Post)
         {

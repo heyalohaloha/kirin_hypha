@@ -20,6 +20,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     liveCompare.blindStage = BlindStage::finishing;
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.matchRetained.store (false, std::memory_order_release);
+    liveCompare.matchOff.store (false, std::memory_order_release);
     liveCompare.selection.end();
     liveCompare.completion.request();
     requestServiceTimer();

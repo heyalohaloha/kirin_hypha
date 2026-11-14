@@ -129,14 +129,16 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
              "Listen to PRE, the input of this chain, at the level MATCH set",
              "Listen to PRE, the input of this chain. MATCH levels it to POST",
              "Listen to POST, lowered by the attenuation you approved", "Listen to POST, the output of this chain",
-             "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO",
-             "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
-             "Press to MATCH again or to let PRE follow POST (AUTO)",
+             "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to turn MATCH off; MATCH again and AUTO are in MENU",
+             "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to turn MATCH off; MATCH again is in MENU",
+             "MATCH is on. Press to turn it off; MATCH again and AUTO are in MENU",
+             "MATCH is off: PRE and POST play at their own levels. Press to turn the same MATCH on",
+             "MATCH is off: A and B play at their own levels. Press MATCH to turn the same MATCH on",
              "Match PRE to POST loudness over the latest four seconds", "NOTE requires Kirin OS",
              "Match A to B loudness over the latest four seconds",
-             "Press MATCH to match again or start AUTO (A follows B)",
-             "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO",
-             "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again",
+             "MATCH is on. Press MATCH to turn it off; MATCH again and AUTO are in MENU",
+             "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to turn MATCH off; MATCH again and AUTO are in MENU",
+             "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to turn MATCH off; MATCH again is in MENU",
              "Finish Keep / Record before PRE / POST Blind", "Match levels and compare while the song plays" })
         texts.add (text, false);
 }

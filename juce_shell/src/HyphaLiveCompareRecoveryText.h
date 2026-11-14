@@ -197,7 +197,7 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.active && !state.interrupted && !state.preSelected
         && (state.loopBlock != live_compare::LoopPairingBlock::none
             || *loopRecovery (state.observation, state.reaperRestriction).instruction)) return {};
-    if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
+    if (state.finishing) return result (RecoveryAction::busy, "Ended; POST back to normal within 0.5 s");
     if (state.active && !state.interrupted && state.observation == Reason::contentAmbiguous)
         return { Reason::contentAmbiguous, RecoveryAction::none, "Position unconfirmed; POST plays" };
     // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
