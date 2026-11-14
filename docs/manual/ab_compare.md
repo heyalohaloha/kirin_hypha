@@ -21,7 +21,10 @@ An A that arrives later than B, or whose position the audio cannot confirm, play
 footer says so; comparison continues. When an earlier A/B of the same candidate confirmed how early A
 was, and the host reports the same latencies, insert chain and delay compensation, the next start of
 that candidate plays A with that amount and says **Delay not re-measured** until the audio confirms
-it again. After a change in those, or with another candidate, the start is fresh.
+it again. After a change in those, or with another candidate, the start is fresh; when the host
+starts compensating that amount itself, it is dropped. When seeks keep A from reaching such an
+amount, B stands in for at most one second in all; then A plays at its clock position with
+**Delay unmeasured** until it can.
 Normal measurement and capture are suspended during A/B. Finish Record / Keep before starting.
 
 Hardware and effects with feedback or long tails retain their own history when their input

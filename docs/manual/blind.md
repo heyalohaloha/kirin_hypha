@@ -44,8 +44,10 @@ off, after the note on any POST that really stood in, even while the notice is s
 its clock position and the same line, **Delay unmeasured / Check delay compensation**, appears for
 both sources. When an earlier LISTEN or BLIND with the same pair and format confirmed a correction,
 PRE plays with it instead and both sources show **Delay not re-measured**. When seeks keep PRE from
-reaching a correction of up to a second, POST stands in for at most one second in all; then PRE plays
-at its clock position with **Delay unmeasured** until it can. Source buttons show your selection, while internal played receipts count only the source that
+reaching a correction of up to a second, POST stands in for at most one second in all, whatever the
+reason PRE was not playing; these waits and lines come at the same time whichever source is selected.
+Then PRE plays at its clock position with **Delay unmeasured** until it
+can. A correction the host starts compensating itself is dropped. Source buttons show your selection, while internal played receipts count only the source that
 actually sounded.
 
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
