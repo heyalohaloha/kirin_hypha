@@ -17,6 +17,8 @@ The diagram is a placement confirmation, not automatic routing detection. Differ
 are shown as a hint. In another arrangement, the sound can change during comparison. When timing
 or the replacement range cannot be confirmed, the actual chain output is used temporarily;
 BLIND keeps its assignment and resumes automatically. That interval is not counted as B heard.
+In A/B, BLIND's GUESS asks **Which one is B?**, and SAVE IMAGE names the sources A and B until you
+type other names ([Blind](blind.md)).
 An A that arrives later than B, or whose position the audio cannot confirm, plays as it is and the
 footer says so; comparison continues.
 Normal measurement and capture are suspended during A/B. Finish Record / Keep before starting.

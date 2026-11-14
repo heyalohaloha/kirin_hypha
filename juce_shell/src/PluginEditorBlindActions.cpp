@@ -56,7 +56,8 @@ void KirinHyphaEditor::requestBlindReveal()
     }
     else if (auto* screen = activeBlindScreen())
     {
-        if (! screen->requestReveal()) screen->setActionNotice ("Hear both sources first");
+        if (! screen->requestReveal()) screen->setActionNotice (screen->screen().guessOpen && screen->screen().guessAnswer == 0
+            ? "Choose an answer first" : "Hear both sources first");
     }
 }
 

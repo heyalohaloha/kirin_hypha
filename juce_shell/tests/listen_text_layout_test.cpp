@@ -4,6 +4,7 @@
 #include "LiveCompareFooterContractTest.h"
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
+#include "BlindGuessImageTest.h"
 #include <stdexcept>
 
 int main()
@@ -17,6 +18,8 @@ try
     hypha::tests::verifyLiveCompareFooterContract();
     hypha::tests::verifyLiveBlindUiContract();
     hypha::tests::verifyVersionBlindScreen();
+    hypha::tests::verifyBlindGuessAndImage ([] (bool ok, const char* why)
+        { if (!ok) throw std::runtime_error (why); });
     hypha::tests::verifyFooterSurfaceRestoration ([] (bool ok, const char* why)
         { if (!ok) throw std::runtime_error (why); });
     hypha::tests::verifyAllListenText ([] (bool ok, const char* why)

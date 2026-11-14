@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaBlindResultImage.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
 #include "HyphaLiveStartAfterReturn.h"
@@ -9,6 +10,7 @@ using hypha::live_compare::StartResult;
 
 void KirinHyphaEditor::configureLiveBlind()
 {
+    liveBlindView.setGuessing (hypha::blind_image::guessPreferred (liveBlindView.preferenceFile()));
     observatoryView.onLocalBlind = [this] { openLiveBlind(); };
     scaleRoot.addChildComponent (liveBlindView);
     liveBlindView.onSelect = [this] (int source)
@@ -154,6 +156,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         hypha::unavailable::addItem (menu, 23, "BLIND",
             ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)),
             reasonFor (keepActive ? "Finish Keep / Record before PRE / POST Blind" : liveCompareEntryRefusal (true)));
+    if (observatoryView.localBlindEntryAvailable()) menu.addItem (48, "GUESS", true, liveBlindView.guessing());
     menu.addItem (44, processorRef.candidateCompareActive() ? "Align A automatically" : "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 
@@ -162,6 +165,14 @@ bool KirinHyphaEditor::handleLiveCompareMenu (int result)
     // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
     if (result == 45) { showCandidateCompareMenu(); return true; }
     if (result == 46 || result == 47) { handleLiveCompareFollowChoice (result == 46 ? 1 : liveCompareAuto.on ? 2 : 3); return true; }
+    if (result == 48)
+    {
+        // GUESS holds for this editor even when the setting file cannot be written.
+        liveBlindView.setGuessing (! liveBlindView.guessing());
+        if (! hypha::blind_image::preferGuess (liveBlindView.preferenceFile(), liveBlindView.guessing()))
+            showToast ("GUESS setting could not be saved");
+        return true;
+    }
     if (result < 40 || result > 44) return false;
     if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
     if (result == 40) requestListenStart();

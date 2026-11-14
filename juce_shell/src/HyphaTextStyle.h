@@ -11,7 +11,7 @@
 namespace hypha::text_style
 {
 // Fixed control labels keep their literal spelling; explanatory text remains localized.
-enum class LabelPolicy { localized, fixed };
+enum class LabelPolicy { localized, fixed, fixedNativeBold };
 
 // The text the calls below show for `text`, and the width it takes when drawn in `font`.
 juce::String shownText (const juce::String&, LabelPolicy = LabelPolicy::localized);
@@ -50,6 +50,9 @@ void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                juce::Justification, bool useEllipsesIfTooLong = true);
 void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float>,
                juce::Justification, bool useEllipsesIfTooLong = true);
+// A pre-localized image line (including a user-entered name) must not be translated again.
+void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float>,
+               juce::Justification, bool useEllipsesIfTooLong, LabelPolicy);
 void drawText (juce::Graphics&, const juce::String&, int x, int y, int width, int height,
                juce::Justification, bool useEllipsesIfTooLong = true);
 

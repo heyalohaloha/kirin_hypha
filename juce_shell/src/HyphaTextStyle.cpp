@@ -30,7 +30,7 @@ ShownTextLog::~ShownTextLog()
 
 juce::String shownText (const juce::String& text, LabelPolicy policy)
 {
-    return displayableText (policy == LabelPolicy::fixed ? text : i18n::tr (text));
+    return displayableText (policy == LabelPolicy::localized ? i18n::tr (text) : text);
 }
 
 float shownWidth (const juce::Font& font, const juce::String& text, LabelPolicy policy)
@@ -288,12 +288,15 @@ namespace
 class ShownFont final
 {
 public:
-    ShownFont (juce::Graphics& graphics, const juce::String& shown)
+    ShownFont (juce::Graphics& graphics, const juce::String& shown, bool boldNative = false)
     {
         if (! requiresJapaneseGlyphs (shown))
             return;
         saved.emplace (graphics);
-        graphics.setFont (nativeTextFontLike (graphics.getCurrentFont()));
+        if (boldNative)
+            graphics.setFont (nativeTextFontLike (graphics.getCurrentFont()).boldened());
+        else
+            graphics.setFont (nativeTextFontLike (graphics.getCurrentFont()));
     }
 
 private:
@@ -337,10 +340,11 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
 
 template <typename Area>
 void drawShown (juce::Graphics& graphics, const juce::String& text, Area area,
-                juce::Justification justification, bool useEllipsesIfTooLong)
+                juce::Justification justification, bool useEllipsesIfTooLong,
+                LabelPolicy policy = LabelPolicy::localized)
 {
-    const auto shown = shownText (text);
-    const ShownFont font (graphics, shown);
+    const auto shown = shownText (text, policy);
+    const ShownFont font (graphics, shown, policy == LabelPolicy::fixedNativeBold);
     graphics.drawText (drawn (shown, area.toFloat()), area, justification, useEllipsesIfTooLong);
 }
 }
@@ -410,6 +414,12 @@ void drawText (juce::Graphics& graphics, const juce::String& text, juce::Rectang
                juce::Justification justification, bool useEllipsesIfTooLong)
 {
     drawShown (graphics, text, area, justification, useEllipsesIfTooLong);
+}
+
+void drawText (juce::Graphics& graphics, const juce::String& text, juce::Rectangle<float> area,
+               juce::Justification justification, bool useEllipsesIfTooLong, LabelPolicy policy)
+{
+    drawShown (graphics, text, area, justification, useEllipsesIfTooLong, policy);
 }
 
 void drawText (juce::Graphics& graphics, const juce::String& text, int x, int y, int width,

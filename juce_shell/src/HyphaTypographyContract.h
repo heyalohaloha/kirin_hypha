@@ -36,6 +36,26 @@ enum class Composition
     instrument,
 };
 
+// Fixed-size output typography for the square BLIND RESULT image. Name size is bounded so
+// a pair of long source names can share one readable size without compressing glyphs.
+enum class BlindImageText { small, title, name, question, answer, outcome, closing, address };
+
+constexpr float blindImageFontHeight (BlindImageText role, int nameSize = 34) noexcept
+{
+    switch (role)
+    {
+        case BlindImageText::small: return 12.5f;
+        case BlindImageText::title: return 30.0f;
+        case BlindImageText::name: return static_cast<float> (nameSize < 14 ? 14 : nameSize > 34 ? 34 : nameSize);
+        case BlindImageText::question: return 15.0f;
+        case BlindImageText::answer: return 14.0f;
+        case BlindImageText::outcome: return 19.0f;
+        case BlindImageText::closing: return 15.5f;
+        case BlindImageText::address: return 13.0f;
+    }
+    return 12.5f;
+}
+
 enum class Overflow
 {
     preserve,
