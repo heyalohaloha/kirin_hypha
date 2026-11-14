@@ -93,7 +93,7 @@ void testReferenceVisual (const juce::File& sandbox)
         const auto& bin = measured->bins[size_t (i)];
         require (bin.a.frames == 4800 && bin.b.frames == 4800, "same complete A/B bin windows");
         require (std::abs (bin.a.peak[0] - bin.b.peak[0]) < 1e-8 && std::abs (bin.a.rms[1]-bin.b.rms[1]) < 1e-8, "same PCM peak and stereo RMS agree");
-        require (std::abs (bin.a.crest_db-bin.b.crest_db) < 0.001, "same true-peak/RMS Crest");
+        require (std::abs (bin.a.crest_db-bin.b.crest_db) < 0.001, "same sample-peak/RMS Crest");
         if (i < 29) require (std::isnan (bin.a.short_lufs), "short-term values wait for three continuous seconds");
         else require (std::abs (bin.a.short_lufs-bin.b.short_lufs) < 0.001, "same three-second endpoint loudness");
     }

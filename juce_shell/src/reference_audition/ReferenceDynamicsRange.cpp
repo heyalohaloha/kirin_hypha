@@ -58,7 +58,7 @@ DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t cou
     for (std::size_t hop = 0; hop < hopCount; ++hop)
     {
         const auto* begin = bins + first + hop * static_cast<std::size_t> (binsPerHop);
-        double frames = 0.0, tp = 0.0, cross = 0.0, mid = 0.0, side = 0.0;
+        double frames = 0.0, cross = 0.0, mid = 0.0, side = 0.0;
         std::array<double, 2> energy {}, peak {};
         for (int index = 0; index < binsPerHop; ++index)
         {
@@ -70,7 +70,6 @@ DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t cou
                 energy[static_cast<std::size_t> (c)] += bin.rms[c] * bin.rms[c] * binFrames;
                 peak[static_cast<std::size_t> (c)] = std::max (peak[static_cast<std::size_t> (c)], bin.peak[c]);
             }
-            tp = std::max (tp, bin.true_peak);
             cross += bin.cross;
             mid += bin.mid;
             side += bin.side;
@@ -78,8 +77,9 @@ DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t cou
         hops.hopSamples = std::max<std::int64_t> (hops.hopSamples, static_cast<std::int64_t> (frames));
         const auto& last = begin[binsPerHop - 1];
         const auto rms = frames > 0.0 ? std::sqrt ((energy[0] + energy[1]) / (frames * channels)) : 0.0;
+        const auto samplePeak = std::max (peak[0], peak[1]);
         const bool stereo = channels == 2;
-        hops[DynamicsFact::crest].push_back (rms > 1e-15 && tp > 0.0 ? 20.0 * std::log10 (tp / rms) : nan);
+        hops[DynamicsFact::crest].push_back (rms > 1e-15 && samplePeak > 0.0 ? 20.0 * std::log10 (samplePeak / rms) : nan);
         hops[DynamicsFact::lufsM].push_back (std::isfinite (last.momentary_lufs) ? last.momentary_lufs : nan);
         hops[DynamicsFact::lufsS].push_back (std::isfinite (last.short_lufs) ? last.short_lufs : nan);
         hops[DynamicsFact::correlation].push_back (stereo && energy[0] > 0.0 && energy[1] > 0.0
