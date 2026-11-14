@@ -15,7 +15,8 @@ bool Screen::operator== (const Screen& other) const noexcept
                          screen.sourcesShown, screen.sourceOneEnabled, screen.sourceTwoEnabled, screen.audible,
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
-                         screen.endEnabled, screen.endTitle);
+                         screen.endEnabled, screen.endTitle, screen.guessShown, screen.guessOpen, screen.guessRight,
+                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown);
     };
     return key (*this) == key (other);
 }
@@ -36,10 +37,21 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
         label->setColour (juce::Label::textColourId, COL_NORMAL);
         addAndMakeVisible (*label);
     }
-    index = 0;
-    for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff })
+    question.setComponentID (idPrefix + "-guess-question");
+    outcome.setComponentID (idPrefix + "-guess-outcome");
+    for (auto* label : { &question, &outcome })
     {
-        const char* ids[] { "source-1", "source-2", "reveal", "end", "approve", "align-off" };
+        label->setMinimumHorizontalScale (1.0f);
+        label->setBorderSize ({ 0, 4, 0, 4 });  // one line in the row: its height goes to the text
+        label->setColour (juce::Label::textColourId, COL_NORMAL);
+        addChildComponent (*label);
+    }
+    question.setJustificationType (juce::Justification::centredRight);
+    outcome.setJustificationType (juce::Justification::centredLeft);
+    index = 0;
+    for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
+    {
+        const char* ids[] { "source-1", "source-2", "reveal", "end", "approve", "align-off", "guess-1", "guess-2", "save-image" };
         button->setComponentID (idPrefix + "-" + juce::String (ids[index++]));
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
         button->setWantsKeyboardFocus (true);
@@ -51,6 +63,9 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     end.onClick = [this] { requestEnd(); };
     approve.onClick = [this] { if (onApprove) onApprove(); };
     alignOff.onClick = [this] { if (onAlignOff) onAlignOff(); };
+    guessOne.onClick = [this] { if (shown.guessOpen && onGuess) onGuess (1); };
+    guessTwo.onClick = [this] { if (shown.guessOpen && onGuess) onGuess (2); };
+    saveImage.onClick = [this] { if (shown.saveImageShown && onSaveImage) onSaveImage(); };
     apply();
 }
 
@@ -129,7 +144,8 @@ void ScreenComponent::apply()
         button->setTooltip (button->getButtonText());
     }
     reveal.setVisible (shown.revealShown && !shown.alignOffShown);
-    unavailable::set (reveal, shown.revealShown && shown.revealEnabled, "Hear both sources first");
+    unavailable::set (reveal, shown.revealShown && shown.revealEnabled,
+                      shown.guessOpen && shown.guessAnswer == 0 ? "Choose an answer first" : "Hear both sources first");
     reveal.setTitle (shown.revealTitle);
     reveal.setDescription (shown.revealTitle);
     reveal.setTooltip (shown.revealTitle);
@@ -141,18 +157,51 @@ void ScreenComponent::apply()
     approve.setButtonText (shown.approveText);
     approve.setTitle (shown.approveTitle);
     approve.setDescription (shown.approveDescription);
+    question.setText (shown.guessQuestion, juce::dontSendNotification);
+    question.setVisible (shown.guessShown);
+    outcome.setText (shown.guessOutcome, juce::dontSendNotification);
+    outcome.setVisible (shown.guessShown && shown.guessOutcome.isNotEmpty());
+    outcome.setColour (juce::Label::textColourId, shown.guessRight ? COL_SPECTRUM_DELTA_BR : COL_NORMAL);
+    for (auto [button, answer] : { std::pair { &guessOne, 1 }, std::pair { &guessTwo, 2 } })
+    {
+        button->setVisible (shown.guessShown);
+        button->setToggleState (shown.guessShown && shown.guessAnswer == answer, juce::dontSendNotification);
+        unavailable::set (*button, shown.guessShown && shown.guessOpen, "The answer was fixed at REVEAL");
+        button->setTitle (answer == 1 ? "Answer SOURCE 1" : "Answer SOURCE 2");
+        button->setDescription (button->getTitle());
+        button->setTooltip (button->getTitle());
+    }
+    saveImage.setVisible (shown.saveImageShown);
+    saveImage.setTitle ("Save the result as an image");
+    saveImage.setDescription (saveImage.getTitle());
+    saveImage.setTooltip (saveImage.getTitle());
     unavailable::set (end, shown.endEnabled, "Returning to normal level");
     end.setTitle (shown.endTitle);
     end.setDescription (shown.endTitle + " / " + shown.detail);
     end.setTooltip (end.getDescription());
+    for (auto* always : std::initializer_list<juce::Component*> { &title, &detail, &end }) always->setVisible (true);
+    if (covered)
+        for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
+                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
+            own->setVisible (false);
     repaint();
+}
+
+void ScreenComponent::setCovered (bool next)
+{
+    if (covered == next) return;
+    covered = next;
+    apply();
 }
 
 void ScreenComponent::resized()
 {
     context = presentation::forEditor (getWidth(), getHeight());
     const bool compact = getWidth() < 450;
-    for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff }) button->setPresentationContext (context);
+    for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
+        button->setPresentationContext (context);
+    for (auto* label : { &question, &outcome })
+        label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     detail.setFont (labelFont (context, typography::TextRole::status, typography::Composition::information));
@@ -180,9 +229,41 @@ void ScreenComponent::resized()
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
     detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
-    end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
-    reveal.setBounds (actions.reduced (3, 0));
-    alignOff.setBounds (reveal.getBounds());
+    if (shown.saveImageShown && shown.alignOffShown)
+    {
+        const auto third = actions.getWidth() / 3;
+        alignOff.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        saveImage.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        end.setBounds (actions.reduced (3, 0));
+    }
+    else
+    {
+        end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
+        reveal.setBounds (actions.reduced (3, 0));
+        alignOff.setBounds (reveal.getBounds());
+        saveImage.setBounds (reveal.getBounds());
+    }
+    if (shown.guessShown)
+    {
+        // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
+        auto row = area.removeFromBottom (compact ? 26 : 40).withTrimmedBottom (compact ? 3 : 6);
+        const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
+        const auto textWidth = [] (const juce::Label& label)
+        {
+            return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText())))
+                + label.getBorderSize().getLeftAndRight() + 2 : 0;
+        };
+        const auto asked = textWidth (question), told = textWidth (outcome);
+        const auto total = asked + gap + answer * 2 + 4 + (told > 0 ? gap + told : 0);
+        row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), total), row.getHeight());
+        question.setBounds (row.removeFromLeft (juce::jmin (asked, row.getWidth() - gap - answer * 2 - 4)));
+        row.removeFromLeft (gap);
+        guessOne.setBounds (row.removeFromLeft (answer));
+        row.removeFromLeft (4);
+        guessTwo.setBounds (row.removeFromLeft (answer));
+        row.removeFromLeft (gap);
+        outcome.setBounds (row);
+    }
     area.reduce (0, compact ? 5 : 12);
     const auto causeHeight = needed (cause);
     const auto recoveryHeight = needed (recovery);
