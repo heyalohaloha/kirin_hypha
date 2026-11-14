@@ -7,6 +7,50 @@
 
 namespace hypha::tests
 {
+// Rules of the opt-in motion on the shipping component: every check runs, then all failures are named.
+inline void verifyFreqRichMotionRules()
+{
+    int failures = 0;
+    const auto check = [&failures] (bool ok, const char* what)
+    { if (! ok) { std::cerr << "FREQ rich motion failed: " << what << '\n'; ++failures; } };
+    namespace settings = display_settings;
+    const auto slowView = [] (SpectrumComponent& view)
+    {
+        view.setSize (576, 280); view.setAbsoluteObservation (true); view.setSignalActive (true);
+        settings::Values slow; slow.selected[settings::peak] = 2; view.setDisplaySettings (slow);
+    };
+    const auto quieter = [] (KirinSpectrumView frame, float db, int64_t later)
+    { for (auto& value : frame.post_dbfs) value -= db; frame.presentation_end_samples += later; return frame; };
+    {
+        // PEAK SLOW chosen again while the line is still falling: the new peak starts on the line, not under it.
+        SpectrumComponent view; slowView (view);
+        view.setSnapshot (spectrumPerformanceFixture());
+        view.queueSnapshot (quieter (spectrumPerformanceFixture(), 40, 1'600));
+        view.presentationTickAt (view.curveUpdateTimeForTest() + 16);
+        view.restartPeakLine();
+        view.queueSnapshot (quieter (spectrumPerformanceFixture(), 40, 3'200));
+        check (view.slowPeakForTest (128) >= view.displayedPostForTest (128) - 1.0e-4f,
+               "a restarted slow peak is never below the visible line");
+        view.presentationTickAt (view.curveUpdateTimeForTest() + 16);
+        check (view.slowPeakForTest (128) >= view.displayedPostForTest (128) - 1.0e-4f
+               && view.slowPeakForTest (128) >= view.pendingPostForTest (128), "nor on the frames that follow");
+    }
+    {
+        // A value received long after the last drawn frame: the time that passed still counts as fall.
+        SpectrumComponent view; slowView (view);
+        const auto loud = spectrumPerformanceFixture().post_dbfs[128];
+        view.setSnapshot (spectrumPerformanceFixture());
+        const auto started = view.curveUpdateTimeForTest();
+        view.delayReceiptForTest (5'000);
+        view.queueSnapshot (quieter (spectrumPerformanceFixture(), 40, 1'600));
+        view.presentationTickAt (started + 5'016);
+        const auto expected = loud - 4.0f * (5.016f - 1.5f);
+        check (std::abs (view.slowPeakForTest (128) - expected) < 0.2f,
+               "after a stall the slow peak has fallen for all of the elapsed time");
+    }
+    if (failures != 0) std::exit (1);
+}
+
 // The opt-in FREQ choices: SMOOTH that widens with frequency, FALL, FILL RICH and PEAK SLOW.
 // Zero stays the established display in every field.
 inline void verifyFreqRichDisplayContract()
@@ -180,6 +224,7 @@ inline void verifyFreqRichDisplayContract()
             check (differing (established, render (rich)) > 400, "FILL RICH is visible in the picture");
         }
     }
+    verifyFreqRichMotionRules();
     std::cout << "FREQ rich display: widening SMOOTH, FALL, FILL RICH and PEAK SLOW PASS\n";
 }
 }
