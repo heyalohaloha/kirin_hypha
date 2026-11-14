@@ -122,6 +122,23 @@ template<class Require> void verifyCandidateKeptCorrection (Require require)
     require (post.liveCompareAlignFrames() == residual, "the rearranged candidate confirms A 1065 frames early again");
     finish();
     candidateBroadband = false;
+    // The host starts compensating unit B itself: K moves by the kept amount, so A plays at K, in place.
+    host.reportedDelayB = 0;
+    host.render (200, false, false, false);
+    start ("the candidate restarts after the host compensates the delay");
+    const auto taken = heard ("the host compensates now", 300);
+    std::printf ("A/B conditions after the host compensates: %s\n", taken.notRemeasured == 0 ? "nothing kept" : "kept");
+    require (taken.audible > 150 && taken.aligned >= taken.audible - 1 && taken.notRemeasured == 0 && post.liveCompareAlignFrames() == 0,
+             "K moved by the kept amount: nothing is added and A is not late");
+    finish();
+    host.reportedDelayB = -residual; candidateBroadband = true;
+    host.render (200, false, false, false);
+    start ("the candidate starts on broadband material with the delay unreported again");
+    for (int i = 0; i < 1200 && ! (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == residual); ++i)
+        host.render (1, true, true, false);
+    require (post.liveCompareAlignFrames() == residual, "the candidate confirms A 1065 frames early once more");
+    finish();
+    candidateBroadband = false;
     // Another candidate: a new PRE2 instance at the same place.
     host.instances[1]->releaseResources();
     host.instances[1].reset();

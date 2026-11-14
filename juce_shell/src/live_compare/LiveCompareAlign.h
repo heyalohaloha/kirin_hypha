@@ -44,6 +44,16 @@ inline AlignContext alignOwner (AlignContext context, const Ring& ring) noexcept
     return context;
 }
 
+// INV-LC28: K moved by the kept amount, within the estimates' agreement: the host now compensates
+// that delay itself, so the kept correction has nothing left to add (it would play PRE late). Any
+// other change of K (a buffer size, a re-calibrated clock origin) leaves the kept correction valid.
+inline bool hostTookOver (AlignValue kept, std::int64_t keptK, std::int64_t k, std::int64_t agreement) noexcept
+{
+    std::int64_t moved = 0, rest = 0;
+    return kept.frames > 0 && checkedClockSubtract (k, keptK, moved) && checkedClockSubtract (moved, kept.frames, rest)
+        && rest >= -agreement && rest <= agreement;
+}
+
 // INV-LC28: what is told once a wait ended without a position. unserved: a short correction's hold
 // ended and PRE (A) plays at K until its run serves it. One rule for LISTEN, BLIND and A/B.
 struct AlignNotice { bool unmeasured = false, notRemeasured = false; };

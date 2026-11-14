@@ -148,6 +148,22 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         requireHeard (chain, "LISTEN after a pair change", 150, Heard::unmeasured);
     }
     {
+        // The host starts compensating the outboard itself: K moves by the kept amount, so the kept
+        // correction is dropped. PRE plays at the new K, in place, never that amount late.
+        ChunkedPost chain (channels);
+        prepared (chain);
+        startListen (chain, "LISTEN starts on the drums");
+        requireHeard (chain, "LISTEN drums, host uncompensated", 200, Heard::confirmed);
+        intoTheMix (chain);
+        chain.setDelay (512 + uncompensated);
+        const auto r = heardOver (chain, 150);
+        std::printf ("outboard the host compensates now:   audible %4d early %4d late %3d unmeasured %4d not re-measured %4d align %lld\n",
+                     r.audible, r.early, r.late, r.unmeasured, r.notRemeasured, static_cast<long long> (r.lastAlign));
+        require (r.audible > 50 && r.early == 0 && r.late == 0 && r.lastAlign == 0 && r.unmeasured > 0 && r.notRemeasured == 0,
+                 "K moved by the kept amount: the correction is dropped and PRE is not late");
+        chain.clean ("PRE plays only proven positions around the host's change");
+    }
+    {
         // A format change ends it as well.
         ChunkedPost chain (channels);
         prepared (chain);

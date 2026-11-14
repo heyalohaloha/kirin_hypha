@@ -327,6 +327,14 @@ static void alignHoldIsOneLatchedDeadline()
     const auto told = alignNotice (true, false, true), kept = alignNotice (false, false, true);
     require (told.unmeasured && ! told.notRemeasured && kept.notRemeasured && ! kept.unmeasured
              && alignNotice (false, true, false).unmeasured, "an ended hold is told as unmeasured, never as the kept correction");
+    // K moved by the kept amount: the host compensates it now. Any other change of K keeps it.
+    require (hostTookOver ({ 1065 }, 512, 512 + 1065, 2) && hostTookOver ({ 1065 }, -512, 555, 2),
+             "K later by the kept amount means the host took the delay over");
+    require (! hostTookOver ({ 1065 }, 512, 512 + 256, 2) && ! hostTookOver ({ 1065 }, 512, 512 - 1065, 2)
+             && ! hostTookOver ({ 1065 }, 512, 512 + 1068, 2) && ! hostTookOver ({ 1065 }, 512, 512, 2)
+             && ! hostTookOver ({}, 512, 512, 2)
+             && ! hostTookOver ({ 1065 }, std::numeric_limits<std::int64_t>::max(), std::numeric_limits<std::int64_t>::min() + 1064, 2),
+             "a buffer-like, opposite, unchanged or uncomputable change of K keeps the correction");
 }
 
 static void liveCompareAlignContract()

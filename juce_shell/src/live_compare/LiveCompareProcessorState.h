@@ -184,6 +184,7 @@ struct ProcessorState
     // Whether A/B confirmed it, for which peer (PRE2) and under which host conditions (reported latency,
     // insert chain, maximum delay, compensation): another start of that candidate needs the same ones.
     bool alignKeptCandidate = false;
+    std::int64_t alignKeptK = 0; // the K it was confirmed or last played under: a host that takes the delay over moves K by it
     std::uint64_t alignKeptPeer = 0, alignKeptConditions = 0, alignKeptCompensation = 0;
     std::atomic<std::uint64_t> alignConditions { 0 }; // Audio Thread: the A/B host conditions' fingerprint
     std::uint64_t keptMissSince = 0; // message thread: the first read of the kept position that missed

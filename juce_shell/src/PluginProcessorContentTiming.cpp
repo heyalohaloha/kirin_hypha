@@ -156,16 +156,21 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     // re-measured (INV-LC28). A snapshot that cannot be read now is read again on the next service,
     // for at most keptReadNanos; one that PRE's run cannot serve yet is dropped. LISTEN / BLIND and A/B
     // never use each other's; A/B uses one only for the same candidate under the same host conditions.
+    // K moved by the kept amount: the host compensates that delay now, so it is dropped (PRE at K).
     const bool candidate = candidateCompareActive();
     const bool sameHost = ! candidate || (liveCompare.alignKeptPeer == liveCompare.alignPeer.load (std::memory_order_acquire)
         && liveCompare.alignKeptConditions == liveCompare.alignConditions.load (std::memory_order_acquire)
         && liveCompare.alignKeptCompensation == liveCompare.compensationRevision.load (std::memory_order_acquire));
     auto kept = liveCompare.alignKeptFor == context && liveCompare.alignKeptCandidate == candidate && sameHost
         ? liveCompare.alignKept : hypha::live_compare::AlignValue {};
+    const auto clockK = liveCompare.renderer.alignClockK();
+    if (hypha::live_compare::hostTookOver (kept, liveCompare.alignKeptK, clockK, static_cast<std::int64_t> (
+            std::floor (preparedFormat.sampleRate * hypha::live_compare::offsetAgreementSeconds)))) kept = {};
     if (! alignConfirmationExpired (state, now)) liveCompare.keptMissSince = 0;
     else if (keptReadable (kept, now))
     {
         liveCompare.alignKept = kept;
+        liveCompare.alignKeptK = clockK;
         liveCompare.renderer.requestAlign (kept, context, revision);
         liveCompare.contentUnmeasured.store (kept.frames == 0 && ! candidateCompareActive(), std::memory_order_release);
         liveCompare.contentNotRemeasured.store (kept.frames != 0, std::memory_order_release);
@@ -279,6 +284,7 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         {
             liveCompare.alignKept = value; // confirmed: later sessions and K start from it (in memory only)
             liveCompare.alignKeptFor = estimate.alignContext;
+            liveCompare.alignKeptK = liveCompare.renderer.alignClockK();
             liveCompare.alignKeptCandidate = candidateCompareActive();
             liveCompare.alignKeptPeer = liveCompare.alignPeer.load (std::memory_order_acquire);
             liveCompare.alignKeptConditions = liveCompare.alignConditions.load (std::memory_order_acquire);
