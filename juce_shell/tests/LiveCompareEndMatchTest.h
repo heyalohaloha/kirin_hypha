@@ -24,8 +24,23 @@ struct Match { using Type = void (KirinHyphaEditor::*)(); friend Type member (Ma
 template struct Access<Match, &KirinHyphaEditor::requestListenMatch>;
 struct AutoAccess {};
 bool autoOn (const KirinHyphaEditor&, AutoAccess);
+void autoSetup (KirinHyphaEditor&, AutoAccess);
+void autoDue (KirinHyphaEditor&, AutoAccess);
+double autoPeak (const KirinHyphaEditor&, AutoAccess);
+double autoNext (const KirinHyphaEditor&, AutoAccess);
 template <auto Member> struct AutoMember
-{ friend bool autoOn (const KirinHyphaEditor& e, AutoAccess) { return (e.*Member).on; } };
+{
+    friend bool autoOn (const KirinHyphaEditor& e, AutoAccess) { return (e.*Member).on; }
+    friend void autoSetup (KirinHyphaEditor& e, AutoAccess)
+    {
+        auto& a = e.*Member;
+        a.on = true; a.approvedPreDb = 20.0 * std::log10 (2.0); a.ceilingDbtp = -1.0;
+        a.peakDbtp = -10.0; a.nextAt = juce::Time::getMillisecondCounterHiRes() * 0.001 + 60.0;
+    }
+    friend void autoDue (KirinHyphaEditor& e, AutoAccess) { (e.*Member).nextAt = 0.0; }
+    friend double autoPeak (const KirinHyphaEditor& e, AutoAccess) { return (e.*Member).peakDbtp; }
+    friend double autoNext (const KirinHyphaEditor& e, AutoAccess) { return (e.*Member).nextAt; }
+};
 template struct AutoMember<&KirinHyphaEditor::liveCompareAuto>;
 
 inline void apply (KirinHyphaEditor& e, const hypha::live_compare::MatchPlan& plan)

@@ -31,6 +31,7 @@ hypha::live_compare::MatchToggle KirinHyphaProcessorBase::setLiveCompareMatchOn 
         const double kept = decibels (memory.pre);
         result.gainDb = ceilingCappedGainDb (kept, decibels (memory.ceiling), memory.peakDbtp);
         result.shortDb = kept - result.gainDb;
+        result.peakDbtp = memory.peakDbtp;
     }
     const auto gains = readGainSnapshot (liveCompare);
     if (! on && (! gains.coherent || ! gains.retained || ! gains.identity.same (identity)))

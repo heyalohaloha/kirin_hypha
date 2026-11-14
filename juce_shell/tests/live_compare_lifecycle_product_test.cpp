@@ -4,6 +4,7 @@
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "LiveCompareEndMatchTest.h"
+#include "kirin_hypha_reference_ffi.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -115,7 +116,10 @@ private:
     }
     void timerCallback() override
     {
-        require (Steady::now() - began < std::chrono::seconds (45), "scenario timed out");
+        if (Steady::now() - began >= std::chrono::seconds (mode == "restore-matched-listen" ? 55 : 45))
+            std::cerr << "Live lifecycle timeout stage=" << stage << " blocks=" << blocks.load()
+                      << " pre=" << post->liveCompareStatus().preAudible << " ready=" << post->liveCompareStatus().matchReady << '\n';
+        require (Steady::now() - began < std::chrono::seconds (mode == "restore-matched-listen" ? 55 : 45), "scenario timed out");
         switch (stage)
         {
             case 0:
@@ -254,14 +258,21 @@ private:
                     pause.store (true); waitWithoutMessageService ([this] { return paused.load(); });
                     const auto playsPre = [this] (const char* why)
                     {
+                        const auto first = firstPreDone.load(); checkFirstPre.store (true);
                         const auto before = blocks.load();
-                        pause.store (false); waitWithoutMessageService ([&] { return blocks.load() > before + 3; }, 1000);
+                        pause.store (false); waitWithoutMessageService ([&] { return firstPreDone.load() > first; }, 1000);
+                        require (firstPreErrors.load() == 0, "the first callback stays PRE throughout, without a POST step");
+                        waitWithoutMessageService ([&] { return blocks.load() > before + 3; }, 1000);
                         require (ratio.load() > 0.0f && post->liveCompareStatus().preAudible, why);
                     };
                     { GainUpdate hold (LiveTimingFixtureAccess::gainRevision (*post)); require (static_cast<bool> (hold), "lease held");
                       playsPre ("PRE keeps playing while a gain write holds the revision"); }
-                    require (post->setLiveCompareMatchOn (false).turned && post->setLiveCompareMatchOn (true).turned, "MATCH off and on");
-                    playsPre ("PRE stays audible through MATCH off and on, with its ramps");
+                    pause.store (true); waitWithoutMessageService ([this] { return paused.load(); });
+                    require (post->setLiveCompareMatchOn (false).turned, "MATCH turns off while PRE sounds");
+                    playsPre ("PRE stays audible on the first callback after MATCH off");
+                    pause.store (true); waitWithoutMessageService ([this] { return paused.load(); });
+                    require (post->setLiveCompareMatchOn (true).turned, "MATCH turns on while PRE sounds");
+                    playsPre ("PRE stays audible on the first callback after MATCH on");
                     preToggled = true; stage = 12;
                     break;
                 }
@@ -363,31 +374,12 @@ private:
                     auto& memory = LiveTimingFixtureAccess::matchMemory (*post);
                     require (post->setLiveCompareMatchOn (false).turned, "MATCH turns off before the ceiling check");
                     keptMatch = memory; memory.pre = 2.0f; memory.ceiling = std::pow (10.0f, -1.0f / 20.0f); memory.limited = false;
+                    post->selectLiveComparePre (true);
                     intersample.store (true); stoppedAt = blocks.load(); stage = 15; break;
                 }
                 stage = 5; // the same MATCH is ready again: continue with PRE
                 break;
-            case 15:
-                if (blocks.load() < stoppedAt + 26) break;
-                {
-                    const auto evidence = post->measureLiveCompare();
-                    if (! evidence.ok()) break;
-                    const auto on = post->setLiveCompareMatchOn (true);
-                    const auto now = post->liveCompareStatus();
-                    const auto sampleDb = 20.0 * std::log10 (0.6 / std::sqrt (2.0));
-                    const auto expected = -1.0 - evidence.prePeakDbtp;
-                    require (evidence.prePeakDbtp > sampleDb + 1.0 && evidence.prePeakDbtp > keptMatch.peakDbtp + 0.5,
-                             "current intersample true peak exceeds sample and kept peaks");
-                    require (on.turned && now.matchLimited && std::abs (on.gainDb - expected) < 0.05
-                        && std::abs (on.shortDb - (20.0 * std::log10 (2.0) - expected)) < 0.05
-                        && std::abs (20.0 * std::log10 (now.gain) - expected) < 0.05,
-                             "MATCH on caps at the current true peak and reports the short amount");
-                    require (post->setLiveCompareMatchOn (false).turned, "MATCH turns off after the ceiling check");
-                    LiveTimingFixtureAccess::matchMemory (*post) = keptMatch;
-                    require (post->setLiveCompareMatchOn (true).turned, "the kept match returns");
-                    intersample.store (false); chainGain.store (0.5f); stoppedAt = blocks.load(); capChecked = true; stage = 16;
-                }
-                break;
+            #include "LiveComparePeakCases.h"
             case 16:
                 if (blocks.load() >= stoppedAt + 26) stage = 5;
                 break;
@@ -414,12 +406,13 @@ private:
             clock.playing = playing.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f)
-                    buffer.setSample (c, f, intersample.load() ? (((clock.position + f) % 4 < 2) ? 0.42426407f : -0.42426407f)
-                                                              : signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
+                    buffer.setSample (c, f, intersample.load() ? (((clock.position + f) % 4 < 2) ? 0.44615422f : -0.44615422f)
+                                                              : inputScale.load() * signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
             pre->processBlock (buffer, midi);
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f) buffer.setSample (c, f, processed (buffer.getSample (c, f)));
             post->processBlock (buffer, midi);
+            inspectAuditionBlock (buffer);
             if (verifyClose.exchange (false))
             {
                 const auto first = signal[static_cast<std::size_t> (clock.position + 7) % signal.size()];
@@ -446,6 +439,8 @@ private:
         }
     }
     static constexpr int frames = 8192;
+    static constexpr int rampBlockCount = 18;
+    std::vector<float> rampSamples = std::vector<float> (frames * rampBlockCount * 2);
     std::vector<float> signal;
     std::string mode;
     Clock clock;
@@ -461,10 +456,13 @@ private:
     std::atomic<float> ratio { 0.0f }, expectedPost { 1.0f };
     std::atomic<float> chainGain { 0.5f };
     std::atomic<bool> intersample { false };
+    std::atomic<bool> checkFirstPre { false }, captureRamp { false };
+    std::atomic<int> firstPreDone { 0 }, firstPreErrors { 0 }, rampBlocks { 0 }, rampPreErrors { 0 };
+    std::atomic<float> inputScale { 1.0f };
     Steady::time_point began = Steady::now(), requestedAt, checkedAt;
     int stage = 0;
     bool demanded = false;
-    float held = 1.0f, matchedGain = 1.0f;
+    float held = 1.0f, matchedGain = 1.0f, retainedCap = 1.0f;
 };
 }
 

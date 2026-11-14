@@ -98,7 +98,11 @@ void KirinHyphaEditor::requestListenMatch ()
     const auto turned = processorRef.setLiveCompareMatchOn (status.matchOff, liveCompareAuto.on);
     const bool capped = turned.turned && status.matchOff && turned.shortDb > 0.0;
     if (capped && liveCompareAuto.on)
-    { liveCompareAuto.limit = hypha::live_compare::FollowLimit::ceiling; liveCompareAuto.shortDb = turned.shortDb; }
+    {
+        liveCompareAuto.limit = hypha::live_compare::FollowLimit::ceiling;
+        liveCompareAuto.shortDb = turned.shortDb;
+        liveCompareAuto.peakDbtp = std::max (liveCompareAuto.peakDbtp, turned.peakDbtp);
+    }
     refreshLiveCompare();
     const auto db = [] (double value)
     {

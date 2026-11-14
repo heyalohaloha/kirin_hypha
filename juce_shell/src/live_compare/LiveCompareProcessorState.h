@@ -85,7 +85,7 @@ struct Status
 struct MatchToggle
 {
     bool turned = false;
-    double gainDb = 0.0, shortDb = 0.0;
+    double gainDb = 0.0, shortDb = 0.0, peakDbtp = 0.0;
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses

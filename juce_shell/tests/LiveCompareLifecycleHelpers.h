@@ -1,4 +1,39 @@
 // Included inside Lifecycle: existing restore and fade fixture helpers.
+    void inspectAuditionBlock (const juce::AudioBuffer<float>& buffer)
+    {
+        if (checkFirstPre.exchange (false))
+        {
+            for (int f = 0; f < frames; ++f)
+            {
+                const auto input = signal[static_cast<std::size_t> (clock.position + f) % signal.size()];
+                if (std::abs (input) > 0.01f && buffer.getSample (0, f) * input <= 0.0f) ++firstPreErrors;
+            }
+            firstPreDone.fetch_add (1, std::memory_order_release);
+        }
+        if (captureRamp.load() && rampBlocks.load() < rampBlockCount)
+        {
+            const auto offset = static_cast<std::size_t> (rampBlocks.load()) * frames * 2;
+            for (int f = 0; f < frames; ++f)
+                for (int c = 0; c < 2; ++c)
+                {
+                    rampSamples[offset + static_cast<std::size_t> (f * 2 + c)] = buffer.getSample (c, f);
+                    const auto input = (clock.position + f) % 4 < 2 ? 0.44615422f : -0.44615422f;
+                    if (buffer.getSample (c, f) * input <= 0.0f) ++rampPreErrors;
+                }
+            rampBlocks.fetch_add (1, std::memory_order_release);
+        }
+    }
+    void verifyRampPeak()
+    {
+        KirinReferenceGainFacts facts {};
+        require (kirin_hypha_analyze_reference_gain (rampSamples.data(), rampSamples.data(),
+                    frames * rampBlockCount, 48000, 2, &facts), "captured ramp true peak is measurable");
+        require (rampPreErrors.load() == 0, "PRE remains audible throughout the captured ramp");
+        if (facts.a_cue_true_peak_millidbtp > -1000)
+            std::cerr << "rendered ramp true peak (milli-dBTP): " << facts.a_cue_true_peak_millidbtp << '\n';
+        require (facts.a_cue_true_peak_millidbtp <= -1000,
+                 "rendered output true peak stays within the ceiling through the MATCH on ramp");
+    }
     void restore (bool endRequested = false)
     {
         pause.store (true);
