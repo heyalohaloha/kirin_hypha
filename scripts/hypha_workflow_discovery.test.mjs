@@ -59,3 +59,19 @@ test('quick diagnostic build is visible without changing the full-format and rel
   assert.match(read(build), /通常のPro Tools/);
   assert.ok(read(build).includes('--verify-only'));
 });
+
+test('download and manual-update guidance follow the source version', () => {
+  const version = read('crates/hypha_pre/Cargo.toml').match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  assert.ok(version, 'missing source version');
+  const readme = read('README.md');
+  for (const token of [
+    `Download ${version}`,
+    `releases/tag/v${version}`,
+    `Kirin-Hypha-${version}-macOS-Universal.pkg`,
+    `Kirin-Hypha-${version}-Windows-x64-Setup.exe`,
+    `## Update information in ${version}`,
+    'Close your DAW, run the installer, then reopen the DAW',
+    'Automatic update checking is disabled',
+    'signed, notarized macOS Universal ZIP',
+  ]) assert.ok(readme.includes(token), `missing current download or update guidance: ${token}`);
+});
