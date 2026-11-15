@@ -12,10 +12,8 @@ constexpr auto vst3Wrapper = juce::AudioProcessor::wrapperType_VST3;
 
 // Audio Thread. Both roles advance their continuous clock and gap detector on every callback so
 // that the clock semantics hold whether or not a session is active.
-void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buffer,
-                                                  const hypha::HostProcessClock& clock,
-                                                  bool bypassed, bool nonRealtimeMode,
-                                                  bool outputTaken) noexcept
+void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buffer, const hypha::HostProcessClock& clock,
+                                                  bool bypassed, bool nonRealtimeMode, bool outputTaken) noexcept
 {
     using Reason = hypha::live_compare::RecoveryReason;
     const auto preparationCommand = liveCompare.blindTiming.command(); // fixed at callback opening
@@ -223,12 +221,10 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         const auto reason = interruption.reason (Reason::gainChanged);
         if (! finishing) liveCompare.blind.invalidate (blindCommand, reason);
     }
-    const bool preSelected = permitted && ! finishing && steady && ! blindRejected
-        && (blindCommand.active() ? blindCommand.pre()
-                                  : selection.pre());
-    if (trace != nullptr && ! blindCommand.active())
-        hypha::chain_trace::observeNamedSelection (*trace, selection.word, permitted && ! finishing && steady && ! blindRejected
-            && liveCompare.sessionActive.load (std::memory_order_relaxed));
+    const bool admitted = permitted && ! finishing && steady && ! blindRejected;
+    const bool preSelected = admitted && (blindCommand.active() ? blindCommand.pre() : selection.pre());
+    if (trace != nullptr && ! blindCommand.active()) // the acceptance of a named selection, this callback
+        hypha::chain_trace::observeNamedSelection (*trace, selection.word, admitted && liveCompare.sessionActive.load (std::memory_order_relaxed));
     // END first removes PRE, then returns POST. A closed/retired ring still returns normally.
     const float heldTarget = postTarget;
     if (finishing) postTarget = 1.0f;
