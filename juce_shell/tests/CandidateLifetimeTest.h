@@ -209,10 +209,24 @@ template<class Require> void verifyAllKeepWaitsForOtherTail (Require require)
     auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
     require (editor != nullptr, "the local tail wait has a product editor");
     auto& view = dynamic_cast<KirinHyphaEditor&> (*editor);
+    editor->setVisible (true);
     require ((view.*candidateEditorTick (CandidateEditorWaitTail {})) (output_owner::Activity::recordKeep, live_compare_ui::AfterTail::keepAll),
              "the product editor accepts All Keep while its own tail drains");
     require ((view.*candidateEditorTick (CandidateEditorTailState {})).groupStaged && post.allKeepTailPending(),
              "the origin stages its own tail wait with the exact roster");
+    require (post.pairedPreInstanceId().isNotEmpty(), "the waiting origin has its pair before re-prepare");
+    const auto savedPair = post.pairWaitSnapshot();
+    candidateServiceOverlap = [&] { prepareFixtureProcessor (post, 44100, host.block); };
+    live_compare_ui::afterGroupRestoreReadForTest = [] { if (auto run = std::exchange (candidateServiceOverlap, nullptr)) run(); };
+    candidateTick (*editor);
+    live_compare_ui::afterGroupRestoreReadForTest = nullptr;
+    require (!candidateServiceOverlap && post.pairedPreInstanceId().isEmpty(), "re-prepare crossed the actual timer read");
+    const auto rebuilding = post.pairWaitSnapshot();
+    require (rebuilding.stable && !rebuilding.paired && rebuilding.key == savedPair.key && rebuilding.ticket == savedPair.ticket,
+             "registration during rebuild keeps the original pair and ticket");
+    require ((view.*candidateEditorTick (CandidateEditorTailState {})).groupStaged,
+             "a re-prepare during the timer preserves the staged All Keep");
+    LiveTimingFixtureAccess::enableFixtureWrites (post);
     host.changeFormat (post); host.render (10, false, false, false);
     require (post.candidateTailPending() && post.allKeepTailPending(), "the local tail and its roster survive a rebuild");
     post.editorBeingDeleted (editor.get()); editor.reset();

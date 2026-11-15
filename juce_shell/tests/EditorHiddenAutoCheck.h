@@ -151,6 +151,13 @@ inline void verifyWaitingRequests()
                  && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: Keep not started",
                  "a missing pair does not extend the original two-minute bound");
     }
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        waiting = { live_compare_ui::AfterTail::keepAll, "saved PRE|", processor.restoreOrPairTicket() + 1, now(), 0.0, true };
+        e->*privateMember (HiddenToast {}) = {}; tick();
+        require (waiting.action == live_compare_ui::AfterTail::none && (e->*privateMember (HiddenToast {})) == changed,
+                 "a cancelled All Keep explains the changed authority");
+    }
     for (const auto action : { live_compare_ui::AfterTail::keepPair, live_compare_ui::AfterTail::keepAll })
     {
         auto& waiting = e->*privateMember (WaitAfterTail {});

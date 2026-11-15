@@ -32,3 +32,19 @@ bool KirinHyphaProcessorBase::pairedPreLocator (juce::String& projectHash,
     instanceId = juce::String::fromUTF8 (instanceOut);
     return true;
 }
+
+// A queued press must see the pair and engine replacement under the same ownership locks.
+KirinHyphaProcessorBase::PairWaitSnapshot KirinHyphaProcessorBase::pairWaitSnapshot() const
+{
+    const juce::ScopedLock pairLock (automaticPair.lock);
+    const juce::ScopedLock engineLock (handleLock);
+    PairWaitSnapshot result;
+    result.ticket = restoreOrPairTicket();
+    char out[65] = {};
+    result.paired = hyphaHandle != nullptr
+        && kirin_hypha_get_paired_pre_instance_id (hyphaHandle, out, sizeof (out));
+    const auto id = result.paired ? juce::String::fromUTF8 (out) : persistPairInstanceId;
+    result.key = id + "|" + pairDisplayName() + "|" + juce::String ((juce::int64) result.ticket);
+    result.stable = ! liveCompare.authority.restoring() && result.ticket == restoreOrPairTicket();
+    return result;
+}

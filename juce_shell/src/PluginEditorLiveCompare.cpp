@@ -7,12 +7,9 @@
 #include "HyphaLocalBlindAdmissionText.h"
 #include "HyphaLiveStartAfterReturn.h"
 #include "HyphaPairLabels.h"
-
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-
 #include <cmath>
 #include <cstdlib>
-
 // The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC16). It starts and
 // ends the session, forwards PRE / POST, MATCH and AUTO, asks before lowering POST, and shows RT
 // receipts. Explicit END restores unity; window closure keeps the processor-owned comparison.
@@ -22,7 +19,6 @@ namespace ui = hypha::ui_contract;
 using hypha::live_compare::MatchChoice;
 using hypha::live_compare::MatchFailure;
 using hypha::live_compare::MatchPlan;
-
 juce::String signedDb (double db)
 {
     const auto hundredths = juce::roundToInt (db * 100.0);
@@ -32,7 +28,6 @@ juce::String signedDb (double db)
     return juce::String (hundredths > 0 ? "+" : "-") + juce::String (magnitude / 100) + "."
          + juce::String (magnitude % 100).paddedLeft ('0', 2) + " dB";
 }
-
 juce::String magnitudeDb (double db)
 {
     return signedDb (std::fabs (db)).trimCharactersAtStart ("+");
@@ -432,9 +427,11 @@ bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, h
     if (! unprovenTail && (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
         || processorRef.candidateCompareActive()))
         return false;
+    const auto pair = processorRef.pairWaitSnapshot();
+    if (! pair.stable) { if (action == hypha::live_compare_ui::AfterTail::keepAll) showToast ("All Keep targets changed or unavailable. Try again."); return true; }
     if (action == hypha::live_compare_ui::AfterTail::keepAll)
     {
-        if (processorRef.keepAll()) return true;
+        if (processorRef.keepAll (pair.ticket)) return true;
         const auto notice = processorRef.drainKeepActionNotice();
         if (notice != "A/B tail pending")
         { showToast (notice.isNotEmpty() ? notice : "All Keep targets changed or unavailable. Try again."); return true; }
@@ -442,7 +439,7 @@ bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, h
     // One waiting press at a time: this one replaces a waiting LISTEN, BLIND, A/B or C MATCH.
     liveCompareStartAfterReturnUntil = referenceRematchUntil = 0.0;
     liveCompareStartAfterReturnCandidate.clear();
-    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket(), nowSecs(), 0.0,
+    afterTail = { action, pair.key, pair.ticket, nowSecs(), 0.0,
                   action == hypha::live_compare_ui::AfterTail::keepAll };
     return true;  // the status line names the wait from the next refresh (no toast to outlive it)
 }
@@ -461,14 +458,19 @@ void KirinHyphaEditor::serviceAfterTailPress()
     if (afterTail.action == AfterTail::none) return;
     const bool reference = afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
                         || afterTail.action == AfterTail::referenceB;
-    // A later start (A/B, LISTEN, a Blind) is the user's newer choice; REF choices and leaving REF drop it at once.
-    const bool restoringGroup = afterTail.action == AfterTail::keepAll && afterTail.groupStaged && processorRef.pairedPreInstanceId().isEmpty();
-    if ((!restoringGroup && waitingPairKey() != afterTail.pairKey) || processorRef.restoreOrPairTicket() != afterTail.ticket
+    const auto pair = processorRef.pairWaitSnapshot();
+    const bool restoringGroup = afterTail.action == AfterTail::keepAll && afterTail.groupStaged && ! pair.paired;
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare_ui::afterGroupRestoreReadForTest) hypha::live_compare_ui::afterGroupRestoreReadForTest();
+   #endif
+    if (! pair.stable || (!restoringGroup && pair.key != afterTail.pairKey) || pair.ticket != afterTail.ticket
         || processorRef.candidateCompareActive() || processorRef.liveCompareStatus().active
         || liveBlindOpen || localBlindOpen
         || (reference && observatoryDomain != hypha::observatory::Domain::reference))
     {
+        const bool all = afterTail.action == AfterTail::keepAll;
         afterTail = {};
+        if (all) showToast ("All Keep targets changed or unavailable. Try again.");
         return;
     }
     if (!reference && nowSecs() - afterTail.since >= hypha::keep_ui::preWaitSeconds)
@@ -480,11 +482,9 @@ void KirinHyphaEditor::serviceAfterTailPress()
         || (afterTail.action == AfterTail::keepAll && processorRef.allKeepTailPending())))
     {
         afterTail.nextGroupCheck = nowSecs() + hypha::keep_ui::preRetrySeconds;
-        // Within Keep's own two minutes of waiting; then it ends and says why (INV-AB6).
         return;
     }
     const auto waited = std::exchange (afterTail, {});
-    // The same request the press made: its own refusals and notices still apply.
     switch (waited.action)
     {
         case AfterTail::referenceV: if (referenceView.onSelectB) referenceView.onSelectB(); break;

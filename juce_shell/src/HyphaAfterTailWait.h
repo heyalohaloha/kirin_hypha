@@ -4,6 +4,9 @@
 
 namespace hypha::live_compare_ui
 {
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+inline void (*afterGroupRestoreReadForTest)() = nullptr;
+#endif
 // The one press waiting for the A/B tail, and the pair it was pressed for (PluginEditorAfterTail.cpp).
 struct AfterTailWait
 {

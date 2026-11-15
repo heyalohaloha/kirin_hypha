@@ -129,6 +129,8 @@ public:
     void clearPairCandidate();
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
+    struct PairWaitSnapshot { juce::String key; std::uint64_t ticket = 0; bool paired = false, stable = false; };
+    PairWaitSnapshot pairWaitSnapshot() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
     #include "live_compare/LiveCompareProcessorApi.h"

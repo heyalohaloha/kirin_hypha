@@ -148,17 +148,22 @@ void KirinHyphaEditor::updatePost()
 // 待たせて 0.5 秒ごとに確かめ、応答したら始める。上限まで応答しない時だけ「選び直して」と言う。retry は timer から。
 void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket, bool resume, double since)
 {
-    if (processorRef.keepAll (ticket, resume)) return;
-    if (ticket && *ticket != processorRef.restoreOrPairTicket()) return;  // restored or re-paired: dropped, not refused
+    const auto pair = processorRef.pairWaitSnapshot();
+    if (! pair.stable || (ticket && *ticket != pair.ticket))
+    { showToast ("All Keep targets changed or unavailable. Try again."); return; }
+    if (processorRef.keepAll (pair.ticket, resume)) return;
+    const auto current = processorRef.pairWaitSnapshot();
+    if (! current.stable || pair.ticket != current.ticket)
+    { showToast ("All Keep targets changed or unavailable. Try again."); return; }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (resume && (processorRef.candidateTailPending() || processorRef.candidateReturning()))
-    { afterTail = { hypha::live_compare_ui::AfterTail::keepAll, waitingPairKey(), processorRef.restoreOrPairTicket(), since, 0.0, true }; return; }
+    if (resume && (! current.paired || processorRef.candidateTailPending() || processorRef.candidateReturning()))
+    { afterTail = { hypha::live_compare_ui::AfterTail::keepAll, pair.key, pair.ticket, since, 0.0, true }; return; }
    #endif
     const juce::String notice = processorRef.drainKeepActionNotice();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (notice == "A/B tail pending")
     {
-        afterTail = { hypha::live_compare_ui::AfterTail::keepAll, waitingPairKey(), processorRef.restoreOrPairTicket(),
+        afterTail = { hypha::live_compare_ui::AfterTail::keepAll, pair.key, pair.ticket,
                       since > 0.0 ? since : nowSecs(), 0.0, true };
         return;
     }
