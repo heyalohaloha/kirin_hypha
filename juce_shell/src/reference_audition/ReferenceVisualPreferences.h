@@ -250,13 +250,20 @@ public:
     }
     BalanceOverlay overlay() const { const juce::ScopedLock lock (mutex); return balanceOverlay; }
     void setOverlay (BalanceOverlay value) { const juce::ScopedLock lock (mutex); balanceOverlay = std::move (value); }
-    void showNewTargets (const juce::StringArray& ids)
+    void showNewTargets (const juce::StringArray& ids, const juce::StringArray& initial)
     {
+        if (ids.isEmpty()) return;
         const juce::ScopedLock lock (mutex);
-        for (const auto& id : ids)
-            if (BalanceOverlay::validId (id) && balanceOverlay.find (id) == nullptr
-                && balanceOverlay.lines.size() < BalanceOverlay::maximumLines)
-                balanceOverlay.lines.push_back ({ id, balanceOverlay.freeColour() });
+        const auto add = [this] (const juce::StringArray& choices) {
+            for (const auto& id : choices)
+                if (BalanceOverlay::validId (id) && balanceOverlay.find (id) == nullptr
+                    && balanceOverlay.lines.size() < BalanceOverlay::maximumLines)
+                    balanceOverlay.lines.push_back ({ id, balanceOverlay.freeColour() });
+        };
+        if (! balanceOverlay.used) add (initial);
+        add (ids);
+        balanceOverlay.all = true;
+        balanceOverlay.used = true;
     }
     void forgetTarget (const juce::String& id)
     {

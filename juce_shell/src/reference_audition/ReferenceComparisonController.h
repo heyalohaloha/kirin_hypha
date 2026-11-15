@@ -158,6 +158,7 @@ private:
     void releaseVersionBlindGuard();
     void refreshObservation();
     RuntimeV2Controller& viewed() noexcept;
+    void showNewTargets (const juce::StringArray&, const TargetSnapshot&);
     bool aWindowTargetCurrent (AWindowTarget) const;  // selectionLock を持って呼ぶ
     void advanceAWindowEpoch();                       // gateLock の外で呼ぶ
     bool trialActive() const;

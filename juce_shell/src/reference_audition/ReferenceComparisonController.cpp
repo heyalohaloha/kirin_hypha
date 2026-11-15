@@ -18,7 +18,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
                    if (current.restoreEpoch != epoch) return;
                    juce::StringArray present;
                    for (const auto& id : ids) if (current.collection.find (id)) present.add (id);
-                   visualPreferences->showNewTargets (present);
+                   showNewTargets (present, current);
                }),
       visual ([this] {
           const auto slot = viewedSlot.load (std::memory_order_acquire);
@@ -348,6 +348,19 @@ bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCandidate (id); }); }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCue (id); }); }
+void ReferenceComparisonController::showNewTargets (const juce::StringArray& ids, const TargetSnapshot& current)
+{
+    if (ids.isEmpty()) return;
+    const auto source = reference.snapshot();
+    juce::String selectedSet;
+    { const juce::ScopedLock lock (selectionLock); selectedSet = songSetId; }
+    const auto found = std::find_if (source.songSets.begin(), source.songSets.end(), [&selectedSet] (const auto& set) { return set.id == selectedSet; });
+    const auto chosen = found != source.songSets.end() ? found : source.songSets.begin();
+    juce::StringArray initial;
+    if (chosen != source.songSets.end()) for (const auto& song : chosen->songs) initial.add (song.id);
+    for (const auto& target : current.collection.items) initial.add (target.id);
+    visualPreferences->showNewTargets (ids, initial);
+}
 bool ReferenceComparisonController::makeTarget()
 {
     if (trialActive()) return false;
@@ -362,8 +375,8 @@ bool ReferenceComparisonController::makeTarget()
     const juce::ScopedLock transaction (targetChoiceLock);
     if (trialActive()) return false;
     if (! targets.add (std::move (target), epoch)) return false;
-    visualPreferences->showNewTargets ({ id });
-    return chooseTarget (id, epoch);
+    showNewTargets ({ id }, targets.snapshot());
+    return selectVisualSlot (3);
 }
 bool ReferenceComparisonController::chooseTarget (const juce::String& id, std::uint64_t restoreEpoch)
 {

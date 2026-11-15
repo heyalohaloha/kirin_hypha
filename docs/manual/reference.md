@@ -66,7 +66,7 @@ way never starts a role. V always follows A's position by its content, and Blind
 **Measured targets.** On B, drop a file onto the Reference page to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
-seconds. B always shows the drop hint and target count; open DETAILS for MAKE TARGET, the target selector and removal. In B's list, select a target to compare its median spectrum with A in ONE. It has no audio: pressing B explains this and leaves A playing. ALL includes newly imported and made targets immediately. A target being measured appears as a pending row. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+seconds. B always shows the drop hint and target count; open DETAILS for MAKE TARGET, the target selector and removal. In B's list, select a target to compare its median spectrum with A in ONE. It has no audio: pressing B explains this and leaves A playing. After import or MAKE TARGET, B switches to ALL and immediately shows the new targets without changing the sound. A target being measured appears as a pending row. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
 four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
 drop holds more files than there are free places, they are measured in the order dropped until the
 places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
