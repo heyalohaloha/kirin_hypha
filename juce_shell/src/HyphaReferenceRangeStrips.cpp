@@ -198,7 +198,9 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         return;
     }
     const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
-    const auto numberFont = monoFont (context, typography::TextRole::readout, typography::Composition::information);
+    auto numberFont = monoFont (context, typography::TextRole::readout, typography::Composition::information);
+    if (context.referenceCheck && area.getHeight() / static_cast<float> (prepared.size()) >= 110.0f)
+        numberFont = numberFont.withHeight (juce::jmin (22.0f, numberFont.getHeight() * 1.45f));
     float numberWidth = std::max (text_style::shownWidth (unitFont, "MEDIAN"), text_style::shownWidth (unitFont, "P90-P10"));
     float differenceWidth = 0.0f;
     for (const auto& item : prepared)
@@ -210,18 +212,26 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
     differenceWidth = differenceWidth > 0.0f ? std::ceil (differenceWidth) + 12.0f : 0.0f;
     constexpr float letterWidth = 20.0f, gap = 12.0f;
     if (area.getWidth() - letterWidth - numberWidth - differenceWidth - gap < 140.0f) differenceWidth = 0.0f;
-    const auto barLeft = area.getX() + letterWidth, barRight = area.getRight() - numberWidth - differenceWidth - gap;
-    if (barRight - barLeft < 60.0f) return;
-    const auto rowHeight = std::min (area.getHeight() / static_cast<float> (prepared.size()), 118.0f);
+    const auto availableBar = area.getWidth() - letterWidth - numberWidth - differenceWidth - gap;
+    const auto barWidth = context.referenceCheck ? std::min (availableBar, 360.0f) : availableBar;
+    if (barWidth < 60.0f) return;
+    const auto barLeft = area.getX() + letterWidth + (availableBar - barWidth) * 0.5f, barRight = barLeft + barWidth;
+    const auto availableRow = area.getHeight() / static_cast<float> (prepared.size());
+    const auto rowHeight = context.referenceCheck ? availableRow : std::min (availableRow, 118.0f);
     for (const auto& item : prepared)
     {
         auto block = area.removeFromTop (rowHeight);
         help::note (block, item.row.help);
-        auto title = block.removeFromTop (std::min (18.0f, block.getHeight() / 4.0f));
-        const auto lineHeight = std::min (24.0f, (block.getHeight() - 20.0f) / 2.0f);
+        const auto titleHeight = std::min (context.referenceCheck ? 20.0f : 18.0f, block.getHeight() / 4.0f);
+        const auto axisHeight = std::min (18.0f, block.getHeight() / 4.0f);
+        const auto lineHeight = context.referenceCheck ? std::min (38.0f, (block.getHeight() - titleHeight - axisHeight) / 2.0f)
+                                                       : std::min (24.0f, (block.getHeight() - titleHeight - 20.0f) / 2.0f);
+        if (context.referenceCheck)
+            block.removeFromTop (std::max (0.0f, (block.getHeight() - titleHeight - axisHeight - 2.0f * lineHeight) * 0.5f));
+        auto title = block.removeFromTop (titleHeight);
         auto aLine = block.removeFromTop (lineHeight);
         auto otherLine = block.removeFromTop (lineHeight);
-        auto axis = block.removeFromTop (std::min (15.0f, block.getHeight()));
+        auto axis = block.removeFromTop (context.referenceCheck ? axisHeight : std::min (15.0f, block.getHeight()));
         g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
         text_style::drawEllipsized (g, item.row.fact == DynamicsFact::crest ? sides.crestName : item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
@@ -242,11 +252,11 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         {
             g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY);
             g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
-            text_style::drawEllipsized (g, letter, line.withWidth (letterWidth).toNearestInt(), juce::Justification::centredLeft);
+            text_style::drawEllipsized (g, letter, line.withX (barLeft - letterWidth).withWidth (letterWidth).toNearestInt(), juce::Justification::centredLeft);
             paintBar (g, juce::Rectangle<float>::leftTopRightBottom (barLeft, line.getY(), barRight, line.getBottom()), bar, item.row,
                       item.minimum, item.maximum, colour);
             const auto number = juce::Rectangle<float>::leftTopRightBottom (barRight + gap, line.getY(), barRight + gap + numberWidth, line.getBottom());
-            g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
+            g.setFont (numberFont);
             g.setColour (bar.shown ? valueColour : context.referenceCheck ? COL_NORMAL : COL_MUTED);
             text_style::drawEllipsized (g, text, number.toNearestInt(), juce::Justification::centredRight);
             if (letter == "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())  // 差は A の行に（A が主語）

@@ -23,7 +23,8 @@ void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bo
     const bool separateTrial = getComponentID() == "reference-blind";
     const auto accent = separateTrial || attention ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR;
     surface_material::paintControl (g, area, highlighted && interactive, down && interactive, selected, accent, 4.0f);
-    g.setColour (! isEnabled() || ! ready ? (presentationContext.referenceCheck ? COL_TEXT_SECONDARY : COL_MUTED.withAlpha (0.32f))
+    const bool unavailableRole = getComponentID() == "reference-b" || getComponentID() == "reference-ref";
+    g.setColour (! isEnabled() || ! ready ? (presentationContext.referenceCheck && ! unavailableRole ? COL_TEXT_SECONDARY : COL_MUTED.withAlpha (0.32f))
                                : selected ? COL_OBSERVATORY_VALUE
                                           : separateTrial || attention ? COL_FLORA_BR : COL_NORMAL);
     g.setFont (labelFont (presentationContext, typography::TextRole::action,

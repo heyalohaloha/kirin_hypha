@@ -107,14 +107,20 @@ void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
 {
     paintPanel (g, area, 0.72f);
     const auto difference = differenceOf (pair, unit, words, side);
-    if (presentation.referenceCheck && area.getHeight() < 52.0f)
+    if (presentation.referenceCheck && presentation.density == observatory::Density::compact && area.getHeight() >= 40.0f)
     {
-        const auto delta = pair.aMinusOther();
-        const auto rounded = std::abs (delta) < 0.05 ? 0.0 : delta;
-        const auto value = std::isfinite (rounded) ? (rounded > 0.0 ? "+" : "") + juce::String (rounded, 1) + " " + unit : juce::String ("--");
+        area.reduce (4.0f, 2.0f);
         g.setColour (COL_NORMAL);
-        g.setFont (labelFont (presentation, typography::TextRole::readout, typography::Composition::information));
-        text_style::drawEllipsized (g, name + "  A-C " + value, area.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft);
+        g.setFont (labelFont (presentation, typography::TextRole::metricLabel, typography::Composition::information));
+        text_style::drawText (g, name, area.removeFromTop (18.0f), juce::Justification::centred);
+        if (difference.comparison.shown())
+            reference_ui::paintAComparison (g, difference.comparison, area, juce::Justification::centred, presentation,
+                                             COL_NORMAL, COL_SPECTRUM_DELTA_BR);
+        else
+        {
+            g.setFont (monoFont (presentation, typography::TextRole::readout, typography::Composition::information));
+            text_style::drawText (g, fmtVal (difference.value), area, juce::Justification::centred);
+        }
         return;
     }
     if (area.getHeight() < 52.0f)

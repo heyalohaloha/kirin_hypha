@@ -1,7 +1,7 @@
 #pragma once
 
 // Optional, deterministic demonstration for comparing C layouts. No source is played. The C
-// spectrum comes from a ranges fixture; A and the time-series are illustrative synthetic data.
+// spectrum, A and the time-series are illustrative synthetic data, not a real song.
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/reference_audition/ReferenceVisualTimeline.h"
 #include <cmath>
@@ -36,17 +36,24 @@ inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State st
     for (int i = 0; i < centers->size(); ++i)
     {
         reference->centersHz.push_back (static_cast<double> ((*centers)[i]));
-        reference->medianDb.push_back (static_cast<float> (static_cast<double> ((*medians)[i]) / 1000.0));
-        reference->p10Db.push_back (static_cast<float> (static_cast<double> ((*lowValues)[i]) / 1000.0));
-        reference->p90Db.push_back (static_cast<float> (static_cast<double> ((*highValues)[i]) / 1000.0));
+        const auto octave = std::log2 (static_cast<double> ((*centers)[i]) / 100.0);
+        const auto level = -21.0 - 3.0 * octave + 2.2 * std::sin (octave * 1.3) + 0.7 * std::sin (octave * 3.1);
+        reference->medianDb.push_back (static_cast<float> (level));
+        reference->p10Db.push_back (static_cast<float> (level - 3.2));
+        reference->p90Db.push_back (static_cast<float> (level + 3.2));
     }
-    for (int i = 0; i < 4; ++i) reference->balanceDb[static_cast<size_t> (i)] = static_cast<double> ((*balances)[i]) / 1000.0;
+    reference->balanceDb = { -14.0, -18.0, -25.0, -33.0 };
     reference->frames = reference->wantedFrames = 160;
     auto live = std::make_shared<reference_audition::KirinSpectrumWindow> (*reference);
-    for (auto& value : live->medianDb) value += 4.8f;
-    for (auto& value : live->p10Db) value += 3.8f;
-    for (auto& value : live->p90Db) value += 5.8f;
-    for (auto& value : live->balanceDb) value += 5.0;
+    for (size_t i = 0; i < live->medianDb.size(); ++i)
+    {
+        const auto octave = std::log2 (live->centersHz[i] / 100.0);
+        const auto delta = static_cast<float> (4.0 + 2.0 * std::sin (octave * 0.8));
+        live->medianDb[i] += delta;
+        live->p10Db[i] += delta - 0.7f;
+        live->p90Db[i] += delta + 0.7f;
+    }
+    live->balanceDb = { -8.9, -13.8, -21.0, -30.5 };
     state.cueKirin = reference; state.aKirin = live;
     state.sourceDurationSeconds = 186.0; state.cueStartSeconds = 0.0; state.cueEndSeconds = 16.0;
     state.cuePlayheadSeconds = 0.0; state.cuePart = reference_audition::CuePart::chorus;

@@ -209,8 +209,7 @@ void Component::setState (State next)
     syncRoles (blindSession);
     syncCheckPage (blindSession);
     syncPlayback (blindSession);
-    targetBar.setVisible (current.targetsEnabled && current.comparisonSlot == 2 && ! blindSession
-                          && (detailsOpen || current.targetSelected));
+    targetBar.setVisible (false);  // C から目標の操作行を外す。目標データと B の一覧は維持する。
     targetBar.update (current.targets, presentationContext, current.aKirin && current.aKirin->frames >= 30, shortPanel());
     const bool numericalC = current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr;
     targetBadge.setVisible (numericalC && ! blindSession);
@@ -272,6 +271,8 @@ void Component::paint (juce::Graphics& g)
             if (box->isVisible() || selectionVisible (*box))
                 text_style::drawEllipsized (g, text, box->getBounds().withY (box->getY() - 17).withHeight (15), juce::Justification::centredLeft);
     }
+    else if (presentationContext.referenceCheck && ! detailedLayout())
+        area.removeFromTop (panelGap() + panelPickerHeight());
     else if (current.separateComparisons)
     {
         area.removeFromTop ((selectionVisible (presetBox) || selectionVisible (cueBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
@@ -355,7 +356,7 @@ void Component::paint (juce::Graphics& g)
         g.setFont (displayTextFont (current.title, presentationContext, typography::TextRole::body, typography::Composition::information));
         text_style::drawEllipsized (g, current.title, header, juce::Justification::centredLeft);
     }
-    if (! rolePage())  // 300% の B・C・V では、ボタンの段の選択欄が見出しを兼ねる（同じ曲名を 2 度出さない）
+    if (! rolePage() && ! (presentationContext.referenceCheck && ! detailedLayout()))  // 小さい C の見出しには Cue の欄を置く
     {
         g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
@@ -370,6 +371,8 @@ void Component::paint (juce::Graphics& g)
         if (! shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
     }
 
+    if (presentationContext.referenceCheck && ! detailedLayout() && ! current.targetSelected)
+        area.removeFromTop (panelPickerHeight());
     area.removeFromTop (panelGap());
     // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
     const bool rowInPanel = ! statusInFooter();
@@ -413,8 +416,12 @@ void Component::paint (juce::Graphics& g)
     }
     else if (!comparisonView.isVisible())
     {
+        if (presentationContext.referenceCheck && ! current.viewBindings.empty()
+            && current.viewBindings.front().startsWith ("spectrum_"))
+            paintBandSummary (g, area.removeFromBottom (18), current, presentationContext);
         const int gap = 4;
-        auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);
+        const auto width = presentationContext.referenceCheck ? (area.getWidth() - gap) * 56 / 100 : (area.getWidth() - gap) / 2;
+        auto left = area.removeFromLeft (width);
         area.removeFromLeft (gap);
         reference_metric_painter::paintCompactDelta (
             g, left.toFloat(), "LUFS-I", { current.aIntegratedLoudness, current.adjustedBIntegratedLoudness }, "LU", AWords::loudness,

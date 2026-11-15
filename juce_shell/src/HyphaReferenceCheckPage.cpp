@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-// C（CHECK）は Check を一つ選び、主の比較と再生方法を出す。詳しい比較・4 帯域・時間軸と目標は表示だけを開閉する。
+// C（CHECK）は Check を一つ選び、主の比較と再生方法を出す。詳しい比較と時間軸は表示だけを開閉する。
 // V の選択は V の画面にだけ出す。小さな表示で C を押すと 300% の画面が開く。
 namespace hypha::reference_ui
 {
@@ -93,6 +93,7 @@ void Component::configureCheckPage()
 void Component::syncCheckPage (bool blindSession)
 {
     const bool page = checkPage();
+    const bool compact = presentationContext.referenceCheck && ! detailedLayout() && ! blindSession;
     const bool vPage = versionPage();
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
@@ -125,7 +126,7 @@ void Component::syncCheckPage (bool blindSession)
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
     checkSongBox.setVisible (page && group != nullptr && ! current.targetSelected);
     const bool matching = current.comparisonMode == "loudness_match";
-    matchButton.setVisible (page && ! blindSession);
+    matchButton.setVisible ((page || compact) && ! blindSession);
     unavailable::set (matchButton, matching, "This Check does not use loudness MATCH.");
     matchButton.setReady (matching && (current.bSelected ? current.audibleComparisonSlot == 2 : canHearCheck (current)));
     matchButton.setTooltip (! matching ? "This Check does not use loudness MATCH." : current.bSelected && current.audibleComparisonSlot == 2
@@ -133,8 +134,8 @@ void Component::syncCheckPage (bool blindSession)
         : "Play C matched to the latest A over the Cue's length.");
     const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
     songSwitch.setChoice (current.song.chosen && songAvailable, songAvailable,
-                          SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
-    songSwitch.setVisible (page && ! blindSession && ! current.targetSelected && group != nullptr);
+                          compact ? juce::String ("CUE") : SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
+    songSwitch.setVisible ((page || compact) && ! blindSession && ! current.targetSelected && group != nullptr);
     if (page)
     {
         // C の画面では V の選択と、Check と曲を 1 つにした選択欄を出さない（V の画面とタブ・曲で選ぶ）。
@@ -253,7 +254,7 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
 int Component::checkFooterHeight() const noexcept
 {
     const bool cueRow = ! current.checks.empty();
-    const bool bands = detailsOpen && current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size();
+    const bool bands = ! current.viewBindings.empty() && current.viewBindings.front().startsWith ("spectrum_");
     return (cueRow ? checkFooterRow : 0) + (bands ? checkFooterRow + 4 : 0);
 }
 
@@ -269,7 +270,7 @@ juce::Rectangle<int> Component::paintCheckFooter (juce::Graphics& g, juce::Recta
         if (songSwitch.isVisible()) row.setRight (juce::jmin (row.getRight(), songSwitch.getX() - 8));  // CUE／SONG
         if (detailsOpen && std::isfinite (current.sourceDurationSeconds)) paintCueBar (g, row, current, presentationContext);
     }
-    if (detailsOpen && current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size())
+    if (checkFooterHeight() > checkFooterRow)
     {
         area.removeFromBottom (4);
         paintBandSummary (g, area.removeFromBottom (checkFooterRow), current, presentationContext);

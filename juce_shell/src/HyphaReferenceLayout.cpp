@@ -43,6 +43,15 @@ void Component::resized()
         if (playbackButtons[1].isVisible())  // 流し方とずらしの段（曲の一覧と BALANCE の上）
         { area.removeFromTop (panelGap()); layoutPlayback (area.removeFromTop (26)); }
     }
+    else if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession)
+    {
+        area.removeFromTop (panelGap());
+        auto row = area.removeFromTop (panelPickerHeight());
+        const auto width = (row.getWidth() - 4) * 35 / 100;
+        presetBox.setBounds (row.removeFromLeft (width)); row.removeFromLeft (4);
+        checkBox.setBounds (row);
+        cueBox.setBounds (selectors.removeFromBottom (panelPickerHeight()));
+    }
     else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (panelGap());
@@ -62,7 +71,7 @@ void Component::resized()
         }
         songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに
         songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
-        if (playbackButtons[1].isVisible())  // 300% 未満の B：曲の欄の右に FOLLOW A の切り替え
+        if (current.comparisonSlot == 3 && playbackButtons[1].isVisible())  // 300% 未満の B：曲の欄の右に FOLLOW A の切り替え
         {
             auto picker = songBox.getBounds();
             const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
@@ -116,6 +125,17 @@ void Component::resized()
             selector.removeFromLeft (68);
             candidateBox.setBounds (selector);
         }
+    }
+    if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession && ! current.targetSelected)
+    {
+        auto row = area.removeFromTop (panelPickerHeight());
+        if (matchButton.isVisible()) { matchButton.setBounds (row.removeFromRight (50)); row.removeFromRight (3); }
+        if (songSwitch.isVisible())
+        {
+            const auto width = SongSwitch::widthFor ("CUE", presentationContext);
+            songSwitch.setBounds (row.removeFromRight (width)); row.removeFromRight (3);
+        }
+        layoutPlayback (row);
     }
     area.removeFromTop (panelGap());
     const bool rowInPanel = ! statusInFooter();

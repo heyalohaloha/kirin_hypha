@@ -304,8 +304,26 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
 {
     const auto gain = chartGainDb (state);
     const bool ready = kirinComparable (state) && state.aKirin->frames >= minimumAFrames && std::isfinite (gain);
-    const auto layout = bandLayout (area.getWidth(), context);
     help::note (area, state.song.shown ? help_text::songBands : help_text::cueBands);
+    if (context.referenceCheck && area.getWidth() < 500)
+    {
+        static constexpr const char* names[] { "LOW", "L-M", "MID", "HI" };
+        const auto font = labelFont (context, typography::TextRole::unit, typography::Composition::information);
+        g.setFont (font); g.setColour (COL_NORMAL);
+        const auto headingWidth = juce::roundToInt (std::ceil (text_style::shownWidth (font, bandHeading))) + 4;
+        text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (headingWidth), juce::Justification::centredLeft);
+        for (size_t band = 0; band < 4; ++band)
+        {
+            const auto cell = area.removeFromLeft (area.getWidth() / static_cast<int> (4 - band));
+            const auto delta = ready && state.aKirin->balanceDb[band] > -200.0 ? state.aKirin->balanceDb[band] - state.cueKirin->balanceDb[band] - gain
+                                     : std::numeric_limits<double>::quiet_NaN();
+            const auto value = std::abs (delta) < 0.05 ? 0.0 : delta;
+            const auto number = std::isfinite (value) ? (value > 0.0 ? "+" : "") + juce::String (value, 1) : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
+            text_style::drawEllipsized (g, juce::String (names[band]) + " " + number, cell, juce::Justification::centred);
+        }
+        return;
+    }
+    const auto layout = bandLayout (area.getWidth(), context);
     g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
     text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (layout.heading), juce::Justification::centredLeft);

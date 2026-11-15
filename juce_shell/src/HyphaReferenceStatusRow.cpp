@@ -39,8 +39,22 @@ juce::String fittedSegments (const juce::String& shown, const juce::Font& font, 
 
 int Component::statusRowHeight() const noexcept
 {
-    return presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible()
-        ? (shortPanel() ? 54 : 36) : detailedLayout() ? 24 : 18;
+    if (! presentationContext.referenceCheck || detailedLayout() || ! actionButton.isVisible())
+        return detailedLayout() ? 24 : 18;
+    if (! shortPanel()) return 36;
+    const auto font = labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information);
+    const auto actionFont = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
+    const auto width = panelArea().getWidth();
+    const auto actionWidth = juce::jlimit (116, juce::jmax (116, width),
+        juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, actionButton.getButtonText()))) + 24);
+    const auto line = text_style::shownText (referenceStatusLine (current, false).text);
+    const auto japaneseSplit = line.indexOfChar (juce::juce_wchar (0x3002));
+    const auto englishSplit = line.indexOf (". ");
+    const auto split = japaneseSplit >= 0 ? japaneseSplit : englishSplit;
+    if (current.targets.measuring || current.targets.issue.isNotEmpty()) return 54;
+    if (split < 0) return text_style::shownWidth (font, line) <= width - 16 ? 36 : 54;
+    return text_style::shownWidth (font, line.substring (0, split + 1)) <= width - 16
+        && text_style::shownWidth (font, line.substring (split + 1).trimStart()) <= width - actionWidth - 5 ? 36 : 54;
 }
 
 // 300% の B・C・V のページの並びかどうかは、ここだけで決める（inspection の密度）。2026-10-06：200% にも当たり、200% の
@@ -168,10 +182,15 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
         {
             const auto end = split >= 0 ? split + 1 : englishSplit + 1;
             auto first = statusArea.removeFromTop (18).withTrimmedLeft (16);
-            auto second = statusArea.removeFromTop (18).withTrimmedLeft (16);
-            if (! shortPanel()) second.setRight (actionButton.getX() - 6);
+            auto second = statusArea.removeFromTop (18).withTrimmedLeft (shortPanel() ? 2 : 16);
+            if (statusRowHeight() < 50) second.setRight (actionButton.getX() - 3);
             text_style::drawEllipsized (g, full.substring (0, end), first, juce::Justification::centredLeft);
             text_style::drawEllipsized (g, full.substring (end).trimStart(), second, juce::Justification::centredLeft);
+        }
+        else if (presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible())
+        {
+            auto textArea = statusArea.withTrimmedBottom (18).withTrimmedLeft (16);
+            text_style::drawLines (g, full, textArea, juce::Justification::centredLeft, textArea.getHeight() / 18);
         }
         else text_style::drawEllipsized (g, layout.text, layout.textArea, juce::Justification::centredLeft);
     }
