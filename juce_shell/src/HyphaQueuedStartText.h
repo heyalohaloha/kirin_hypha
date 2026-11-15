@@ -16,7 +16,7 @@ enum class QueuedWait { returning, tail, stopped, other };
 inline constexpr const char* bypassHoldsReturnNotice = "Bypass is on: turn it off, then press again";
 inline constexpr const char* offlineHoldsReturnNotice = "Rendering offline: press again after it finishes";
 
-// What the press waits for now. Stopped comes first: neither the return nor the tail moves without audio.
+// What the press waits for now. Stopped comes first; the bounded return can also finish without playback.
 constexpr QueuedWait queuedWait (bool playing, bool returning, bool tailClearing) noexcept
 {
     return ! playing ? QueuedWait::stopped
@@ -35,10 +35,11 @@ constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
 {
     switch (action)
     {
-        case AfterTail::referenceV: return playing ? "Clearing the A/B tail, then V" : "Play to continue, then V";
-        case AfterTail::referenceC: return playing ? "Clearing the A/B tail, then C" : "Play to continue, then C";
-        case AfterTail::referenceB: return playing ? "Clearing the A/B tail, then B" : "Play to continue, then B";
+        case AfterTail::referenceV: return playing ? "Clearing the A/B tail, then V" : "Waiting up to 10 s, then V";
+        case AfterTail::referenceC: return playing ? "Clearing the A/B tail, then C" : "Waiting up to 10 s, then C";
+        case AfterTail::referenceB: return playing ? "Clearing the A/B tail, then B" : "Waiting up to 10 s, then B";
         case AfterTail::keepPair:
+        // Keep records only after ordinary audio has passed through B (INV-AB6): stopped, it waits for playback.
         case AfterTail::keepAll:    return playing ? "Clearing the A/B tail, then Keep" : "Play to continue, then Keep";
         case AfterTail::none:       break;
     }
@@ -58,9 +59,9 @@ constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noe
                  : start == QueuedStart::candidate ? "Clearing the A/B tail, then A/B"
                  : "Clearing the A/B tail, then LISTEN";
         case QueuedWait::stopped:
-            return start == QueuedStart::blind ? "Play to continue, then BLIND"
-                 : start == QueuedStart::candidate ? "Play to continue, then A/B"
-                 : "Play to continue, then LISTEN";
+            return start == QueuedStart::blind ? "Waiting up to 10 s, then BLIND"
+                 : start == QueuedStart::candidate ? "Waiting up to 10 s, then A/B"
+                 : "Waiting up to 10 s, then LISTEN";
         case QueuedWait::other:
             break;
     }

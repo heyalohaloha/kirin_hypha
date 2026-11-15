@@ -20,7 +20,8 @@ inline juce::Font fontForText (const presentation::Context& context, const juce:
 {
     auto font = monoFont (context, roleForText (context, text, width));
     if (text == "Cannot write to folder. Check access." || text == "2MIX has no DRUM; showing TIME / HISTORY"
-        || text == record_ui::wavWaiting || text == live_compare_ui::preProcessingNotice)
+        || text == record_ui::wavWaiting || text == live_compare_ui::preProcessingNotice
+        || text.startsWith ("Waiting up to 10 s, then "))
         font.setHeight (juce::jmax (14.0f, font.getHeight()));
     return font;
 }

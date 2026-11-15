@@ -141,6 +141,21 @@ void decisionsCombineStates()
             for (auto wait : { QueuedWait::returning, QueuedWait::tail, QueuedWait::stopped, QueuedWait::other })
                 texts.insert (queuedStartNotice (start, wait));
         require (texts.size() == 12, "every start and wait has its own sentence");
+        for (const auto start : { QueuedStart::listen, QueuedStart::blind, QueuedStart::candidate })
+        {
+            const std::string stopped = queuedStartNotice (start, QueuedWait::stopped);
+            require (stopped.find ("up to 10 s") != std::string::npos && stopped.find ("Play to continue") == std::string::npos,
+                     "a stopped start waits automatically rather than requiring playback");
+        }
+        for (const auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB })
+        {
+            const std::string stopped = afterTailNotice (action, false);
+            require (stopped.find ("up to 10 s") != std::string::npos && stopped.find ("Play to continue") == std::string::npos,
+                     "a stopped tail also has a bounded automatic wait");
+        }
+        for (const auto action : { AfterTail::keepPair, AfterTail::keepAll })
+            require (std::string (afterTailNotice (action, false)) == "Play to continue, then Keep",
+                     "a stopped Keep waits for playback: only ordinary audio through B clears the tail");
         std::set<std::string> afterTail;
         for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
             for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));

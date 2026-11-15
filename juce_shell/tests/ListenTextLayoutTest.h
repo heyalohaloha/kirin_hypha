@@ -39,6 +39,10 @@ void verifyAllListenText (Require require)
         if (language == i18n::Language::japanese)
             require (i18n::tr ("No new PRE processing; DAW may pause it (POST)") != "No new PRE processing; DAW may pause it (POST)",
                      "PRE processing guidance is translated");
+        if (language == i18n::Language::japanese)
+            for (const auto& item : notices)
+                if (item.text.startsWith ("Waiting up to 10 s, then "))
+                    require (i18n::tr (item.text) != item.text, "automatic wait guidance is translated");
         for (const auto& item : notices)
             inventory += juce::String (static_cast<int> (language)) + "\t" + item.text + "\t"
                 + text_style::shownText (item.text) + "\n";
@@ -52,7 +56,8 @@ void verifyAllListenText (Require require)
                     && item.text != "Cannot write to folder. Check access."
                     && item.text != "2MIX has no DRUM; showing TIME / HISTORY"
                     && item.text != "Measurements saved; waiting for Kirin OS audio (auto link)"
-                    && item.text != "No new PRE processing; DAW may pause it (POST)") continue;
+                    && item.text != "No new PRE processing; DAW may pause it (POST)"
+                    && ! item.text.startsWith ("Waiting up to 10 s, then ")) continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
                 named.setChainReadout (chain ? "CHAIN LOAD 100% / 100%" : "", true);
@@ -77,7 +82,8 @@ void verifyAllListenText (Require require)
                 const auto font = footer_notice_font::fontForText (named.presentationContext(), item.text, room.getWidth());
                 if (item.text == "Cannot write to folder. Check access." || item.text == "2MIX has no DRUM; showing TIME / HISTORY"
                     || item.text == "Measurements saved; waiting for Kirin OS audio (auto link)"
-                    || item.text == "No new PRE processing; DAW may pause it (POST)")
+                    || item.text == "No new PRE processing; DAW may pause it (POST)"
+                    || item.text.startsWith ("Waiting up to 10 s, then "))
                     require (font.getHeight() >= 14.0f, "storage guidance is readable at every size");
                 const bool complete = pixels.isValid()
                     && withoutWhitespace (actual.texts().joinIntoString ("")) == withoutWhitespace (text_style::shownText (item.text))
