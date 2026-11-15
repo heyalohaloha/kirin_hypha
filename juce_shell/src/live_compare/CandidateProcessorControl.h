@@ -92,7 +92,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear();
         return StartResult::comparisonBusy;
     }
-    state.tail.store (0, std::memory_order_release); state.tailPre.clear(); // this A/B's own return covers it
+    state.tail.store (0, std::memory_order_release); state.tailPre.clear(); state.tailWithdrawal.reset(); // this A/B's own return covers it
     if (liveCompare.authority.ticket() != permission || ! liveCompare.authority.permitted())
     { stopLiveCompare(); return StartResult::notReady; }
     const auto track = state.trackHash.load (std::memory_order_acquire);
@@ -161,8 +161,8 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             if (!observer || !observer->source.ring()->matches (key, rate))
             {
                 auto replacement = std::make_unique<CandidateReturnObserver>();
-                if (observer) replacement->withdrawal = observer->withdrawal;
-                if (replacement->withdrawal && replacement->prepare (key, rate))
+                replacement->withdrawal = observer ? observer->withdrawal : state.tailWithdrawal;
+                if (replacement->prepare (key, rate))
                 {
                     if (!state.returnObserver.withdraw()) return;
                     state.returnContext.fetch_add (1, std::memory_order_acq_rel);
@@ -175,7 +175,7 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             if (proven)
             {
                 state.tailHold.clear();
-                state.tail.store (0, std::memory_order_release); state.tailPre.clear();
+                state.tail.store (0, std::memory_order_release); state.tailPre.clear(); state.tailWithdrawal.reset();
                 state.returnObserver.retire(); state.returnObserver.collect();
                 state.returnContext.fetch_add (1, std::memory_order_acq_rel);
             }
@@ -245,7 +245,12 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             if (!stillProven && !expired) return;
             // Ended by the deadline alone: the tail stays out of PRE's alignment until it is proven.
             if (stillProven) { state.tailHold.clear(); state.returnObserver.retire(); state.returnObserver.collect(); }
-            else { state.tailPre = state.originalPre; state.tail.store (state.token.load(), std::memory_order_release); }
+            else
+            {
+                state.tailPre = state.originalPre;
+                if (const auto* kept = state.returnObserver.control()) state.tailWithdrawal = kept->withdrawal;
+                state.tail.store (state.token.load(), std::memory_order_release);
+            }
             state.returnContext.fetch_add (1, std::memory_order_acq_rel); // no count carries into a later return
             state.returnSince.store (0, std::memory_order_release);
             state.isolated.store (false, std::memory_order_release);

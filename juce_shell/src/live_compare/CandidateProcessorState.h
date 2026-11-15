@@ -27,6 +27,7 @@ struct CandidateProcessorState
     CandidateTailOwner tailHold; // non-RT; remains held across engine replacement
     CandidateKeepRosterOwner keepRoster; // non-RT; retains a waiting All Keep's exact roster
     std::string tailPre; // message thread
+    std::shared_ptr<SharedRingMapping> tailWithdrawal; // message thread: the receipt, kept even if a failed start retires the observer
     std::uint64_t observedReturnContext = 0; // Audio Thread only
     std::uint64_t scope = 0; // existing project capture exclusion, separate from a BLIND trial
     CandidateReturnContinuity returnContinuity; // Audio Thread only

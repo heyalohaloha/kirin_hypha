@@ -54,6 +54,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateTailWithdrawalReceipt (require, true);
     verifyCandidateExpiredSourceTail (require, false);
     verifyCandidateExpiredSourceTail (require, true);
+    verifyCandidateTailAfterBusyStart (require);
     verifyCandidatePostOnlyReturn (require);
     verifyCandidateActivationGuidance (require);
     verifyCandidateHelpText (require);

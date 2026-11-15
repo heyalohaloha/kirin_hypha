@@ -91,6 +91,48 @@ template<class Require> void verifyCandidateExpiredSourceTail (Require require, 
         if (processor) processor->getVST3ClientExtensions()->setIHostApplication (nullptr);
 }
 
+template<class Require> void verifyCandidateTailAfterBusyStart (Require require)
+{
+    using namespace live_compare;
+    ValidationStorageSandbox isolated;
+    writeCandidateFixtureIdentity (require, isolated.directory());
+    ProductTestClock wall;
+    CandidateChainHost api;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    for (auto& processor : host.instances)
+    {
+        require (LiveTimingFixtureAccess::configureReaperClock (*processor), "busy-start fixture clock");
+        processor->getVST3ClientExtensions()->setIHostApplication (&api);
+    }
+    host.processorTimers = true; host.pair(); auto& post = host.post();
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started,
+             "busy-start fixture starts A/B");
+    host.render (300, true, false, false);
+    require (host.replacementBlocks > 0, "busy-start fixture replaces input");
+    post.finishLiveCompare(); host.render (30, true, false, false);
+    host.pre1Enabled = false; api.unavailable = true;
+    for (int n = 0; n < 1100 && post.candidateReturning(); ++n) host.render (1, false, false, false);
+    require (!post.candidateReturning() && post.candidateTailPending() && !post.keepPair(),
+             "deadline leaves the original source tail protected");
+    host.pre1Enabled = true; api.unavailable = false;
+    host.render (10, false, false, false);
+    auto* mapping = const_cast<SharedRingMapping*> (LiveTimingFixtureAccess::publishedRing (host.pre2()));
+    require (mapping && mapping->ring(), "busy-start receiver ring exists");
+    auto& transfer = mapping->ring()->header.candidate;
+    constexpr std::uint64_t otherOwner = 0x1235;
+    require (transfer.begin (otherOwner, transfer.source.load(), transfer.sourceOwnerA.load(),
+                             transfer.sourceOwnerB.load(), wall.nanos()), "another request occupies PRE2");
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::comparisonBusy
+             && transfer.owner.load() == otherOwner && post.candidateTailPending(),
+             "busy PRE2 rejects the new start while the old tail remains protected");
+    transfer.released.store (otherOwner); transfer.refreshLease (otherOwner, 0);
+    transfer.clearReturns(); // No withdrawal receipt can substitute for the original PRE marker.
+    host.render (800, false, false, false);
+    require (!post.candidateTailPending(), "the original PRE clears the tail after a busy start");
+    host.requireKeep (post, "Keep resumes after the busy-start tail clears");
+    for (auto& processor : host.instances) processor->getVST3ClientExtensions()->setIHostApplication (nullptr);
+}
+
 template<class Require> void verifyCandidatePostOnlyReturn (Require require)
 {
     using namespace live_compare;
