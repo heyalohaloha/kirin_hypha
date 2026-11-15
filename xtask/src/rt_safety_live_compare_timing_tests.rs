@@ -1,7 +1,6 @@
 use super::{
     function_body, without_line_comments, CORRESPONDENCE_H, PROCESSOR_CPP, RING_H, SESSION_H,
 };
-
 const BLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareBlockClock.h");
 const AAX_CHUNK_H: &str = include_str!("../../juce_shell/src/live_compare/AaxChunkPosition.h");
 const ALIGN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareAlign.h");
@@ -12,7 +11,6 @@ const TIMING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompa
 const PREPARATION_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareTimingPreparation.h");
 const CHAIN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareChainTiming.h");
-
 #[test]
 fn content_alignment_moves_only_the_audition_address() {
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
@@ -72,7 +70,10 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(PRE_ALIGN_H
         .contains("if (in.measuredRevision != in.revision || in.measuredK != in.k) break;"));
     assert!(PRE_ALIGN_H.contains("kept = { in.value, in.measuredK, in.context, in.host };"));
-    assert!(PRE_ALIGN_H.contains("if (! (in.pending && in.spent)) { missSince = 0; break; }"));
+    assert!(PRE_ALIGN_H.contains("if (! (in.pending && in.spent))"));
+    assert!(PRE_ALIGN_H.contains(
+        "if (awaited && usable (in) && known && in.reach >= kept.value.frames) tell (false, true);"
+    ));
     assert!(!STATUS_H.contains("candidateCompareActive"));
     assert!(ALIGN_H.contains("{ return { unserved || unmeasured, ! unserved && notRemeasured }; }"));
     assert!(render.contains(
@@ -82,7 +83,8 @@ fn content_alignment_moves_only_the_audition_address() {
         "alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),"
     ));
     assert!(render.contains("block.playing ? block.frames : 0);"));
-    assert!(render.contains("! aligned.current || aligned.deferred"));
+    assert!(render.contains("alignment.awaits (aligned) || sampleMismatch"));
+    assert!(function_body(ALIGN_H, "bool awaits (").contains("! update.current"));
     assert!(render.contains(
         "! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0)"
     ));
@@ -105,7 +107,6 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(realtime.contains("fallback (blindCommand, frames, preparedFormat.sampleRate, report.reason == Reason::ceiling)"));
     assert!(realtime.contains("blindCommand.active() ? blindCommand.pre() : preSelected,"));
 }
-
 #[test]
 fn alignment_is_bound_to_the_context_measured_before_publication() {
     let content = include_str!("../../juce_shell/src/PluginProcessorContentTiming.cpp");
@@ -163,7 +164,6 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
     let state = include_str!("../../juce_shell/src/PluginProcessorState.cpp");
     assert!(!state.contains("requestAlign"));
 }
-
 fn rendered_alignment_requires_acceptance() -> bool {
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
     render.contains("alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);")
