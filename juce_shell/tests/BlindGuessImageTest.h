@@ -313,7 +313,7 @@ void verifyBlindGuessAndImage (Require check)
         require (reopened.imageSaveInitialDirectory() == folder, "a new editor remembers the saved folder");
         const auto saved = juce::ImageFileFormat::loadFrom (target);
         require (saved.getWidth() == blind_image::pixelSize && saved.getHeight() == blind_image::pixelSize, "a 1080 square PNG");
-        require (folder.deleteRecursively(), "remove the saved folder fixture");
+        require (hypha::tests::removeFixtureDirectory (folder), "remove the saved folder fixture");
         require (view.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory)
                  && reopened.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory),
                  "a missing saved folder falls back to Pictures");
