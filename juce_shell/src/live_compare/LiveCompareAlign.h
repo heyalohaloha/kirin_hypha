@@ -160,7 +160,8 @@ inline bool matchingScaledBlock (float* const* post, float* const* pre, int chan
 class AlignReadiness
 {
 public:
-    void newContext() noexcept { started = haveK = false; }
+    void newContext() noexcept { started = haveK = false; } // a new session: its first K is still one step from the last
+    void forgetClock() noexcept { everK = false; }           // another pair, format or PRE owner: no step leads there
     void observe (bool enabled, bool playing, bool validK, std::int64_t k) noexcept
     {
         if (! playing) return;
@@ -174,23 +175,28 @@ public:
         wasEnabled = enabled;
         if (validK)
         {
-            const bool stepped = haveK && k != previousK;
+            const bool stepped = everK && k != previousK;
             if (! haveK || k != previousK)
                 revision.fetch_add (1);
-            // After the revision: the owner reads the revision again once it has handed an amount down.
-            if (const auto amount = keptFrames.load(); stepped && hostTookOver ({ amount }, previousK, k, keptAgreement.load()))
-                takenFrames.store (amount);
+            // After the revision: the owner reads the revision again once it has handed an estimate down.
+            if (stepped)
+                for (const auto amount : { keptFrames.load(), nextFrames.load() })
+                    if (hostTookOver ({ amount }, previousK, k, keptAgreement.load())) takenFrames.store (amount);
             previousK = k;
-            haveK = true;
+            haveK = everK = true;
         }
     }
     std::int64_t clockK() const noexcept { return observedK.load(); }
     // INV-LC28, the owner of PRE's alignment state (non-RT): the kept amount to watch for from now on
-    // (0: none). The Audio Thread compares each step of K between two proven mappings of one session
-    // with it, there and then, so a service slower than the changes still learns that the host took
-    // that delay over, whatever K did afterwards. Nothing is logged and nothing waits.
+    // (0: none). The Audio Thread compares each step of K, from one proven mapping to the next under
+    // one pair, format and PRE owner (also from a session's last to the next session's first), with
+    // it, there and then: a service slower than the changes still learns that the host took that
+    // delay over, whatever K did afterwards. Nothing is logged and nothing waits. watchNext: an
+    // estimate about to be kept is watched as well, before the owner reads the revision again, so no
+    // step falls between the two; the amount kept so far stays watched throughout.
+    void watchNext (std::int64_t frames, std::int64_t agreement) const noexcept { keptAgreement.store (agreement); nextFrames.store (frames); }
     void watchKept (std::int64_t frames, std::int64_t agreement) const noexcept
-    { keptAgreement.store (agreement); keptFrames.store (frames); takenFrames.store (0); }
+    { keptAgreement.store (agreement); keptFrames.store (frames); nextFrames.store (0); }
     // The watched amount K stepped by since the last call; 0 when it did not.
     std::int64_t takenOver() const noexcept { return takenFrames.exchange (0); }
     std::uint64_t generation() const noexcept { return revision.load(); }
@@ -202,8 +208,8 @@ public:
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
-    mutable std::atomic<std::int64_t> keptFrames { 0 }, keptAgreement { 0 }, takenFrames { 0 };
-    bool started = false, haveK = false, wasEnabled = true; // Audio Thread only
+    mutable std::atomic<std::int64_t> keptFrames { 0 }, nextFrames { 0 }, keptAgreement { 0 }, takenFrames { 0 };
+    bool started = false, haveK = false, everK = false, wasEnabled = true; // Audio Thread only
     std::int64_t previousK = 0;
 };
 
@@ -245,7 +251,7 @@ public:
         {
             applied = {}; weight = 0.0f; context = playback.context;
             shown.publishDisplay ({}, context);
-            newSession();
+            newSession(); readiness.forgetClock();
         }
         reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;

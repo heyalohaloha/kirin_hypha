@@ -168,7 +168,10 @@ static void takeoverIsKnownByItsOwnStepOfK()
     using namespace live_compare_kept_test;
     constexpr std::int64_t correction = 96000;
     for (const bool blind : { false, true })
-        for (const int scenario : { 0, 1, 2 }) // the takeover and another change; two other changes; a stale estimate
+        // 0: the takeover and another change; 1: two other changes; 2: an estimate from before the takeover;
+        // 3: two other changes that add up to the kept amount; 4: a new estimate from before another
+        // change; 5: the takeover between END and the next start.
+        for (const int scenario : { 0, 1, 2, 3, 4, 5 })
         {
             Session s; s.blind = blind;
             auto& x = s.listeners[0]; auto& y = s.listeners[1];
@@ -181,19 +184,24 @@ static void takeoverIsKnownByItsOwnStepOfK()
             for (int i = 0; i < 2; ++i)
             {
                 stale[i] = s.input (s.listeners[i], PreAlignEvent::estimate);
-                stale[i].value = { correction }; stale[i].measuredRevision = stale[i].revision; stale[i].measuredK = stale[i].k;
+                stale[i].value = { scenario == 4 ? correction + 16 : correction }; stale[i].measuredRevision = stale[i].revision; stale[i].measuredK = stale[i].k;
             }
             s.serviced = false; // both changes happen between two services
-            s.k += scenario == 1 ? 512 : correction; s.play (1);
-            if (scenario == 2) for (int i = 0; i < 2; ++i) s.send (s.listeners[i], stale[i]);
-            s.k += 256; s.play (1);
+            if (scenario == 5) s.restart();
+            s.k += scenario == 1 || scenario == 4 ? 512 : scenario == 3 ? correction + 256 : correction; s.play (1);
+            if (scenario == 2 || scenario == 4) for (int i = 0; i < 2; ++i) s.send (s.listeners[i], stale[i]);
+            s.k += scenario == 3 ? -256 : 256; s.play (1);
             s.serviced = true; s.play (400);
-            const auto kept = scenario == 1 ? correction : 0;
+            const bool keeps = scenario == 1 || scenario == 3 || scenario == 4;
+            const auto kept = keeps ? correction : 0;
             require (x.owner.keptValue().frames == kept && y.owner.keptValue().frames == kept,
                      scenario == 0 ? "K moved by the kept amount and then again: the host took the delay over, the correction is dropped"
                      : scenario == 1 ? "two other changes of K keep the correction"
-                                     : "an estimate from before the takeover never puts the correction back");
-            if (scenario != 1)
+                     : scenario == 2 ? "an estimate from before the takeover never puts the correction back"
+                     : scenario == 3 ? "no single step of K was the kept amount: their sum is no takeover"
+                     : scenario == 4 ? "an estimate from before another change of K is refused alone: the kept correction stays"
+                                     : "K moved by the kept amount from one session's last mapping to the next one's first: dropped");
+            if (! keeps)
                 require (x.address() == 0 && y.address() == 0, "PRE never plays the kept amount late after the host took it over");
         }
 }

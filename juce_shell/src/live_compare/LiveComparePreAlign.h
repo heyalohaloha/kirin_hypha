@@ -78,11 +78,16 @@ public:
                 if (in.measuredRevision != in.revision || in.measuredK != in.k) break;
                 out = { true, in.value, in.measuredRevision };
                 if (in.value.verifySamples) break; // a repeated waveform proves no unique position: never kept
+                if (in.clock != nullptr)
+                {
+                    // The Audio Thread watches for this amount too before the mapping is read again. Had
+                    // K moved on since the snapshot, this estimate proves nothing: it is not kept and not
+                    // published, and what was kept before stays, watched all the while.
+                    in.clock->watchNext (in.value.frames, in.agreement);
+                    if (in.clock->generation() != in.revision) { in.clock->watchNext (0, in.agreement); out = {}; break; }
+                }
                 kept = { in.value, in.measuredK, in.context, in.host };
-                // The Audio Thread watches for this amount before the mapping is read again: had K moved
-                // on since the snapshot, nothing would say whether the host took the delay over meanwhile.
-                watch (in);
-                if (in.clock != nullptr && in.clock->generation() != in.revision) { kept.value = {}; out = {}; }
+                if (in.clock != nullptr) in.clock->watchKept (watched = kept.value.frames, in.agreement);
                 break;
             case PreAlignEvent::tick:
             {
@@ -132,17 +137,13 @@ private:
     struct Kept { AlignValue value; std::int64_t k = 0; AlignContext context; PreAlignHost host; };
     bool usable (const PreAlignInput& in) const noexcept
     { return kept.value.frames != 0 && kept.context == in.context && kept.host == in.host; }
-    // K moved by the kept amount, in one step the Audio Thread saw (whatever K did after it, before
-    // this service), in one observed step or since the correction was measured or last played: the
-    // host compensates that delay now, so the kept correction is dropped (PRE at K).
+    // K moved by the kept amount in one step the Audio Thread saw, whatever K did after it before
+    // this service: the host compensates that delay now, so the kept correction is dropped (PRE at
+    // K). Nothing else is compared: a sum of other changes of K is no takeover.
     void observeClock (const PreAlignInput& in) noexcept
     {
-        const bool stepped = clockSeen && in.k != seenK;
         const auto taken = in.clock != nullptr ? in.clock->takenOver() : 0;
-        const bool heard = taken != 0 && taken == kept.value.frames;
-        if (usable (in) && (heard || hostTookOver (kept.value, kept.k, in.k, in.agreement)
-                            || (stepped && hostTookOver (kept.value, seenK, in.k, in.agreement)))) kept.value = {};
-        seenK = in.k; clockSeen = true;
+        if (taken != 0 && taken == kept.value.frames && usable (in)) kept.value = {};
     }
     // The Audio Thread watches for the amount that is kept now.
     void watch (const PreAlignInput& in) noexcept
@@ -157,9 +158,7 @@ private:
         awaited = false;
     }
     Kept kept;
-    std::int64_t seenK = 0;
     std::int64_t watched = 0; // the amount handed to the Audio Thread
-    bool clockSeen = false;
     std::uint64_t missSince = 0; // the first read of the kept position that missed
     bool awaited = false; // the kept correction is requested and waits for PRE's new run to reach it
     std::atomic<bool> unmeasured { false }, notRemeasured { false };

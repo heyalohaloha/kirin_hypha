@@ -164,6 +164,29 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         chain.clean ("PRE plays only proven positions around the host's change");
     }
     {
+        // The same takeover, and K moves again (a buffer size, a re-calibrated origin) before the
+        // content service runs. The Audio Thread saw the step by the kept amount and tells the owner
+        // of the kept correction: it is dropped all the same, and PRE is never that amount late.
+        ChunkedPost chain (channels);
+        prepared (chain);
+        auto& post = *chain.post;
+        startListen (chain, "LISTEN starts on the drums");
+        requireHeard (chain, "LISTEN drums, host uncompensated", 200, Heard::confirmed);
+        intoTheMix (chain);
+        chain.setDelay (512 + uncompensated);
+        for (int i = 0; i < 40; ++i) chain.chunk (false); // no service: only the Audio Thread sees this K
+        require (post.liveCompareStatus().verdict == hypha::live_compare::Verdict::accepted, "the clocks prove the host's new K before the service runs");
+        chain.setDelay (512 + uncompensated + 256); chain.contentK = 512 + uncompensated + 256;
+        for (int i = 0; i < 40; ++i) chain.chunk (false);
+        require (post.liveCompareStatus().verdict == hypha::live_compare::Verdict::accepted, "the clocks prove the next K before the service runs");
+        const auto r = heardOver (chain, 150);
+        std::printf ("outboard the host compensates, K moves again: audible %4d early %4d late %3d unmeasured %4d not re-measured %4d align %lld\n",
+                     r.audible, r.early, r.late, r.unmeasured, r.notRemeasured, static_cast<long long> (r.lastAlign));
+        require (r.audible > 50 && r.early == 0 && r.late == 0 && r.lastAlign == 0 && r.unmeasured > 0 && r.notRemeasured == 0,
+                 "K moved by the kept amount and again before the service: the correction is dropped and PRE is not late");
+        chain.clean ("PRE plays only proven positions around the two changes");
+    }
+    {
         // A format change ends it as well.
         ChunkedPost chain (channels);
         prepared (chain);
