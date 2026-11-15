@@ -77,6 +77,9 @@ int candidateMatchSecondsRemaining() const noexcept { return liveCompare.rendere
 bool candidateBypassed() const noexcept;
 bool candidateHostInactive() const noexcept;
 bool candidateMeasurementIsolated() const noexcept { return liveCompare.candidate.isolated.load (std::memory_order_acquire); }
+// INV-AB6: the return ended at its deadline alone and B may still carry the comparison's audio.
+// LISTEN, BLIND and measurement go on; Record and Keep accept nothing until the ordinary path is proven.
+bool candidateTailPending() const noexcept { return liveCompare.candidate.tail.load (std::memory_order_acquire) != 0; }
 bool candidateTrackMismatch() const noexcept { return liveCompare.candidate.trackMismatch; }
 void serviceCandidateCompare();
 void endCandidateCompare() noexcept;

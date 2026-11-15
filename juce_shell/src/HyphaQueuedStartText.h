@@ -26,6 +26,10 @@ constexpr QueuedWait queuedWait (bool playing, bool returning, bool tailClearing
 // V, C, B or Keep pressed while B plays out the A/B tail after END: it starts once the tail has cleared.
 enum class AfterTail : unsigned char { none, referenceV, referenceC, referenceB, keepPair, keepAll };
 
+// INV-AB6: a Keep that waited its two minutes while B never proved the ordinary path (playback kept
+// stopping or seeking): it ends and says why.
+inline constexpr const char* keepTailEndedNotice = "A/B tail not cleared: Keep not started";
+
 constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
 {
     switch (action)

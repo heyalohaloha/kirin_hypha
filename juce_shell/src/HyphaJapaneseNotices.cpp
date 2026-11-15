@@ -160,6 +160,7 @@ const Entry entries[] = {
     { "Clearing the A/B tail, then C", u8"A/Bの残りの音が消えてからCを鳴らします" },
     { "Clearing the A/B tail, then B", u8"A/Bの残りの音が消えてからBを鳴らします" },
     { "Clearing the A/B tail, then Keep", u8"A/Bの残りの音が消えてからKeepを始めます" },
+    { "A/B tail not cleared: Keep not started", u8"A/Bの残りの音が消えず、Keepを始めませんでした" },
     { "Play to continue, then V", u8"再生すると続き、そのあとVを鳴らします" },
     { "Play to continue, then C", u8"再生すると続き、そのあとCを鳴らします" },
     { "Play to continue, then B", u8"再生すると続き、そのあとBを鳴らします" },

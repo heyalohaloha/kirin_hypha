@@ -26,11 +26,23 @@ template<class Require> void verifyCandidateLongReturn (Require require)
     host.render (60, false, false, false);
     require (!post.candidateMeasurementIsolated() && !post.candidateReturning(),
              "the overall deadline restores normal measurement even while a long chain is draining");
+    // INV-AB6: B still plays the comparison's audio for its 30 s. Measurement and LISTEN go on, but
+    // nothing of it is kept: Keep starts only once an ordinary marker has passed the chain and settled.
+    const auto& state = LiveTimingFixtureAccess::candidateStateForTest (post);
+    require (state.tail.load() != 0 && ! post.keepPair() && ! post.keepAll() && post.keepPhase() == KIRIN_KEEP_PHASE_IDLE
+             && ! post.isRecording(), "Keep does not start while B may still carry the comparison's audio");
+    host.render (1400, false, false, false); // 25.5 s after END: the comparison's audio is still in B
+    require (state.tail.load() != 0 && ! post.keepPair() && post.keepPhase() == KIRIN_KEEP_PHASE_IDLE,
+             "Keep keeps waiting for the whole of B's delay");
+    // The marker needs PRE's run to reach 30 s back before it counts, then passes the chain's 30 s.
+    int blocks = 0;
+    for (; blocks < 7000 && state.tail.load() != 0; ++blocks) host.render (1, false, false, false);
+    std::printf ("A/B deadline tail: Record and Keep are accepted %.1f s after END\n", 25.5 + blocks * 512.0 / 48000.0);
+    require (state.tail.load() == 0, "an ordinary marker passes the chain and settles");
     // This B's own output stays silent for its first 30 s; measure once it carries the signal.
-    host.render (2400, false, false, false);
     host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
     require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }), "normal POST measurement resumes");
-    host.requireKeep (post, "the real Keep entry is available after return");
+    host.requireKeep (post, "the real Keep entry is available once the ordinary path is proven");
 }
 
 // A stop restarts the four-second count, so playback in short runs never completes it. The
@@ -65,7 +77,14 @@ template<class Require> void verifyCandidateReturnDeadline (Require require)
     host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
     require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }),
              "normal POST measurement resumes in a new window");
-    host.requireKeep (post, "Keep starts after the deadline without another press");
+    // The deadline alone proved nothing about B's input: Keep waits for the ordinary path (INV-AB6).
+    require (state.tail.load() != 0 && ! post.keepPair() && post.keepPhase() == KIRIN_KEEP_PHASE_IDLE,
+             "Keep does not start before the ordinary path is proven");
+    int settle = 0;
+    for (; settle < 800 && state.tail.load() != 0; ++settle) host.render (1, false, false);
+    require (state.tail.load() == 0 && settle > 300, "four seconds of ordinary playback end the wait");
+    host.render (40, false, false); awaitAnalysisInput (post); awaitAnalysisExchange (post, true);
+    host.requireKeep (post, "Keep starts once the ordinary path is proven");
     for (int i = 0; i < 24 && !post.isRecording(); ++i)
     { host.render (1, false, false); for (auto& processor : host.instances) awaitAnalysisExchange (*processor, true); }
     post.stopPair(); host.render (20, false, false);

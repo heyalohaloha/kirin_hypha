@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaQueuedStartText.h"
+#include "HyphaKeepPreWait.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
@@ -425,13 +426,16 @@ bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, h
     // The blockers of this same return: POST returning, a candidate BLIND scope draining, B's tail.
     const bool sameReturn = decision.cause == State::candidateSession || decision.cause == State::liveFinishing
                          || decision.cause == State::liveBlind;
-    if (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
-        || processorRef.candidateCompareActive())
+    // INV-AB6: the return ended at its deadline alone; Keep also waits while B may still play the comparison.
+    const bool unprovenTail = activity == hypha::output_owner::Activity::recordKeep && ! decision.refused()
+                           && processorRef.candidateTailPending();
+    if (! unprovenTail && (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
+        || processorRef.candidateCompareActive()))
         return false;
     // One waiting press at a time: this one replaces a waiting LISTEN, BLIND, A/B or C MATCH.
     liveCompareStartAfterReturnUntil = referenceRematchUntil = 0.0;
     liveCompareStartAfterReturnCandidate.clear();
-    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket() };
+    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket(), nowSecs() };
     return true;  // the status line names the wait from the next refresh (no toast to outlive it)
 }
 
@@ -459,6 +463,14 @@ void KirinHyphaEditor::serviceAfterTailPress()
         return;
     }
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
+    if (! reference && processorRef.candidateTailPending())
+    {
+        // Within Keep's own two minutes of waiting; then it ends and says why (INV-AB6).
+        if (nowSecs() - afterTail.since < hypha::keep_ui::preWaitSeconds) return;
+        afterTail = {};
+        showToast (hypha::live_compare_ui::keepTailEndedNotice);
+        return;
+    }
     const auto waited = std::exchange (afterTail, {});
     // The same request the press made: its own refusals and notices still apply.
     switch (waited.action)

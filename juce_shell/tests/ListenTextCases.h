@@ -82,6 +82,7 @@ inline std::vector<Notice> notices()
     for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
                          live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
         for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));
+    add (live_compare_ui::keepTailEndedNotice);
     add (live_compare_ui::unappliedNotice()); // BLIND's line, the same place and form as the delay notices
     // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
     for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
