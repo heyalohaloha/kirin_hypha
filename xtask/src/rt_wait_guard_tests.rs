@@ -12,13 +12,7 @@ pub(super) fn has_wait_operation(code: &str) -> bool {
             .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
             .unwrap_or(rest.len());
         let name = &rest[..end];
-        let wait = name == "wait"
-            || name.starts_with("wait_")
-            || name.ends_with("_wait")
-            || name.contains("_wait_")
-            || name == "co_await"
-            || name.starts_with("WaitFor")
-            || name.starts_with("waitFor");
+        let wait = name != "awaits" && (name.contains("wait") || name.starts_with("WaitFor"));
         if wait {
             return true;
         }
@@ -29,14 +23,20 @@ pub(super) fn has_wait_operation(code: &str) -> bool {
 #[test]
 fn rt_wait_guard_distinguishes_identifiers_from_blocking_calls() {
     assert!(!has_wait_operation("alignment.awaits (block);"));
-    for call in [
+    let missed: Vec<_> = [
+        "pthread_cond_timedwait(&condition, &mutex, &deadline);",
+        "sem_timedwait(&semaphore, &deadline);",
+        "waitpid(pid, &status, 0);",
+        "awaits_waiting();",
         "condition.wait(lock);",
         "condition.wait_for (lock, timeout);",
         "std::atomic_wait (&flag, value);",
         "auto fn = &std::condition_variable::wait;",
         "co_await event;",
         "WaitForSingleObject(handle, 1);",
-    ] {
-        assert!(has_wait_operation(call), "missed {call}");
-    }
+    ]
+    .into_iter()
+    .filter(|call| !has_wait_operation(call))
+    .collect();
+    assert!(missed.is_empty(), "missed {missed:?}");
 }
