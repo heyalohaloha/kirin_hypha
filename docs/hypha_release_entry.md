@@ -223,18 +223,27 @@ OS差の候補：ファイル・path・保存先、PRE/POST転送（macOSはatom
 host行は`promise`に一つ、または`promises`に複数の約束の文をそのまま書ける（CI行は`promise`に一つ）。
 host行は`daw`と`chain`も名指しする。ファイルと公開ノートのhash、全行・期待値を受入条件へ凍結する。
 `kind: host`だけをhosts.jsonへ要求し、`kind: ci`は名前付きCI oracleへ結ぶ。
+`platformSensitive`の各項目は約束の文、または理由を添えた`{ "promise": 文, "reason": 理由 }`で書ける。
+host行の`expected`には`"newIssues": 0`が必須で、その行の確認で新しく見つかった指摘（不具合と使い勝手の指摘）が0件のときだけ合格にする。
+host行は`evidence`に`audio`（録音）・`screen`（画面）・`binary`（hostが読み込んだplug-inの場所とhashの記録）を挙げられる。
+挙げた種類ごとに、hosts.jsonのその行の`evidence`へ`{ "kind", "path", "sha256" }`が無ければ合格にしない。
+Pro Toolsの全遷移は、変更の有無によらず毎版確かめる。`"scope": "full-transitions"`のhost行を1版にちょうど1本置く（無ければ`--init`で止まる）。
+この行は約束を名指しせず、`checklist`にfix rowsと同じ場所から見た項目一覧（`{ "items": [...] }`のJSON）の`path`と`sha256`、
+`expected.itemsWithResult`にその項目数を書く。一覧のhashと項目数は受入条件へ凍結し、結果は全項目に結果が付いた数で照合する。
 CIの標準の期待は`{ "passed": true }`。追加の数値条件には実測oracleの証拠が必要で、無ければ確認待ちにする。
 
 ```json
 { "schema": "hypha-release-fix-rows-v2", "release": "X.Y.Z",
-  "platformSensitive": ["PRE and POST pair again after a restart."], "rows": [
-  { "id": "studio-one", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Studio One", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
-  { "id": "logic", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AU"], "daw": "Logic Pro", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
-  { "id": "reaper", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["Windows/x86_64/VST3"], "daw": "REAPER", "os": "windows", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
-  { "id": "pro-tools", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AAX"], "daw": "Pro Tools", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
-  { "id": "cubase", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Cubase", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
-  { "id": "live", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Ableton Live", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
-  { "id": "cakewalk", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["Windows/x86_64/VST3"], "daw": "Cakewalk", "os": "windows", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true } },
+  "platformSensitive": [{ "promise": "PRE and POST pair again after a restart.", "reason": "PRE/POST transport differs by OS." }], "rows": [
+  { "id": "studio-one", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Studio One", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "logic", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AU"], "daw": "Logic Pro", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "reaper", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["Windows/x64/VST3"], "daw": "REAPER", "os": "windows", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "pro-tools", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/AAX"], "daw": "Pro Tools", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "cubase", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Cubase", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "live", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["macOS/x86_64/VST3"], "daw": "Ableton Live", "os": "macos", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "cakewalk", "kind": "host", "promises": ["LISTEN stays on PRE through a loop.", "PRE and POST pair again after a restart."], "hosts": ["Windows/x64/VST3"], "daw": "Cakewalk", "os": "windows", "chain": "PRE -> limiter -> POST", "depth": "deep", "oracle": "host operation", "expected": { "passed": true, "newIssues": 0 } },
+  { "id": "pro-tools-all", "kind": "host", "scope": "full-transitions", "hosts": ["macOS/x86_64/AAX"], "daw": "Pro Tools", "os": "macos", "chain": "every chain of the checklist", "depth": "deep", "oracle": "host operation",
+    "checklist": { "path": "pro-tools-transitions.json", "sha256": "<sha256 of the checklist>" }, "evidence": ["audio", "screen", "binary"], "expected": { "itemsWithResult": 96, "newIssues": 0 } },
   { "id": "pair-recovery", "kind": "ci", "promise": "PRE and POST pair again after a restart.", "hosts": [],
     "depth": "deep", "oracle": "pair-recovery-parity", "expected": { "passed": true } }
 ] }
