@@ -218,7 +218,8 @@ At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, op
   by RESET A WINDOW, the one item of A's list in SONG; a new sample rate or channel count empties it too, a
   new C song does not. SONG compares Checks whose charts are spectra; on a Check with range strips SONG
   cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check. A Check meant only for listening has no CUE / SONG switch because it has no measurement chart.
-  Without a whole-song range (an older Kirin OS) C keeps the Cue and the status line says WHOLE-SONG VALUES
+  An older record also shows whole-song values when it contains a real whole-song range. Without that range,
+  C keeps the Cue and the status line says WHOLE-SONG VALUES
   COME WITH KIRIN OS 1.7.0, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
   saved with the project. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
