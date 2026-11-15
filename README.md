@@ -31,7 +31,7 @@ passes through unchanged with zero added latency.
 |---|---|
 | Price | Free |
 | License | GPLv3 ([LICENSE](LICENSE)); the source is this repository |
-| Version | 1.1.57 ([release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57), available after publication) |
+| Latest version | 1.1.57 ([release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57)) |
 | Download | macOS PKG and Windows EXE under [Download](#download) and on [GitHub Releases](https://github.com/heyalohaloha/kirin_hypha/releases) |
 | macOS | macOS 12 or later, Universal (Apple Silicon and Intel): AU, VST3 and AAX Native, signed and notarized |
 | Windows | Windows 10 or 11, x64: VST3 and AAX Native in an Authenticode-signed installer |
@@ -182,7 +182,7 @@ library, and Keep / Record saves a playback's measurements with the song. See [M
 
 ## Download
 
-**Hypha 1.1.57 downloads for macOS and Windows:** the links below become available when this version is published. Both installers include PRE and POST.
+**Hypha 1.1.57 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
@@ -236,8 +236,7 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 This version improves comparison controls and messages, remembers the folder used for saved images,
 and clarifies when a saved measurement is waiting for its audio file. The
-[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57) list the changes
-when the release is published. To update, download the installer for your platform above, close your
+[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57) list the changes. To update, download the installer for your platform above, close your
 DAW, run the installer and reopen the DAW.
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or

@@ -41,8 +41,8 @@ inline bool verifyPreviewRound2 (hypha::reference_ui::State state)
     VisualPreferences preferences;
     BalanceOverlay overlay; overlay.used = overlay.all = true; overlay.lines.push_back ({ "song-1", 0 });
     preferences.setOverlay (overlay);
-    preferences.showNewTargets ({ target.id });
-    preferences.showNewTargets ({ target.id });
+    preferences.showNewTargets ({ target.id }, {});
+    preferences.showNewTargets ({ target.id }, {});
     const auto saved = preferences.overlay();
     if (saved.lines.size() != 2 || ! saved.find (target.id) || saved.find ("song-1")->colour != 0) return false;
     state.overlay = saved;
