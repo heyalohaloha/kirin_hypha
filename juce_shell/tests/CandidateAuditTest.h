@@ -58,6 +58,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateReturnEntry (require);
     verifyCandidateBypassedReturnEntry (require);
     verifyCandidateOfflineReturnEntry (require);
+    verifyAfterTailBlockedReturn (require);
     std::cout << "Candidate product: alignment\n" << std::flush;
     verifyCandidateAlignment (require);
     verifyCandidateAlignmentEpoch (require);

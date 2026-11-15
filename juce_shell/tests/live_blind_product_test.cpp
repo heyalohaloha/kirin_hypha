@@ -27,7 +27,6 @@ static void require (bool ok, const char* message)
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
-
 // One-pass Blind end to end (disposable fixture): real PRE/POST processors, Rust C ABI, pair
 // discovery, shared live ring and product editor. Default POST is phase-inverted at -6.02 dB;
 // the approval mode clips a boosted input, so BLIND lowers POST at once (nothing to approve). Direct and reused MATCH entries use one playback,
@@ -473,6 +472,7 @@ int main (int argc, char** argv)
     if (argc == 3 && std::string (argv[2]) == "--candidate-stopped-return-only") { hypha::tests::verifyCandidateStoppedSourceReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-return-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--return-entry-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateReturnEntry (require); hypha::tests::verifyCandidateBypassedReturnEntry (require); hypha::tests::verifyCandidateOfflineReturnEntry (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--after-tail-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyAfterTailBlockedReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-tail-loop-only") { hypha::tests::verifyCandidateShortLoopTail (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-tail-pair-only") { hypha::tests::verifyTailSurvivesPairChange (require); return 0; }

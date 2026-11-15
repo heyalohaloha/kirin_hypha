@@ -31,7 +31,6 @@ juce::String magnitudeDb (double db)
 {
     return signedDb (std::fabs (db)).trimCharactersAtStart ("+");
 }
-
 // INV-LC7: the offset as a fact, without a judgement (R-22), in milliseconds at the rate the ring
 // counts in. The host's rate is not read here: a processor prepared without it reports none.
 juce::String offsetText (std::int64_t lag, double sampleRate, bool candidate)
@@ -41,13 +40,11 @@ juce::String offsetText (std::int64_t lag, double sampleRate, bool candidate)
     const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / sampleRate;
     return juce::String (candidate ? "A " : "PRE ") + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
 }
-
 // INV-LC28: the amount the audition's read position already takes up.
 juce::String alignedText (double ms, bool candidate)
 {
     return juce::String (candidate ? "A " : "PRE ") + juce::String (ms, 2) + " ms aligned";
 }
-
 juce::String matchFailure (MatchFailure failure)
 {
     switch (failure)
@@ -65,7 +62,6 @@ juce::String matchFailure (MatchFailure failure)
     return {};
 }
 }
-
 void KirinHyphaEditor::configureLiveCompare()
 {
     observatoryView.onCandidateCompare = [this] { showCandidateCompareMenu(); };
@@ -441,7 +437,6 @@ bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, h
                   action == hypha::live_compare_ui::AfterTail::keepAll };
     return true;  // the status line names the wait from the next refresh (no toast to outlive it)
 }
-
 void KirinHyphaEditor::dropReferenceAfterTail() noexcept
 {
     using hypha::live_compare_ui::AfterTail;
@@ -449,7 +444,6 @@ void KirinHyphaEditor::dropReferenceAfterTail() noexcept
         || afterTail.action == AfterTail::referenceB)
         afterTail = {};
 }
-
 void KirinHyphaEditor::serviceAfterTailPress()
 {
     using hypha::live_compare_ui::AfterTail;
@@ -474,7 +468,15 @@ void KirinHyphaEditor::serviceAfterTailPress()
     if (!reference && nowSecs() - afterTail.since >= hypha::keep_ui::preWaitSeconds)
     { afterTail = {}; showToast (hypha::live_compare_ui::keepTailEndedNotice); return; }
     if (restoringGroup) return;
-    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
+    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
+    {
+        const auto* bypass = processorRef.getBypassParameter();
+        const bool bypassed = bypass != nullptr && bypass->getValue() >= 0.5f;
+        const bool offline = processorRef.isNonRealtime();
+        if (nowSecs() - afterTail.since >= 10.0 && (bypassed || offline))
+        { afterTail = {}; showToast (offline ? hypha::live_compare_ui::offlineHoldsReturnNotice : hypha::live_compare_ui::bypassHoldsReturnNotice); }
+        return;
+    }
     if (afterTail.action == AfterTail::keepAll && nowSecs() < afterTail.nextGroupCheck) return;
     if (! reference && (processorRef.candidateTailPending()
         || (afterTail.action == AfterTail::keepAll && processorRef.allKeepTailPending())))

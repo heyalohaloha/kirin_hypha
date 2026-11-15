@@ -51,12 +51,24 @@ struct CandidateEditorWaitTail
     friend Type candidateEditorTick (CandidateEditorWaitTail);
 };
 template struct CandidateEditorAccess<CandidateEditorWaitTail, &KirinHyphaEditor::waitsForAbTail>;
+struct CandidateEditorServiceTail
+{
+    using Type = void (KirinHyphaEditor::*)();
+    friend Type candidateEditorTick (CandidateEditorServiceTail);
+};
+template struct CandidateEditorAccess<CandidateEditorServiceTail, &KirinHyphaEditor::serviceAfterTailPress>;
 struct CandidateEditorTailState
 {
     using Type = hypha::live_compare_ui::AfterTailWait KirinHyphaEditor::*;
     friend Type candidateEditorTick (CandidateEditorTailState);
 };
 template struct CandidateEditorAccess<CandidateEditorTailState, &KirinHyphaEditor::afterTail>;
+struct CandidateEditorDomain
+{
+    using Type = hypha::observatory::Domain KirinHyphaEditor::*;
+    friend Type candidateEditorTick (CandidateEditorDomain);
+};
+template struct CandidateEditorAccess<CandidateEditorDomain, &KirinHyphaEditor::observatoryDomain>;
 inline juce::String candidateToast (juce::AudioProcessorEditor& editor)
 { return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorToast {}); }
 inline void candidateTick (juce::AudioProcessorEditor& editor)

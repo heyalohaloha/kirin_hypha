@@ -57,6 +57,7 @@ void verifyAllListenText (Require require)
             for (const auto& item : notices)
             {
                 if (width > 450 && item.text != "Rendering offline: press again after it finishes"
+                    && item.text != live_compare_ui::bypassHoldsReturnNotice
                     && item.text != "Cannot write to folder. Check access."
                     && item.text != "2MIX has no DRUM; showing TIME / HISTORY"
                     && item.text != "Measurements saved; waiting for Kirin OS audio (auto link)"

@@ -129,6 +129,72 @@ template<class Require> void verifyCandidateOfflineReturnEntry (Require require)
     post.editorBeingDeleted (editor.get()); editor.reset();
 }
 
+template<class Require> void verifyAfterTailBlockedReturn (Require require)
+{
+    using namespace live_compare;
+    using namespace live_compare_ui;
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const bool offline : { false, true })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        ProductTestClock wall;
+        CandidateHost<Require> host (wall, require, 2, 512);
+        host.pair(); auto& post = host.post();
+        require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "A/B starts");
+        host.render (100, true, false, false);
+        MatchResult level; level.failure = MatchFailure::none; level.measuredDb = 8.0;
+        level.prePeakDbtp = -1.0; level.postPeakDbtp = -4.0; level.ceilingDbtp = -1.0;
+        require (post.applyLiveCompareMatch (planMatch (level, 0.0), MatchChoice::lowerPost), "MATCH lowers POST");
+        host.render (30, true, false, false);
+        if (offline) post.setNonRealtime (true); else post.getBypassParameter()->setValue (1.0f);
+        post.finishLiveCompare(); host.render (20, true, false, false);
+        require (post.candidateReturning() || post.liveCompareStatus().finishing, "blocked callbacks hold return");
+        auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
+        editor->setSize (900, 600); editor->setVisible (true); candidateTick (*editor);
+        auto& actual = dynamic_cast<KirinHyphaEditor&> (*editor);
+        actual.*candidateEditorTick (CandidateEditorDomain {}) = observatory::Domain::reference;
+        auto& waiting = actual.*candidateEditorTick (CandidateEditorTailState {});
+        const auto pair = post.pairWaitSnapshot();
+        require (pair.stable, "waiting press has a stable pair");
+        for (const auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB,
+                                   AfterTail::keepPair, AfterTail::keepAll })
+        {
+            const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+            const auto activity = action == AfterTail::keepPair || action == AfterTail::keepAll
+                ? output_owner::Activity::recordKeep : output_owner::Activity::audition;
+            if (action == AfterTail::keepAll)
+                waiting = { action, pair.key, pair.ticket, now, 0.0, true }; // roster staging is covered separately
+            else
+                require ((actual.*candidateEditorTick (CandidateEditorWaitTail {})) (activity, action)
+                             && waiting.action == action, "the actual entry queues this press");
+            waiting.since = now - 9.0;
+            (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
+            require (waiting.action == action, "press waits before ten seconds");
+            waiting.since = now - 10.1;
+            (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
+            const auto* expected = offline ? offlineHoldsReturnNotice : bypassHoldsReturnNotice;
+            require (waiting.action == AfterTail::none && candidateToast (*editor) == expected,
+                     "press ends at ten seconds with the blocked return reason");
+            require (text_style::shownText (expected) == i18n::translate (expected, language),
+                     "the blocked return reason is shown in the current language");
+            if (language == i18n::Language::japanese)
+                require (text_style::shownText (expected) != expected, "the blocked reason is translated");
+        }
+        post.setNonRealtime (false); post.getBypassParameter()->setValue (0.0f);
+        for (const auto action : { AfterTail::keepPair, AfterTail::keepAll })
+        {
+            const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+            waiting = { action, pair.key, pair.ticket, now - 121.0, 0.0, action == AfterTail::keepAll };
+            (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
+            require (waiting.action == AfterTail::none && candidateToast (*editor) == keepTailEndedNotice,
+                     "unproven tail keeps the two-minute Keep deadline");
+            require (juce::String (afterTailNotice (action, false)) == "Play to continue, then Keep",
+                     "stopped Keep asks for playback");
+        }
+        post.editorBeingDeleted (editor.get()); editor.reset();
+    }
+}
+
 template<class Require> void verifyCandidateAlignment (Require require)
 {
     using namespace live_compare;
