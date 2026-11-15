@@ -5,6 +5,7 @@
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
 #include "BlindGuessImageTest.h"
+#include "ListenAccessibleNamesTest.h"
 #include <stdexcept>
 
 int main()
@@ -13,6 +14,7 @@ try
     ValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI initialise;
     hypha::i18n::holdLanguage (true);
+    hypha::tests::verifyListenAccessibleNames();
     hypha::tests::verifyRecoveryGuidance ([] (bool ok, const char* why)
         { if (!ok) throw std::runtime_error (why); });
     hypha::tests::verifyLiveCompareFooterContract();

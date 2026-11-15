@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaShortcutBindings.h"
 #include "HyphaQueuedStartText.h"
+#include "HyphaLanguage.h"
 
 #include <array>
 #include <cstdlib>
@@ -46,10 +47,10 @@ void View::configureComparisonEntries()
     liveCompareButton.setTooltip (liveCompareButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     liveCompareButton.onClick = [this] { if (onLiveCompareStart) onLiveCompareStart(); };
     livePreButton.setComponentID ("observatory-live-pre");
-    livePreButton.setTitle ("PRE");
+    livePreButton.setTitle (i18n::tr ("LISTEN: play PRE"));
     livePreButton.onClick = [this] { if (onLiveCompareSelect) onLiveCompareSelect (true); };
     livePostButton.setComponentID ("observatory-live-post");
-    livePostButton.setTitle ("POST");
+    livePostButton.setTitle (i18n::tr ("LISTEN: play POST"));
     livePostButton.onClick = [this] { if (onLiveCompareSelect) onLiveCompareSelect (false); };
     liveMatchButton.setComponentID ("observatory-live-match");
     liveMatchButton.setTitle ("MATCH");
@@ -177,15 +178,15 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         : state.matched ? "Listen to PRE, the input of this chain, at the level MATCH set"
                         : "Listen to PRE, the input of this chain. MATCH levels it to POST";
     livePreButton.setButtonText (brief ? preLabel : named);
-    livePreButton.setTitle (preLabel);
-    livePreButton.setDescription (state.candidate ? "Listen to A" : preHelp);
+    livePreButton.setTitle (state.candidate ? preLabel : i18n::tr ("LISTEN: play PRE"));
+    livePreButton.setDescription (state.candidate ? juce::String ("Listen to A") : i18n::tr (preHelp));
     livePreButton.setTooltip (livePreButton.getDescription());
     livePreButton.setToggleState (state.preSelected, juce::dontSendNotification);
     const juce::String postHelp = postLowered ? "Listen to POST, lowered by the attenuation you approved"
                                               : "Listen to POST, the output of this chain";
     livePostButton.setButtonText (brief ? postLabel : postNamed);
-    livePostButton.setTitle (postLabel);
-    livePostButton.setDescription (state.candidate ? "Listen to B" : postHelp);
+    livePostButton.setTitle (state.candidate ? postLabel : i18n::tr ("LISTEN: play POST"));
+    livePostButton.setDescription (state.candidate ? juce::String ("Listen to B") : i18n::tr (postHelp));
     livePostButton.setTooltip (livePostButton.getDescription());
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
     const juce::String matchHelp = state.following

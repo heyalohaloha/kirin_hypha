@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include "HyphaLanguage.h"
 
 #include <array>
 
@@ -83,6 +84,11 @@ inline juce::String forLine (const juce::String& help, bool wholeRow)
 {
     // A bubble's later lines repeat the control's own name; the line keeps the first.
     const auto first = help.upToFirstOccurrenceOf ("\n", false, false);
+    // LISTEN's accessible tooltip is already localized; preserve its compact footer wording.
+    if (! wholeRow && first == i18n::tr ("Listen to PRE, the input of this chain. MATCH levels it to POST"))
+        return "Listen to PRE, the input of this chain";
+    if (! wholeRow && first == i18n::tr ("Listen to PRE, the input of this chain, at the level MATCH set"))
+        return "Listen to PRE at the MATCH level";
     // ATTACK's band chips: the band, its range and how a hit is measured; switching stays in the bubble.
     if (wholeRow && first.startsWith ("Octave band ") && first.contains ("; switching"))
         return first.upToFirstOccurrenceOf ("; switching", false, false) + ".";

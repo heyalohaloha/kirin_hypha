@@ -45,6 +45,8 @@ const Entry entries[] = {
       u8"チャンネルごとに保持したTrue PeakとClipの表示を消します。現在値と履歴は残ります" },
     { "Switch between PRE and POST while playing. Comparison continues when this window closes",
       u8"再生しながらPREとPOSTを聴き比べます。画面を閉じても比較は続きます" },
+    { "LISTEN: play PRE", u8"LISTEN：PREを再生" },
+    { "LISTEN: play POST", u8"LISTEN：POSTを再生" },
     { "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to turn MATCH off; MATCH again is in MENU",
       u8"MATCHはTrue Peakの上限で止まりました。PREはまだPOSTより小さいままです。押すとMATCHを外します。もう一度MATCHはMENUにあります" },
     { "Listen to PRE, the input of this chain. MATCH levels it to POST",
