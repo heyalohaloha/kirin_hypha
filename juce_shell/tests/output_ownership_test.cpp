@@ -162,6 +162,18 @@ void decisionsCombineStates()
         for (const auto action : { AfterTail::keepPair, AfterTail::keepAll })
             require (std::string (afterTailNotice (action, false)) == "Play to continue, then Keep",
                      "a stopped Keep waits for playback: only ordinary audio through B clears the tail");
+        struct FakeBypass { float v = 0.0f; float getValue() const { return v; } };
+        struct FakeStatus { bool finishing = false; };
+        struct FakeHost { bool returning = false, offline = false; FakeBypass bypass;
+            bool candidateReturning() const { return returning; } FakeStatus liveCompareStatus() const { return {}; }
+            bool isNonRealtime() const { return offline; } const FakeBypass* getBypassParameter() const { return &bypass; } };
+        FakeHost host; host.bypass.v = 1.0f; // the return finished; only the tail is still unproven
+        require (returnBlock (host) == ReturnBlock::none && returnBlock (host, true) == ReturnBlock::bypass,
+                 "a tail still pending under bypass is blocked for Keep, not for V/C/B's ten-second end");
+        host.offline = true;
+        require (returnBlock (host, true) == ReturnBlock::offline
+                     && std::string (afterTailNotice (AfterTail::keepAll, true, returnBlock (host, true))) == keepOfflineWaitNotice,
+                 "a Keep waiting for the tail during an offline render says so");
         std::set<std::string> afterTail;
         for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
             for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));

@@ -47,11 +47,13 @@ constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
     return "";
 }
 
-// POST's return after A/B cannot move while the host bypasses the plug-in or renders offline.
+// POST's return after A/B, and the tail's proof that ordinary audio passed through B, cannot move while
+// the host bypasses the plug-in or renders offline. A Keep's wait passes tailPending; V/C/B do not.
 enum class ReturnBlock : unsigned char { none, bypass, offline };
-template <class Processor> ReturnBlock returnBlock (Processor& processor)
+template <class Processor> ReturnBlock returnBlock (Processor& processor, bool tailPending = false)
 {
-    if (! (processor.candidateReturning() || processor.liveCompareStatus().finishing)) return ReturnBlock::none;
+    if (! (tailPending || processor.candidateReturning() || processor.liveCompareStatus().finishing))
+        return ReturnBlock::none;
     if (processor.isNonRealtime()) return ReturnBlock::offline;
     const auto* bypass = processor.getBypassParameter();
     return bypass != nullptr && bypass->getValue() >= 0.5f ? ReturnBlock::bypass : ReturnBlock::none;
