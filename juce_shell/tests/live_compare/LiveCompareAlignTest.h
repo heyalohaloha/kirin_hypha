@@ -377,7 +377,7 @@ static void blindMovesOnlyWhilePreIsSilent()
         {
             const auto xUpdate = x.update (playback, true, onSourceOne, xWeight, readable, rate, 256);
             const auto yUpdate = y.update (playback, true, ! onSourceOne, yWeight, readable, rate, 256);
-            const auto reads = [readable] (const RendererAlignment& a) { return readable == unknown ? a.value().frames == 0 : a.value().frames <= readable; };
+            const auto reads = [readable, unknown] (const RendererAlignment& a) { return readable == unknown ? a.value().frames == 0 : a.value().frames <= readable; };
             x.observed (reads (x) && ! xUpdate.deferred, true, xUpdate); y.observed (reads (y) && ! yUpdate.deferred, true, yUpdate);
             require (xUpdate.deferred == yUpdate.deferred && ! xUpdate.deferred && x.unservedCorrection() == y.unservedCorrection()
                      && x.pathProven() == y.pathProven() && x.budgetSpent() == y.budgetSpent() && ! x.budgetSpent(),

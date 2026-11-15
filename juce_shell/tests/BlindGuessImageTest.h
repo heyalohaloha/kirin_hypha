@@ -355,8 +355,8 @@ void verifyBlindGuessAndImage (Require check)
                 const blind_image::Item* selected = nullptr;
                 for (const auto& item : items)
                 {
-                    if (item.role == typography::BlindImageText::small && item.text == (facts.selected == 1 ? "SOURCE 1 / " : "SOURCE 2 / ")) latin = &item;
-                    if (item.role == typography::BlindImageText::small && item.text == (facts.selected == 1 ? "SOURCE 2" : "SOURCE 1")) other = &item;
+                    if (item.role == typography::BlindImageText::caption && item.text == (facts.selected == 1 ? "SOURCE 1 / " : "SOURCE 2 / ")) latin = &item;
+                    if (item.role == typography::BlindImageText::caption && item.text == (facts.selected == 1 ? "SOURCE 2" : "SOURCE 1")) other = &item;
                     if (item.text == i18n::tr ("Selected")) selected = &item;
                 }
                 require (latin != nullptr && other != nullptr && selected != nullptr, "Japanese selected caption has separate font runs");

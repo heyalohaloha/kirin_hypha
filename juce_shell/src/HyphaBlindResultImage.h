@@ -79,7 +79,7 @@ struct Item
     juce::Font font;
     juce::Colour colour;
     juce::Justification justification = juce::Justification::centred;
-    typography::BlindImageText role = typography::BlindImageText::small;
+    typography::BlindImageText role = typography::BlindImageText::caption;
     int nameSize = 34;
     float kerning = 0.0f;
     bool nativeBold = false;
@@ -187,12 +187,12 @@ inline Layout layoutFor (const Facts& facts)
     Layout layout;
     const float margin = 34.0f, pad = 26.0f;
     const auto secondary = COL_TEXT_SECONDARY.brighter (0.25f);
-    addLine (layout, "KIRIN HYPHA", { margin, 30.0f, 230.0f, 22.0f }, ImageText::small, COL_SPECTRUM_DELTA_BR, juce::Justification::centredLeft, 0.22f);
+    addLine (layout, "KIRIN HYPHA", { margin, 30.0f, 230.0f, 22.0f }, ImageText::caption, COL_SPECTRUM_DELTA_BR, juce::Justification::centredLeft, 0.22f);
     const auto mode = i18n::tr (facts.candidate ? "A/B BLIND" : "PRE/POST BLIND");
-    const auto modeWidth = std::ceil (imageFont (ImageText::small, 34, 0.12f).getStringWidthFloat (mode));
+    const auto modeWidth = std::ceil (imageFont (ImageText::caption, 34, 0.12f).getStringWidthFloat (mode));
     layout.badge = { logicalSize - margin - modeWidth - 20.0f, 24.0f, modeWidth + 20.0f, 34.0f };
     addLine (layout, mode, { layout.badge.getX() + 10.0f, 30.0f, modeWidth, 22.0f },
-             ImageText::small, secondary, juce::Justification::centredRight, 0.12f);
+             ImageText::caption, secondary, juce::Justification::centredRight, 0.12f);
     layout.panel = { margin, 66.0f, logicalSize - margin * 2.0f, logicalSize - 66.0f - margin };
     auto body = layout.panel.reduced (pad, 0.0f);
     float y = layout.panel.getY() + 20.0f;
@@ -217,19 +217,19 @@ inline Layout layoutFor (const Facts& facts)
         if (selected && requiresJapaneseGlyphs (selectedText))
         {
             const auto prefix = i18n::tr (label) + " / ";
-            const auto latin = imageFont (ImageText::small, 34, 0.14f);
+            const auto latin = imageFont (ImageText::caption, 34, 0.14f);
             const auto japanese = nativeTextFontLike (latin).boldened();
             const auto prefixWidth = std::ceil (latin.getStringWidthFloat (prefix));
             const auto selectedWidth = std::ceil (japanese.getStringWidthFloat (selectedText));
             const auto x = card.getCentreX() - (prefixWidth + selectedWidth) * 0.5f;
-            addLine (layout, prefix, { x, card.getY() + 14.0f, prefixWidth, 20.0f }, ImageText::small, secondary,
+            addLine (layout, prefix, { x, card.getY() + 14.0f, prefixWidth, 20.0f }, ImageText::caption, secondary,
                      juce::Justification::centredLeft, 0.14f);
-            addLine (layout, selectedText, { x + prefixWidth, card.getY() + 14.0f, selectedWidth, 20.0f }, ImageText::small,
+            addLine (layout, selectedText, { x + prefixWidth, card.getY() + 14.0f, selectedWidth, 20.0f }, ImageText::caption,
                      secondary, juce::Justification::centredLeft, 0.0f, 34, true);
         }
         else
             addLine (layout, i18n::tr (label) + (selected ? juce::String (" / ") + selectedText : juce::String()),
-                     { card.getX(), card.getY() + 14.0f, card.getWidth(), 20.0f }, ImageText::small, secondary,
+                     { card.getX(), card.getY() + 14.0f, card.getWidth(), 20.0f }, ImageText::caption, secondary,
                      juce::Justification::centred, 0.14f);
         const auto lineHeight = std::ceil (nameHeight * 1.18f);
         auto top = card.getY() + 36.0f + (card.getHeight() - 36.0f - 12.0f - lineHeight * (float) lines.size()) * 0.5f;
@@ -265,11 +265,11 @@ inline Layout layoutFor (const Facts& facts)
     juce::StringArray notes;
     if (facts.loweredDb > 0.05) notes.add (i18n::tr ("Lowered " + juce::String (facts.loweredDb, 1) + " dB to avoid clipping"));
     if (facts.note.isNotEmpty()) notes.add (noteWithNames (facts));
-    const auto noteFont = imageFont (ImageText::small);
+    const auto noteFont = imageFont (ImageText::caption);
     for (const auto& note : notes)
         for (const auto& line : wrap (note, shownFont (note, noteFont), body.getWidth()))
         {
-            addLine (layout, line, { body.getX(), y, body.getWidth(), 19.0f }, ImageText::small, secondary);
+            addLine (layout, line, { body.getX(), y, body.getWidth(), 19.0f }, ImageText::caption, secondary);
             y += 19.0f;
         }
 
