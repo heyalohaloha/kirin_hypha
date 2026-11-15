@@ -50,7 +50,6 @@ juce::Component* find (juce::Component& parent, const juce::String& id)
         if (auto* result = find (*child, id)) return result;
     return nullptr;
 }
-
 template <class Tag, typename Tag::Type Member> struct TestAccess
 {
     friend typename Tag::Type testMember (Tag) { return Member; }
@@ -473,6 +472,7 @@ int main (int argc, char** argv)
     // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
     hypha::i18n::holdLanguage (true);
     if (argc > 1 && juce::String (argv[1]) == "--keep-tail-timeout-only") { hypha::tests::editor_product::verifyWaitingRequests(); return EXIT_SUCCESS; } if (argc > 1 && juce::String (argv[1]) == "--header-reference-only") { hypha::tests::editor_product::verifyHeaderReferenceExitProduct (sandbox.directory()); return EXIT_SUCCESS; }
+    if (argc > 1 && juce::String (argv[1]) == "--automatic-notice-only") return hypha::tests::editor_product::runAutomaticNoticeDelivery();
     if (argc > 1 && juce::String (argv[1]) == "--shell-repairs-only")
     {
         verifyEditorShellRepairs();
@@ -480,7 +480,7 @@ int main (int argc, char** argv)
         return EXIT_SUCCESS;
     }
     if (std::getenv ("KIRIN_HYPHA_DISPLAY_SETTINGS_ONLY") != nullptr) { verifyDisplaySettingsProduct(); return EXIT_SUCCESS; }
-    verifyVuTapProduct(); hypha::tests::editor_product::verifySpaceLiveProduct(); verifyRecordBodyOwnership();
+    verifyVuTapProduct(); hypha::tests::editor_product::verifySpaceLiveProduct(); verifyRecordBodyOwnership(); hypha::tests::editor_product::verifyAutomaticNoticeDelivery();
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();

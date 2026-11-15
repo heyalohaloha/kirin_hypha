@@ -55,10 +55,14 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
 
 void KirinHyphaEditor::leaveDrumOutsideTrack()
 {
-    if (analysisPage != AnalysisPage::attack
-        || hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference())) return;
+    if (hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
+    {
+        showAutomaticNotice ("2MIX has no DRUM; showing TIME / HISTORY", false);
+        return;
+    }
+    if (analysisPage != AnalysisPage::attack) return;
     setAnalysisPage (AnalysisPage::meters);
-    showAutomaticNotice ("2MIX has no DRUM; showing METERS");
+    showAutomaticNotice ("2MIX has no DRUM; showing TIME / HISTORY");
 }
 
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
@@ -67,7 +71,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     if (page == AnalysisPage::attack
         && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
     {
-        if (analysisPage == AnalysisPage::attack) showActionNotice ("2MIX has no DRUM; showing METERS");
+        if (analysisPage == AnalysisPage::attack) showActionNotice ("2MIX has no DRUM; showing TIME / HISTORY");
         page = AnalysisPage::meters;
     }
     if (! isPost || analysisPage == page)

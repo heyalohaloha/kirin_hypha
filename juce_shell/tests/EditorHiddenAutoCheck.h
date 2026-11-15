@@ -1,10 +1,88 @@
 #pragma once
 #include "EditorProductChecks.h"
 #include <cstring>
+#include <stdexcept>
 #include "TestProcessorStorage.h"
 #include "../src/HyphaKeepPreWait.h"
 namespace hypha::tests::editor_product
 {
+struct AutoNoticePage { using Type = analysis_navigation::Page KirinHyphaEditor::*; friend Type privateMember (AutoNoticePage); };
+template struct PrivateAccess<AutoNoticePage, &KirinHyphaEditor::analysisPage>;
+struct AutoNoticeSetPage { using Type = void (KirinHyphaEditor::*) (analysis_navigation::Page); friend Type privateMember (AutoNoticeSetPage); };
+template struct PrivateAccess<AutoNoticeSetPage, &KirinHyphaEditor::setAnalysisPage>;
+struct AutoNoticeLeave { using Type = void (KirinHyphaEditor::*)(); friend Type privateMember (AutoNoticeLeave); };
+template struct PrivateAccess<AutoNoticeLeave, &KirinHyphaEditor::leaveDrumOutsideTrack>;
+struct AutoNoticeFeedback { using Type = void (KirinHyphaEditor::*) (double, bool, const juce::String&); friend Type privateMember (AutoNoticeFeedback); };
+template struct PrivateAccess<AutoNoticeFeedback, &KirinHyphaEditor::updateFeedback>;
+struct AutoNoticeShown { using Type = juce::String KirinHyphaEditor::*; friend Type privateMember (AutoNoticeShown); };
+template struct PrivateAccess<AutoNoticeShown, &KirinHyphaEditor::shownNotice>;
+struct AutoNoticeCall { using Type = void (KirinHyphaEditor::*) (const juce::String&, bool); friend Type privateMember (AutoNoticeCall); };
+template struct PrivateAccess<AutoNoticeCall, &KirinHyphaEditor::showAutomaticNotice>;
+struct AutoNoticeUntil { using Type = double KirinHyphaEditor::*; friend Type privateMember (AutoNoticeUntil); };
+template struct PrivateAccess<AutoNoticeUntil, &KirinHyphaEditor::toastUntil>;
+
+inline void verifyAutomaticNoticeDelivery()
+{
+    const auto require = [] (bool ok, const char* reason) { if (! ok) throw std::runtime_error (reason); };
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.setMeterContextPreference (meter_context::MeterContext::trackStem, false);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+    std::unique_ptr<juce::AudioProcessorEditor> owner (processor.createEditorIfNeeded());
+    auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
+    require (editor != nullptr, "shipping editor exists");
+    (editor->*privateMember (AutoNoticeSetPage {})) (analysis_navigation::Page::attack);
+    require (editor->*privateMember (AutoNoticePage {}) == analysis_navigation::Page::attack, "DRUM is open");
+    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, "Earlier notice");
+    processor.setMeterContextPreference (meter_context::MeterContext::twoMix, false);
+    (editor->*privateMember (AutoNoticeLeave {})) ();
+    require (editor->*privateMember (AutoNoticePage {}) == analysis_navigation::Page::meters, "2MIX opens HISTORY");
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, "Earlier notice");
+    require (editor->*privateMember (AutoNoticeShown {}) == "Earlier notice", "earlier notice retains priority");
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    require (editor->*privateMember (AutoNoticeShown {}) == "2MIX has no DRUM; showing TIME / HISTORY",
+             "deferred change notice names the actual page");
+    (editor->*privateMember (ShowToast {})) ("Earlier notice");
+    const auto automatic = privateMember (AutoNoticeCall {});
+    (editor->*automatic) ("First queued", true);
+    (editor->*automatic) ("Withdrawn", true);
+    (editor->*automatic) ("Withdrawn", false);
+    (editor->*automatic) ("Second queued", true);
+    const auto expire = [&] {
+        editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+        (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+        (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    };
+    expire(); require (editor->*privateMember (AutoNoticeShown {}) == "First queued", "first waiting notice appears");
+    expire(); require (editor->*privateMember (AutoNoticeShown {}) == "Second queued", "later notice appears after the first");
+    expire(); require ((editor->*privateMember (AutoNoticeShown {})).isEmpty(), "withdrawn notice is not shown");
+    (editor->*privateMember (ShowToast {})) ("Earlier notice");
+    processor.setMeterContextPreference (meter_context::MeterContext::trackStem, false);
+    (editor->*privateMember (AutoNoticeSetPage {})) (analysis_navigation::Page::attack);
+    processor.setMeterContextPreference (meter_context::MeterContext::twoMix, false);
+    (editor->*privateMember (AutoNoticeLeave {})) ();
+    processor.setMeterContextPreference (meter_context::MeterContext::trackStem, false);
+    (editor->*privateMember (AutoNoticeLeave {})) ();
+    expire(); require ((editor->*privateMember (AutoNoticeShown {})).isEmpty(), "reverting the change withdraws its waiting notice");
+    (editor->*privateMember (ShowToast {})) ("Earlier notice");
+    (editor->*automatic) ("First queued", true);
+    editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    (editor->*automatic) ("Second queued", true);
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    require (editor->*privateMember (AutoNoticeShown {}) == "First queued", "new arrivals do not overtake a waiting notice");
+    expire(); require (editor->*privateMember (AutoNoticeShown {}) == "Second queued", "the later notice follows in order");
+}
+
+inline int runAutomaticNoticeDelivery()
+{
+    try { verifyAutomaticNoticeDelivery(); }
+    catch (const std::exception& error) { std::cerr << error.what() << '\n'; return EXIT_FAILURE; }
+    return EXIT_SUCCESS;
+}
+
 struct HiddenAutoAccess {};
 void enableHiddenAuto (KirinHyphaEditor&, HiddenAutoAccess);
 bool hiddenAutoOn (const KirinHyphaEditor&, HiddenAutoAccess);

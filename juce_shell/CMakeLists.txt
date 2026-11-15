@@ -332,7 +332,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorOutputOwnership.cpp src/PluginProcessorKeep.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
-        ${KIRIN_HYPHA_SHORTCUT_EDITOR_SOURCES}
+        ${KIRIN_HYPHA_SHORTCUT_EDITOR_SOURCES} src/PluginEditorFeedback.cpp
         src/PluginEditorLifecycle.cpp
         src/PluginEditorHelpLine.cpp
         src/PluginEditorLanguage.cpp

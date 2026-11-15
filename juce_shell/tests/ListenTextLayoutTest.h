@@ -30,6 +30,9 @@ void verifyAllListenText (Require require)
         if (language == i18n::Language::japanese)
             require (i18n::tr ("Cannot write to folder. Check access.") != "Cannot write to folder. Check access.",
                      "storage failure guidance is translated");
+        if (language == i18n::Language::japanese)
+            require (i18n::tr ("2MIX has no DRUM; showing TIME / HISTORY") != "2MIX has no DRUM; showing TIME / HISTORY",
+                     "page-change guidance is translated");
         for (const auto& item : notices)
             inventory += juce::String (static_cast<int> (language)) + "\t" + item.text + "\t"
                 + text_style::shownText (item.text) + "\n";
@@ -40,7 +43,8 @@ void verifyAllListenText (Require require)
             for (const auto& item : notices)
             {
                 if (width > 450 && item.text != "Rendering offline: press again after it finishes"
-                    && item.text != "Cannot write to folder. Check access.") continue;
+                    && item.text != "Cannot write to folder. Check access."
+                    && item.text != "2MIX has no DRUM; showing TIME / HISTORY") continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
                 named.setChainReadout (chain ? "CHAIN LOAD 100% / 100%" : "", true);
@@ -63,7 +67,7 @@ void verifyAllListenText (Require require)
                 const auto room = painted.getLocalBounds().reduced (named.statusStripFolded() ? 6 : 3,
                                                                     named.statusStripFolded() ? 0 : 1);
                 const auto font = footer_notice_font::fontForText (named.presentationContext(), item.text, room.getWidth());
-                if (item.text == "Cannot write to folder. Check access.")
+                if (item.text == "Cannot write to folder. Check access." || item.text == "2MIX has no DRUM; showing TIME / HISTORY")
                     require (font.getHeight() >= 14.0f, "storage guidance is readable at every size");
                 const bool complete = pixels.isValid()
                     && withoutWhitespace (actual.texts().joinIntoString ("")) == withoutWhitespace (text_style::shownText (item.text))

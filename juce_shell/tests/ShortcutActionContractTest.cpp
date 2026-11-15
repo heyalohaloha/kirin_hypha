@@ -10,6 +10,31 @@
 
 namespace hypha::tests
 {
+struct QueuedAutomaticMethod { using Type = void (KirinHyphaEditor::*) (const juce::String&, bool); friend Type shortcutMember (QueuedAutomaticMethod); };
+template struct ShortcutPrivateAccess<QueuedAutomaticMethod, &KirinHyphaEditor::showAutomaticNotice>;
+struct QueuedAutomaticFeedback { using Type = void (KirinHyphaEditor::*) (double, bool, const juce::String&); friend Type shortcutMember (QueuedAutomaticFeedback); };
+template struct ShortcutPrivateAccess<QueuedAutomaticFeedback, &KirinHyphaEditor::updateFeedback>;
+struct QueuedAutomaticShown { using Type = juce::String KirinHyphaEditor::*; friend Type shortcutMember (QueuedAutomaticShown); };
+template struct ShortcutPrivateAccess<QueuedAutomaticShown, &KirinHyphaEditor::shownNotice>;
+
+void verifyQueuedAutomaticNotice()
+{
+    using Processor = KirinHyphaProcessorBase;
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (KIRIN_HYPHA_PRE_DISPLAY ? Processor::Role::Pre : Processor::Role::Post);
+    prepareFixtureProcessor (processor, 48000, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> owner (processor.createEditorIfNeeded());
+    auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
+    if (editor == nullptr) throw std::runtime_error ("editor fixture unavailable");
+    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const auto feedback = shortcutMember (QueuedAutomaticFeedback {});
+    (editor->*feedback) (now, false, "Earlier notice");
+    (editor->*shortcutMember (QueuedAutomaticMethod {})) ("Queued notice", true);
+    (editor->*feedback) (now, false, {}); (editor->*feedback) (now, false, {});
+    if (editor->*shortcutMember (QueuedAutomaticShown {}) != "Queued notice")
+        throw std::runtime_error ("automatic notice was not delivered after the earlier notice");
+}
+
 namespace
 {
 struct MeterClock final : juce::AudioPlayHead

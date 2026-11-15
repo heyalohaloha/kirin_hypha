@@ -311,6 +311,7 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
     void showAutomaticNotice (const juce::String& text, bool showing = true); // a change Hypha made by itself
+    bool automaticNoticeMayShow() const;
     // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
     // live 比較が断りの元なら、先に live 比較を読み直す（新しい中断の知らせを断りの文で隠さない：INV-LC21）。
     bool outputRefused (hypha::output_owner::Activity activity)
@@ -463,6 +464,7 @@ private:
        #endif
     }
     juce::String toastText;
+    juce::StringArray pendingAutomaticNotices;
     juce::String shownNotice; bool feedbackRead = false; // what the notice line shows now; read once yet
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持

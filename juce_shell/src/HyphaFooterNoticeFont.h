@@ -17,7 +17,8 @@ inline typography::TextRole roleForText (const presentation::Context& context,
 inline juce::Font fontForText (const presentation::Context& context, const juce::String& text, int width)
 {
     auto font = monoFont (context, roleForText (context, text, width));
-    if (text == "Cannot write to folder. Check access.") font.setHeight (juce::jmax (14.0f, font.getHeight()));
+    if (text == "Cannot write to folder. Check access." || text == "2MIX has no DRUM; showing TIME / HISTORY")
+        font.setHeight (juce::jmax (14.0f, font.getHeight()));
     return font;
 }
 

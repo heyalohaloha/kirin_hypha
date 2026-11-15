@@ -90,7 +90,7 @@ inline std::vector<Notice> notices()
     // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
     for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
         "Finish Keep / Record before PRE / POST Blind", "Select LR, MID, or SIDE to view Delta",
-        "Delta has no M/S; showing one channel", "2MIX has no DRUM; showing METERS", "DRUM: choose TRACK", "Copied",
+        "Delta has no M/S; showing one channel", "2MIX has no DRUM; showing TIME / HISTORY", "DRUM: choose TRACK", "Copied",
         "No TP events yet", "Select POST for TP events", "No earlier TP over -1 dBTP", "No later TP over -1 dBTP",
         "History is already live", "No history yet", "Select POST to copy", "Click the history to hold a point first",
         "VU calibration: connecting; try again in a moment", "DAW recording: showing Hybrid VU",

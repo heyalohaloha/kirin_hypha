@@ -352,38 +352,6 @@ void KirinHyphaEditor::updateResizeLimits()
     sizeConstrainer.setSizeLimits (300, 200, largest.width, largest.height);
 }
 
-void KirinHyphaEditor::showToast (const juce::String& msg)
-{
-    automaticPairNotice = false;
-    comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
-    toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
-    toastText = msg;
-    updateFeedback (nowSecs(), false, {});
-}
-
-// A change Hypha made by itself says why, but never over a user's notice or a persistent error, and it
-// is withdrawn when the change is undone (showing false).
-void KirinHyphaEditor::showAutomaticNotice (const juce::String& text, bool showing)
-{
-    if (! showing)
-    {
-        if (toastText == text && text.isNotEmpty())
-        {
-            toastText.clear();
-            toastUntil = 0.0;
-            updateFeedback (nowSecs(), false, {});
-        }
-        return;
-    }
-    // Not before the notice line has been read once (a Record error may be about to show), and not
-    // into a Blind screen, whose line belongs to the trial.
-    if (! feedbackRead) return;
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (blindRunning()) return;
-   #endif
-    if (shownNotice.isEmpty() || shownNotice == text) showToast (text);
-}
-
 void KirinHyphaEditor::updateFeedback (
     double now, bool keeping, const juce::String& persistentError)
 {
@@ -394,6 +362,16 @@ void KirinHyphaEditor::updateFeedback (
         && processorRef.liveCompareStatus().active)
     {
         toastText.clear();
+        comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
+    }
+
+    if (feedbackRead && shownNotice.isEmpty() && now >= toastUntil && persistentError.isEmpty()
+        && ! keeping && ! pendingAutomaticNotices.isEmpty() && automaticNoticeMayShow())
+    {
+        toastText = pendingAutomaticNotices[0];
+        pendingAutomaticNotices.remove (0);
+        toastUntil = now + 3.0;
+        automaticPairNotice = false;
         comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     }
 
