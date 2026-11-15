@@ -34,6 +34,42 @@ inline void verifyTargetsWithoutSongs()
              "with nothing to draw there is no list and no switch (the B step says why)");
 }
 
+// The selected target's actual spectrum must change the Balance drawing at every editor size.
+inline void verifyTargetBalanceSizes()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const int width : { 600, 300, 450, 900 })
+            for (const bool all : { false, true })
+                for (const int count : { 1, 16 })
+                {
+                    const i18n::ScopedLanguage scoped (language);
+                    const int height = width * 2 / 3;
+                    observatory::View shell (observatory::Role::post);
+                    shell.setSize (width, height); shell.setDomain (observatory::Domain::reference);
+                    shell.setExternalAnalysisBodyActive (true);
+                    reference_ui::Component panel; panel.setVisible (true);
+                    panel.setPresentationContext (presentation::forEditor (width, height));
+                    panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+                    auto state = page (1, count); state.blindLargeScreen = width >= 900;
+                    state.targets.collection.selected = state.targets.collection.items[0].id;
+                    state.overlay.all = all;
+                    state.overlay.lines = { { state.targets.collection.items[0].id, 0 } };
+                    panel.setState (state);
+                    if (width < 900)
+                        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), all ? "BALANCE / ALL" : "BALANCE / ONE");
+                    const auto before = panel.createComponentSnapshot (panel.getLocalBounds());
+                    for (auto& level : state.targets.collection.items[0].spectrum.medianDb) level -= 20.0f;
+                    panel.setState (state);
+                    const auto after = panel.createComponentSnapshot (panel.getLocalBounds());
+                    int changed = 0;
+                    for (int y = 0; y < before.getHeight(); ++y)
+                        for (int x = 0; x < before.getWidth(); ++x)
+                            if (before.getPixelAt (x, y) != after.getPixelAt (x, y)) ++changed;
+                    require (changed > 4, "the selected target spectrum is drawn at " + juce::String (width)
+                             + (all ? " ALL" : " ONE"));
+                }
+}
+
 // Only the very first ALL turns every song on. A selection the user emptied stays empty, also after ONE and
 // after the project is saved and opened again.
 inline void verifyFirstUseOnly()
@@ -109,6 +145,7 @@ inline void verifyMeanReading()
 
 inline void verifyRepairs()
 {
+    verifyTargetBalanceSizes();
     verifyMeanReading();
     verifyNumberContrast();
     verifyTargetsWithoutSongs();

@@ -382,7 +382,9 @@ void Component::paint (juce::Graphics& g)
         return;
     }
 
-    if (detailedLayout())
+    if (! songList.isVisible() && ! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 3)
+        paintCompactBalance (g, area, current, presentationContext);
+    else if (detailedLayout())
     {
         area = paintCheckFooter (g, area);  // C の画面の 4 帯域と Cue の時間軸
         if (songList.isVisible()) paintReferenceBalance (g, balanceBounds.toFloat(), current, presentationContext);
@@ -407,9 +409,6 @@ void Component::paint (juce::Graphics& g)
                         presentationContext, side);
         }
     }
-    else if (! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 3
-             && current.targetsEnabled && ! current.targets.collection.items.empty())
-        paintCompactBalance (g, area, current, presentationContext);
     else if (!comparisonView.isVisible())
     {
         if (presentationContext.referenceCheck && ! current.viewBindings.empty()

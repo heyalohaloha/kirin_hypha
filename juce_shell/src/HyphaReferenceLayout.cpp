@@ -188,7 +188,7 @@ void Component::layoutAWindowControls()
     if (detailedLayout() && ! guideShown && ! isBlindSession (current.blindPhase) && ! comparisonView.isVisible())
     {
         if (songList.isVisible()) areas[0] = referenceBalanceAWindowArea (balanceBounds.toFloat(), current, presentationContext);
-        else if (! (checkPage() && listeningCheck()))
+        else if (! (current.separateComparisons && current.comparisonSlot == 3) && ! (checkPage() && listeningCheck()))
             areas = referenceAWindowAreas (observationArea.toFloat(), current, presentationContext);
     }
     for (size_t index = 0; index < aWindowControls.size(); ++index)
@@ -208,7 +208,8 @@ juce::Rectangle<int> Component::observationWindowBounds() const noexcept
     // 耳で聴き比べる Check の案内は囲まない（paint と同じ条件）。
     if (guideShown || isBlindSession (current.blindPhase)) return {};
     if (comparisonView.isVisible()) return observationArea;
-    if (detailedLayout() && ! songList.isVisible() && ! (checkPage() && listeningCheck())
+    if (detailedLayout() && ! songList.isVisible() && ! (current.separateComparisons && current.comparisonSlot == 3)
+        && ! (checkPage() && listeningCheck())
         && configuredReferenceViewsFit (observationArea.toFloat(), current))
         return observationArea;
     return {};
