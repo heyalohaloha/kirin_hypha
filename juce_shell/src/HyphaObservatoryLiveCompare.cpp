@@ -132,7 +132,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     liveEndButton.setButtonText (state.finishing ? "RETURNING"
         : postLowered ? "END " + signedGain (-state.postHeldTenthsDb) : juce::String ("END"));
     unavailable::set (liveEndButton, ! state.finishing, "Ended; POST back to normal within 0.5 s");
-    liveEndButton.setTitle (liveEndButton.getButtonText());
+    liveEndButton.setTitle (i18n::tr (liveEndButton.getButtonText()));
     unavailable::set (localBlindButton, state.blindAvailable && ! state.finishing,
                       state.finishing ? "Ended; POST back to normal within 0.5 s" : state.blindRefusal);
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton })

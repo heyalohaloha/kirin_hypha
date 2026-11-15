@@ -6,6 +6,7 @@
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaTextStyle.h"
 #include "HyphaFooterNoticeFont.h"
+#include "HyphaFooterActionFont.h"
 #include "HyphaQueuedStartText.h"
 
 #include <cmath>
@@ -104,7 +105,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
 
 int View::footerButtonWidth (const juce::String& text) const
 {
-    const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
+    const auto actionFont = footer_action_font::forText (presentationContext(), text);
     return juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, text) + 12.0f));
 }
 

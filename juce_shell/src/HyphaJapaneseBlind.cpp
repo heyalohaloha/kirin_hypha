@@ -126,6 +126,7 @@ const Entry entries[] = {
     { "PREFER SOURCE 1", u8"1が好み" },
     { "PREFER SOURCE 2", u8"2が好み" },
     { "END restores normal level", u8"終了すると通常の音量に戻ります" },
+    { "END +%1 dB", u8"終了 +%1 dB" },
     { "END returns +%1 dB", u8"終了すると音量が%1 dB上がります" },
     // BLIND matched on the quieter side so the raised source stays under the ceiling.
     { "Lowered %1 dB to avoid clipping; END restores it", u8"割れを避けて%1 dB下げました。終了すると戻ります" },

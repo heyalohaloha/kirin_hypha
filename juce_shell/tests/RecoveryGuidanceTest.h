@@ -2,6 +2,7 @@
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaLiveBlindComponent.h"
 #include "../src/HyphaMatchChoicePopup.h"
+#include "../src/HyphaFooterActionFont.h"
 namespace hypha::tests
 {
 template <class Require> void verifyMatchChoicePopup (Require require)
@@ -76,6 +77,36 @@ template <class Require> void verifyMatchChoicePopup (Require require)
 template <class Require> void verifyRecoveryGuidance (Require require)
 {
     verifyMatchChoicePopup (require);
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        observatory::View view (observatory::Role::post);
+        view.setVisible (true);
+        for (const int width : { 300, 375, 450, 600, 750, 900 })
+        {
+            view.setSize (width, width * 2 / 3);
+            for (const int held : { 0, -1, -54, -240 })
+            {
+                observatory::LiveCompareFooter footer;
+                footer.active = true; footer.entryEnabled = true; footer.postHeldTenthsDb = held;
+                view.setLiveCompareFooter (footer);
+                auto* end = dynamic_cast<juce::Button*> (view.findChildWithID ("observatory-live-end"));
+                require (end != nullptr && end->isVisible(), "END remains visible with held gain");
+                const auto amount = held == 0 ? juce::String() : " +" + juce::String (-held / 10.0, 1) + " dB";
+                const auto expected = (language == i18n::Language::japanese
+                    ? juce::String::fromUTF8 (u8"終了") : juce::String ("END")) + amount;
+                require (text_style::shownText (end->getButtonText()) == expected && end->getTitle() == expected,
+                         "END and the amount follow the selected language, including accessibility");
+                const auto font = footer_action_font::forText (view.presentationContext(), end->getButtonText());
+                require (font.getHeight() >= 12.0f, "the END amount uses a readable font");
+                require (text_style::shownWidth (font, end->getButtonText()) + 6.0f <= static_cast<float> (end->getWidth()),
+                         "the localized END amount fits at a readable size");
+                text_style::ShownTextLog shown;
+                const auto image = end->createComponentSnapshot (end->getLocalBounds());
+                require (image.isValid() && shown.texts().contains (expected), "the full localized END amount is painted");
+            }
+        }
+    }
     using namespace live_compare;
     using namespace live_compare_ui;
     for (auto reason : { RecoveryReason::reaperFirstCycle, RecoveryReason::reaperDelayUnverified,

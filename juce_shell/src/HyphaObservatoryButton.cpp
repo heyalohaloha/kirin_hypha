@@ -3,6 +3,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include "HyphaFooterNoticeFont.h"
+#include "HyphaFooterActionFont.h"
 
 #include <utility>
 
@@ -59,6 +60,11 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
     {
         const auto room = getLocalBounds().reduced (3, 1);
         footer_notice_font::draw (g, presentationContext, getButtonText(), room);
+    }
+    else if (footer_action_font::isEnd (getButtonText()))
+    {
+        g.setFont (footer_action_font::forText (presentationContext, getButtonText()));
+        text_style::drawEllipsized (g, getButtonText(), getLocalBounds().reduced (3, 1), juce::Justification::centred);
     }
     else
     {
