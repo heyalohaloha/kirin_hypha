@@ -48,6 +48,8 @@ public:
     { processor.enableWritesNow(); }
     static void serviceTiming (KirinHyphaProcessorBase& processor)
     { processor.serviceLiveCompare(); }
+    static void serviceCandidate (KirinHyphaProcessorBase& processor)
+    { processor.serviceCandidateCompare(); }
     static void serviceContentTiming (KirinHyphaProcessorBase& processor)
     { processor.serviceLiveContentTiming(); }
     static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
@@ -210,6 +212,8 @@ public:
     static bool candidateHistoryValid (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.renderer.historyView().kValid; }
     static const auto& candidateStateForTest (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.candidate; }
+    static auto& mutableCandidateStateForTest (KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.candidate; }
     static void failBlindPreparation (KirinHyphaProcessorBase& processor, hypha::live_compare::RecoveryReason reason)
     {

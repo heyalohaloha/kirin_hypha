@@ -12,6 +12,7 @@
 #include "CandidateRecoveryTest.h"
 #include "CandidateCompensationTest.h"
 #include "CandidateLifetimeTest.h"
+#include "CandidateTailOwnershipTest.h"
 #include "CandidateBlindScopeRaceTest.h"
 #include "CandidateAdmissionTest.h"
 #include "CandidateRecoveryPriorityTest.h"
@@ -39,6 +40,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateLongReturn (require);
     verifyTailSurvivesPairChange (require);
     verifyAllKeepWaitsForOtherTail (require);
+    verifyCandidateTailOwnership (require);
     verifyCandidateReturnDeadline (require);
     verifyCandidateDeadlineTail (require);
     verifyCandidateShortLoopTail (require);
