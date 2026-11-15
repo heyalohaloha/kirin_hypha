@@ -223,8 +223,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     }
     const bool admitted = permitted && ! finishing && steady && ! blindRejected;
     const bool preSelected = admitted && (blindCommand.active() ? blindCommand.pre() : selection.pre());
-    if (trace != nullptr && ! blindCommand.active()) // the acceptance of a named selection, this callback
-        hypha::chain_trace::observeNamedSelection (*trace, selection.word, admitted && liveCompare.sessionActive.load (std::memory_order_relaxed));
+    if (trace != nullptr && ! blindCommand.active()) // read, even when this callback cannot use the output
+        hypha::chain_trace::observeNamedSelection (*trace, selection.word);
     // END first removes PRE, then returns POST. A closed/retired ring still returns normally.
     const float heldTarget = postTarget;
     if (finishing) postTarget = 1.0f;
@@ -318,6 +318,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && ring->header.ownerClosed.load (std::memory_order_acquire) == 0
             && (!coherent || !gains.retained || gains.identity.same (
                 hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
+        if (trace != nullptr && ! blindCommand.active()) hypha::chain_trace::acceptNamedSelection (*trace, admitted && namedEligible);
         const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
         if (freshBlind != liveCompare.blindTimingSeen)
         {

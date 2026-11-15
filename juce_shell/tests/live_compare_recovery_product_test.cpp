@@ -7,6 +7,7 @@
 #include "ShortcutListenCheck.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
+#include "../src/chain_trace/ChainTraceScope.h"
 #include "TestProcessorStorage.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
@@ -124,25 +125,48 @@ static void verifySelectionTrace (const juce::File& sandbox)
         rig.post->selectLiveComparePre (pre);
         rig.block();
     }
+    rig.bypassed = true;
+    rig.post->selectLiveComparePre (true); rig.block();
+    rig.bypassed = false; rig.post->setNonRealtime (true);
+    rig.post->selectLiveComparePre (false); rig.block();
+    rig.post->setNonRealtime (false);
+    rig.post->selectLiveComparePre (true);
+    {
+        auto& state = rig.post.get()->*privateMember (NoticeLiveState {});
+        const HostProcessClock clock;
+        chain_trace::Scope scope (state, rig.postAudio.getArrayOfReadPointers(), 2, 512, 48000, true, 0,
+                                  clock, false, false);
+        LiveTimingFixtureAccess::processAaxAnalysisWithOtherOutputOwner (*rig.post, rig.postAudio);
+    }
+    rig.post->selectLiveComparePre (false); rig.block();
     LiveTimingFixtureAccess::traceForTest (*rig.post, {});
     const auto files = folder.findChildFiles (juce::File::findFiles, true, "blocks.jsonl");
     require (files.size() == 1, "the trace was flushed");
     std::vector<std::uint64_t> commands;
+    int bypassRows = 0, offlineRows = 0, takenRows = 0;
     const auto number = [] (const juce::var& value) { return static_cast<std::uint64_t> (value.toString().getLargeIntValue()); };
     for (const auto& line : juce::StringArray::fromLines (files[0].loadFileAsString()))
     {
         const auto row = juce::JSON::parse (line);
         if (! row.hasProperty ("selectionSeen") || ! static_cast<bool> (row["selectionSeen"])) continue;
-        require (static_cast<bool> (row["selectionAccepted"]), "a current named selection is accepted");
+        const bool blocked = static_cast<bool> (row["bypassed"]) || static_cast<bool> (row["offline"])
+                          || static_cast<bool> (row["outputTaken"]);
+        bypassRows += static_cast<bool> (row["bypassed"]) ? 1 : 0;
+        offlineRows += static_cast<bool> (row["offline"]) ? 1 : 0;
+        takenRows += static_cast<bool> (row["outputTaken"]) ? 1 : 0;
+        require (static_cast<bool> (row["selectionAccepted"]) == ! blocked,
+                 "only a selection whose output is available is accepted");
         const auto entry = number (row["entryNanos"]), observed = number (row["selectionReadNanos"]);
         const auto accepted = number (row["selectionAcceptedNanos"]), exit = number (row["exitNanos"]);
-        require (entry > 0 && entry <= observed && observed == accepted && accepted <= exit,
-                 "selection acceptance is timestamped inside its own audio callback");
+        require (entry > 0 && entry <= observed && observed <= exit
+                     && (blocked ? accepted == 0 : observed <= accepted && accepted <= exit),
+                 "read and eligible acceptance are timestamped inside their own audio callback");
         commands.push_back (number (row["selectionCommand"]));
     }
-    require (commands.size() == 3 && (commands[0] & 1u) == 0 && (commands[1] & 1u) != 0 && (commands[2] & 1u) == 0
+    require (commands.size() == 7 && (commands[0] & 1u) == 0 && (commands[1] & 1u) != 0 && (commands[2] & 1u) == 0
                  && (commands[0] >> 32) < (commands[1] >> 32) && (commands[1] >> 32) < (commands[2] >> 32),
              "each accepted selection keeps its own callback and command serial");
+    require (bypassRows == 1 && offlineRows == 1 && takenRows == 1, "each blocked callback was traced");
 }
 
 struct GeometryCounter final : juce::ComponentListener

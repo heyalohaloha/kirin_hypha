@@ -45,7 +45,8 @@ static void writer (const std::filesystem::path& parent)
     rt = true;
     auto* r = recorder->begin (input, 2, 4); assert (r != nullptr);
     r->role = 0; r->rate = 48000; r->precisionBits = 64; r->host.hasPosition = true;
-    hypha::chain_trace::observeNamedSelection (*r, (std::uint64_t (42) << 32) | 1u, true);
+    hypha::chain_trace::observeNamedSelection (*r, (std::uint64_t (42) << 32) | 1u);
+    hypha::chain_trace::acceptNamedSelection (*r, true);
     recorder->finish (input);
     assert (recorder->begin (input, 2, 8193) == nullptr);
     recorder->finish (input);
@@ -125,11 +126,13 @@ int main (int argc, char** argv)
     hypha::chain_trace::Row selectionRow;
     selectionRow.entryNanos = hypha::live_compare::callbackWallNanos();
     rt = true;
-    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (7) << 32) | 1u, true);
+    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (7) << 32) | 1u);
+    assert (selectionRow.selectionSeen && ! selectionRow.selectionAccepted && selectionRow.selectionAcceptedNanos == 0);
+    hypha::chain_trace::acceptNamedSelection (selectionRow, true);
     rt = false;
     selectionRow.exitNanos = hypha::live_compare::callbackWallNanos();
     assert (selectionRow.selectionSeen && selectionRow.selectionAccepted
-        && selectionRow.selectionReadNanos == selectionRow.selectionAcceptedNanos
+        && selectionRow.selectionReadNanos <= selectionRow.selectionAcceptedNanos
         && selectionRow.entryNanos <= selectionRow.selectionAcceptedNanos
         && selectionRow.selectionAcceptedNanos <= selectionRow.exitNanos && allocations.load() == 0);
     std::ostringstream selectionJson;
@@ -141,9 +144,11 @@ int main (int argc, char** argv)
             std::cerr << "selection callback timing missing from trace: " << key << '\n';
             return EXIT_FAILURE;
         }
-    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (8) << 32) | 2u, true);
+    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (8) << 32) | 2u);
+    hypha::chain_trace::acceptNamedSelection (selectionRow, true);
     assert (! selectionRow.selectionAccepted && selectionRow.selectionAcceptedNanos == 0);
-    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (9) << 32) | 1u, false);
+    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (9) << 32) | 1u);
+    hypha::chain_trace::acceptNamedSelection (selectionRow, false);
     assert (! selectionRow.selectionAccepted && selectionRow.selectionAcceptedNanos == 0);
     auto queue = std::make_unique<hypha::chain_trace::Queue<2>>();
     auto* first = queue->begin (4, 2);

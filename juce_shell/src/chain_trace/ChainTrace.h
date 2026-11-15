@@ -37,15 +37,18 @@ struct Row
     std::array<std::array<float, maximumFrames>, 4> pcm {}; // Non-RT construction touches every page.
 };
 
-// The high command bits identify the explicit selection. Each eligible callback records its own
-// acceptance time; the first row for a changed command is the first observation in this trace.
-inline void observeNamedSelection (Row& row, std::uint64_t command, bool eligible) noexcept
+// The high command bits identify the explicit selection. Reading and accepting are separate
+// observations: output availability and the current ring are checked between them.
+inline void observeNamedSelection (Row& row, std::uint64_t command) noexcept
 {
     row.selectionSeen = true;
     row.selectionCommand = command;
     row.selectionReadNanos = live_compare::callbackWallNanos();
-    row.selectionAccepted = eligible && (command & 2u) == 0 && (command >> 32) != 0;
-    row.selectionAcceptedNanos = row.selectionAccepted ? row.selectionReadNanos : 0;
+}
+inline void acceptNamedSelection (Row& row, bool eligible) noexcept
+{
+    row.selectionAccepted = eligible && (row.selectionCommand & 2u) == 0 && (row.selectionCommand >> 32) != 0;
+    row.selectionAcceptedNanos = row.selectionAccepted ? live_compare::callbackWallNanos() : 0;
 }
 
 // One serialised host callback producer, one private IO worker. Host callbacks may migrate
