@@ -22,15 +22,21 @@ void verifyAllListenText (Require require)
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
+        require (text_style::shownText ("Rendering offline: press again after it finishes")
+                     == (language == i18n::Language::japanese
+                         ? juce::String::fromUTF8 (u8"書き出し中です。終わってから押してください")
+                         : juce::String ("Rendering offline: press again after it finishes")),
+                 "offline return notice has the intended wording in each language");
         for (const auto& item : notices)
             inventory += juce::String (static_cast<int> (language)) + "\t" + item.text + "\t"
                 + text_style::shownText (item.text) + "\n";
-        for (int width : { 300, 375, 450 })
+        for (int width : { 300, 375, 450, 600, 750, 900 })
         {
             for (bool chain : { false, true })
             for (int session : { 0, 1, 2 }) // listening, entry refusal / END, held POST attenuation
             for (const auto& item : notices)
             {
+                if (width > 450 && item.text != "Rendering offline: press again after it finishes") continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
                 named.setChainReadout (chain ? "CHAIN LOAD 100% / 100%" : "", true);
@@ -82,6 +88,7 @@ void verifyAllListenText (Require require)
                 require (named.analysisBodyBounds() == originalBody, "clearing notice restores analysis space");
                 ++namedCount;
             }
+            if (width > 450) continue;
             for (const auto& item : blindCases)
             {
                 blind.setSize (width, width * 2 / 3); blind.setState (item.state, item.playing, item.post);
@@ -128,7 +135,7 @@ void verifyAllListenText (Require require)
     for (const auto& failure : failures) std::cerr << "Clipped " << failure << '\n';
     std::cout << "All LISTEN text: " << notices.size() << " notices / " << namedCount << " cases; BLIND: "
               << blindCases.size() << " screens / " << blindCount << " cases; " << clipped << " clipped\n";
-    require (clipped == 0, "all LISTEN / BLIND instructions must paint completely at 100/125/150 percent");
+    require (clipped == 0, "all LISTEN / BLIND instructions must paint completely at the tested sizes");
 }
 
 template <typename Require>

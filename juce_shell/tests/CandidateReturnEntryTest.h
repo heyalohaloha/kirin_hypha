@@ -93,6 +93,42 @@ template<class Require> void verifyCandidateBypassedReturnEntry (Require require
     post.editorBeingDeleted (editor.get()); editor.reset();
 }
 
+// Offline callbacks keep arriving while RETURN cannot change the output. The queued press ends,
+// but the already requested return remains pending until realtime callbacks resume.
+template<class Require> void verifyCandidateOfflineReturnEntry (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair(); auto& post = host.post();
+    require (post.startLiveCompare() == StartResult::started, "LISTEN starts before the offline return");
+    host.render (100, false, false);
+    MatchResult level; level.failure = MatchFailure::none; level.measuredDb = 8.0;
+    level.prePeakDbtp = -1.0; level.postPeakDbtp = -4.0; level.ceilingDbtp = -1.0;
+    require (post.applyLiveCompareMatch (planMatch (level, 0.0), MatchChoice::lowerPost), "MATCH lowers POST");
+    host.render (30, false, false); post.stopLiveCompare(); host.render (10, false, false);
+    require (post.liveCompareStatus().postTarget < 1.0f, "POST stays lowered");
+    auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
+    editor->setSize (900, 600); editor->setVisible (true); candidateTick (*editor);
+    pressComparisonMenuEntry (*editor, "LISTEN", require);
+    require (afterQueuedMessages ([] {}), "deliver the LISTEN press");
+    require (candidateEntryPending (*editor) && post.liveCompareStatus().finishing, "RETURN is requested");
+    candidateEntryDeadline (*editor) = juce::Time::getMillisecondCounterHiRes() * 0.001 + 120.0;
+    post.setNonRealtime (true);
+    for (int i = 0; i < 1200; ++i) { host.render (1, false, false); candidateTick (*editor); }
+    require (candidateEntryPending (*editor) && post.liveCompareStatus().finishing, "offline callbacks hold RETURN");
+    expireCandidateEntryDeadline (*editor); candidateTick (*editor);
+    require (! candidateEntryPending (*editor)
+                 && candidateToast (*editor) == "Rendering offline: press again after it finishes",
+             "the expired press explains offline rendering and stops waiting");
+    require (post.liveCompareStatus().finishing, "the RETURN itself remains requested");
+    post.setNonRealtime (false);
+    for (int i = 0; i < 100 && post.liveCompareStatus().finishing; ++i) { host.render (1, false, false); candidateTick (*editor); }
+    require (! post.liveCompareStatus().finishing && post.liveCompareStatus().postActual == 1.0f
+                 && ! post.liveCompareStatus().active, "realtime completes RETURN without starting the expired press");
+    post.editorBeingDeleted (editor.get()); editor.reset();
+}
+
 template<class Require> void verifyCandidateAlignment (Require require)
 {
     using namespace live_compare;

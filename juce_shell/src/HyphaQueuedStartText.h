@@ -14,6 +14,7 @@ enum class QueuedWait { returning, tail, stopped, other };
 // The host's bypass holds POST's return past the press's 10 s: the press ends; the return finishes once
 // bypass is off (INV-LC14).
 inline constexpr const char* bypassHoldsReturnNotice = "Bypass is on: turn it off, then press again";
+inline constexpr const char* offlineHoldsReturnNotice = "Rendering offline: press again after it finishes";
 
 // What the press waits for now. Stopped comes first: neither the return nor the tail moves without audio.
 constexpr QueuedWait queuedWait (bool playing, bool returning, bool tailClearing) noexcept

@@ -157,6 +157,7 @@ const Entry entries[] = {
     { "Waiting to start BLIND", u8"BLINDの開始を待っています" },
     { "Waiting to start A/B", u8"A/Bの開始を待っています" },
     { "Bypass is on: turn it off, then press again", u8"バイパス中です。解除してから押し直してください" },
+    { "Rendering offline: press again after it finishes", u8"書き出し中です。終わってから押してください" },
     // V, C, B or Keep pressed while the A/B tail clears (PluginEditorAfterTail.cpp).
     { "Clearing the A/B tail, then V", u8"A/Bの残りの音が消えてからVを鳴らします" },
     { "Clearing the A/B tail, then C", u8"A/Bの残りの音が消えてからCを鳴らします" },

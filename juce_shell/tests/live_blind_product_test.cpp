@@ -471,8 +471,8 @@ int main (int argc, char** argv)
     hypha::i18n::holdLanguage (true);
     if (argc == 3 && std::string (argv[2]) == "--cubase-cycle-only") { hypha::tests::verifyCubaseCycleProduct (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-stopped-return-only") { hypha::tests::verifyCandidateStoppedSourceReturn (require); return 0; }
-    if (argc == 3 && std::string (argv[2]) == "--candidate-return-only")
-    { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-return-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--return-entry-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateReturnEntry (require); hypha::tests::verifyCandidateBypassedReturnEntry (require); hypha::tests::verifyCandidateOfflineReturnEntry (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only")
     { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-tail-loop-only") { hypha::tests::verifyCandidateShortLoopTail (require); return 0; }
