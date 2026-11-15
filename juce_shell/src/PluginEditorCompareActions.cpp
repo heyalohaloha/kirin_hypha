@@ -39,6 +39,7 @@ const char* KirinHyphaEditor::liveCompareEntryRefusal (bool blind) const
 
 void KirinHyphaEditor::requestListenStart ()
 {
+    matchChoicePopup.close();
     liveCompareStartAfterReturnCandidate.clear();
     afterTail = {};  // LISTEN is the newer choice: a V, C, B or Keep waiting for the A/B tail is dropped
     // INV-LC14: a press that waited starts with the ticket of its press; a new press takes the latest one.
@@ -83,6 +84,7 @@ void KirinHyphaEditor::requestListenStart ()
 
 void KirinHyphaEditor::requestListenSelect (bool pre)
 {
+    matchChoicePopup.close();
     processorRef.selectLiveComparePre (pre);
     liveCompareInterruptSeen = false;
     refreshLiveCompare();
@@ -93,6 +95,7 @@ void KirinHyphaEditor::requestListenSelect (bool pre)
 // On never takes PRE over the ceiling: a capped boost is told as TP LIMIT, or as AUTO's ceiling line.
 void KirinHyphaEditor::requestListenMatch ()
 {
+    matchChoicePopup.close();
     const auto status = processorRef.liveCompareStatus();
     if (! status.active || ! (status.matched || status.matchHeld || status.matchOff)) { matchLiveCompare(); return; }
     const auto turned = processorRef.setLiveCompareMatchOn (status.matchOff, liveCompareAuto.on);
@@ -119,6 +122,7 @@ void KirinHyphaEditor::requestListenMatch ()
 
 void KirinHyphaEditor::requestListenEnd ()
 {
+    matchChoicePopup.close();
     liveCompareStartAfterReturnUntil = 0.0;
     processorRef.finishLiveCompare();
     liveCompareFinishingSeen = true;

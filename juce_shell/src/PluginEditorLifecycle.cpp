@@ -15,6 +15,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     if (isPost)
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
+        matchChoicePopup.close();
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
         // LISTEN and live BLIND belong to the processor; closing its window is not END. AUTO rests
         // with the processor and a window of the same LISTEN continues it (INV-LC16). The rest is
@@ -55,6 +56,7 @@ void KirinHyphaEditor::timerCallback()
         processorRef.vuLive().setEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         // AUTO rests while hidden: nothing below runs, so it neither measures nor moves (INV-LC16).
+        matchChoicePopup.close();
         // A Keep, LISTEN or MATCH press that has not started yet is dropped, never run later.
         dropWaitingRequests();
         syncAnalysisDemand();

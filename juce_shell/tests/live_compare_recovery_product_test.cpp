@@ -27,6 +27,76 @@ struct LayoutReference
 };
 template struct PrivateAccess<LayoutReference, &KirinHyphaEditor::layoutReferenceAudition>;
 
+struct OpenMatchChoice
+{
+    using Type = void (KirinHyphaEditor::*) (const live_compare::MatchPlan&);
+    friend Type privateMember (OpenMatchChoice);
+};
+template struct PrivateAccess<OpenMatchChoice, &KirinHyphaEditor::chooseLiveCompareMatch>;
+struct MatchChoiceMember
+{
+    using Type = live_compare_ui::MatchChoicePopup KirinHyphaEditor::*;
+    friend Type privateMember (MatchChoiceMember);
+};
+template struct PrivateAccess<MatchChoiceMember, &KirinHyphaEditor::matchChoicePopup>;
+
+static void verifyMatchChoiceControls()
+{
+    NoticeRig rig;
+    rig.selectPair(); rig.advance (0.2);
+    require (rig.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts for MATCH choice");
+    rig.expectOrdinaryAudio = false;
+    rig.advance (0.3);
+    live_compare::MatchPlan plan;
+    plan.needsApproval = true; plan.neededPreGainDb = 7.0; plan.limitedPreGainDb = 3.0; plan.lowerPostGainDb = -7.0;
+    auto& popup = rig.editor.get()->*privateMember (MatchChoiceMember {});
+    const auto open = [&] { (rig.editor.get()->*privateMember (OpenMatchChoice {})) (plan); };
+    const auto button = [&] (const char* id)
+    {
+        auto* found = dynamic_cast<juce::Button*> (rig.view().findChildWithID (id));
+        require (found != nullptr && found->onClick != nullptr, "the shipping comparison control exists");
+        return found;
+    };
+    auto* pre = button ("observatory-live-pre");
+    auto* end = button ("observatory-live-end");
+    auto* listen = button ("observatory-live-compare");
+    for (const int width : { 300, 375, 450, 600, 750, 900 })
+    {
+        rig.editor->setSize (width, width * 2 / 3);
+        rig.advance (0.05);
+        open();
+        auto* parent = popup.getParentComponent();
+        require (parent != nullptr && parent->getLocalBounds().contains (popup.getBounds()),
+                 "the shipping editor contains the MATCH choice at each size");
+        const std::array<juce::Component*, 4> actions { pre, end, listen, &rig.view().operationsMenuAnchor() };
+        for (auto* action : actions)
+            if (action->isVisible())
+            {
+                const auto bounds = parent->getLocalArea (action, action->getLocalBounds());
+                if (popup.getBounds().intersects (bounds))
+                    std::cerr << "choice width=" << width << " panel=" << popup.getBounds().toString()
+                              << " action=" << action->getComponentID() << " " << bounds.toString() << '\n';
+                require (! popup.getBounds().intersects (bounds),
+                         "the MATCH choice never covers a visible comparison control");
+            }
+        popup.close();
+    }
+    rig.editor->setSize (900, 600); rig.advance (0.1);
+    open();
+    require (popup.isVisible() && ! pre->isCurrentlyBlockedByAnotherModalComponent(), "MATCH leaves PRE usable");
+    pre->onClick();
+    require (! popup.isVisible() && rig.post->liveCompareStatus().preSelected, "PRE closes the choice and selects PRE");
+    open();
+    require (popup.isVisible() && ! end->isCurrentlyBlockedByAnotherModalComponent(), "MATCH leaves END usable");
+    end->onClick();
+    require (! popup.isVisible(), "END closes the choice");
+    rig.advance (0.4);
+    require (! rig.post->liveCompareStatus().active, "END actually finishes LISTEN");
+    open();
+    listen->onClick();
+    require (! popup.isVisible() && rig.post->liveCompareStatus().active, "LISTEN closes the choice and starts again");
+}
+
 struct GeometryCounter final : juce::ComponentListener
 {
     int changes = 0;
@@ -249,7 +319,7 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
 int main (int argc, char** argv)
 {
     const std::string part = argc > 1 ? argv[1] : "all";
-    if (part != "all" && part != "presentation" && part != "notices" && part != "host")
+    if (part != "all" && part != "presentation" && part != "notices" && part != "host" && part != "choice")
     {
         std::cerr << "unknown recovery product part: " << part << '\n';
         return 2;
@@ -275,5 +345,6 @@ int main (int argc, char** argv)
         hypha::tests::editor_product::verifyListenFromKeys();
     }
     if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
+    if (runs ("choice")) hypha::tests::editor_product::verifyMatchChoiceControls();
     std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

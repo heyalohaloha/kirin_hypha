@@ -145,8 +145,8 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_compile_definitions(KirinLiveRecoveryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
     target_include_directories(KirinLiveRecoveryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinLiveRecoveryProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
-    # One part per item; each budget is about three times the measured local run (2 s, 38 s, 11 s).
-    foreach(part_budget IN ITEMS presentation:30 notices:120 host:45)
+    # One part per item, with time for the fixture and slower native hosts.
+    foreach(part_budget IN ITEMS presentation:30 notices:120 host:45 choice:60)
         string(REPLACE ":" ";" part_budget "${part_budget}")
         list(GET part_budget 0 part)
         list(GET part_budget 1 budget)

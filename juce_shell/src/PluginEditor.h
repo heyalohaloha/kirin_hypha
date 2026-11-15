@@ -41,6 +41,7 @@
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
  #include "HyphaLiveBlindComponent.h"
+ #include "HyphaMatchChoicePopup.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -360,6 +361,7 @@ private:
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
+    hypha::live_compare_ui::MatchChoicePopup matchChoicePopup;
     hypha::HyphaTextButton    spectrumToggle { "" };        // POST: meters / Analysis page
     hypha::TimePageNavigation timePageNavigation;            // Compact cycle / Observatory tabs
     hypha::HyphaTextButton    spectrumSizeToggle { "" };    // POST Analysis: 100/125/150/200/300 percent

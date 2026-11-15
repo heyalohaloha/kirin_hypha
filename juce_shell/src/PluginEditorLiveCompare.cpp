@@ -15,7 +15,6 @@
 // receipts. Explicit END restores unity; window closure keeps the processor-owned comparison.
 namespace
 {
-namespace ui = hypha::ui_contract;
 using hypha::live_compare::MatchChoice;
 using hypha::live_compare::MatchFailure;
 using hypha::live_compare::MatchPlan;
@@ -133,22 +132,18 @@ void KirinHyphaEditor::matchLiveCompare (std::uint64_t menuGeneration)
 // menu changes nothing.
 void KirinHyphaEditor::chooseLiveCompareMatch (const MatchPlan& plan)
 {
-    juce::PopupMenu menu;
-    menu.setLookAndFeel (&pairMenuLookAndFeel());
-    menu.addSectionHeader (juce::String (processorRef.candidateCompareActive() ? "A needs " : "PRE needs ") + signedDb (plan.neededPreGainDb) + "; TP ceiling allows "
-                           + signedDb (plan.limitedPreGainDb));
-    menu.addItem (1, juce::String (processorRef.candidateCompareActive() ? "Lower B by " : "Lower POST by ")
-        + magnitudeDb (plan.lowerPostGainDb) + (processorRef.candidateCompareActive() ? "; A stays at its level" : "; PRE stays at its level"));
-    menu.addItem (2, juce::String (processorRef.candidateCompareActive() ? "Raise A by " : "Raise PRE by ") + signedDb (plan.limitedPreGainDb) + " only (TP LIMIT)");
-    const auto options = juce::PopupMenu::Options()
-        .withTargetComponent (&observatoryView.liveMatchAnchor()).withDeletionCheck (*this)
-        .withMinimumWidth (juce::jlimit (300, 520, getWidth()))
-        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
+    const bool candidate = processorRef.candidateCompareActive();
+    const auto heading = juce::String (candidate ? "A needs " : "PRE needs ") + signedDb (plan.neededPreGainDb)
+        + "; TP ceiling allows " + signedDb (plan.limitedPreGainDb);
+    const auto lower = juce::String (candidate ? "Lower B by " : "Lower POST by ")
+        + magnitudeDb (plan.lowerPostGainDb) + (candidate ? "; A stays at its level" : "; PRE stays at its level");
+    const auto limit = juce::String (candidate ? "Raise A by " : "Raise PRE by ") + signedDb (plan.limitedPreGainDb) + " only (TP LIMIT)";
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    menu.showMenuAsync (options, [safe, plan] (int result)
-    {
-        if (safe != nullptr) safe->handleLiveCompareMatchChoice (plan, result);
-    });
+    auto& matchAnchor = observatoryView.liveMatchAnchor();
+    auto& anchor = matchAnchor.isVisible() ? matchAnchor : observatoryView.operationsMenuAnchor();
+    matchChoicePopup.open (scaleRoot, scaleRoot.getLocalArea (&anchor, anchor.getLocalBounds()), heading, lower, limit,
+        logicalPresentationContext(), [safe, plan] (int result)
+        { if (safe != nullptr) safe->handleLiveCompareMatchChoice (plan, result); });
 }
 
 void KirinHyphaEditor::handleLiveCompareMatchChoice (const MatchPlan& plan, int result)
@@ -223,6 +218,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
 {
     processorRef.serviceLiveCompare();
     const auto status = processorRef.liveCompareStatus();
+    if (! status.active || status.finishing || liveBlindOpen) matchChoicePopup.close();
     if (liveBlindOpen) return false; // no identity-bearing notices or gain labels in Blind
     bool newFault = false;
     if (liveCompareFinishingSeen && ! status.finishing)
