@@ -8,6 +8,7 @@
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceVisualNavigationTest.h"
 #include "ReferenceBlindReasonTest.h"
+#include "ReferenceVersionCompactTest.h"
 #include "ReferenceAbcvRolesTest.h"
 #include "ReferenceActionIntentTest.h"
 #include "ReferenceLightContractTest.h"
@@ -98,6 +99,7 @@ reference_ui::State readyState()
 void verifyReferenceAuditionComponentContract()
 {
     verifyReferenceBlindReason();
+    verifyVersionCompact();
     verifyReferencePageWaitStatus();
     verifyReferenceVersionRows();
     verifyReferenceActionIntent();

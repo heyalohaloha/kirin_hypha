@@ -93,6 +93,10 @@ inline void verifyReferenceStatusPlacement (KirinHyphaEditor& editor, observator
              "C keeps its status inside the page at every size");
     view.setFeedback ("Saved"); place();
     require (strip.getParentComponent() == &panel && strip.isVisible(), "a footer notice does not hide C's status");
+    auto version = checkPageState(); version.comparisonSlot = 1;
+    panel.setState (version); place();
+    require (strip.getParentComponent() == &panel && ! strip.inFooter() && strip.isVisible() && ! panel.statusInFooter(),
+             "V keeps its status inside the page at every size");
     view.setFeedback (savedFeedback);
     panel.setState (saved);
     place();

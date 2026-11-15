@@ -28,7 +28,7 @@ public:
     // V の画面の Check のタブ。空ならタイムライン（WHOLE）。gainDb は V の追従の gain（鳴っていなければ NaN）。
     // views はその Check の表示（Kirin OS の view_bindings）。帯域の幅と、V で比べられない Check の断りに使う。
     // listening：耳で聴き比べる Check（図の代わりに聴き比べの案内）。
-    void setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views = {}, bool listening = false);
+    void setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views = {}, bool listening = false, bool primaryOnly = false);
     const juce::String& sameSectionCheck() const noexcept { return sameSection; }
     // 指した場所の説明（HyphaReferenceHelp.h）。V の Check のタブは描いたときに添えた説明、WHOLE は曲全体の説明。
     juce::String helpAt (juce::Point<int> local) const;
@@ -54,7 +54,7 @@ private:
     juce::String sameSection;
     double sameSectionGain = std::numeric_limits<double>::quiet_NaN();
     std::vector<juce::String> sameSectionViews;
-    bool sameSectionListening = false;
+    bool sameSectionListening = false, sameSectionPrimary = false;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
     juce::Point<float> pointer { -1.0f, -1.0f };  // what a V Check chart reads
     bool following = true, showingCrest = false, hidden = false;

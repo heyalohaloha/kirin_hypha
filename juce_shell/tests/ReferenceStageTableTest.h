@@ -3,7 +3,7 @@
 // 2026-10-06：段階の表（INV-S48）。
 //  - 全部の段階 × 全部の役（B・C・V）で、状態の行は同じ種類になり、準備中・できないの文は「理由 / 直し方」を 1 つずつ
 //    持つ（日英とも）。待ちの上限は自動で進む段階にだけ効き、利用者の操作を待つ段階はどれだけ待っても上限にならない。
-//  - 300% の B・C・V の並びは 300% だけ（200% は今までの選択欄と見出し）。
+//  - B・C の広い並びは 300% だけ。V は全サイズで専用の並びを使う。
 //  - 切れた状態の文は、どの大きさでも指せば全文を読める（300% は足元の説明の行、ほかは吹き出し）。
 #include "ReferenceADirectionTest.h"
 #include "ReferenceGuideContractTest.h"
@@ -88,8 +88,7 @@ inline void verifyReferenceStageTable()
         require (first >= 10.0 && first < 10.5, "a waiting press has one overall deadline of ten seconds");
     }
 
-    // 300% の B・C・V の並びは 300% だけ。200% は選択欄の段と見出し（2026-10-06：200% の B に 300% の欄が詰まり、
-    // C・V の見出しが消えていた）。
+    // B・C の大きな並びと、全サイズで使える V の並びを確かめる。
     for (const auto& [width, height] : { std::pair { 600, 400 }, std::pair { 900, 600 } })
         for (const int slot : { 1, 2, 3 })
         {
@@ -111,9 +110,9 @@ inline void verifyReferenceStageTable()
             auto* choice = panel.findChildWithID ("reference-check-choice");
             auto* list = panel.findChildWithID ("reference-song-list");
             require (tabs != nullptr && choice != nullptr && list != nullptr, "the page parts exist");
-            require (tabs->isVisible() == (large && slot == 1) && choice->isVisible() == (large && slot == 2)
+            require (! tabs->isVisible() && choice->isVisible() == (large && slot == 2)
                          && list->isVisible() == (large && slot == 3)
-                         && texts.contains ("REFERENCE") == ! large,
+                         && texts.contains ("REFERENCE") == (! large && ! (slot == 1 && width >= 600)),
                      juce::String ("the 300% page layout is used at 300% only (") + juce::String (width) + ", "
                          + reference_ui::roleLetter (slot) + ")");
         }

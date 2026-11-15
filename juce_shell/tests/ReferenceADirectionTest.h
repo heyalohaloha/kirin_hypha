@@ -423,14 +423,17 @@ inline void verifyReferenceADirection()
         reference_ui::Component panel;
         panelAt (panel, 900, 600);
         panel.setState (state);
+        auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+        auto* choice = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+        require (details && choice, "the V page has its details and comparison choice");
+        details->onClick();
+        choice->setSelectedId (1, juce::sendNotificationSync);
         requireSmallerA (drawnTexts (panel), { { "QUIETER", 1 } }, "V timeline");
-        auto* tabs = dynamic_cast<reference_ui::CheckTabs*> (panel.findChildWithID ("reference-check-tabs"));
-        require (tabs != nullptr && tabs->isVisible(), "the V page has its tabs");
-        tabs->onChoose ("v-tone");
+        choice->setSelectedId (2, juce::sendNotificationSync);
         requireSmallerA (drawnTexts (panel), { { "LOWER", 1 }, { "LESS", 4 } }, "V tone");
-        tabs->onChoose ("v-dynamics");
+        choice->setSelectedId (3, juce::sendNotificationSync);
         requireSmallerA (drawnTexts (panel), { { "SMALLER", 2 } }, "V dynamics");
-        tabs->onChoose ("v-stereo");
+        choice->setSelectedId (4, juce::sendNotificationSync);
         requireSmallerA (drawnTexts (panel), { { "NARROWER", 1 }, { "LOWER", 1 } }, "V stereo");
     }
 }

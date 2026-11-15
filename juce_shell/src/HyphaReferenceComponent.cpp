@@ -187,12 +187,13 @@ void Component::setState (State next)
         && current.libraryReceived && current.osAccess != os_access::State::unowned;
     blindButton.setVisible (! blindSession
         && (!current.separateComparisons || current.comparisonSlot == 1)
-        && (versionChosen || canStartBlind (current)));
-    unavailable::set (blindButton, !current.blindLargeScreen || canStartBlind (current),
+        && (versionChosen || canStartBlind (current))
+        && (! current.separateComparisons || current.blindLargeScreen || versionDetailsOpen));
+    unavailable::set (blindButton, (! current.separateComparisons && ! current.blindLargeScreen) || canStartBlind (current),
                       current.blindLowerAApprovalRequired ? juce::String ("Press LOWER A & START to begin")
                                                           : unavailableText (current, true));
-    blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
-    blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
+    blindButton.setButtonText (current.separateComparisons || current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
+    blindButton.setTitle (current.separateComparisons || current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
     syncSelectionControl (presetBox, current.presets, current.presetId);
     syncSelectionControl (versionBox, current.versions, current.versionId);
     syncSelectionControl (checkBox, current.checks, current.checkId);
@@ -341,7 +342,7 @@ void Component::paint (juce::Graphics& g)
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
-    if (! rolePage())  // 小さい C も見出しを残し、Cue は曲の隣に置く
+    if (! rolePage() && ! (versionPage() && detailedLayout()))  // 小さい C も見出しを残し、Cue は曲の隣に置く
     {
         g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
@@ -353,7 +354,7 @@ void Component::paint (juce::Graphics& g)
             : current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
             : current.checkLabel;
         g.setFont (displayTextFont (title, presentationContext, typography::TextRole::body, typography::Composition::information));
-        if (! shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
+        if (! shortPanel() && ! versionPage()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
     }
 
     if (presentationContext.referenceCheck && ! detailedLayout())

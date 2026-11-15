@@ -124,11 +124,10 @@ void Component::applyOverlay (reference_audition::BalanceOverlay next)
     setState (State (current));
 }
 
-// 300% 未満の C と V は薄く描き、押すと 300% に広げてその役の画面を開く（Blind と同じ動き）。
-// 鳴らすのは 300% でもう一度押したとき。広げる前に音は変えない。
+// 300% 未満の C は押すとページを広げ、もう一度押すまで鳴らさない。V は今の大きさで使う。
 bool Component::openLarge (int slot)
 {
-    if (! current.separateComparisons || current.blindLargeScreen || isBlindSession (current.blindPhase)) return false;
+    if (slot == 1 || ! current.separateComparisons || current.blindLargeScreen || isBlindSession (current.blindPhase)) return false;
     if (onSelectVisualSlot) onSelectVisualSlot (slot);
     if (onOpenLarge) onOpenLarge (slot);
     return true;

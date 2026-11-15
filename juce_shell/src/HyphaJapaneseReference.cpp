@@ -114,10 +114,10 @@ const Entry entries[] = {
     { "C LOUDEST 30 S %1", u8"C最も大きい30秒 %1" },
     { "C CUE %1", u8"CのCue %1" },
     { "V plays %1; positioning %2", u8"Vは%1を再生中。%2の位置を合わせています" },  // V の Version を替える間
-    { "Open V at 300%", u8"Vを300%で開く" }, { "Open C at 300%", u8"Cを300%で開く" },
+    { "Open C at 300%", u8"Cを300%で開く" },
     { "%1 opened at 300%. Press %2 to listen.", u8"%1を300%で開きました。%2を押すと試聴します。" },
     { "%1 opened at 300%.", u8"%1を300%で開きました。" },
-    { "C and V open at 300%. Choose 300% from the size menu.", u8"CとVは300%で使えます。大きさを300%にする" },
+    { "C opens at 300%. Choose 300% from the size menu.", u8"Cは300%で使えます。大きさを300%にする" },
     // 段階の表の状態の行（HyphaReferenceStages.cpp）。理由と直し方を「 / 」の区切りごとに訳す。
     { "KEEP KIRIN OS OPEN", u8"Kirin OSを開いたまま" },
     { "NO VERSION FOR V", u8"VのVersionなし" },

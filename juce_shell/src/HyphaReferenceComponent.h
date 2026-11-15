@@ -302,7 +302,7 @@ public:
     std::function<void(const juce::String&)> onSelectCandidate;
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
-    std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<void(int)> onOpenLarge; // 300% 未満の C を押したとき（広げるだけ、音は変えない）
     std::function<bool(int)> pageCurrent; // 描いている画面がまだ今の画面か（古い画面のタブの押しは捨てる）
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
@@ -409,7 +409,7 @@ private:
     }
 
     TargetBar targetBar;
-    bool dragActive = false, detailsOpen = false;
+    bool dragActive = false, detailsOpen = false, versionDetailsOpen = false;
     State current;
     bool guideShown = false;
     GuideFit lastGuideFit;
@@ -476,10 +476,10 @@ private:
     bool listeningCheck() const;
     void paintListeningPanel (juce::Graphics&, juce::Rectangle<int>) const;
     juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
-    // V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
+    // V の画面。VERSION・主の比較と、閉じた状態で始まる詳しい表示。
     bool versionPage() const noexcept;
-    static constexpr int versionPageRows = 28;  // タブ（選択欄はボタンの段）
-    juce::String versionTab { "whole" };
+    static constexpr int versionPageRows = 28;  // 広い画面の詳しくと VERSION BLIND の段
+    juce::String versionTab { "v-tone" };
 
     bool selectionVisible (const juce::ComboBox&) const;
     // B and C while they cannot be heard: dimmed, with the reason on hover and after a click, and

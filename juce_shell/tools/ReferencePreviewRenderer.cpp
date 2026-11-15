@@ -215,7 +215,14 @@ juce::Image render (hypha::reference_ui::State state, bool japanese, int width, 
         width, height, hypha::presentation::OutputTarget::referencePreview));
     shell.setBounds (surface.getLocalBounds());
     shell.setDomain (hypha::observatory::Domain::reference);
-    shell.setConnection ("KIRIN OS PREVIEW", hypha::COL_LED_BLUE,
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_LIVE_BLIND", {}) == "1")
+    {
+        hypha::observatory::LiveCompareFooter live;
+        live.active = live.matched = live.blindAvailable = true;
+        shell.setLocalBlindEntryEnabled (true);
+        shell.setLiveCompareFooter (live);
+    }
+    shell.setConnection ("KIRIN OS", hypha::COL_LED_BLUE,
                          hypha::observatory::ConnectionState::paired);
     surface.addAndMakeVisible (shell);
     reference.setBounds (shell.bodyBounds());
@@ -270,13 +277,25 @@ juce::Image render (hypha::reference_ui::State state, bool japanese, int width, 
             button->onClick();
             const auto& after = reference.state();
             const bool sameGain = std::memcmp (&after.appliedGainDb, &before.appliedGainDb, sizeof (double)) == 0;
-            if (after.checkDetailsOpen != opened || changes != 0 || after.checkId != before.checkId
+            if ((after.comparisonSlot == 2 && after.checkDetailsOpen != opened) || button->getToggleState() != opened
+                || changes != 0 || after.checkId != before.checkId
                 || after.cueId != before.cueId || after.followA != before.followA || after.song.chosen != before.song.chosen
                 || after.bSelected != before.bSelected || after.audibleComparisonSlot != before.audibleComparisonSlot || ! sameGain
                 || after.comparisonMode != before.comparisonMode || after.viewBindings != before.viewBindings)
                 fail ("reference-preview-details-changed-comparison");
         }
         reference.onMatch = {}; reference.onSetFollowA = {}; reference.onSetCheckSong = {}; reference.onSelectCheck = {};
+        if (reference.state().comparisonSlot == 1)
+        {
+            const auto view = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_V_VIEW", {});
+            auto* choice = dynamic_cast<juce::ComboBox*> (reference.findChildWithID ("reference-check-choice"));
+            if (choice != nullptr && view == "whole") choice->setSelectedId (1, juce::sendNotificationSync);
+            if (choice != nullptr && view == "dynamics") choice->setSelectedId (3, juce::sendNotificationSync);
+            if (choice != nullptr && view == "movement") choice->setSelectedId (6, juce::sendNotificationSync);
+            if (choice != nullptr && view == "attack") choice->setSelectedId (7, juce::sendNotificationSync);
+            if (choice != nullptr && view == "onset") choice->setSelectedId (8, juce::sendNotificationSync);
+            if (choice != nullptr && view == "correlation") choice->setSelectedId (9, juce::sendNotificationSync);
+        }
         }
     }
     if (blind)
@@ -328,7 +347,9 @@ int main (int argc, char** argv)
         if (output.existsAsFile() && ! output.deleteFile())
             fail ("reference-preview-output-failed");
         juce::FileOutputStream stream { output };
-        const auto state = previewScenario (stateFromRequest (object (request)));
+        auto state = previewScenario (stateFromRequest (object (request)));
+        if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_V", {}).isNotEmpty())
+            state.blindLargeScreen = previewWidth() >= 900;
         if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_VERIFY", {}) == "1" && ! verifyPreviewRound2 (state))
             fail ("reference-preview-round2-check-failed");
         if (! stream.openedOk()

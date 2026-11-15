@@ -166,8 +166,9 @@ and plays it as soon as it is ready, as when you press it while the DAW is stopp
 can change (outside the Cue, no match in this passage) or a match that cannot be made is explained
 instead.
 
-**Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
-them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
+**Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C is drawn dimmed; pressing
+it opens 300% without changing the sound (press again to listen). V works at the selected size, including
+100%: choose a Version and press V to listen. Starting Version Blind opens its full-window screen. At every size,
 the B page chooses the Reference set and the song, also while A plays, and switches FOLLOW A beside the song.
 At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
 
@@ -241,8 +242,10 @@ At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, op
   (AはCと同じ) when it rounds to zero. The metric cards read A, C and A VS C (CよりA) with the size of
   the difference and its unit and word under it (1.2 / LU QUIETER); at 200 % and below each card is one
   line, LUFS-I A 1.2 LU QUIETER.
-- **V**: the Version (across the whole row), then the tabs WHOLE, TONE, DYNAMICS, STEREO and LOW END
-  (全体・音色・ダイナミクス・ステレオ・低域). V's items are fixed and separate from C's CHECK SET, whose
+- **V**: choose the Version and see the main same-section TONE comparison. DETAILS is closed at first;
+  open it to choose WHOLE, TONE, DYNAMICS, STEREO or LOW END (全体・音色・ダイナミクス・ステレオ・低域).
+  The separate MOVEMENT, ATTACK, ONSET and CORRELATION choices keep those facts available on compact screens,
+  where VERSION BLIND is also in DETAILS below 300%. V's items are fixed and separate from C's CHECK SET, whose
   Checks each come with their own reference songs (comparing Versions of the same song needs no
   CHECK SET). WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
@@ -252,6 +255,7 @@ At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, op
   loudness movement beside the attack and onset, and STEREO the width and correlation, as range strips
   for A and V over the last 30 seconds of that section (both measured by Hypha on the same frames),
   with the first fact over time above them (A gold, V cyan, scaled to the lines).
+  The footer entry **LIVE BLIND** starts the PRE/POST comparison; it is separate from VERSION BLIND.
   VERSION BLIND opens from this page and runs on the same screen as the PRE/POST **BLIND**, over the
   whole window: switch **SOURCE 1 / SOURCE 2** while the DAW plays, **REVEAL** once both
   have sounded, and BLIND RESULT names them (1: A / 2: V) while you keep switching. **END** returns

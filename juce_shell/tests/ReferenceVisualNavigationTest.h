@@ -58,13 +58,13 @@ inline void verifyReferenceVisualNavigation()
         auto* cue = panel.findChildWithID ("reference-cue");
         auto* singleCheck = panel.findChildWithID ("reference-selection-value-2");
         require (preset && cue && singleCheck, "visual navigation controls exist");
-        // 300% 以上の V の画面は VERSION と決まった項目のタブ（2026-10-04）。C の CHECK SET・曲・Cue は C の画面で選ぶ。
+        // V は全サイズで専用の画面。C の CHECK SET・曲・Cue は C の画面で選ぶ。
         for (const auto* control : { preset, cue, singleCheck })
         {
-            const bool shown = size.width < 900;
+            const bool shown = false;
             require (control->isVisible() == shown && (! shown || (!control->getBounds().isEmpty()
                 && panel.getLocalBounds().contains (control->getBounds()))),
-                "C Preset, Cue and source stay reachable from A/B at " + juce::String (size.width));
+                "C Preset, Cue and source stay on C at " + juce::String (size.width));
         }
         require (! cue->isVisible() || !preset->getBounds().intersects (cue->getBounds()), "navigation has distinct hit targets");
         int audioChanges = 0, displayed = 0;

@@ -355,11 +355,10 @@ inline void verifyReferenceAbcvRoles()
         require (! set->isVisible() && ! song->isVisible() && version->isVisible(),
                  "the V page keeps its own selectors");
 
-        // 300% 未満の C と V は薄く（理由の代わりに「300% で開く」）、押すと 300% に広げてその役の画面を
-        // 開くだけで、音は変えない。300% では今までどおり鳴らす。
+        // 小さい C は広げるだけ。V はどの大きさでも試聴する。
         auto sized = state;
         sized.blindLargeScreen = size.width >= 900;
-        sized.versionReady = sized.checkReady = true;  // 鳴らせる C と V（300% では押せば鳴る）
+        sized.versionReady = sized.checkReady = true;  // 鳴らせる C と V
         sized.versionStep = sized.checkStep = reference_ui::SourceStep::ready;
         panel.setState (sized);
         int opened = 0, visual = 0;
@@ -376,9 +375,9 @@ inline void verifyReferenceAbcvRoles()
             require (opened == 0 && openedC == 0 && heardC && heardV && v->getTooltip() != "Open V at 300%",
                      "at 300% pressing C and V plays them");
         else
-            require (openedC == 2 && visualC == 2 && opened == 1 && visual == 1 && ! heardC && ! heardV
-                         && c->getTooltip() == "Open C at 300%" && v->getTooltip() == "Open V at 300%",
-                     "below 300% V and C open their page at 300% without changing the sound");
+            require (openedC == 2 && visualC == 2 && opened == 0 && ! heardC && heardV
+                         && c->getTooltip() == "Open C at 300%" && v->getTooltip() != "Open V at 300%",
+                     "below 300% C opens its page and V plays at the selected size");
         if (sized.blindLargeScreen)
         {
             sized.transportPlaying = true; sized.versionReady = sized.versionArmable = false;

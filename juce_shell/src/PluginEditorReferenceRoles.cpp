@@ -95,21 +95,21 @@ bool KirinHyphaEditor::ensureReferenceRoom()
 
 void KirinHyphaEditor::openReferenceLarge (int slot)
 {
-    // 300% 未満で C・V を押したら 300% に広げてその役の画面を開く。鳴らすのはもう一度押したとき。
+    // 300% 未満で C を押したら 300% に広げる。鳴らすのはもう一度押したとき。
     // まだ鳴らせない（準備中・選んでいない）ときは「押せば鳴る」と言わない（理由は開いた画面の状態の行）。
+    if (slot != 2) return;  // V uses the selected size.
     const auto& state = referenceView.state();
-    const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
-                                    : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    const bool playable = hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
     const juce::Point<int> from { getWidth(), getHeight() };
     referenceOpenedSlot = 0;  // a new press replaces the wait of the last one
     if (! ensureReferenceRoom()) return;
     if (from.x >= 900 && from.y >= 600)
     {
-        showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
+        showToast (hypha::reference_ui::notice::pageOpened (2, playable));
         return;
     }
     // 広げた窓は host が後から戻すことがある。知らせは 0.2 秒後の REF の timer まで待つ。
-    referenceOpenedSlot = slot == 1 ? 1 : 2;
+    referenceOpenedSlot = 2;
     referenceOpenedAt = nowSecs();
     referenceOpenedToastUntil = toastUntil;
     referenceOpenedFrom = from;
@@ -142,14 +142,13 @@ void KirinHyphaEditor::serviceReferenceOpenedNotice()
     if (waited > 1.0 || toastUntil != referenceOpenedToastUntil || target.isEmpty() || target != referenceOpenedKey)
         return;
     const auto& state = referenceView.state();  // whether pressing again plays, as it is now
-    const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
-                                    : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    const bool playable = hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
     // 2026-11-11：まだ鳴らせなければ、開いた時に理由と直し方も言う（もう一度押すまで分からなかった）。
     if (getWidth() >= 900 && getHeight() >= 600)
         showToast (hypha::reference_ui::notice::pageOpened (slot, playable)
                    + (playable ? juce::String() : " " + hypha::reference_ui::unavailableText (state, slot == 1)));
     else if (getWidth() == referenceOpenedFrom.x && getHeight() == referenceOpenedFrom.y)
-        showToast (hypha::reference_ui::notice::roomRequired());  // back at the size before: say what C and V need
+        showToast (hypha::reference_ui::notice::roomRequired());  // back at the size before: say what C needs
     // Any other size is the user's own or the host's: nothing is said.
 }
 

@@ -43,7 +43,7 @@ inline constexpr const char* cueBarSong = "SONG compares the whole song, framed 
 inline constexpr const char* checkPurpose = "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none.";
 
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
-inline constexpr const char* versionTabs = "WHOLE shows the whole song; the other tabs compare A and V over the same section.";
+inline constexpr const char* versionTabs = "WHOLE shows the song; other views compare A and V over the same section.";
 inline constexpr const char* versionMixContext = "V works best with Hypha on the 2Mix.";
 inline constexpr const char* whole = "The whole song: A above V, peak outside and RMS inside. Select a region to compare.";
 inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.";

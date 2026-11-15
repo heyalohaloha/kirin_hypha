@@ -10,6 +10,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaLanguage.h"
 #include "reference_audition/ReferenceDynamicsRange.h"
 #include "reference_audition/ReferenceCrestBasis.h"
 
@@ -43,6 +44,10 @@ std::vector<Row> rowsFor (const juce::String& binding)
 {
     namespace text = help_text;
     const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu, AWords::size, text::movement };
+    if (binding == "version_movement") return { movement };
+    if (binding == "version_attack") return { rowsFor ("transient").front() };
+    if (binding == "version_onset") return { rowsFor ("transient").back() };
+    if (binding == "version_correlation") return { rowsFor ("stereo").back() };
     if (binding == "dynamics")
         return { { "CREST", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size, text::crest }, movement };
     if (binding == "loudness")
@@ -404,6 +409,31 @@ bool paintVersionRangeStrips (juce::Graphics& g, juce::Rectangle<float> area, co
     sides.letter = "V";
     sides.shift = std::isfinite (gainDb) ? gainDb : 0.0;
     const auto prepared = prepare (rows, sides);
+    if (area.getHeight() < 75.0f)
+    {
+        // A compact view has room for one actual pair, not two squeezed strips and a timeline.
+        const auto& item = prepared.front();
+        const auto font = labelFont (context, typography::TextRole::readout, typography::Composition::visualization);
+        g.setFont (labelFont (context, typography::TextRole::readout, typography::Composition::visualization));
+        const bool japanese = i18n::current() == i18n::Language::japanese;
+        const juce::String label = binding == "version_movement" ? (japanese ? juce::String::fromUTF8 (u8"音量の動き") : juce::String ("MOVEMENT"))
+            : binding == "version_attack" ? (japanese ? juce::String::fromUTF8 (u8"アタック") : juce::String ("ATTACK"))
+            : binding == "version_onset" ? (japanese ? juce::String::fromUTF8 (u8"立ち上がり") : juce::String ("ONSET"))
+            : binding == "version_correlation" ? (japanese ? juce::String::fromUTF8 (u8"相関") : juce::String ("CORRELATION"))
+            : binding == "stereo" ? juce::String ("WIDTH") : juce::String (item.row.name);
+        const juce::String a = "A " + item.aText, v = "V " + item.otherText;
+        const auto labelWidth = std::ceil (text_style::shownWidth (font, label)) + 10.0f;
+        const auto aWidth = std::ceil (text_style::shownWidth (font, a)) + 10.0f;
+        const auto vWidth = std::ceil (text_style::shownWidth (font, v));
+        if (labelWidth + aWidth + vWidth > area.getWidth() || area.getHeight() < font.getHeight()) return false;
+        g.setColour (COL_NORMAL);
+        text_style::drawText (g, label, area.removeFromLeft (labelWidth), juce::Justification::centredLeft, false);
+        g.setColour (COL_FLORA_BR);
+        text_style::drawText (g, a, area.removeFromLeft (aWidth), juce::Justification::centredLeft, false);
+        g.setColour (COL_SPECTRUM_DELTA);
+        text_style::drawText (g, v, area.removeFromLeft (vWidth), juce::Justification::centredLeft, false);
+        return true;
+    }
     auto overlay = area.removeFromTop (std::round (area.getHeight() * 0.32f));
     area.removeFromTop (6.0f);
     paintTimeLines (g, overlay.reduced (6.0f, 0.0f), prepared.front(), sides, context);

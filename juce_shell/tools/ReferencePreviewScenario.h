@@ -7,11 +7,12 @@
 #include <cmath>
 
 #include "ReferencePreviewRound2.h"
+#include "ReferencePreviewVersion.h"
 
 inline int previewWidth()
 {
     const auto size = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_SIZE", {});
-    return size == "100" ? 300 : size == "200" ? 600 : 900;
+    return size == "100" ? 300 : size == "125" ? 375 : size == "150" ? 450 : size == "200" ? 600 : 900;
 }
 inline bool previewDetails()
 {
@@ -137,5 +138,6 @@ inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State st
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_CHECK_SONG", {}) == "1")
     { state.song.chosen = true; state.bSelected = false; state.action = {}; state.actionText.clear(); }
     previewRound2 (state);
+    previewVersion (state, live, reference);
     return state;
 }

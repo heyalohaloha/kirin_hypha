@@ -76,6 +76,10 @@ struct ReferenceLaterNotice
 template struct PrivateAccess<ReferenceLaterNotice, &KirinHyphaEditor::showToast>;
 struct ReferenceEditorTimer { using Type = void (KirinHyphaEditor::*)(); friend Type privateMember (ReferenceEditorTimer); };
 template struct PrivateAccess<ReferenceEditorTimer, &KirinHyphaEditor::timerCallback>;
+struct ReferenceRoomLicense { using Type = std::atomic<int> Processor::*; friend Type privateMember (ReferenceRoomLicense); };
+template struct PrivateAccess<ReferenceRoomLicense, &Processor::cachedLicenseCode>;
+struct ReferenceRoomController { using Type = void (Processor::*)(); friend Type privateMember (ReferenceRoomController); };
+template struct PrivateAccess<ReferenceRoomController, &Processor::createReferenceAuditionController>;
 
 inline juce::MemoryBlock editorSizeState (int version, observatory::Domain domain, int preset,
                                           int width, int height)
@@ -149,7 +153,7 @@ inline void verifyReferenceRoomSize()
     editor->setSize (600, 400);  // the host restores its own size
     openedAt -= 0.2;              // 0.2 s later
     (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
-    require (opened == "C and V open at 300%. Choose 300% from the size menu.",
+    require (opened == "C opens at 300%. Choose 300% from the size menu.",
              "a window back at its size (the host or a drag) says what C needs, not that C opened or why");
     opened = {};
     pane.onOpenLarge (2);
@@ -175,34 +179,28 @@ inline void verifyReferenceRoomSize()
     require (opened.isEmpty(), "the user's own size after C says neither C opened nor the window did not widen");
     pressC(); editor->setSize (750, 500); tickLater (0.2);
     require (opened.isEmpty(), "a size neither widened nor the size before says no cause");
-    pressC(); pane.onOpenLarge (1); tickLater (0.2);
+    auto& license = processor.*privateMember (ReferenceRoomLicense {});
+    const auto previousLicense = license.exchange (0);  // fixture entitlement, no account or device
+    (processor.*privateMember (ReferenceRoomController {})) ();  // ReferenceValidationStorageSandbox owns the fixture root
+    require (processor.selectReferenceVisualSlot (2), "fixture selects the C page");
+    pressC(); require (processor.selectReferenceVisualSlot (1), "fixture selects the V page"); tickLater (0.2);
     require (! opened.startsWith ("C "), "another role drops the notice for C");
+    require (processor.selectReferenceVisualSlot (2), "fixture returns to the C page");
+    license.store (previousLicense);
     pressC(); (editor.get()->*privateMember (ReferenceLaterNotice {})) ("Reference is not ready"); tickLater (0.2);
     require (opened == "Reference is not ready", "a later operation's notice is not overwritten by the wait for C");
     pressC(); domain = observatory::Domain::level; tickLater (0.2); domain = observatory::Domain::reference;
     require (opened.isEmpty(), "leaving the REF page drops the notice for C");
     pressC(); editor->setVisible (false); tickLater (2.0); editor->setVisible (true);
     require (opened.isEmpty(), "a window hidden past the wait drops the notice for C");
-    for (const auto& press : { std::function<void()> (pressC), std::function<void()> ([&] { processor.selectReferenceVisualSlot (1);
-                                                                                          editor->setSize (600, 400); opened = {}; pane.onOpenLarge (1); }) })
-    {
-        press(); editor->setVisible (false); (editor.get()->*privateMember (ReferenceEditorTimer {})) ();
-        editor->setVisible (true); tickLater (0.2);
-        require (opened.isEmpty(), "a window hidden for a moment drops the notice for C and V");
-    }
-    processor.selectReferenceVisualSlot (2);
-    // V widens on the same path (a host at 200% keeps it small too): the same fact, never "V opened".
-    const auto pressV = [&]
-    {
-        editor->setSize (600, 400); opened = {};
-        processor.selectReferenceVisualSlot (1);  // the V press shows the V page (an OS license), then widens
-        pane.onOpenLarge (1);
-    };
-    pressV(); editor->setSize (600, 400); tickLater (0.2);
-    require (opened == "C and V open at 300%. Choose 300% from the size menu.",
-             "a V window back at its size says what V needs, not that V opened at 300%");
-    pressV(); tickLater (0.2);
-    require (editor->getWidth() == 900 && opened.startsWith ("V opened at 300%"), "a V window that stayed wide says V opened");
+    pressC(); editor->setVisible (false); (editor.get()->*privateMember (ReferenceEditorTimer {})) ();
+    editor->setVisible (true); tickLater (0.2);
+    require (opened.isEmpty(), "a briefly hidden window drops the notice for C");
+    // Even a stale request for the old V expansion cannot resize or show a 300% instruction.
+    editor->setSize (600, 400); opened = {};
+    processor.selectReferenceVisualSlot (1);
+    pane.onOpenLarge (1); tickLater (0.2);
+    require (editor->getWidth() == 600 && opened.isEmpty(), "V never expands the window or asks for 300%");
     processor.selectReferenceVisualSlot (2);
     editor->setSize (600, 400);
     require (static_cast<bool> (pane.onStartBlind), "VERSION BLIND has a start action");
