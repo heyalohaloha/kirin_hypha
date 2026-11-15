@@ -91,6 +91,7 @@ void KirinHyphaProcessorBase::endCandidateCompare() noexcept
     auto& state = liveCompare.candidate;
     const auto token = state.token.load (std::memory_order_acquire);
     if (token == 0 || state.returning.exchange (true, std::memory_order_acq_rel)) return;
+    state.returnSince.store (hypha::live_compare::callbackWallNanos(), std::memory_order_release);
     if (auto* mapping = liveCompare.ring.control(); mapping != nullptr && mapping->ring() != nullptr)
     {
         auto& transfer = mapping->ring()->header.candidate;
@@ -161,8 +162,13 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
         const auto* held = liveCompare.ring.control();
         const bool untouched = held && held->ring()
             && held->ring()->header.candidate.returnedUntouched (state.token.load());
-        // Only a withdrawn, untouched request skips the downstream-history quarantine.
-        if (state.returning.load() && (untouched
+        // Only a withdrawn, untouched request skips the downstream-history quarantine. Past the
+        // overall deadline normal measurement resumes in a new window without that proof; the old
+        // count is discarded and later comparisons prove their own clock and content as before.
+        const auto since = state.returnSince.load (std::memory_order_acquire);
+        const auto now = callbackWallNanos();
+        const bool expired = since != 0 && now >= since && now - since >= CandidateProcessorState::returnLimitNanos;
+        if (state.returning.load() && (untouched || expired
             || (state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
                 && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0))))
         {
@@ -170,6 +176,8 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             if (liveCompare.blindScope == state.scope) liveCompare.blindScope = 0;
             state.scope = 0;
             state.returnObserver.retire(); state.returnObserver.collect();
+            state.returnContext.fetch_add (1, std::memory_order_acq_rel); // no count carries into a later return
+            state.returnSince.store (0, std::memory_order_release);
             state.isolated.store (false, std::memory_order_release);
             state.token.store (0, std::memory_order_release);
             state.returning.store (false, std::memory_order_release);

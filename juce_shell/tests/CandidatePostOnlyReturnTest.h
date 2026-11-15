@@ -43,7 +43,8 @@ template<class Require> void verifyCandidatePostOnlyReturn (Require require)
                 host.callback (post);
             }
         };
-        api.unavailable = true; render (500);
+        // Every restart below fits inside the return's overall ten seconds after END.
+        api.unavailable = true; render (380);
         require (post.candidateMeasurementIsolated(), "missing chain information keeps capture isolated");
         api.unavailable = false; render (100);
         require (post.candidateMeasurementIsolated(), "current delay and four second settling have not elapsed");
