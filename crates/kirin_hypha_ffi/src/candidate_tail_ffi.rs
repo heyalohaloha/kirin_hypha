@@ -6,6 +6,49 @@ pub struct CandidateTailHold {
     _lease: TailLease,
     pending: Arc<AtomicBool>,
 }
+
+/// Keeps the pressed All Keep roster alive while the shell replaces its engine.
+pub struct CandidateKeepRoster {
+    group: SharedKeepRoster,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_keep_roster_detach(
+    handle: *mut KirinHyphaEngine,
+) -> *mut CandidateKeepRoster {
+    catch_unwind(AssertUnwindSafe(|| {
+        unsafe { handle.as_ref() }.map_or(std::ptr::null_mut(), |engine| {
+            Box::into_raw(Box::new(CandidateKeepRoster {
+                group: Arc::clone(&engine.audition.tail_group),
+            }))
+        })
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_keep_roster_attach(
+    handle: *mut KirinHyphaEngine,
+    roster: *mut CandidateKeepRoster,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        let (Some(engine), Some(saved)) = (unsafe { handle.as_mut() }, unsafe { roster.as_ref() })
+        else {
+            return false;
+        };
+        engine.audition.tail_group = Arc::clone(&saved.group);
+        drop(unsafe { Box::from_raw(roster) });
+        true
+    }))
+    .unwrap_or(false)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_keep_roster_drop(roster: *mut CandidateKeepRoster) {
+    if !roster.is_null() {
+        drop(unsafe { Box::from_raw(roster) });
+    }
+}
 impl Drop for CandidateTailHold {
     fn drop(&mut self) {
         self.pending.store(false, Ordering::Release);
@@ -106,4 +149,35 @@ pub unsafe extern "C" fn kirin_hypha_keep_all_resume(handle: *mut KirinHyphaEngi
         unsafe { handle.as_ref() }.is_some_and(|engine| engine.keep_all_impl(true))
     }))
     .unwrap_or(false)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_keep_all_stage(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        unsafe { handle.as_ref() }.is_some_and(KirinHyphaEngine::stage_all_keep_roster)
+    }))
+    .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod roster_tests {
+    use super::*;
+
+    #[test]
+    fn waiting_roster_survives_engine_replacement_and_null_engine() {
+        let mut first = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
+        let expected = vec![("project".into(), "post".into(), "pre".into())];
+        *first.audition.tail_group.lock().unwrap() = Some(expected.clone());
+        let saved = unsafe { kirin_hypha_keep_roster_detach(&mut first) };
+        assert!(!saved.is_null());
+        assert!(!unsafe { kirin_hypha_keep_roster_attach(std::ptr::null_mut(), saved) });
+        drop(first);
+        let mut replacement = KirinHyphaEngine::new(44_100, ChannelLayout::stereo());
+        assert!(unsafe { kirin_hypha_keep_roster_attach(&mut replacement, saved) });
+        assert_eq!(
+            *replacement.audition.tail_group.lock().unwrap(),
+            Some(expected)
+        );
+        unsafe { kirin_hypha_keep_roster_drop(std::ptr::null_mut()) };
+    }
 }

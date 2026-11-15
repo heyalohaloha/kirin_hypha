@@ -92,12 +92,14 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     KirinHyphaLocalBlindHold* candidateExclusion = nullptr; // an ended A/B still draining its return
     if (hyphaHandle != nullptr)
     {
+        liveCompare.candidate.keepRoster.detach (hyphaHandle);
         if (liveCompare.candidate.scope != 0)
             candidateExclusion = kirin_hypha_detach_local_blind (hyphaHandle, liveCompare.candidate.scope);
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
     hyphaHandle = kirin::createEngineForRoles (sampleRate, roles);
+    liveCompare.candidate.keepRoster.attach (hyphaHandle);
     liveCompare.candidate.tailHold.attach (hyphaHandle);
     if (candidateExclusion != nullptr && ! kirin_hypha_attach_local_blind (hyphaHandle, candidateExclusion))
         liveCompare.candidate.scope = 0;

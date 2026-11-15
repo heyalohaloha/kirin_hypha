@@ -29,6 +29,7 @@ pub(crate) static ADMISSION_TEST: Mutex<()> = Mutex::new(());
 pub(crate) const AUDITION_NONE: u8 = 0;
 pub(crate) const AUDITION_REFERENCE: u8 = 1;
 const AUDITION_LOCAL_BLIND: u8 = 2;
+pub(crate) type SharedKeepRoster = Arc<Mutex<Option<Vec<(String, String, String)>>>>;
 
 pub(crate) struct AuditionState {
     active: Arc<AtomicBool>,
@@ -37,7 +38,7 @@ pub(crate) struct AuditionState {
     epoch: AtomicU64,
     version_blind: Mutex<Option<kirin_measure::reference_gain::visual::BlindCaptureExclusion>>,
     pub(crate) tail_pending: Arc<AtomicBool>,
-    pub(crate) tail_group: Mutex<Option<Vec<(String, String, String)>>>,
+    pub(crate) tail_group: SharedKeepRoster,
     reference_owner: kirin_measure::reference_gain::visual::ReferenceAnalysisOwner,
 }
 
@@ -51,7 +52,7 @@ impl AuditionState {
             reference_owner: Default::default(),
             version_blind: Mutex::new(None),
             tail_pending: Arc::new(AtomicBool::new(false)),
-            tail_group: Mutex::new(None),
+            tail_group: Arc::new(Mutex::new(None)),
         }
     }
 

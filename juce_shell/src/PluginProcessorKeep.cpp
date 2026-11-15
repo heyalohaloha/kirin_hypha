@@ -25,8 +25,13 @@ bool KirinHyphaProcessorBase::keepAll (std::optional<std::uint64_t> ticket, bool
     const juce::ScopedLock pairLock (automaticPair.lock);
     if (ticket && *ticket != restoreOrPairTicket()) return false;
     refreshLicenseForUserAction();
+    if (candidateTailPending() || (candidateReturning() && !candidateCompareActive()))
+    {
+        const juce::ScopedLock sl (handleLock);
+        if (!resume && hyphaHandle != nullptr) kirin_hypha_keep_all_stage (hyphaHandle);
+        return false;
+    }
     if (outputDecision (hypha::output_owner::Activity::recordKeep).refused()) return false;
-    if (candidateTailPending()) return false; // INV-AB6, as keepPair above
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;

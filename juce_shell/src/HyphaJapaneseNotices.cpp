@@ -83,6 +83,7 @@ const Entry entries[] = {
     { "Keep storage is full. Free disk space.", u8"保存先が満杯です。空きを増やしてください。" },
     { "Keep files unavailable. Check save folder.", u8"Keepの保存先を確認してください。" },
     { "Keep setup failed. Select PRE again.", u8"Keepの準備失敗。PREを選び直してください。" },
+    { "All Keep targets changed or unavailable. Try again.", u8"All Keepの対象が変わったか確認できません。押し直してください。" },
     { "Keep could not start. Try again.", u8"Keepを開始できません。再試行してください。" },
     { "Choose a PRE before Keep.", u8"Keepの前にPREを選んでください。" },
     { "PRE unavailable. Choose PRE again.", u8"PREが使えません。選び直してください。" },

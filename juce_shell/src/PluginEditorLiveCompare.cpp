@@ -432,10 +432,18 @@ bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, h
     if (! unprovenTail && (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
         || processorRef.candidateCompareActive()))
         return false;
+    if (action == hypha::live_compare_ui::AfterTail::keepAll)
+    {
+        if (processorRef.keepAll()) return true;
+        const auto notice = processorRef.drainKeepActionNotice();
+        if (notice != "A/B tail pending")
+        { showToast (notice.isNotEmpty() ? notice : "All Keep targets changed or unavailable. Try again."); return true; }
+    }
     // One waiting press at a time: this one replaces a waiting LISTEN, BLIND, A/B or C MATCH.
     liveCompareStartAfterReturnUntil = referenceRematchUntil = 0.0;
     liveCompareStartAfterReturnCandidate.clear();
-    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket(), nowSecs() };
+    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket(), nowSecs(), 0.0,
+                  action == hypha::live_compare_ui::AfterTail::keepAll };
     return true;  // the status line names the wait from the next refresh (no toast to outlive it)
 }
 
@@ -454,7 +462,8 @@ void KirinHyphaEditor::serviceAfterTailPress()
     const bool reference = afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
                         || afterTail.action == AfterTail::referenceB;
     // A later start (A/B, LISTEN, a Blind) is the user's newer choice; REF choices and leaving REF drop it at once.
-    if (waitingPairKey() != afterTail.pairKey || processorRef.restoreOrPairTicket() != afterTail.ticket
+    const bool restoringGroup = afterTail.action == AfterTail::keepAll && afterTail.groupStaged && processorRef.pairedPreInstanceId().isEmpty();
+    if ((!restoringGroup && waitingPairKey() != afterTail.pairKey) || processorRef.restoreOrPairTicket() != afterTail.ticket
         || processorRef.candidateCompareActive() || processorRef.liveCompareStatus().active
         || liveBlindOpen || localBlindOpen
         || (reference && observatoryDomain != hypha::observatory::Domain::reference))
@@ -464,6 +473,7 @@ void KirinHyphaEditor::serviceAfterTailPress()
     }
     if (!reference && nowSecs() - afterTail.since >= hypha::keep_ui::preWaitSeconds)
     { afterTail = {}; showToast (hypha::live_compare_ui::keepTailEndedNotice); return; }
+    if (restoringGroup) return;
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
     if (afterTail.action == AfterTail::keepAll && nowSecs() < afterTail.nextGroupCheck) return;
     if (! reference && (processorRef.candidateTailPending()
@@ -481,7 +491,7 @@ void KirinHyphaEditor::serviceAfterTailPress()
         case AfterTail::referenceC: if (referenceView.onSelectC) referenceView.onSelectC(); break;
         case AfterTail::referenceB: if (referenceView.onSelectRef) referenceView.onSelectRef(); break;
         case AfterTail::keepPair:   requestKeepPair (false, waited.ticket); break;
-        case AfterTail::keepAll:    requestKeepAll (waited.ticket, true, waited.since); break;
+        case AfterTail::keepAll:    requestKeepAll (waited.ticket, waited.groupStaged, waited.since); break;
         case AfterTail::none:       break;
     }
 }

@@ -3,6 +3,62 @@ use super::keep_preparation::KeepFailure;
 use super::*;
 
 impl KirinHyphaEngine {
+    /// Remember the exact targets when the origin itself must wait for its A/B return.
+    pub(crate) fn stage_all_keep_roster(&self) -> bool {
+        let _control = self
+            .keep_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        clear_keep_action_notice(&self.keep_action_notice);
+        let project = read_shared_id(&self.project_hash_cell);
+        let daw = read_shared_id(&self.daw_session_id_cell);
+        let origin = self
+            .identity
+            .lock()
+            .map(|identity| identity.instance_id.clone())
+            .unwrap_or_default();
+        let mut roster: Vec<_> = if project.is_empty() {
+            Vec::new()
+        } else {
+            enumerate_ready_post_pair_candidates_for_operation_group(
+                &PlatformPaths::current_kirin_tmp_root(),
+                &project,
+                &daw,
+                current_host_process_id(),
+            )
+            .into_iter()
+            .filter_map(|candidate| {
+                Some((
+                    candidate.project_uuid,
+                    candidate.instance_id,
+                    candidate.paired_pre_instance_id?,
+                ))
+            })
+            .collect()
+        };
+        roster.sort();
+        let valid = !origin.is_empty()
+            && roster.len() <= MAX_CAPTURE_GENERATION_MEMBERS
+            && roster.iter().any(|(_, post, _)| *post == origin);
+        roster.dedup();
+        *self
+            .audition
+            .tail_group
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = valid.then_some(roster);
+        if let Ok(mut notice) = self.keep_action_notice.write() {
+            *notice = Some(
+                if valid {
+                    "A/B tail pending"
+                } else {
+                    "All Keep targets changed or unavailable. Try again."
+                }
+                .to_string(),
+            );
+        }
+        valid
+    }
+
     /// Stage an immutable roster, notify its exact POSTs, and enter the local pair. Both writers
     /// of every member must be ready before the generation commits; failures abort the roster.
     pub fn keep_all(&self) -> bool {
@@ -116,8 +172,10 @@ impl KirinHyphaEngine {
                 None
             }
         };
-        if previous.as_ref().is_some_and(|old| *old != roster) {
-            KeepFailure::SetupChanged.publish(&self.keep_action_notice);
+        if resume && previous.as_ref() != Some(&roster) {
+            if let Ok(mut notice) = self.keep_action_notice.write() {
+                *notice = Some("All Keep targets changed or unavailable. Try again.".to_string());
+            }
             return false;
         }
         let plugin_data_dir = p.plugin_data_dir();

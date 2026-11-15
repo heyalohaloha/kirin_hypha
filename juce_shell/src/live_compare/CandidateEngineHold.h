@@ -15,7 +15,23 @@ bool kirin_hypha_candidate_tail_attach (KirinHypha* handle, CandidateTailHold* h
 void kirin_hypha_candidate_tail_end (CandidateTailHold* hold);
 bool kirin_hypha_all_keep_tail_pending (KirinHypha* handle);
 bool kirin_hypha_keep_all_resume (KirinHypha* handle);
+bool kirin_hypha_keep_all_stage (KirinHypha* handle);
+typedef struct CandidateKeepRoster CandidateKeepRoster;
+CandidateKeepRoster* kirin_hypha_keep_roster_detach (KirinHypha* handle);
+bool kirin_hypha_keep_roster_attach (KirinHypha* handle, CandidateKeepRoster* roster);
+void kirin_hypha_keep_roster_drop (CandidateKeepRoster* roster);
 }
+
+// Non-RT, guarded by the processor's engine lock across every replacement.
+class CandidateKeepRosterOwner
+{
+public:
+    ~CandidateKeepRosterOwner() { kirin_hypha_keep_roster_drop (saved); }
+    void detach (KirinHypha* engine) { if (engine && !saved) saved = kirin_hypha_keep_roster_detach (engine); }
+    void attach (KirinHypha* engine) { if (engine && saved && kirin_hypha_keep_roster_attach (engine, saved)) saved = nullptr; }
+private:
+    CandidateKeepRoster* saved = nullptr;
+};
 
 class CandidateTailOwner
 {

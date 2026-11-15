@@ -150,12 +150,16 @@ void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket, bool
 {
     if (processorRef.keepAll (ticket, resume)) return;
     if (ticket && *ticket != processorRef.restoreOrPairTicket()) return;  // restored or re-paired: dropped, not refused
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (resume && (processorRef.candidateTailPending() || processorRef.candidateReturning()))
+    { afterTail = { hypha::live_compare_ui::AfterTail::keepAll, waitingPairKey(), processorRef.restoreOrPairTicket(), since, 0.0, true }; return; }
+   #endif
     const juce::String notice = processorRef.drainKeepActionNotice();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (notice == "A/B tail pending")
     {
         afterTail = { hypha::live_compare_ui::AfterTail::keepAll, waitingPairKey(), processorRef.restoreOrPairTicket(),
-                      resume ? since : nowSecs() };
+                      since > 0.0 ? since : nowSecs(), 0.0, true };
         return;
     }
    #endif

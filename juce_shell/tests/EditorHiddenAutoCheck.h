@@ -74,6 +74,10 @@ template struct PrivateAccess<WaitPairKey, &KirinHyphaEditor::waitingPairKey>;
 // never after the window hid or a Stop: the real editor handlers check those before any side effect.
 inline void verifyWaitingRequests()
 {
+    const juce::String changed = "All Keep targets changed or unavailable. Try again.";
+    require (i18n::translate (changed, i18n::Language::english) == changed
+             && i18n::translate (changed, i18n::Language::japanese) == juce::String::fromUTF8 (u8"All Keepの対象が変わったか確認できません。押し直してください。"),
+             "the cancelled All Keep explains its changed or missing targets in both languages");
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
     hypha::tests::prepareFixtureProcessor (processor, 48'000, 512);
@@ -134,6 +138,18 @@ inline void verifyWaitingRequests()
         require ((e->*privateMember (WaitAfterTail {})).action == live_compare_ui::AfterTail::none
                      && ! processor.referenceAuditionSnapshot().bSelected,
                  "a press waiting for the A/B tail is dropped when the pair changes");
+    }
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        require (processor.pairedPreInstanceId().isEmpty(), "the re-prepared engine has not restored its pair yet");
+        waiting = { live_compare_ui::AfterTail::keepAll, "saved PRE|", processor.restoreOrPairTicket(), now(), 0.0, true };
+        tick();
+        require (waiting.action == live_compare_ui::AfterTail::keepAll && !processor.isRecording(),
+                 "a staged All Keep waits for its pair to be restored rather than being dropped");
+        waiting.since = now() - (keep_ui::preWaitSeconds + 1.0); tick();
+        require (waiting.action == live_compare_ui::AfterTail::none
+                 && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: Keep not started",
+                 "a missing pair does not extend the original two-minute bound");
     }
     for (const auto action : { live_compare_ui::AfterTail::keepPair, live_compare_ui::AfterTail::keepAll })
     {

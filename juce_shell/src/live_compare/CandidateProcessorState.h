@@ -25,6 +25,7 @@ struct CandidateProcessorState
     // is learnt for PRE's alignment and no correction is kept. The return observer lives on for it.
     std::atomic<std::uint64_t> tail { 0 };
     CandidateTailOwner tailHold; // non-RT; remains held across engine replacement
+    CandidateKeepRosterOwner keepRoster; // non-RT; retains a waiting All Keep's exact roster
     std::string tailPre; // message thread
     std::uint64_t observedReturnContext = 0; // Audio Thread only
     std::uint64_t scope = 0; // existing project capture exclusion, separate from a BLIND trial
