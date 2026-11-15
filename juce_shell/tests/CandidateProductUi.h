@@ -39,6 +39,14 @@ struct CandidateEditorWarning
     friend Type candidateEditorTick (CandidateEditorWarning);
 };
 template struct CandidateEditorAccess<CandidateEditorWarning, &KirinHyphaEditor::liveCompareWarning>;
+struct CandidateEditorToast
+{
+    using Type = juce::String KirinHyphaEditor::*;
+    friend Type candidateEditorTick (CandidateEditorToast);
+};
+template struct CandidateEditorAccess<CandidateEditorToast, &KirinHyphaEditor::toastText>;
+inline juce::String candidateToast (juce::AudioProcessorEditor& editor)
+{ return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorToast {}); }
 inline void candidateTick (juce::AudioProcessorEditor& editor)
 { (dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorTick {}))(); }
 

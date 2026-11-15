@@ -58,6 +58,41 @@ template<class Require> void verifyCandidateReturnEntry (Require require)
     }
 }
 
+// POST is lowered, then the host bypasses POST and goes on calling it: the RETURN a LISTEN press asks for
+// cannot finish (the audio side waits for a block it may change, and the callbacks never go quiet). The
+// press's 10 s still end its wait, saying that bypass holds the return; turning bypass off returns POST.
+template<class Require> void verifyCandidateBypassedReturnEntry (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair(); auto& post = host.post();
+    require (post.startLiveCompare() == StartResult::started, "LISTEN starts before its MATCH lowers POST");
+    host.render (100, false, false);
+    MatchResult level; level.failure = MatchFailure::none; level.measuredDb = 8.0;
+    level.prePeakDbtp = -1.0; level.postPeakDbtp = -4.0; level.ceilingDbtp = -1.0;
+    require (post.applyLiveCompareMatch (planMatch (level, 0.0), MatchChoice::lowerPost), "the approved MATCH lowers POST");
+    host.render (30, false, false); post.stopLiveCompare(); host.render (10, false, false);
+    require (post.liveCompareStatus().postTarget < 1.0f, "the lowered level is held after LISTEN");
+    post.getBypassParameter()->setValue (1.0f);
+    auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
+    editor->setSize (900, 600); editor->setVisible (true); candidateTick (*editor);
+    pressComparisonMenuEntry (*editor, "LISTEN", require);
+    require (afterQueuedMessages ([] {}), "deliver the queued LISTEN press");
+    for (int i = 0; i < 200; ++i) { host.render (1, false, false); candidateTick (*editor); }
+    require (candidateEntryPending (*editor) && post.liveCompareStatus().finishing,
+             "bypass holds the RETURN the press asked for while its callbacks go on");
+    expireCandidateEntryDeadline (*editor); candidateTick (*editor);
+    require (! candidateEntryPending (*editor) && candidateToast (*editor) == live_compare_ui::bypassHoldsReturnNotice,
+             "the press's 10 s end the wait and say that bypass holds the return");
+    post.getBypassParameter()->setValue (0.0f);
+    for (int i = 0; i < 100 && post.liveCompareStatus().finishing; ++i) { host.render (1, false, false); candidateTick (*editor); }
+    require (! post.liveCompareStatus().finishing && post.liveCompareStatus().postActual == 1.0f
+                 && ! post.liveCompareStatus().active,
+             "with bypass off the same RETURN finishes and nothing starts by itself");
+    post.editorBeingDeleted (editor.get()); editor.reset();
+}
+
 template<class Require> void verifyCandidateAlignment (Require require)
 {
     using namespace live_compare;

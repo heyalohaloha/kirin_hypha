@@ -377,7 +377,17 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
     // The return has its own overall deadline (an A/B tail 10 s after END; POST's level within 0.5 s
     // while stopped), so waiting for it never moves this press's 10 s. A press that can start starts,
     // even just past those 10 s; only a press still refused for another reason ends with the reason.
-    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
+    // A host's bypass holds POST's return with its callbacks going on (the audio side changes no bypassed
+    // block, and the quiet never comes): past the press's 10 s it ends, saying so. The return goes on.
+    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
+    {
+        const auto* bypass = processorRef.getBypassParameter();
+        if (nowSecs() < liveCompareStartAfterReturnUntil || bypass == nullptr || bypass->getValue() < 0.5f) return;
+        liveCompareStartAfterReturnUntil = 0.0;
+        liveCompareStartAfterReturnCandidate.clear();
+        showToast (hypha::live_compare_ui::bypassHoldsReturnNotice);
+        return;
+    }
     if (next != StartAfterReturn::start)
     {
         if (nowSecs() < liveCompareStartAfterReturnUntil) return;

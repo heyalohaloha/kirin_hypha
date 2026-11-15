@@ -48,6 +48,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateLoopBoundary (require);
     std::cout << "Candidate product: queued return\n" << std::flush;
     verifyCandidateReturnEntry (require);
+    verifyCandidateBypassedReturnEntry (require);
     std::cout << "Candidate product: alignment\n" << std::flush;
     verifyCandidateAlignment (require);
     verifyCandidateAlignmentEpoch (require);

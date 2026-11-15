@@ -78,6 +78,7 @@ inline std::vector<Notice> notices()
         for (auto wait : { live_compare_ui::QueuedWait::returning, live_compare_ui::QueuedWait::tail,
                            live_compare_ui::QueuedWait::stopped, live_compare_ui::QueuedWait::other })
             add (live_compare_ui::queuedStartNotice (start, wait));
+    add (live_compare_ui::bypassHoldsReturnNotice);
     for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
                          live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
         for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));
