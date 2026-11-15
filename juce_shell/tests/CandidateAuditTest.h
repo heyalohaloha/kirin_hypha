@@ -38,6 +38,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateRecoveryAudit (require);
     verifyCandidateLongReturn (require);
     verifyCandidateReturnDeadline (require);
+    verifyCandidateDeadlineTail (require);
     verifyLiveMatchDeadline (require);
     verifyLiveBlindSeekBack (require);
     verifyLiveBlindPreparationDeadline (require);

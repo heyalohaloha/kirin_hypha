@@ -66,7 +66,9 @@ can finish settling. Missing host-chain metadata pauses the count; a seek, chang
 clock change or stopped/ineligible output requires a new return proof. The return has one overall
 deadline: 10 s after END, normal measurement resumes in a new window even without that proof, also
 while audio is stopped, and a queued start then goes on. Nothing of the old count carries over, and
-later comparisons prove their own clock positions and content as before. MATCH reports the remaining verified settling/window duration.
+later comparisons prove their own clock positions and content as before. A return ended by the
+deadline alone keeps observing the ordinary pair: until its marker has passed the chain and four
+seconds have settled, B's remaining comparison audio is never used to learn or keep PRE's alignment. MATCH reports the remaining verified settling/window duration.
 The isolated POST callback still records its input and output in an explicitly armed chain trace. Saved comparisons never restart.
 
 The common renderer and ring layout serve macOS and Windows and the supported AU/VST3/AAX

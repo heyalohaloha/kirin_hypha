@@ -74,4 +74,54 @@ template<class Require> void verifyCandidateReturnDeadline (Require require)
     host.render (100, true, false);
     require (post.liveCompareStatus().verdict == Verdict::accepted, "the next A/B proves its own clock positions");
 }
+// INV-AB6 with automatic alignment on: the deadline ends the return while a long B still carries
+// the comparison's audio (12 s reported, 40 ms unreported). The clocks and a strong content match
+// cannot tell that audio from the ordinary path, so an ordinary LISTEN started then learns nothing
+// from it and keeps nothing: PRE plays at K. Once an ordinary marker has passed the chain and
+// settled for four seconds, the content is learnt as in any LISTEN.
+template<class Require> void verifyCandidateDeadlineTail (Require require)
+{
+    using namespace live_compare;
+    ValidationStorageSandbox isolated;
+    writeCandidateFixtureIdentity (require, isolated.directory());
+    constexpr int unreported = 1920;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.processorTimers = true; host.timerBlocks = 4;
+    host.delayA = 0; host.delayB = 12 * 48000 + unreported; host.reportedDelayB = -unreported;
+    candidateBroadband = true;
+    host.pair(); auto& post = host.post();
+    post.setLiveCompareAutoAlign (true);
+    // Another reader of PRE1 (a POST of the same pair's analysis) keeps its PCM run going throughout,
+    // so the LISTEN below can read PRE 12 s back from its first block.
+    SharedRingMapping reader;
+    require (reader.open (pairKeyForPreInstance (host.pre1().instanceId().toStdString()), 48000), "another reader demands PRE1's PCM");
+    host.render (1200, false, false, false);
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "the long-B candidate starts");
+    host.render (180, true, false, false);
+    require (host.replacementBlocks > 0, "PRE2 substitutes input before END");
+    post.finishLiveCompare(); host.render (20, true, false, false);
+    host.render (930, false, false, false); // 10.1 s after END
+    require (! post.candidateMeasurementIsolated() && ! post.candidateReturning(), "the deadline ends the return");
+    require (post.startLiveCompare() == StartResult::started, "an ordinary LISTEN starts after the deadline");
+    post.selectLiveComparePre (true);
+    int learnt = 0, audible = 0, told = 0;
+    for (int n = 0; n < 150; ++n) // until 11.7 s after END: B still plays the comparison's audio
+    {
+        host.render (1, false, true, false);
+        const auto s = post.liveCompareStatus();
+        learnt += post.liveCompareAlignFrames() != 0 ? 1 : 0;
+        audible += s.preAudible ? 1 : 0; told += s.contentUnmeasured ? 1 : 0;
+    }
+    std::printf ("A/B deadline tail: LISTEN blocks with a learnt correction %d, PRE audible %d, told unmeasured %d\n", learnt, audible, told);
+    require (learnt == 0, "nothing is learnt for PRE's alignment from B's remaining comparison audio");
+    require (audible > 30 && told > 0, "PRE plays at its clock position, told as unmeasured");
+    int blocks = 150;
+    for (; blocks < 1500 && post.liveCompareAlignFrames() != unreported; ++blocks) host.render (1, false, true, false);
+    std::printf ("A/B deadline tail: the ordinary path is learnt %.1f s after the LISTEN began\n", blocks * 512.0 / 48000.0);
+    require (post.liveCompareAlignFrames() == unreported && blocks > 500,
+             "the ordinary path is learnt only after its marker passed the chain and settled");
+    post.finishLiveCompare(); host.render (40, false, false, false);
+    candidateBroadband = false;
+}
 }

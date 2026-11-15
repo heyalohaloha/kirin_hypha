@@ -161,6 +161,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         timingEligible,
         usable ? &liveCompare.chain : nullptr, &analysisQualified, trace != nullptr ? &trace->peer : nullptr);
     if (trace != nullptr) { trace->block = block; trace->timing = timing; trace->timingSeen = true; }
+    liveCompare.candidate.observeTail (block, static_cast<std::uint32_t> (preparedFormat.sampleRate), timingEligible);
     if (! projectAnalysis) liveCompare.analysisClock.observePair (block, timing, analysisQualified);
     const auto loopBlock = hypha::live_compare::pairingLoopBlock (block, wrapperType == auWrapper,
         wrapperType == aaxWrapper, timing, timingEligible);

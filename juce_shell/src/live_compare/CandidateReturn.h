@@ -31,8 +31,15 @@ struct CandidateReturnObserver
     bool reached (const CandidateTransfer& transfer, std::uint64_t token,
                   const BlockClock& block, std::uint32_t rate) noexcept
     {
+        if (transfer.withdrawn (token)) return reached (block, rate);
+        proofAvailable = seen = marked = false; timing.reset(); return false;
+    }
+    // Without PRE2's receipt: after the return's overall deadline its lease has long ended, so every
+    // marker PRE1 publishes from then on is ordinary input (the deadline's tail, INV-AB6).
+    bool reached (const BlockClock& block, std::uint32_t rate) noexcept
+    {
         proofAvailable = false;
-        if (!transfer.withdrawn (token) || !source.ring()->matches (source.key(), rate))
+        if (!source.ring()->matches (source.key(), rate))
         { seen = marked = false; timing.reset(); return false; }
         TimingSnapshot fresh;
         if (!readTiming (source.ring()->header.timing, fresh) || !fresh.active

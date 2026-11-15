@@ -30,7 +30,10 @@ amount, B stands in for at most one second in all; then A plays at its clock pos
 Normal measurement and capture are suspended during A/B. Finish Record / Keep before starting.
 After END they resume once B has played out what it was fed during A/B (four seconds of playback),
 and at the latest ten seconds after END, also while the DAW is stopped. A LISTEN, BLIND, V, C, B or
-Keep pressed meanwhile starts by itself.
+Keep pressed meanwhile starts by itself. If the ten seconds ended the wait while B was still playing
+out the comparison, a LISTEN or BLIND started then does not measure PRE's alignment from that audio:
+PRE plays at its clock position (or with the amount confirmed before) and the status line says
+**Delay unmeasured** (or **Delay not re-measured**) until B has played it out.
 
 Hardware and effects with feedback or long tails retain their own history when their input
 changes. A/B does not reset them. Allow the effect to settle before judging it or exporting;

@@ -176,8 +176,10 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     tick.now = now; tick.readRetryNanos = keptReadNanos;
     if (const auto fallback = liveCompare.preAlign.transition (tick); fallback.request)
         liveCompare.renderer.requestAlign (fallback.value, context, fallback.revision);
+    // INV-AB6: after an A/B return that ended at its deadline, B may still carry comparison audio.
+    // Nothing is learnt from it; PRE plays at K or with a correction kept before, told as above.
     if (!state.active || state.compensationOff || ! liveContentPathProven (state)
-        || now < liveCompare.contentMonitorNext) return;
+        || now < liveCompare.contentMonitorNext || liveCompare.candidate.tail.load (std::memory_order_acquire) != 0) return;
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (hypha::live_compare::beforeContentEstimateForTest != nullptr)
         hypha::live_compare::beforeContentEstimateForTest();

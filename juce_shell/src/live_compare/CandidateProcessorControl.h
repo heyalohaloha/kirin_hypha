@@ -60,6 +60,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::notReady;
     }
     state.scope = scope; // existing project exclusion, reused by BLIND without declaring a trial
+    state.tail.store (0, std::memory_order_release); state.tailPre.clear(); // this A/B's own return covers it
     state.isolated.store (true, std::memory_order_release);
     state.returning.store (false, std::memory_order_release);
     state.quietFrames.store (0, std::memory_order_release);
@@ -129,7 +130,33 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
     if (role == Role::Post)
     {
         state.returnObserver.collect();
-        if (state.token.load() == 0) return;
+        if (state.token.load() == 0)
+        {
+            // The deadline's tail: the same marker and four-second count, without PRE2's receipt.
+            if (state.tail.load() == 0) return;
+            const auto rate = static_cast<std::uint32_t> (preparedFormat.sampleRate);
+            const bool proven = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+                && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0);
+            if (proven || state.tailPre != pairedPreInstanceId().toStdString())
+            {
+                state.tail.store (0, std::memory_order_release); state.tailPre.clear();
+                state.returnObserver.retire(); state.returnObserver.collect();
+                state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+                return;
+            }
+            const auto key = pairKeyForPreInstance (state.tailPre);
+            if (const auto* observer = state.returnObserver.control(); observer && ! observer->source.ring()->matches (key, rate))
+            {
+                state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+                state.returnObserver.retire(); state.returnObserver.collect();
+            }
+            if (! state.returnObserver.hasStorage())
+            {
+                auto replacement = std::make_unique<CandidateReturnObserver>();
+                if (replacement->prepare (key, rate)) state.returnObserver.publish (std::move (replacement));
+            }
+            return;
+        }
         if (state.originalPre != pairedPreInstanceId().toStdString() || ! liveCompare.authority.permitted()) endCandidateCompare();
         if (! state.returning.load())
             if (const auto* mapping = liveCompare.ring.control(); mapping && mapping->ring())
@@ -168,14 +195,16 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
         const auto since = state.returnSince.load (std::memory_order_acquire);
         const auto now = callbackWallNanos();
         const bool expired = since != 0 && now >= since && now - since >= CandidateProcessorState::returnLimitNanos;
-        if (state.returning.load() && (untouched || expired
-            || (state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
-                && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0))))
+        const bool proven = untouched || (state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+            && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0));
+        if (state.returning.load() && (proven || expired))
         {
             if (state.scope != 0 && ! releaseLocalBlindProductScope (state.scope)) return;
             if (liveCompare.blindScope == state.scope) liveCompare.blindScope = 0;
             state.scope = 0;
-            state.returnObserver.retire(); state.returnObserver.collect();
+            // Ended by the deadline alone: the tail stays out of PRE's alignment until it is proven.
+            if (proven) { state.returnObserver.retire(); state.returnObserver.collect(); }
+            else { state.tailPre = state.originalPre; state.tail.store (state.token.load(), std::memory_order_release); }
             state.returnContext.fetch_add (1, std::memory_order_acq_rel); // no count carries into a later return
             state.returnSince.store (0, std::memory_order_release);
             state.isolated.store (false, std::memory_order_release);
