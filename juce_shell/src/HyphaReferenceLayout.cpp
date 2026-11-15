@@ -188,7 +188,7 @@ void Component::layoutAWindowControls()
     if (detailedLayout() && ! guideShown && ! isBlindSession (current.blindPhase) && ! comparisonView.isVisible())
     {
         if (songList.isVisible()) areas[0] = referenceBalanceAWindowArea (balanceBounds.toFloat(), current, presentationContext);
-        else if (! (current.separateComparisons && current.comparisonSlot == 3) && ! (checkPage() && listeningCheck()))
+        else if (! (current.separateComparisons && current.comparisonSlot == 3) && ! (current.separateComparisons && current.comparisonSlot == 2 && listeningCheck()))
             areas = referenceAWindowAreas (observationArea.toFloat(), current, presentationContext);
     }
     for (size_t index = 0; index < aWindowControls.size(); ++index)
@@ -209,7 +209,7 @@ juce::Rectangle<int> Component::observationWindowBounds() const noexcept
     if (guideShown || isBlindSession (current.blindPhase)) return {};
     if (comparisonView.isVisible()) return observationArea;
     if (detailedLayout() && ! songList.isVisible() && ! (current.separateComparisons && current.comparisonSlot == 3)
-        && ! (checkPage() && listeningCheck())
+        && ! (current.separateComparisons && current.comparisonSlot == 2 && listeningCheck())
         && configuredReferenceViewsFit (observationArea.toFloat(), current))
         return observationArea;
     return {};

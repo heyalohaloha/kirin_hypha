@@ -267,13 +267,15 @@ bool Component::listeningCheck() const
 void Component::paintListeningPanel (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     surface_material::paintPanel (g, area.toFloat(), 0.72f);
-    auto inner = area.reduced (12, 8);
+    auto inner = area.reduced (detailedLayout() ? 12 : 3, detailedLayout() ? 8 : 1);
     g.setColour (COL_NORMAL);
-    g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel, typography::Composition::visualization));
-    text_style::drawEllipsized (g, current.checkLabel, inner.removeFromTop (22), juce::Justification::centredLeft);
-    g.setColour (COL_NORMAL);
+    if (detailedLayout() && inner.getHeight() >= 48)
+    {
+        g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel, typography::Composition::visualization));
+        text_style::drawEllipsized (g, current.checkLabel, inner.removeFromTop (22), juce::Justification::centredLeft);
+    }
     g.setFont (labelFont (presentationContext, typography::TextRole::status, typography::Composition::visualization));
-    text_style::drawLines (g, listeningGuide ('C'), inner.reduced (24, 0), juce::Justification::centred, 3);
+    text_style::drawLines (g, listeningGuide ('C'), inner.reduced (detailedLayout() ? 24 : 0, 0), juce::Justification::centred, 3);
 }
 
 void Component::paintCheckPageLabels (juce::Graphics& g) const
@@ -298,7 +300,7 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
 int Component::checkFooterHeight() const noexcept
 {
     const bool cueRow = ! current.checks.empty();
-    const bool bands = ! current.viewBindings.empty() && current.viewBindings.front().startsWith ("spectrum_");
+    const bool bands = ! listeningCheck() && ! current.viewBindings.empty() && current.viewBindings.front().startsWith ("spectrum_");
     return (cueRow ? checkFooterRow : 0) + (bands ? checkFooterRow + 4 : 0);
 }
 

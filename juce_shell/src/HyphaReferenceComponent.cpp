@@ -384,12 +384,12 @@ void Component::paint (juce::Graphics& g)
 
     if (! songList.isVisible() && ! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 3)
         paintCompactBalance (g, area, current, presentationContext);
+    else if (! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 2 && listeningCheck())
+        paintListeningPanel (g, paintCheckFooter (g, area));
     else if (detailedLayout())
     {
         area = paintCheckFooter (g, area);  // C の画面の 4 帯域と Cue の時間軸
         if (songList.isVisible()) paintReferenceBalance (g, balanceBounds.toFloat(), current, presentationContext);
-        else if (!comparisonView.isVisible() && checkPage() && listeningCheck())
-            paintListeningPanel (g, area);  // 耳で聴き比べる Check（C−A がいつも 0.0 の箱を出していた）
         else if (!comparisonView.isVisible()
             && !paintConfiguredReferenceViews (g, observationArea.toFloat(), current, presentationContext))
         {
