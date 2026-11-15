@@ -37,6 +37,7 @@ public:
         {
             field->setComponentID (idPrefix + (index++ == 0 ? "-image-name-a" : "-image-name-b"));
             field->setMultiLine (false);
+            field->setSelectAllWhenFocused (true);
             field->setReturnKeyStartsNewLine (false);
             field->setInputRestrictions (nameLimit);
             field->setColour (juce::TextEditor::backgroundColourId, kFieldFill);
