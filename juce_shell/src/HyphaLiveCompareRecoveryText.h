@@ -1,5 +1,6 @@
 #pragma once
 #include "HyphaHostAvailability.h"
+#include "HyphaPreProcessingNotice.h"
 
 #include "live_compare/LiveCompareProcessorState.h"
 
@@ -251,7 +252,7 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
             return result (RecoveryAction::stopPlay, "Clock missing: restart playback (POST)");
         if (state.observation == Reason::blockTooLarge) return result (RecoveryAction::busy, "Block too large: reduce buffer (POST)");
         if (state.observation == Reason::foreignRing) return result (RecoveryAction::checkPre, "PRE changed: check pair; END (POST)");
-        if (state.observation == Reason::notWritten) return result (RecoveryAction::checkPre, "PRE pending: check PRE is on (POST)");
+        if (state.observation == Reason::notWritten) return result (RecoveryAction::automatic, preProcessingNotice);
         return result (RecoveryAction::automatic, "Timing unavailable; check PRE and play (POST)");
     }
     if (state.active && state.matchHeld && ! state.interrupted)

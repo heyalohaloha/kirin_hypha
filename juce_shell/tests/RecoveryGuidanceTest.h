@@ -30,6 +30,15 @@ template <class Require> void verifyRecoveryGuidance (Require require)
         named.preSelected = named.preWaiting = false;
         require (juce::String (namedRecovery (named)).isEmpty(), "POST selection has no PRE timing notice");
     }
+    {
+        Status waiting;
+        waiting.active = waiting.preSelected = waiting.preWaiting = waiting.prolongedWait = true;
+        waiting.observation = RecoveryReason::notWritten;
+        const auto presentation = namedPresentation (waiting);
+        require (presentation.action == RecoveryAction::automatic
+                     && juce::String (presentation.instruction) == "No new PRE processing; DAW may pause it (POST)",
+                 "a silent host can pause PRE callbacks without disabling PRE");
+    }
     for (auto loop : { LoopPairingBlock::auCycle, LoopPairingBlock::aaxLoop })
     {
         Status named; named.active = named.prolongedWait = true; named.loopBlock = loop;

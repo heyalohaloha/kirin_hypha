@@ -53,7 +53,7 @@ const Entry entries[] = {
     { "PRE changed: check PAIR, MENU > LISTEN (POST)", u8"PRE変更：PAIR確認後MENU→LISTEN（今はPOST）" },
     { "Stopped: MENU > LISTEN (POST)", u8"止まりました：MENU→LISTEN（今はPOST）" },
     { "Play the DAW and check PRE is enabled", u8"DAWを再生し、PREが有効か確認してください" },
-    { "PRE pending: check PRE is on (POST)", u8"PREが届いていません：有効か確認（今はPOST）" },
+    { "No new PRE processing; DAW may pause it (POST)", u8"PREの新しい処理結果を待機中（DAWが止める場合あり／今はPOST）" },
     { "DAW playback stopped", u8"DAWの再生が停止しました" },
     { "DAW position was discontinuous", u8"DAWの再生位置が不連続になりました" },
     { "Audio callback gap detected", u8"音声処理が途切れました" },
