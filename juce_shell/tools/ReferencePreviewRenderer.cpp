@@ -227,6 +227,24 @@ juce::Image render (hypha::reference_ui::State state, bool japanese, int width, 
     screen.setScreen (hypha::reference_ui::versionBlindScreen (state));
     reference.setState (std::move (state));
     surface.addAndMakeVisible (reference);
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_CHECK_CHANGED", {}) == "1")
+    {
+        const auto bounds = reference.getBounds();
+        reference.setPresentationContext (hypha::presentation::forOutput (900, 600, hypha::presentation::OutputTarget::referencePreview));
+        reference.setSize (888, 470);
+        auto* chooser = dynamic_cast<juce::ComboBox*> (reference.findChildWithID ("reference-check-choice"));
+        if (chooser == nullptr || chooser->getNumItems() < 2) fail ("reference-preview-check-unavailable");
+        juce::String selected;
+        reference.onSelectCheck = [&selected] (const juce::String& id) { selected = id; };
+        chooser->setSelectedId (1, juce::sendNotificationSync);
+        if (selected.isEmpty()) fail ("reference-preview-check-unavailable");
+        auto next = reference.state(); next.checkId = selected; next.viewBindings = { "spectrum_full" };
+        reference.setState (std::move (next)); reference.onSelectCheck = {};
+        reference.setPresentationContext (hypha::presentation::forOutput (width, height, hypha::presentation::OutputTarget::referencePreview));
+        reference.setBounds (bounds);
+        if (! reference.statusTextLayout (reference.footerStatusStrip().getLocalBounds()).line.text.contains ("SONG CHANGED"))
+            fail ("reference-preview-change-reason-missing");
+    }
     if (details)
     {
         if (reference.state().comparisonSlot == 3)

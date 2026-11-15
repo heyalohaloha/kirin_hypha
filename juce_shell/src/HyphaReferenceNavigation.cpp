@@ -97,6 +97,7 @@ juce::String Component::stepSong (int direction)
     }
     if (current.comparisonSlot == 2)
     {
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         const auto groups = checkGroups (current.checks);
         const auto* group = currentGroup (groups, current.checkId);
         return choose (stepIn (group != nullptr ? idsOf (group->songs) : juce::StringArray(), current.checkId, direction), onSelectCheck);
@@ -156,7 +157,7 @@ juce::String Component::stepCue (int direction)
 juce::String Component::stepSet (int direction)
 {
     if (isBlindSession (current.blindPhase) || ! current.separateComparisons) return notHere;
-    if (current.comparisonSlot != 3) return choose (stepIn (idsOf (current.presets), current.presetId, direction), onSelectPreset);
+    if (current.comparisonSlot != 3) { checkChangeNotice.clear(); checkChangeTarget.clear(); return choose (stepIn (idsOf (current.presets), current.presetId, direction), onSelectPreset); }
     return choose (stepIn (idsOf (current.songSets), current.songSetId, direction), onSelectSongSet);
 }
 }

@@ -266,6 +266,8 @@ const Entry entries[] = {
     { "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0", u8"Kirin OS 1.7.0で曲全体の値が出ます" },
     { "A FROM START HOLDS THE DAW'S FIRST 30 MIN", u8"A頭からはDAWの最初の30分まで" },
     { "SONG works on Spectrum Checks. This Check compares its Cue.", u8"SONGはSpectrumのCheckで使えます。このCheckはCueで比べます。" },
+    { "SONG unavailable; using CUE", u8"SONG非対応のためCueで比較" },
+    { "SONG CHANGED: NOT IN THIS CHECK", u8"このCheckに曲がないため変更しました" },
     { "SONG compares the whole song, framed in gold. The inner box is the Cue C plays.",
       u8"SONGは金の枠の曲全体を比べます。中の箱はCが鳴らすCue。" },
     { "CUE compares C's Cue with A's recent window. SONG compares C's whole song with A from the DAW's start.",

@@ -80,11 +80,13 @@ Component::Component()
     actionButton.setTooltip ("Continue with the safe next action.");
     presetBox.onChange = [this]
     {
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         const auto id = selectedOptionId (presetBox, current.presets);
         if (id.isNotEmpty() && onSelectPreset) onSelectPreset (id);
     };
     checkBox.onChange = [this]
     {
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         const auto id = selectedOptionId (checkBox, current.checks);
         if (id.isNotEmpty() && onSelectCheck) onSelectCheck (id);
     };

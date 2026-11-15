@@ -83,7 +83,9 @@ bool Component::statusRowHasControls() const noexcept
 // 案内が次の一手を言っているあいだは行を出さない。断り・アクション・待ちの超過のときは出す。
 bool Component::statusLineShown() const noexcept
 {
-    return (current.comparisonSlot == 3 && current.targetsEnabled && (current.targets.measuring || current.targets.issue.isNotEmpty()))
+    return (checkChangeNotice.isNotEmpty() && current.checkId == checkChangeTarget)
+        || (current.comparisonSlot == 2 && current.song.chosen && ! songSupported (current))
+        || (current.comparisonSlot == 3 && current.targetsEnabled && (current.targets.measuring || current.targets.issue.isNotEmpty()))
         || ! guideShown || current.readiness == Readiness::rejected
         || actionButton.isVisible() || current.preparationOverdue.isNotEmpty();
 }
@@ -112,6 +114,15 @@ Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> st
 {
     StatusTextLayout layout;
     auto line = referenceStatusLine (current, statusInFooter() && current.heldAttenuationDb < -0.05);
+    if (current.comparisonSlot == 2 && current.checkId == checkChangeTarget && checkChangeNotice.isNotEmpty())
+    {
+        if (line.kind == StatusKind::ready && current.heldAttenuationDb >= -0.05
+            && current.action.kind == ActionKind::none && (! current.bSelected || current.peakShortfallDb <= 0.05)
+            && current.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+            && current.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE")
+            line.text = current.bSelected ? checkChangeNotice + "  /  " + line.text : checkChangeNotice;
+        else line.text += "  /  " + checkChangeNotice;
+    }
     if (current.comparisonSlot == 3 && current.targetsEnabled && ! isBlindSession (current.blindPhase)
         && (current.targets.measuring || current.targets.issue.isNotEmpty()))
     {

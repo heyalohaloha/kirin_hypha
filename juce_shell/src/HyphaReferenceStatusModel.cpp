@@ -32,6 +32,7 @@ juce::String publicationReturnLine (int change, int slot)
 static juce::String songLine (const State& state)
 {
     if (state.comparisonSlot != 2) return {};
+    if (state.song.chosen && ! songSupported (state)) return songUnsupportedNotice;
     if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0";
     if (state.song.shown && state.song.aBeyond) return "A FROM START HOLDS THE DAW'S FIRST 30 MIN";
     return {};
@@ -118,7 +119,10 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             return { StatusKind::ready, juce::String (std::max (state.peakShortfallDb, state.rangeShortfallDb), 1) + " DB UNDER A" };
         // B の画面は、Kirin OS の新しい公開を読めず前の公開で鳴らしている理由も言い続ける（2026-11-11）。
         const auto song = songLine (state);
-        const auto storage = (song.isNotEmpty() ? "  /  " + song : juce::String {})
+        const bool showSongFirst = song == songUnsupportedNotice && under.isEmpty() && lowered.isEmpty()
+            && state.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+            && state.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE";
+        const auto storage = (song.isNotEmpty() && ! showSongFirst ? "  /  " + song : juce::String {})
             + (state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
             || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {})
             + (state.comparisonSlot == 3 && state.publicationIssue.isNotEmpty() ? "  /  " + state.publicationIssue : juce::String {});
@@ -131,7 +135,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             return { StatusKind::waiting,
                      (warnings.isEmpty() ? positioning : warnings.substring (5) + "  /  " + positioning) + lowered };
         }
-        return { StatusKind::ready, how + under + lowered + storage + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
+        return { StatusKind::ready, (showSongFirst ? song + "  /  " : juce::String {}) + how + under + lowered + storage + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (state.kirinOsRequest && state.action.kind != ActionKind::none)
         return { StatusKind::unable, state.status };

@@ -84,7 +84,7 @@ struct SelectionOption
     juce::String checkLabel {}, itemLabel {}; // a CHECK target's two parts, when the runtime gives them
     juce::String workId {}, versionId {};     // a Version's song and its version in Kirin OS
     bool elsewhere = false;                   // a Version of another song (HyphaReferenceVersionRows.h)
-    int sourceIndex = 0;                      // its place as Kirin OS sent it, before the rows are arranged
+    int sourceIndex = 0; juce::String sourceIdentityKey {}; // source order and identity across Checks
 };
 
 // B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
@@ -443,7 +443,7 @@ private:
     juce::Rectangle<int> balanceBounds;            // B の画面の Balance
     StatusStrip statusStrip;  // 状態の行と、VERSION BLIND・アクションのボタン（HyphaReferenceStatusRow.cpp）
     std::vector<help::Region> helpRegions;  // 最後に描いた図に添えた説明の場所
-    bool statusFooterMode = false;
+    bool statusFooterMode = false; juce::String checkChangeNotice, checkChangeTarget;
     int statusRowHeight() const noexcept;
     bool showCheckPurpose() const noexcept;
     bool statusLineShown() const noexcept;

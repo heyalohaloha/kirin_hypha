@@ -23,6 +23,40 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceStatusLine();
     verifyReferenceStatusFits();
     verifyReferenceCheckPage();
+    {
+        auto state = named ("ready");
+        state.separateComparisons = true; state.comparisonSlot = 2; state.blindLargeScreen = true;
+        state.checks = { { "one/a", "One  /  Song A" }, { "one/b", "One  /  Song B" },
+                         { "two/c", "Two  /  Song A" }, { "two/d", "Two  /  Song B" },
+                         { "three/e", "Three  /  Song A" } };
+        state.checks[0].sourceIdentityKey = state.checks[2].sourceIdentityKey = state.checks[4].sourceIdentityKey = "source-a";
+        state.checks[1].sourceIdentityKey = state.checks[3].sourceIdentityKey = "source-b";
+        state.checkId = "one/b"; state.song.chosen = true;
+        reference_ui::Component panel; panel.setVisible (true);
+        panel.setPresentationContext (presentation::forEditor (900, 600)); panel.setSize (888, 470); panel.setState (state);
+        auto* chooser = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+        require (chooser != nullptr, "Check selector exists");
+        juce::String chosen; panel.onSelectCheck = [&] (const juce::String& id) { chosen = id; };
+        chooser->setSelectedId (2, juce::sendNotificationSync);
+        require (chosen == "two/d" && panel.state().song.chosen, "Check changes preserve source identity and SONG");
+        state.checkId = chosen; panel.setState (state);
+        chooser->setSelectedId (3, juce::sendNotificationSync);
+        state.checkId = chosen; panel.setState (state);
+        const auto notice = panel.statusTextLayout (juce::Rectangle<int> (0, 0, 800, 24)).line.text;
+        require (chosen == "three/e" && notice == "SONG CHANGED: NOT IN THIS CHECK"
+                     && i18n::translate (notice, i18n::Language::japanese) != notice,
+                 "missing source picks an available song and explains the change");
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const int width : { 300, 375, 450, 600, 900 })
+        {
+            const i18n::ScopedLanguage scoped (language);
+            panel.setPresentationContext (presentation::forEditor (width, width * 2 / 3));
+            panel.setSize (width - 12, width * 2 / 3 - 64);
+            const auto text = panel.statusTextLayout (panel.footerStatusStrip().getLocalBounds());
+            require (text.line.text.startsWith ("SONG CHANGED: NOT IN THIS CHECK") && ! text.cut,
+                     "song change reason remains visible and fits at every size in both languages");
+        }
+    }
     verifyReferenceBlauertReadout();
     verifyReferenceAComparison();
     verifyReferenceADirection();

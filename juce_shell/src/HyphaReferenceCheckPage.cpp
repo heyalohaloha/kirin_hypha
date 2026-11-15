@@ -30,13 +30,23 @@ void Component::chooseTab (const juce::String& checkId)
     if (versionPage()) { versionTab = checkId; setState (current); return; }
     // 同じ曲のまま Check を替える（その Check に同じ曲が無ければ最初の曲）。
     const auto song = current.checkId.fromFirstOccurrenceOf ("/", false, false);
+    juce::String source;
+    for (const auto& option : current.checks)
+        if (option.id == current.checkId) { source = option.sourceIdentityKey; break; }
     for (const auto& group : checkGroups (current.checks))
         if (group.checkId == checkId && ! group.songs.empty())
         {
             auto chosen = group.songs.front().id;
+            bool found = false;
             for (const auto& option : group.songs)
-                if (option.id.fromFirstOccurrenceOf ("/", false, false) == song) chosen = option.id;
+                if ((source.isNotEmpty() && source == option.sourceIdentityKey)
+                    || (source.isEmpty() && option.sourceIdentityKey.isEmpty() && song.isNotEmpty()
+                        && option.id.fromFirstOccurrenceOf ("/", false, false) == song))
+                { chosen = option.id; found = true; break; }
+            checkChangeNotice = ! found && song.isNotEmpty() ? "SONG CHANGED: NOT IN THIS CHECK" : juce::String();
+            checkChangeTarget = checkChangeNotice.isNotEmpty() ? chosen : juce::String();
             if (onSelectCheck) onSelectCheck (chosen);
+            repaint();
         }
 }
 
@@ -77,6 +87,7 @@ void Component::configureCheckPage()
         const auto* group = currentGroup (groups, current.checkId);
         if (group == nullptr) return;
         const auto id = selectedOptionId (checkSongBox, group->songs);
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         if (id.isNotEmpty() && onSelectCheck) onSelectCheck (id);
     };
     addChildComponent (checkSongBox);
@@ -133,7 +144,7 @@ void Component::syncCheckPage (bool blindSession)
         ? "Match C to the latest A over the Cue's length again, and keep it fixed."
         : "Play C matched to the latest A over the Cue's length.");
     const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
-    songSwitch.setChoice (current.song.chosen && songAvailable, songAvailable,
+    songSwitch.setChoice (current.song.chosen, songAvailable,
                           compact ? juce::String ("CUE") : SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
     songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr && ! listeningCheck());
     if (page)

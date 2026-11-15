@@ -82,6 +82,9 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
     c.observeTransport (0, true, true); control::service (c);
     const auto state = c.snapshot();
     require (state.checkReady && state.checkTargets.size() >= 2, "two playable Checks are available");
+    require (state.checkTargets[0].sourceIdentityKey.isNotEmpty()
+                 && ((state.checkTargets[0].sourceIdentityKey == state.checkTargets[1].sourceIdentityKey) != differentSource),
+             "Check options carry the verified source identity across Checks");
     juce::AudioBuffer<float> block (channels, 512);
     int cursor = 0;
     bool levelAvailable = true;

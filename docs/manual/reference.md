@@ -216,8 +216,11 @@ At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, op
   the same loudness, and the time bar frames the whole song in gold with the Cue C plays as the inner box.
   A FROM START keeps the first 30 minutes of the timeline, is not saved with the project, and is emptied
   by RESET A WINDOW, the one item of A's list in SONG; a new sample rate or channel count empties it too, a
-  new C song does not. SONG compares Checks whose charts are spectra; on a Check with range strips SONG
-  cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check. A Check meant only for listening has no CUE / SONG switch because it has no measurement chart.
+  new C song does not. Changing Check keeps the selected source when that Check includes it. Otherwise C
+  selects the first available source and the status line explains why. SONG compares Checks whose charts
+  are spectra; on a Check with range strips SONG remains selected, but C compares its Cue and says why.
+  SONG comparison returns on the next spectrum Check. A Check meant only for listening has no CUE / SONG
+  switch because it has no measurement chart.
   An older record also shows whole-song values when it contains a real whole-song range. Without that range,
   C keeps the Cue and the status line says WHOLE-SONG VALUES
   COME WITH KIRIN OS 1.7.0, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is

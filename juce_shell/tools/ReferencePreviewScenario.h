@@ -128,6 +128,14 @@ inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State st
     }
     timeline->aTicks = ticks; state.visualTimeline = timeline;
     state.targetsEnabled = true;
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_CHECK_CHANGED", {}) == "1")
+    {
+        for (auto& option : state.checks)
+            option.sourceIdentityKey = option.id == state.checkId ? "source-a" : "source-b";
+        state.bSelected = false; state.audibleComparisonSlot = 0; state.action = {}; state.actionText.clear();
+    }
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_CHECK_SONG", {}) == "1")
+    { state.song.chosen = true; state.bSelected = false; state.action = {}; state.actionText.clear(); }
     previewRound2 (state);
     return state;
 }

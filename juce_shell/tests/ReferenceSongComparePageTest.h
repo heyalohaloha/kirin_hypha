@@ -204,15 +204,16 @@ inline void verifyReferenceSongComparePage()
                  "in SONG the A list only resets A (A FROM START too)");
         panel.setState (cue);
         require (control->makeMenu().getNumItems() > 2, "in CUE the A list chooses the window again");
-        // 範囲の帯の Check（主の図が Cue の区間と A の直近で測る）：どこも CUE のまま。SONG は押せず理由を持ち、覚えた SONG は残す。
+        // Range-strip Checks retain the selected SONG and explain that their comparison uses the Cue.
         auto ranged = check;
         ranged.song.chosen = true; ranged.viewBindings = { "dynamics", "loudness" };
         reference_ui::applySongComparison (ranged, &aSong, cSong, songLoudness);
         panel.setState (ranged);
-        require (! ranged.song.shown && ranged.song.chosen && switcher->isVisible() && cueHalf->getToggleState()
-                     && ! songHalf->getToggleState() && ! songHalf->isEnabled()
+        require (! ranged.song.shown && ranged.song.chosen && switcher->isVisible() && ! cueHalf->getToggleState()
+                     && songHalf->getToggleState() && ! songHalf->isEnabled()
+                     && reference_ui::referenceStatusLine (ranged).text.contains (reference_ui::songUnsupportedNotice)
                      && hypha::unavailable::reasonAt (songHalf) == reference_ui::songUnsupportedText,
-                 "a range-strip Check keeps CUE, SONG cannot be pressed and says why");
+                 "a range-strip Check keeps SONG selected and explains its Cue comparison");
         // 耳で聴き比べる Check は CUE／SONG を持たない。
         auto listening = check;
         listening.listeningChecks = { "chk-low" };
