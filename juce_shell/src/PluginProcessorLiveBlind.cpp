@@ -177,20 +177,23 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         return;
     const auto status = liveCompareStatus();
     if (! status.active || status.finishing) return;
-    if (liveCompare.blindTimingReceipt.load (std::memory_order_acquire)
-        != liveCompare.blindTimingRequest.load (std::memory_order_acquire)) return;
     // Thirty seconds of playback without a measurable window end the preparation with its reason; POST
     // returns to normal and nothing else waits on it (a stopped DAW is the user's wait, not counted).
-    // Playback is the Audio Thread's count of frames the host called playing: a DAW stopped without
-    // callbacks adds none, and a message thread that stalls loses none.
+    // Every stage before the sources are ready shares it: the timing admission, the MATCH window and an
+    // applied MATCH the audio has not taken yet (settling). Playback is the Audio Thread's count of frames
+    // the host called playing: a DAW stopped without callbacks adds none, a stalled message thread loses none.
     const auto played = liveCompare.playedFrames.load (std::memory_order_acquire) - liveCompare.blindPlayedFrom;
-    if (liveCompare.blindStage == BlindStage::preparing && static_cast<double> (played) >= 30.0 * preparedFormat.sampleRate)
+    if (static_cast<double> (played) >= 30.0 * preparedFormat.sampleRate)
     {
+        // An applied MATCH the audio never took is a timing wait, and says so.
+        if (liveCompare.blindWaiting == MatchFailure::none) liveCompare.blindWaiting = MatchFailure::notProven;
         if (returnBlindToCandidateListen()) return;
         stopLiveCompare();
         liveCompare.blindStage = BlindStage::failed;
         return;
     }
+    if (liveCompare.blindTimingReceipt.load (std::memory_order_acquire)
+        != liveCompare.blindTimingRequest.load (std::memory_order_acquire)) return;
     // A content timing notice (INV-LC10) is told, never waited on: preparation continues.
     if (status.compensationOff || status.verdict != Verdict::accepted)
     {

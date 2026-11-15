@@ -77,4 +77,31 @@ template<class Require> void verifyLiveBlindPreparationPlayedTime (Require requi
     require (status.stage == BlindStage::failed && status.waiting == MatchFailure::notEnoughSignal,
              "the playback a stalled message thread did not see still counts toward the 30 s");
 }
+
+// MATCH is applied, then the clock goes missing before the audio takes it: the preparation stays waiting
+// for the audio (settling). The same 30 s of playback end it with its reason, and POST is normal.
+template<class Require> void verifyLiveBlindSettlingDeadline (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair(); auto& post = host.post();
+    require (post.beginLiveBlind() == StartResult::started, "BLIND starts on the song");
+    int applied = -1;
+    for (int n = 0; n < 1400 && applied < 0; ++n)
+    {
+        host.render (1, false, false);
+        if (post.liveBlindStatus().stage == BlindStage::settling) applied = n + 1;
+    }
+    require (applied > 0, "the preparation's MATCH is applied");
+    for (auto& clock : host.clocks) clock.available = clock.auxiliaryAvailable = false; // from the next callback
+    host.render (2700 - applied, false, false);
+    const auto waiting = post.liveBlindStatus().stage;
+    require (waiting != BlindStage::active && waiting != BlindStage::failed, "without a clock the sources stay unready");
+    host.render (250, false, false);
+    const auto status = post.liveBlindStatus();
+    require (status.stage == BlindStage::failed && status.waiting == MatchFailure::notProven
+                 && ! post.liveCompareStatus().active && post.liveCompareStatus().postTarget == 1.0f,
+             "30 s of playback end a preparation waiting for its applied MATCH, with its reason");
+}
 }
