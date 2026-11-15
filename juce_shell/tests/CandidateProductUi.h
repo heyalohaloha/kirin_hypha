@@ -31,6 +31,8 @@ inline void expireCandidateEntryDeadline (juce::AudioProcessorEditor& editor)
 { dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorDeadline {}) = 1.0; }
 inline bool candidateEntryPending (juce::AudioProcessorEditor& editor)
 { return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorDeadline {}) > 0.0; }
+inline double& candidateEntryDeadline (juce::AudioProcessorEditor& editor)
+{ return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorDeadline {}); }
 struct CandidateEditorWarning
 {
     using Type = juce::String KirinHyphaEditor::*;

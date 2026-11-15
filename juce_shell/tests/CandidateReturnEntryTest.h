@@ -28,6 +28,10 @@ template<class Require> void verifyCandidateReturnEntry (Require require)
             post.editorBeingDeleted (editor.get()); editor.reset();
             enterCandidateThroughEditor (post, require, [&] (juce::AudioProcessorEditor& next)
             {
+                // The wait for the return is bounded by the return itself; it never moves the press's deadline.
+                const auto deadline = juce::Time::getMillisecondCounterHiRes() * 0.001 + 5.0;
+                candidateEntryDeadline (next) = deadline; candidateTick (next);
+                require (candidateEntryDeadline (next) == deadline, "waiting for the return keeps the press's deadline");
                 expireCandidateEntryDeadline (next); candidateTick (next);
                 require (candidateEntryPending (next), "ordinary BLIND END retains a confirmed A/B request while stopped");
                 for (auto& clock : host.clocks) clock.playing = true;

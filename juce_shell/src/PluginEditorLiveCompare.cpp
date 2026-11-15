@@ -356,7 +356,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
 void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
 {
     if (liveCompareStartAfterReturnUntil <= 0.0) return;
-    // Deadline, target and other activities first; only then may the press start LISTEN. The role its own
+    // Target and other activities first; only then may the press start LISTEN. The role its own
     // RETURN still fades out is not another comparison (the audio start guard is unchanged).
     using hypha::live_compare_ui::StartAfterReturn;
     const bool blind = liveCompareStartAfterReturnBlind;
@@ -373,16 +373,18 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
         liveCompareStartAfterReturnUntil = 0.0;  // PRE, state or another comparison changed
         return;
     }
-    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
-    { liveCompareStartAfterReturnUntil = nowSecs() + 10.0; return; }
-    if (nowSecs() >= liveCompareStartAfterReturnUntil)
+    // The return has its own overall deadline (an A/B tail 10 s after END; POST's level within 0.5 s
+    // while stopped), so waiting for it never moves this press's 10 s. A press that can start starts,
+    // even just past those 10 s; only a press still refused for another reason ends with the reason.
+    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
+    if (next != StartAfterReturn::start)
     {
+        if (nowSecs() < liveCompareStartAfterReturnUntil) return;
         liveCompareStartAfterReturnUntil = 0.0;
         liveCompareStartAfterReturnCandidate.clear();
         showToast (hypha::live_compare_ui::startFailure (admission));
         return;
     }
-    if (next != StartAfterReturn::start) return;
     liveCompareStartAfterReturnUntil = 0.0;
     const auto pre2 = std::exchange (liveCompareStartAfterReturnCandidate, {});
     if (pre2.isNotEmpty())
