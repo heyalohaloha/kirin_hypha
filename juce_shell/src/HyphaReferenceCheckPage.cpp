@@ -107,13 +107,13 @@ void Component::syncCheckPage (bool blindSession)
     const auto* versionChoice = vPage ? findVersionTab (versionTab) : nullptr;
     const auto sameSection = versionChoice != nullptr && versionChoice->id != "whole" ? versionChoice->label : juce::String {};
     checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
-    checkTabs.setVisible (! current.targetSelected && vPage);
+    checkTabs.setVisible (vPage);
     std::vector<SelectionOption> choices;
     for (const auto& item : groups) choices.push_back ({ item.checkId, item.label });
     syncSelectionControl (checkChooser, choices, group != nullptr ? group->checkId : juce::String {});
     unavailable::set (checkChooser, ! choices.empty(), "Nothing to choose yet");
-    checkChooser.setVisible (page && ! current.targetSelected && ! groups.empty());
-    detailsButton.setVisible (page && ! current.targetSelected);
+    checkChooser.setVisible (page && ! groups.empty());
+    detailsButton.setVisible (page);
     detailsButton.setToggleState (detailsOpen, juce::dontSendNotification);
     // V を鳴らしていなくても、WHOLE と同じ位置合わせの gain（同じ区間の音量差）で合わせて比べる（鳴らしていれば実際の
     // gain）。2026-10-04 まで V を鳴らさないと「音量未調整」で 4 帯域が「—」だった。
@@ -124,7 +124,7 @@ void Component::syncCheckPage (bool blindSession)
     comparisonView.setSameSection (sameSection, sameSectionGain,
                                    versionChoice != nullptr ? versionChoice->views : std::vector<juce::String> {}, false);
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
-    checkSongBox.setVisible (page && group != nullptr && ! current.targetSelected);
+    checkSongBox.setVisible (page && group != nullptr);
     const bool matching = current.comparisonMode == "loudness_match";
     matchButton.setVisible ((page || compact) && ! blindSession);
     unavailable::set (matchButton, matching, "This Check does not use loudness MATCH.");
@@ -135,7 +135,7 @@ void Component::syncCheckPage (bool blindSession)
     const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
     songSwitch.setChoice (current.song.chosen && songAvailable, songAvailable,
                           compact ? juce::String ("CUE") : SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
-    songSwitch.setVisible ((page || compact) && ! blindSession && ! current.targetSelected && group != nullptr);
+    songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr);
     if (page)
     {
         // C の画面では V の選択と、Check と曲を 1 つにした選択欄を出さない（V の画面とタブ・曲で選ぶ）。
@@ -144,7 +144,6 @@ void Component::syncCheckPage (bool blindSession)
     }
     else if (current.separateComparisons && current.comparisonSlot == 2 && ! detailedLayout())
         versionBox.setVisible (false);
-    if (current.targetSelected) { presetBox.setVisible (false); checkBox.setVisible (false); cueBox.setVisible (false); }
     if (vPage)
     {
         // V の画面では C の CHECK SET・曲・Cue を出さない（C の画面で選ぶ。V の項目は決まっている）。
@@ -201,7 +200,6 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
 // C の選択欄と V のタブはそれぞれ一段。
 int Component::checkTabsHeight() const
 {
-    if (current.targetSelected) return 0;
     if (! checkPage()) return versionPageRows;
     return checkPageRows;
 }

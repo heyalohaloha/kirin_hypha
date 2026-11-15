@@ -1,4 +1,5 @@
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceCompactBalance.h"
 #include "HyphaReferenceWindowMaterial.h"
 
 #include "HyphaMainFrame.h"
@@ -132,11 +133,7 @@ Component::Component()
     configureAWindowControls();
     targetBar.onRequest = [this] (const auto& request) { if (onTargetRequest) onTargetRequest (request); };
     addChildComponent (targetBar);
-    targetBadge.setComponentID ("reference-target-data");
-    targetBadge.setTitle ("C / DATA ONLY");
-    targetBadge.onClick = [this] { if (! openLarge (2) && onSelectVisualSlot) onSelectVisualSlot (2); };
-    targetBadge.setTooltip ("DATA ONLY");
-    addChildComponent (targetBadge);
+    targetBar.onLayoutChange = [this] { resized(); repaint(); };
 }
 
 void Component::mouseMove (const juce::MouseEvent& event)
@@ -209,14 +206,9 @@ void Component::setState (State next)
     syncRoles (blindSession);
     syncCheckPage (blindSession);
     syncPlayback (blindSession);
-    targetBar.setVisible (false);  // C から目標の操作行を外す。目標データと B の一覧は維持する。
+    targetBar.setVisible (current.targetsEnabled && current.separateComparisons && current.comparisonSlot == 3 && ! blindSession);
     targetBar.update (current.targets, presentationContext, current.aKirin && current.aKirin->frames >= 30, shortPanel());
-    const bool numericalC = current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr;
-    targetBadge.setVisible (numericalC && ! blindSession);
-    targetBadge.context = presentationContext;
-    targetBadge.setButtonText (detailedLayout() ? "C / DATA" : "DATA");
-    if (numericalC) cButton.setVisible (false);
-    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived))
+    if (guideShown && targetBar.isVisible() && ! current.libraryReceived)
     {
         for (auto* box : { &presetBox, &versionBox, &checkBox, &candidateBox, &cueBox, &checkSongBox }) box->setVisible (false);
         matchButton.setVisible (false);
@@ -260,7 +252,7 @@ void Component::paint (juce::Graphics& g)
     // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
     // （HyphaVersionBlindScreen.h）。その間 REF は何も描かない（曲名・図・状態の文は手がかりになる。R-28）。
     if (isBlindSession (current.blindPhase)) return;
-    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived)) {} // Leave the initial guide clear.
+    if (guideShown && targetBar.isVisible() && ! current.libraryReceived) {} // Leave the initial guide clear.
     else if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + checkTabsHeight()); paintCheckPageLabels (g); }
     else if (rolePage() && current.comparisonSlot == 3)
     {
@@ -347,15 +339,6 @@ void Component::paint (juce::Graphics& g)
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
-    if (rolePage() && current.targetSelected)
-    {
-        g.setColour (COL_TEXT_SECONDARY);
-        g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawText (g, "TARGET / DATA ONLY", header.removeFromTop (16), juce::Justification::centredLeft);
-        g.setColour (COL_NORMAL);
-        g.setFont (displayTextFont (current.title, presentationContext, typography::TextRole::body, typography::Composition::information));
-        text_style::drawEllipsized (g, current.title, header, juce::Justification::centredLeft);
-    }
     if (! rolePage() && ! (presentationContext.referenceCheck && ! detailedLayout()))  // 小さい C の見出しには Cue の欄を置く
     {
         g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
@@ -371,8 +354,14 @@ void Component::paint (juce::Graphics& g)
         if (! shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
     }
 
-    if (presentationContext.referenceCheck && ! detailedLayout() && ! current.targetSelected)
+    if (presentationContext.referenceCheck && ! detailedLayout())
         area.removeFromTop (panelPickerHeight());
+    if (presentationContext.referenceCheck)
+    {
+        g.setColour (COL_NORMAL);
+        g.setFont (labelFont (presentationContext, typography::TextRole::body, typography::Composition::information));
+        text_style::drawEllipsized (g, "C: A vs Kirin OS song and cue", area.removeFromTop (16), juce::Justification::centredLeft);
+    }
     area.removeFromTop (panelGap());
     // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
     const bool rowInPanel = ! statusInFooter();
@@ -414,6 +403,9 @@ void Component::paint (juce::Graphics& g)
                         presentationContext, side);
         }
     }
+    else if (! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 3
+             && current.targetsEnabled && ! current.targets.collection.items.empty())
+        paintCompactBalance (g, area, current, presentationContext);
     else if (!comparisonView.isVisible())
     {
         if (presentationContext.referenceCheck && ! current.viewBindings.empty()

@@ -55,16 +55,17 @@ void Component::configureRoles()
     songBox.onChange = [this]
     {
         const auto id = selectedOptionId (songBox, current.songs);
-        if (id.isNotEmpty() && id != current.songId && onSelectSong) onSelectSong (id);
+        if (id.isNotEmpty() && (id != current.songId || current.targets.collection.selected.isNotEmpty()) && onSelectSong) onSelectSong (id);
     };
     addChildComponent (songSetBox);
     addChildComponent (songBox);
     songList.onChoose = [this] (const juce::String& id)
     {
-        // 目標の行は音が無いので鳴らせない：理由を言う（選択も音も変えない）。
+        // 目標は B の表示として選べるが、音は持たない。
         const bool song = std::any_of (current.songs.begin(), current.songs.end(), [&id] (const auto& option) { return option.id == id; });
-        if (! song) { if (current.targets.collection.find (id) != nullptr && onExplain) onExplain (targetSilentText); return; }
-        if (id != current.songId && onSelectSong) onSelectSong (id);
+        if (! song) { if (current.targets.collection.find (id) != nullptr && onTargetRequest)
+            onTargetRequest ({ reference_audition::TargetRequest::Action::select, {}, id, current.targets.restoreEpoch }); return; }
+        if ((id != current.songId || current.targets.collection.selected.isNotEmpty()) && onSelectSong) onSelectSong (id);
     };
     songList.onToggle = [this] (const juce::String& id)
     {
@@ -88,8 +89,7 @@ void Component::configureRoles()
         repaint (balanceBounds);
     };
     addChildComponent (songList);
-    // 本当に初めての ALL（project に一度も使った印が無い）だけ、セットの曲を全部出す。目標は番号で足す。利用者が
-    // 空にした選択は埋めない。
+    // 初めての ALL はセットの曲と目標を全部出す。利用者が空にした選択は埋めない。
     overlaySwitch.onChoose = [this] (bool all)
     {
         if (current.overlay.all == all) return;
@@ -100,7 +100,7 @@ void Component::configureRoles()
         {
             std::vector<juce::String> listed;
             for (const auto& item : items) listed.push_back (item.id);
-            for (const auto& item : items) if (! item.target) probe.overlay.toggle (item.id, listed);
+            for (const auto& item : items) if (probe.overlay.find (item.id) == nullptr) probe.overlay.toggle (item.id, listed);
         }
         probe.overlay.used = probe.overlay.used || all;
         applyOverlay (std::move (probe.overlay));
@@ -149,15 +149,17 @@ void Component::syncRoles (bool blindSession)
     refButton.setTooltip (queue ? "Queue B for DAW playback. A stays live until ready; press A to cancel."
         : audible ? juce::String ("Audition a Reference song from Kirin OS (B).") : referenceUnavailableText (current));
     syncSelectionControl (songSetBox, current.songSets, current.songSetId);
-    syncSelectionControl (songBox, current.songs, current.songId);
+    const auto* chosenTarget = current.targetsEnabled ? current.targets.collection.find (current.targets.collection.selected) : nullptr;
+    syncSelectionControl (songBox, current.songs, chosenTarget != nullptr ? juce::String {} : current.songId);
+    songBox.setTextWhenNothingSelected (chosenTarget != nullptr ? chosenTarget->name : juce::String {});
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
     // B の曲と Reference のセットは、どの大きさでも選べる（2026-11-11：100% では見つからず、切り替えられなかった）。
     // A を鳴らしたままでも替えられる（B が鳴っていれば前の曲を鳴らしたまま次の曲を準備する）。
     songSetBox.setVisible (referenceView && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
     // 300% の B の画面は、左に曲の一覧、右に Balance。Balance の見出しの右に ONE／ALL。
-    // 曲が無くても、ドロップした目標があれば一覧と Balance を出す（ALL で目標を比べられる。ONE の図は理由を言う）。
-    const bool targetsListed = current.targetsEnabled && ! current.targets.collection.items.empty();
+    // 曲が無くても、ドロップした目標があれば一覧と Balance を出す。
+    const bool targetsListed = current.targetsEnabled && (! current.targets.collection.items.empty() || current.targets.measuring);
     songList.setVisible (referenceView && rolePage() && (! current.songs.empty() || targetsListed));
     overlaySwitch.setVisible (songList.isVisible());
     overlaySwitch.setChoice (current.overlay.all, current.overlay.drawing, presentationContext);
@@ -167,11 +169,14 @@ void Component::syncRoles (bool blindSession)
         const auto colour = item.line != nullptr ? item.line->colour : 0;
         if (item.target)
         {
-            // 目標（ALL だけ）：Kirin OS の値の代わりに測った値。MATCH は線をそろえた gain（鳴らさない）。
+            // 目標：Kirin OS の値の代わりに測った値。MATCH は線をそろえた gain（鳴らさない）。
             const auto* target = current.targets.collection.find (item.id);
-            rows.push_back ({ item.id, item.name, target != nullptr ? target->integrated : std::numeric_limits<double>::quiet_NaN(),
-                              displayGainDb (current, item.gainDb) });
+            rows.emplace_back();
+            rows.back().id = item.id; rows.back().title = item.name;
+            rows.back().lufsI = target != nullptr ? target->integrated : std::numeric_limits<double>::quiet_NaN();
+            rows.back().gainDb = displayGainDb (current, item.gainDb);
             rows.back().target = true;
+            rows.back().selected = item.id == current.targets.collection.selected;
             rows.back().shown = item.line != nullptr;
             rows.back().colour = colour;
             continue;
@@ -179,7 +184,7 @@ void Component::syncRoles (bool blindSession)
         const auto index = static_cast<size_t> (item.number - 1);
         const auto& song = current.songs[index];
         const auto fact = index < current.songFacts.size() ? current.songFacts[index] : SongFact {};
-        const bool selected = song.id == current.songId;
+        const bool selected = song.id == current.songId && current.targets.collection.selected.isEmpty();
         // 選んだ行はすぐ選択中になり、PLAYING は実際に出力へ出た曲だけに付く。
         const bool playing = roleSounds && song.id == current.audibleSongId;
         // MATCH：鳴っている曲は実際の gain、ほかは押したときの gain（A の窓 − その曲の Cue の値）。どちらも読みの基準で。
@@ -193,6 +198,13 @@ void Component::syncRoles (bool blindSession)
                           selected && ! playing && (roleSounds || current.switchingSlot == 3), fact.loaded });
         rows.back().shown = item.line != nullptr;
         rows.back().colour = colour;
+    }
+    if (current.targetsEnabled && current.targets.measuring)
+    {
+        rows.emplace_back();
+        rows.back().title = "TARGET";
+        rows.back().preparing = true;
+        rows.back().preparation = "MEASURING";
     }
     songList.setOverlay (current.overlay.all, current.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape);
     songList.setRows (std::move (rows), presentationContext);
@@ -235,7 +247,7 @@ void Component::syncPlayback (bool blindSession)
 {
     const bool referencePage = current.separateComparisons && current.comparisonSlot == 3 && ! current.songs.empty();
     const bool checkRow = (checkPage() || (presentationContext.referenceCheck && ! detailedLayout()))
-        && ! current.targetSelected && ! current.checks.empty();
+        && ! current.checks.empty();
     const bool shown = ! blindSession && (referencePage || checkRow);
     const bool both = shown && (rolePage() || (checkRow && ! detailedLayout()));
     playbackButtons[0].setToggleState (! current.followA, juce::dontSendNotification);
@@ -266,6 +278,13 @@ void Component::layoutPlayback (juce::Rectangle<int> row)
 
 bool Component::explainReference()
 {
+    if (current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr)
+    {
+        if (onSelectVisualSlot) onSelectVisualSlot (3);
+        if (current.bSelected && onSelectA) onSelectA();
+        if (onExplain) onExplain (targetSilentText);
+        return true;
+    }
     if (canHearReference (current) || canQueueReference (current)
         || (current.bSelected && current.audibleComparisonSlot == 3)) return false;
     if (onSelectVisualSlot) onSelectVisualSlot (3);

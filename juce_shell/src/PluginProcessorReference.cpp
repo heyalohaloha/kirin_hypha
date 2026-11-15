@@ -487,7 +487,7 @@ bool KirinHyphaProcessorBase::changeReferenceTarget (const hypha::reference_audi
         case Action::make: return controller.makeTarget();
         case Action::select: return controller.chooseTarget (request.id, request.restoreEpoch);
         case Action::remove:
-            if (! targets.remove (request.id)) return false;
+            if (! controller.removeTarget (request.id)) return false;
             captureStateNotification.changed(); return true;
         case Action::cancel: targets.cancel(); return true;
     }

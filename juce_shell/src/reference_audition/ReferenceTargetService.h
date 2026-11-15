@@ -20,9 +20,10 @@ class TargetService final : private juce::Thread
 public:
     using Clock = std::function<double()>;
     explicit TargetService (std::function<void()> changed = {}, std::function<void(bool)> selected = {},
-                            Clock clock = juce::Time::getMillisecondCounterHiRes)
+                            Clock clock = juce::Time::getMillisecondCounterHiRes,
+                            std::function<void (const juce::StringArray&, std::uint64_t)> added = {})
         : juce::Thread ("Reference target"), stateChanged (std::move (changed)), selectionChanged (std::move (selected)),
-          nowMs (std::move (clock)) { startThread (juce::Thread::Priority::low); }
+          nowMs (std::move (clock)), targetsAdded (std::move (added)) { startThread (juce::Thread::Priority::low); }
     ~TargetService() override { signalThreadShouldExit(); ++generation; notify(); stopThread (-1); }
     TargetSnapshot snapshot() const
     {
@@ -108,6 +109,7 @@ private:
     const std::function<void()> stateChanged;
     const std::function<void(bool)> selectionChanged; // Atomic control publication only; no UI or Runtime locks under mutex.
     const Clock nowMs;
+    const std::function<void (const juce::StringArray&, std::uint64_t)> targetsAdded;
     double issueUntilMs = 0.0;
     void setIssue (juce::String issue) { state.issue = std::move (issue); issueUntilMs = nowMs() + 5000.0; }
     void publishSelection() { if (selectionChanged) selectionChanged (state.collection.selected.isNotEmpty()); }
@@ -153,23 +155,26 @@ private:
             if (probe) probe();
            #endif
             bool changed = false;
+            juce::StringArray addedIds;
+            std::uint64_t epoch = 0;
             {
                 const juce::ScopedLock guard (mutex);
                 if (generation.load() == job->generation)
                 {
                     for (auto& target : completed)
                         if (state.collection.items.size() < TargetCollection::capacity)
-                        { state.collection.items.push_back (std::move (target)); changed = true; }
+                        { addedIds.add (target.id); state.collection.items.push_back (std::move (target)); changed = true; }
                         else ++notAdded;
                     ++state.revision;
                     // How many did not fit comes first; a file that could not be measured still says why.
                     if (notAdded > 0) issue = targetsFullIssue (notAdded) + (issue.isNotEmpty() ? " / " + issue : juce::String());
-                    setIssue (issue); state.measuring = false; state.progress = 0.0;
+                    setIssue (issue); state.measuring = false; state.progress = 0.0; epoch = state.restoreEpoch;
                 }
                 workerActive = false;
-                if (! pending) settled.signal();
             }
+            if (changed && targetsAdded) targetsAdded (addedIds, epoch);
             if (changed && stateChanged) stateChanged();
+            { const juce::ScopedLock guard (mutex); if (! pending && ! workerActive) settled.signal(); }
             KIRIN_REFERENCE_COMMIT_FOR_TEST();
         }
     }

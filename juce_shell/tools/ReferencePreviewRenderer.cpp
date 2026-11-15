@@ -3,6 +3,7 @@
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
 #include "ReferencePreviewScenario.h"
+#include "ReferencePreviewRound2Check.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -226,6 +227,16 @@ juce::Image render (hypha::reference_ui::State state, bool japanese, int width, 
     surface.addAndMakeVisible (reference);
     if (details)
     {
+        if (reference.state().comparisonSlot == 3)
+        {
+            auto* bar = reference.findChildWithID ("reference-targets");
+            auto* targetDetails = bar != nullptr ? dynamic_cast<juce::Button*> (bar->findChildWithID ("reference-target-details")) : nullptr;
+            if (targetDetails == nullptr || ! targetDetails->isVisible() || ! targetDetails->onClick)
+                fail ("reference-preview-details-unavailable");
+            targetDetails->onClick();
+        }
+        else
+        {
         auto* button = dynamic_cast<juce::Button*> (reference.findChildWithID ("reference-check-details"));
         if (button == nullptr || ! button->isVisible() || ! button->onClick) fail ("reference-preview-details-unavailable");
         const auto before = reference.state();
@@ -246,6 +257,7 @@ juce::Image render (hypha::reference_ui::State state, bool japanese, int width, 
                 fail ("reference-preview-details-changed-comparison");
         }
         reference.onMatch = {}; reference.onSetFollowA = {}; reference.onSetCheckSong = {}; reference.onSelectCheck = {};
+        }
     }
     if (blind)
     {
@@ -279,9 +291,12 @@ int main (int argc, char** argv)
         if (output.existsAsFile() && ! output.deleteFile())
             fail ("reference-preview-output-failed");
         juce::FileOutputStream stream { output };
+        const auto state = previewScenario (stateFromRequest (object (request)));
+        if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_VERIFY", {}) == "1" && ! verifyPreviewRound2 (state))
+            fail ("reference-preview-round2-check-failed");
         if (! stream.openedOk()
             || ! juce::PNGImageFormat().writeImageToStream (
-                render (previewScenario (stateFromRequest (object (request))), request["locale"] == juce::var ("ja"),
+                render (state, request["locale"] == juce::var ("ja"),
                         previewWidth(), previewWidth() * 2 / 3, previewDetails()), stream))
             fail ("reference-preview-output-failed");
         std::cout << "{\"renderer_version\":\"1.0.0\"}\n";

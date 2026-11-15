@@ -6,6 +6,8 @@
 #include "../src/reference_audition/ReferenceVisualTimeline.h"
 #include <cmath>
 
+#include "ReferencePreviewRound2.h"
+
 inline int previewWidth()
 {
     return juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_SIZE", {}) == "100" ? 300 : 900;
@@ -103,5 +105,6 @@ inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State st
     }
     timeline->aTicks = ticks; state.visualTimeline = timeline;
     state.targetsEnabled = true;
+    previewRound2 (state);
     return state;
 }

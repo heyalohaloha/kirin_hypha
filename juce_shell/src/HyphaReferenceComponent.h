@@ -317,7 +317,7 @@ public:
 
     std::function<void(const reference_audition::TargetRequest&)> onTargetRequest;
     bool isInterestedInFileDrag (const juce::StringArray&) override
-    { return current.targetsEnabled && ! isBlindSession (current.blindPhase); }
+    { return current.targetsEnabled && current.comparisonSlot == 3 && ! isBlindSession (current.blindPhase); }
     void filesDropped (const juce::StringArray& files, int, int) override
     { dragActive = false; repaint(); if (isInterestedInFileDrag (files) && onTargetRequest) onTargetRequest ({ reference_audition::TargetRequest::Action::importFiles, files, {} }); }
     void fileDragEnter (const juce::StringArray&, int, int) override { dragActive = true; repaint(); }
@@ -409,7 +409,6 @@ private:
     }
 
     TargetBar targetBar;
-    TargetBadge targetBadge;
     bool dragActive = false, detailsOpen = false;
     State current;
     bool guideShown = false;

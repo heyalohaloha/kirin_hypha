@@ -213,7 +213,8 @@ const Entry entries[] = {
       u8"ONE：Aと選んだ曲とセットの範囲。ALL：Aと、番号を押して出した線。" },
     { "Shows or hides this line on Balance. B keeps playing the song you chose.",
       u8"この線をBalanceに出す・消す。Bで鳴る曲は選んだ曲のまま。" },
-    { "A target is measured data with no audio. Compare it on C.", u8"目標は測った値だけで、音はありません。Cで比べられます。" },
+    { "A target has no audio. A stays live.", u8"目標には音がありません。Aのままです。" },
+    { "C: A vs Kirin OS song and cue", u8"C：Kirin OSの曲・区間とAを比較" },
     { "PRESS A NUMBER TO SHOW ITS LINE", u8"番号を押すと線が出ます" },
     { "LINES: each line you turn on. SHAPE: their mean and range. ALL SHAPE: of every song and target.",
       u8"LINES：出した線を1本ずつ。SHAPE：その平均と範囲。ALL SHAPE：全部の曲と目標の平均と範囲。" },
@@ -221,6 +222,8 @@ const Entry entries[] = {
       u8"Balance：選んだ窓のAと、入れた曲と目標の平均と範囲。" },
     { "TURN ON SONGS TO SEE THEIR SHAPE", u8"番号で曲を出すと形が出ます" },
     { "NO SONGS IN THIS SET", u8"セットに曲がありません" },
+    { "CHOOSE A TARGET", u8"目標を選んでください" },
+    { "CLOSE DETAILS TO SEE BALANCE", u8"図を見るには詳しくを閉じる" },
     { "ALL SHOWS TARGETS", u8"ALLで目標を見られます" },
     { "ALL SHAPE uses every song. Choose SHAPE to pick songs.", u8"ALL SHAPEは全部の曲を使います。選ぶにはSHAPEを押します。" },
     // ALL SHAPE の数を先に（「MEAN OF %1」が「ALL 20」を値に取らないように）。

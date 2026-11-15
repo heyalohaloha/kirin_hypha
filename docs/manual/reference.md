@@ -28,7 +28,7 @@ Reference has four roles, each with its own button in the same place at every si
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
   to listen for; its songs are the CHECK set's, or the first-ranked Reference set's when the CHECK set
   has none (Kirin OS chooses them). The Cue is the section C plays.
-  C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
+  C compares A with the song, Cue and frequency bands chosen in Kirin OS. Measured targets are handled on B, not C.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
 **LOOP and FOLLOW A.** B and C play in one of two ways, chosen with **LOOP** and **FOLLOW A** on the B and C
@@ -63,11 +63,10 @@ stopped is not reused after a switch: B or C is matched again when it comes back
 way never starts a role. V always follows A's position by its content, and Blind is unchanged.
   V works best with Hypha on the 2Mix.
 
-**Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
+**Measured targets.** On B, drop a file onto the Reference page to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
-seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
-with no audio to audition. On the B page, ALL also overlays targets with the Reference set's songs. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+seconds. B always shows the drop hint and target count; open DETAILS for MAKE TARGET, the target selector and removal. In B's list, select a target to compare its median spectrum with A in ONE. It has no audio: pressing B explains this and leaves A playing. ALL includes newly imported and made targets immediately. A target being measured appears as a pending row. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
 four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
 drop holds more files than there are free places, they are measured in the order dropped until the
 places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
@@ -186,12 +185,12 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   **ONE / ALL** at the top right of Balance chooses what it draws. ONE is the view above. ALL draws A
   (gold) with the lines you show: each row's number becomes a box that shows or hides that row's line,
   as many at once as you like. It only changes the chart; B still plays the one song you chose. The first
-  ALL shows every song of the set. A line keeps the colour it was given until you hide it, whichever
+  ALL shows every song and target. Newly imported or made targets are shown immediately; a line you explicitly hide remains hidden until you show it again. A line keeps the colour it was given until you hide it, whichever
   others you show or hide, and a box takes its line's colour. The legend names the lines shown in up to
   three rows and ends with how many more (+12). Pointing at a row, or near a line on the chart, draws that
   line stronger and the others fainter and reads A and that line at the pointer. In ALL the measured
-  targets you dropped follow the songs, in the order added, at the level B would play them at (state
-  DATA); pressing one to hear it says that it has no audio. In ALL, **LINES / SHAPE / ALL SHAPE** beside
+  targets follow the songs, in the order added, at the level B would play them at (state
+  DATA); choosing one in ONE draws it with A. Pressing B to hear a target says it has no audio. In ALL, **LINES / SHAPE / ALL SHAPE** beside
   ONE / ALL chooses how the chart draws them, and the one that is on is lit. LINES draws each line
   turned on. SHAPE draws, instead of those lines, their mean and a band from the lowest to the highest
   value in each band; the numbers still choose what goes in, and the legend counts them (MEAN OF 3,
@@ -200,10 +199,9 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   the chart says to turn songs on. A stays its gold line on top, and pointing at a row draws that one
   item's line thinly over the shape. The list scrolls when its rows do not fit, and moves to the chosen
   song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
-  Hypha ignore them). Below 300 % there is no Balance, so no ALL.
-- **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
-  keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
-  set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
+  Hypha ignore them). Below 300 %, a compact Balance shows the current ONE or ALL selection,
+  with the same line colours and numbered legend. At 100 %, close DETAILS to restore the chart.
+- **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. The main view follows the Check definition, and DETAILS opens its other views and the timeline without changing sound or comparison. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
@@ -326,6 +324,6 @@ way over the section aligned with A.
 
 A is compared live: while REF is open and the song plays, Hypha measures A for the role you
 are looking at (B, C or V) and fills V's WHOLE timeline as you play. The page decides what is compared;
-MAKE TARGET can preserve the displayed A window's measured facts for a later comparison on C,
+MAKE TARGET can preserve the displayed A window's measured facts for a later comparison on B,
 without capturing audio or running a second analysis. The older A capture format is skipped on reopen
 (it neither changes the display nor uses analysis) and is dropped at the next save.

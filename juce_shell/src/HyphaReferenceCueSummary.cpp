@@ -65,7 +65,7 @@ void applySongComparison (State& state, const reference_audition::ASongSummary* 
 {
     auto& song = state.song;
     song = { song.chosen };
-    if (! song.chosen || state.comparisonSlot != 2 || state.targetSelected || ! songSupported (state)) return;
+    if (! song.chosen || state.comparisonSlot != 2 || ! songSupported (state)) return;
     if (! c) { song.cMissing = true; return; }
     song.shown = true;
     song.cLoudness = cLoudness;
@@ -179,8 +179,7 @@ juce::String cueSpectrumLegend (const State& state, bool targetRange)
         : state.song.shown ? songALegend (state.song.aSlots) : aWindowLegend (state.aKirin->frames);
     const auto nan = std::numeric_limits<double>::quiet_NaN();
     const auto duration = state.sourceDurationSeconds;
-    const auto c = state.targetSelected ? juce::String ("C TARGET")
-        : ! state.song.shown ? cuePartLegend ("C", state.cuePart, nan, nan, false)
+    const auto c = ! state.song.shown ? cuePartLegend ("C", state.cuePart, nan, nan, false)
         : std::isfinite (duration) && duration > 0.0 ? "C SONG 0:00-" + clock (duration) : juce::String ("C SONG");
     return a + " / " + c + (targetRange ? juce::String (" / ") + targetRangeLegend : juce::String())
         + (std::isfinite (chartGainDb (state)) ? "" : " / LEVEL NOT MATCHED");

@@ -51,7 +51,6 @@ int Component::statusRowHeight() const noexcept
     const auto japaneseSplit = line.indexOfChar (juce::juce_wchar (0x3002));
     const auto englishSplit = line.indexOf (". ");
     const auto split = japaneseSplit >= 0 ? japaneseSplit : englishSplit;
-    if (current.targets.measuring || current.targets.issue.isNotEmpty()) return 54;
     if (split < 0) return text_style::shownWidth (font, line) <= width - 16 ? 36 : 54;
     return text_style::shownWidth (font, line.substring (0, split + 1)) <= width - 16
         && text_style::shownWidth (font, line.substring (split + 1).trimStart()) <= width - actionWidth - 5 ? 36 : 54;
@@ -80,7 +79,7 @@ bool Component::statusRowHasControls() const noexcept
 // 案内が次の一手を言っているあいだは行を出さない。断り・アクション・待ちの超過のときは出す。
 bool Component::statusLineShown() const noexcept
 {
-    return ((shortPanel() || ! targetBar.isVisible()) && current.targetsEnabled && (current.targets.measuring || current.targets.issue.isNotEmpty()))
+    return (current.comparisonSlot == 3 && current.targetsEnabled && (current.targets.measuring || current.targets.issue.isNotEmpty()))
         || ! guideShown || current.readiness == Readiness::rejected
         || actionButton.isVisible() || current.preparationOverdue.isNotEmpty();
 }
@@ -109,7 +108,7 @@ Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> st
 {
     StatusTextLayout layout;
     auto line = referenceStatusLine (current, statusInFooter() && current.heldAttenuationDb < -0.05);
-    if ((shortPanel() || ! targetBar.isVisible()) && current.targetsEnabled && ! isBlindSession (current.blindPhase)
+    if (current.comparisonSlot == 3 && current.targetsEnabled && ! isBlindSession (current.blindPhase)
         && (current.targets.measuring || current.targets.issue.isNotEmpty()))
     {
         const auto notice = current.targets.measuring ? "MEASURING " + juce::String (juce::roundToInt (current.targets.progress * 100)) + "%"

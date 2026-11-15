@@ -27,11 +27,10 @@ void Component::resized()
     place (bButton, comparisonWidth);
     if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
     place (aButton, comparisonWidth);
-    targetBadge.setBounds (cButton.getBounds());
     if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
     // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
     auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
-    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived)) {} // Leave the initial guide clear.
+    if (guideShown && targetBar.isVisible() && ! current.libraryReceived) {} // Leave the initial guide clear.
     else if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // C・V の画面（HyphaReferenceCheckPage.cpp）
     else if (rolePage() && current.comparisonSlot == 3)
     {
@@ -126,7 +125,7 @@ void Component::resized()
             candidateBox.setBounds (selector);
         }
     }
-    if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession && ! current.targetSelected)
+    if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession)
     {
         auto row = area.removeFromTop (panelPickerHeight());
         if (matchButton.isVisible()) { matchButton.setBounds (row.removeFromRight (50)); row.removeFromRight (3); }
@@ -137,6 +136,7 @@ void Component::resized()
         }
         layoutPlayback (row);
     }
+    if (presentationContext.referenceCheck && ! blindSession) area.removeFromTop (16);
     area.removeFromTop (panelGap());
     const bool rowInPanel = ! statusInFooter();
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};

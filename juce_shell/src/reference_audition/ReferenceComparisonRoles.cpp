@@ -18,7 +18,6 @@ bool ReferenceComparisonController::selectB (double loudness, double peak) noexc
 bool ReferenceComparisonController::selectC (double loudness, double peak) noexcept
 {
     const juce::ScopedLock transaction (targetChoiceLock);
-    if (targets.snapshot().collection.selected.isNotEmpty()) return false;
     // The audible C still belongs to the old selection while its replacement prepares.
     if (preparingCheck()) return ! trialActive();
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
@@ -31,6 +30,8 @@ bool ReferenceComparisonController::selectC (double loudness, double peak) noexc
 // B（REF）。B セットの曲を、A の直近 10 秒に追従する gain で鳴らす。
 bool ReferenceComparisonController::selectRef (double loudness, double peak) noexcept
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (targets.snapshot().collection.selected.isNotEmpty()) return false;
     if (preparingReference()) return ! trialActive();
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
     if (trialActive() || ! snapshot().referenceReady) return false;
@@ -103,7 +104,7 @@ LowerAApproval ReferenceComparisonController::approveLowerAAndPlay (const LowerA
     const juce::ScopedLock transaction (targetChoiceLock);
     const int slot = offer.slot;
     const double approvedDb = offer.db;
-    if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return LowerAApproval::stale;
+    if (slot == 3 && targets.snapshot().collection.selected.isNotEmpty()) return LowerAApproval::stale;
     if (! offer.valid() || ! std::isfinite (approvedDb) || trialActive()) return LowerAApproval::refused;
     if (outputDecision (output_owner::Activity::lowerA).refused()) return LowerAApproval::postInUse;
     // 申し出は、その役の今の音・選択・MATCH の失敗に対するものだけを受ける（別の役・古い申し出・押し直した後は断る）。
@@ -165,9 +166,11 @@ namespace hypha::reference_audition
 // 止まっている・戻る保留・押した後の待ちなら、新しい曲が公開され次第、新しい MATCH で B のまま鳴らす。
 bool ReferenceComparisonController::selectSong (const juce::String& id, double loudness, double peak)
 {
+    const juce::ScopedLock transaction (targetChoiceLock);
     if (trialActive()) return false;
     reference.supplyPreparedLevel (loudness, peak);
     if (! reference.selectLibrarySong (id)) return false;
+    targets.select ({});
     bool changed = false;
     { const juce::ScopedLock lock (selectionLock); changed = songId != id; songId = id; }
     if (changed) reference.setFollowOffsetSeconds (0.0);  // 曲が替われば手のずらしは 0（公開を待たない）
