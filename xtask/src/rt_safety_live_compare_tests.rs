@@ -179,8 +179,8 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
     let feed = function_body(SESSION_H, "bool feed (");
     for body in [render, feed].map(without_line_comments) {
         assert!(
-            !rt_wait_guard_tests::has_wait_call(&body),
-            "RT body must not call a wait operation"
+            !rt_wait_guard_tests::has_wait_operation(&body),
+            "RT body must not use a wait operation"
         );
         for forbidden in ["make_unique", "new ", "mutex", "sleep"] {
             assert!(
