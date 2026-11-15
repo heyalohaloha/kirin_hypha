@@ -16,9 +16,9 @@ class MatchChoicePopup final : public juce::Component, private juce::ComponentLi
     {
     public:
         ChoiceButton() : juce::Button (juce::String {}) { setWantsKeyboardFocus (true); }
-        void setText (juce::String next, juce::Font nextFont)
+        void setText (juce::String next, presentation::Context nextContext)
         {
-            text = std::move (next); font = std::move (nextFont);
+            text = std::move (next); context = nextContext;
             setButtonText (text);
             setTitle (text_style::shownText (text));
             setDescription (text_style::shownText (text)); setTooltip (text);
@@ -29,11 +29,11 @@ class MatchChoicePopup final : public juce::Component, private juce::ComponentLi
             g.setColour (COL_TEXT_SECONDARY);
             g.drawRect (getLocalBounds(), 1);
             g.setColour (COL_NORMAL);
-            g.setFont (font);
+            g.setFont (labelFont (context, typography::TextRole::listenChoice, typography::Composition::information));
             text_style::drawLines (g, text, getLocalBounds().reduced (8, 4), juce::Justification::centredLeft, 4);
         }
         juce::String text;
-        juce::Font font;
+        presentation::Context context;
     };
 
 public:
@@ -50,16 +50,16 @@ public:
 
     void open (juce::Component& parent, juce::Rectangle<int> anchor,
                juce::String heading, juce::String lower, juce::String limit,
-               presentation::Context context, std::function<void (int)> action)
+               presentation::Context shownContext, std::function<void (int)> action)
     {
         close();
+        context = shownContext;
         owner = &parent;
         callback = std::move (action);
         title = std::move (heading);
-        font = labelFont (context, typography::TextRole::body, typography::Composition::information);
-        font.setHeight (juce::jmax (14.0f, font.getHeight()));
-        first.setText (std::move (lower), font);
-        second.setText (std::move (limit), font);
+        font = labelFont (context, typography::TextRole::listenChoice, typography::Composition::information);
+        first.setText (std::move (lower), context);
+        second.setText (std::move (limit), context);
         const int width = juce::jmax (1, juce::jmin (520, parent.getWidth() - 12));
         const auto heightOf = [&] (const juce::String& text, int inset)
         { return static_cast<int> (std::ceil (text_style::shownWrappedHeight (text, font, juce::jmax (1, width - inset)))); };
@@ -103,7 +103,7 @@ public:
         g.setColour (COL_TEXT_SECONDARY);
         g.drawRect (getLocalBounds(), 1);
         g.setColour (COL_NORMAL);
-        g.setFont (font);
+        g.setFont (labelFont (context, typography::TextRole::listenChoice, typography::Composition::information));
         text_style::drawLines (g, title, headingBounds, juce::Justification::centredLeft, 4);
     }
     bool keyPressed (const juce::KeyPress& key) override
@@ -127,6 +127,7 @@ private:
     juce::Component::SafePointer<juce::Component> owner;
     std::function<void (int)> callback;
     juce::String title;
+    presentation::Context context;
     juce::Font font;
     juce::Rectangle<int> headingBounds;
     ChoiceButton first, second;

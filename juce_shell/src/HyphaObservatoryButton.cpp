@@ -63,7 +63,7 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
     }
     else if (footer_action_font::isEnd (getButtonText()))
     {
-        g.setFont (footer_action_font::forText (presentationContext, getButtonText()));
+        g.setFont (labelFont (presentationContext, typography::TextRole::listenAction));
         text_style::drawEllipsized (g, getButtonText(), getLocalBounds().reduced (3, 1), juce::Justification::centred);
     }
     else
