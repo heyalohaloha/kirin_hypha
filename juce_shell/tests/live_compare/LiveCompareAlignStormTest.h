@@ -45,7 +45,7 @@ struct World
     std::int64_t k = 512, early = 0, base = 0, run = 0, clock = 0;
     int frames = 256, calibrating = 0, stopped = 0, tickEvery = 2, sinceTick = 0, burst = 0;
     bool selectedPre = true, content = true, raceNext = false, unseenK = false, wasValid = false, sameStart = false;
-    bool takeoverUnseen = false; // the host took the delay over and no service has seen that K yet
+    bool takeoverUnheard = false; // the host took the delay over and no block has been proven at that K yet
     bool confirmedCandidate = false; std::uint64_t confirmedConditions = 0;
     Listener listeners[2];
     long blocks = 0, substituted = 0, notices = 0, events = 0, staleEstimates = 0, fallbacks = 0, blindBlocks = 0, races = 0, burstBlocks = 0;
@@ -86,6 +86,7 @@ struct World
         PreAlignInput in;
         in.event = event; in.context = context; in.host = host; in.active = true; in.agreement = agreement;
         in.revision = l.alignment.readiness.generation(); in.k = l.alignment.readiness.clockK();
+        in.steps = &l.alignment.readiness.clockSteps();
         return in;
     }
 
@@ -101,8 +102,7 @@ struct World
         l.alignment.readiness.observe (true, playing, kValid, k);
         l.alignment.observed (accepted, kValid, update);
         l.gateOpen = l.playsPre = false;
-        const bool waits = l.alignment.readiness.pending() || ! update.current || update.deferred
-            || update.revision != l.alignment.readiness.generation();
+        const bool waits = l.alignment.awaits (update);
         l.pathOpen = kValid && ! waits;
         l.slotPre = accepted && ! waits; // what the source that is PRE would sound: PRE, else POST
         if (! accepted || waits) l.weight = 0.0f;
@@ -117,14 +117,8 @@ struct World
         if (l.playsPre)
             check (l.address == 0 || std::llabs (l.address - early) <= agreement, "PRE never plays a correction against another K");
         // The wait: clock-proven playback of PRE's side without PRE (total: since PRE last played at its address).
-        // A kept correction PRE's run does not reach stays requested, so the budget stays spent: each later
-        // change of the mapping is then answered at once, and only the service's lag (bounded by `waited`) passes.
         const auto told = l.owner.notice (l.alignment.unservedCorrection());
-        if (kValid && (pre || blind) && ! l.gateOpen)
-        {
-            l.waited += frames; if (! l.alignment.budgetSpent()) l.total += frames;
-            if (index == 0) ++substituted;
-        }
+        if (kValid && (pre || blind) && ! l.gateOpen) { l.waited += frames; l.total += frames; if (index == 0) ++substituted; }
         else if (l.gateOpen) l.waited = 0;
         if (l.gateOpen && ! l.alignment.unservedCorrection()) { l.total = 0; l.rereading = false; } // the budget is whole again
         if (l.waited > longestWait) longestWait = l.waited;
@@ -191,12 +185,12 @@ struct World
         const int delay = 1 + pick (3);
         for (auto& l : listeners) service (l, delay);
         // The owner sees K at its services: the model changes K again only after one has seen the last change.
-        if (listeners[0].alignment.readiness.clockK() == k && listeners[1].alignment.readiness.clockK() == k) unseenK = takeoverUnseen = false;
+        if (listeners[0].alignment.readiness.clockK() == k && listeners[1].alignment.readiness.clockK() == k) unseenK = false;
         if (raceNext && ! unseenK && ! answering() && early > 0 && ! (listeners[0].validated.empty() && listeners[1].validated.empty()))
         {   // the host takes the delay over after the estimate was validated, before it is bound (not
             // while a spent budget's answer has not played: see answering())
             raceNext = false; ++races;
-            moveK (early); early = 0; takeoverUnseen = true; calibrating = 2;
+            moveK (early); early = 0; takeoverUnheard = true; calibrating = 2;
             for (int i = 0; i < 3; ++i) block();
         }
         for (auto& l : listeners) confirm (l);
@@ -219,6 +213,7 @@ struct World
                      && toldX.notRemeasured == toldY.notRemeasured, "both BLIND assignments wait and are told alike at every block");
         }
         wasValid = stopped == 0 && calibrating == 0;
+        if (wasValid) takeoverUnheard = false; // the Audio Thread has seen that step of K by itself
         if (stopped > 0) { if (--stopped == 0) restartRun (pick (20)); }
         else { run += frames; if (calibrating > 0) --calibrating; }
     }
@@ -237,8 +232,8 @@ struct World
         switch (pick (4))
         {
             case 0: restartRun (pick (2)); break;                                // short loop / seek
-            // (not on top of a takeover no service has seen: the owner knows a takeover by its one step of K)
-            case 1: case 2: if (stopped == 0 && ! answering() && ! takeoverUnseen) { moveK ((1 + pick (16)) * 64 * (pick (2) ? 1 : -1)); restartRun (pick (2)); } break;
+            // (not before one block was proven at a takeover's K: no clock tells two changes without a mapping between them apart)
+            case 1: case 2: if (stopped == 0 && ! answering() && ! takeoverUnheard) { moveK ((1 + pick (16)) * 64 * (pick (2) ? 1 : -1)); restartRun (pick (2)); } break;
             default: break;
         }
     }
@@ -252,7 +247,7 @@ struct World
             case 3: stopped = 1 + pick (30); break;                              // stop, then play
             case 4: restartRun (pick (3)); break;                                // loop wrap
             case 5: if (unseenK || answering()) break; moveK ((1 + pick (16)) * 64 * (pick (2) ? 1 : -1)); restartRun (pick (40)); break; // buffer / origin
-            case 6: if (! unseenK && ! answering() && early > 0) { moveK (early); early = 0; takeoverUnseen = true; restartRun (pick (40)); } break; // host takes over
+            case 6: if (! unseenK && ! answering() && early > 0) { moveK (early); early = 0; takeoverUnheard = true; restartRun (pick (40)); } break; // host takes over
             case 7: if (! unseenK && ! answering() && early == 0 && base > 0) { moveK (-base); early = base; restartRun (pick (40)); } break; // and stops
             case 8:
             {

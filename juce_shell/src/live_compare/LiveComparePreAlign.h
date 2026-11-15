@@ -38,6 +38,7 @@ struct PreAlignInput
     PreAlignHost host;
     std::uint64_t revision = 0; // the Audio Thread's present clock mapping ...
     std::int64_t k = 0;         // ... and its K
+    const ClockSteps* steps = nullptr; // each step of K the Audio Thread saw
     bool active = false;
     // estimate
     AlignValue value;
@@ -126,12 +127,14 @@ private:
     struct Kept { AlignValue value; std::int64_t k = 0; AlignContext context; PreAlignHost host; };
     bool usable (const PreAlignInput& in) const noexcept
     { return kept.value.frames != 0 && kept.context == in.context && kept.host == in.host; }
-    // K moved by the kept amount, in one observed step or since the correction was measured or last
+    // K moved by the kept amount, in one step the Audio Thread saw (also when other steps followed
+    // before this service), in one observed step or since the correction was measured or last
     // played: the host compensates that delay now, so the kept correction is dropped (PRE at K).
     void observeClock (const PreAlignInput& in) noexcept
     {
         const bool stepped = clockSeen && in.k != seenK;
-        if (usable (in) && (hostTookOver (kept.value, kept.k, in.k, in.agreement)
+        const bool heard = in.steps != nullptr && in.steps->moved (stepsSeen, usable (in) ? kept.value.frames : 0, in.agreement);
+        if (usable (in) && (heard || hostTookOver (kept.value, kept.k, in.k, in.agreement)
                             || (stepped && hostTookOver (kept.value, seenK, in.k, in.agreement)))) kept.value = {};
         seenK = in.k; clockSeen = true;
     }
@@ -143,6 +146,7 @@ private:
     }
     Kept kept;
     std::int64_t seenK = 0;
+    std::uint64_t stepsSeen = 0; // of the Audio Thread's steps of K
     bool clockSeen = false;
     std::uint64_t missSince = 0; // the first read of the kept position that missed
     bool awaited = false; // the kept correction is requested and waits for PRE's new run to reach it

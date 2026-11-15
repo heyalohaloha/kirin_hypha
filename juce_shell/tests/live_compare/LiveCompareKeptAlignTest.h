@@ -9,7 +9,7 @@
 namespace live_compare_kept_test
 {
 using namespace hypha::live_compare;
-constexpr std::int64_t rate = 48000, clockK = 512, unknown = std::numeric_limits<std::int64_t>::max();
+constexpr std::int64_t rate = 48000, unknown = std::numeric_limits<std::int64_t>::max();
 constexpr int frames = 256;
 
 struct Listener
@@ -27,8 +27,8 @@ struct Session
 {
     AlignContext context { 3, 5, 7, 9 };
     PreAlignHost host;
-    bool blind = false, wasValid = false;
-    std::int64_t run = 0, clock = 0;
+    bool blind = false, wasValid = false, serviced = true;
+    std::int64_t run = 0, clock = 0, k = 512;
     Listener listeners[2];
 
     void select (bool xIsPre) noexcept { listeners[0].pre = xIsPre; listeners[1].pre = ! xIsPre; }
@@ -37,6 +37,7 @@ struct Session
         PreAlignInput in;
         in.event = event; in.context = context; in.host = host; in.active = true; in.agreement = 2;
         in.revision = l.alignment.readiness.generation(); in.k = l.alignment.readiness.clockK();
+        in.steps = &l.alignment.readiness.clockSteps();
         return in;
     }
     void send (Listener& l, const PreAlignInput& in) noexcept
@@ -48,10 +49,9 @@ struct Session
         AlignPlayback playback; playback.context = context; playback.verify = true;
         const auto update = l.alignment.update (playback, blind, l.pre, l.weight, wasValid ? run : unknown, rate, frames);
         const bool accepted = l.address() <= run;
-        l.alignment.readiness.observe (true, true, true, clockK);
+        l.alignment.readiness.observe (true, true, true, k);
         l.alignment.observed (accepted, true, update);
-        const bool waits = l.alignment.readiness.pending() || ! update.current || update.deferred
-            || update.revision != l.alignment.readiness.generation();
+        const bool waits = l.alignment.awaits (update);
         l.playsPre = false;
         if (! accepted || waits) { l.weight = 0.0f; return; }
         if (update.current) l.alignment.confirmApplied (update.revision);
@@ -78,7 +78,7 @@ struct Session
         for (int i = 0; i < blocks; ++i)
         {
             clock += frames;
-            for (auto& l : listeners) { render (l); service (l); }
+            for (auto& l : listeners) { render (l); if (serviced) service (l); }
             wasValid = true; run += frames;
         }
     }
@@ -156,5 +156,33 @@ static void keptCorrectionWaitsForPresNewRun()
                 s.select (false); s.play (4); s.select (true); s.play (8);
             }
             require (x.playsPre && x.address() == correction, "PRE plays with the kept correction again once its run reaches it");
+        }
+}
+
+// INV-LC28: a host that takes the kept delay over is known by that one step of K, also when K
+// changes again (a buffer size, a re-calibrated origin) before the service has seen either step.
+static void takeoverIsKnownByItsOwnStepOfK()
+{
+    using namespace live_compare_kept_test;
+    constexpr std::int64_t correction = 96000;
+    for (const bool blind : { false, true })
+        for (const std::int64_t first : { correction, std::int64_t (512) })
+        {
+            Session s; s.blind = blind;
+            auto& x = s.listeners[0]; auto& y = s.listeners[1];
+            s.select (true); s.play (8);
+            s.measure (correction);
+            s.play (500);
+            require (x.owner.keptValue().frames == correction && y.owner.keptValue().frames == correction, "the fixture keeps a correction");
+            s.serviced = false; // both changes happen between two services
+            s.k += first; s.play (1);
+            s.k += 256; s.play (1);
+            s.serviced = true; s.play (400);
+            const auto kept = first == correction ? 0 : correction;
+            require (x.owner.keptValue().frames == kept && y.owner.keptValue().frames == kept,
+                     first == correction ? "K moved by the kept amount and then again: the host took the delay over, the correction is dropped"
+                                         : "two other changes of K keep the correction");
+            if (first == correction)
+                require (x.address() == 0 && y.address() == 0, "PRE never plays the kept amount late after the host took it over");
         }
 }

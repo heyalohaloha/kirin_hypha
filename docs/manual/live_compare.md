@@ -252,7 +252,11 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   When the clock mapping changes, an unverified correction uses POST until fresh content
   confirms the new read position, including when the previous correction was zero, for at most
   one second of proven playback; then PRE plays at its clock position plus the correction
-  confirmed before (**Delay not re-measured**), or at its clock position alone if there was none. A publication
+  confirmed before (**Delay not re-measured**), or at its clock position alone if there was none.
+  A correction confirmed before that PRE cannot serve yet (more than a second, right after a
+  start) waits: PRE plays at its clock position and both sources show **Delay unmeasured** until
+  enough audio has passed; then both show **Delay not re-measured**, and PRE takes that amount the
+  next time you switch away from it. A publication
   collision alone keeps the trial's fixed read position. Recheck guidance is the same for both
   anonymous sources; neither source earns a listening receipt from substitute POST.
   PRE then returns with the same selection and approved gain;

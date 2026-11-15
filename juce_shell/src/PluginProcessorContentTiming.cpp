@@ -307,7 +307,7 @@ hypha::live_compare::PreAlignInput KirinHyphaProcessorBase::preAlignInput (hypha
                 liveCompare.alignConditions.load (std::memory_order_acquire),
                 liveCompare.compensationRevision.load (std::memory_order_acquire) };
     in.revision = liveCompare.renderer.alignRevision();
-    in.k = liveCompare.renderer.alignClockK();
+    in.k = liveCompare.renderer.alignClockK(); in.steps = &liveCompare.renderer.alignState().readiness.clockSteps();
     in.active = true;
     in.agreement = static_cast<std::int64_t> (std::floor (preparedFormat.sampleRate * hypha::live_compare::offsetAgreementSeconds));
     return in;

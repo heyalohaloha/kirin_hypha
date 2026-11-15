@@ -324,8 +324,7 @@ public:
         const bool sampleMismatch = align.enabled && alignment.value().verifySamples
             && ! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0);
         if (align.verify && sampleMismatch) alignment.readiness.recheck();
-        if (align.verify && align.enabled && (alignment.readiness.pending() || ! aligned.current || aligned.deferred
-            || aligned.revision != alignment.readiness.generation() || sampleMismatch))
+        if (align.verify && align.enabled && (alignment.awaits (aligned) || sampleMismatch))
         {
             weight = 0.0f; // the previous address is unverified: never fade through it
             report.preWaiting = preSelected;

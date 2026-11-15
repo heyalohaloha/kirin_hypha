@@ -155,6 +155,40 @@ inline bool matchingScaledBlock (float* const* post, float* const* pre, int chan
     return error <= postEnergy * precision * precision;
 }
 
+// INV-LC28: every step of K the Audio Thread saw from one proven mapping to the next, for the owner
+// of PRE's alignment state. A service slower than the changes still tells the one step by which a
+// host took a kept delay over from any other change of K. One Audio Thread writer, one non-RT
+// reader; nothing waits. Steps the log no longer holds are not judged.
+class ClockSteps
+{
+public:
+    static constexpr std::uint64_t capacity = 64;
+    void push (std::int64_t step) noexcept
+    {
+        const auto next = total.load (std::memory_order_relaxed);
+        steps[next % capacity].store (step, std::memory_order_relaxed);
+        total.store (next + 1, std::memory_order_release);
+    }
+    // Whether a step after `seen` moved K by `frames` within `agreement`; `seen` moves on to now.
+    bool moved (std::uint64_t& seen, std::int64_t frames, std::int64_t agreement) const noexcept
+    {
+        const auto end = total.load (std::memory_order_acquire);
+        bool found = false;
+        for (auto index = end - seen > capacity ? end - capacity : seen; index != end; ++index)
+        {
+            const auto step = steps[index % capacity].load (std::memory_order_relaxed);
+            std::int64_t rest = 0;
+            if (total.load (std::memory_order_acquire) - index > capacity) continue; // overwritten meanwhile
+            found = found || (frames > 0 && checkedClockSubtract (step, frames, rest) && rest >= -agreement && rest <= agreement);
+        }
+        seen = end;
+        return found;
+    }
+private:
+    std::atomic<std::int64_t> steps[capacity] {};
+    std::atomic<std::uint64_t> total { 0 };
+};
+
 // A separate audition check, never a clock proof. Changed clock mapping requests fresh
 // content evidence before the retained correction can sound; the value itself is kept.
 class AlignReadiness
@@ -176,11 +210,14 @@ public:
         {
             if (! haveK || k != previousK)
                 revision.fetch_add (1);
+            std::int64_t step = 0;
+            if (everK && k != previousK && checkedClockSubtract (k, previousK, step)) steps.push (step);
             previousK = k;
-            haveK = true;
+            haveK = everK = true;
         }
     }
     std::int64_t clockK() const noexcept { return observedK.load(); }
+    const ClockSteps& clockSteps() const noexcept { return steps; }
     std::uint64_t generation() const noexcept { return revision.load(); }
     bool pending() const noexcept { return confirmed.load() != revision.load(); }
     void recheck() noexcept { if (! pending()) revision.fetch_add (1); }
@@ -190,7 +227,8 @@ public:
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
-    bool started = false, haveK = false, wasEnabled = true; // Audio Thread only
+    bool started = false, haveK = false, everK = false, wasEnabled = true; // Audio Thread only
+    ClockSteps steps;
     std::int64_t previousK = 0;
 };
 
@@ -267,6 +305,10 @@ public:
         result.fading = wanted != applied && ! blind;
         if (playback.verify && result.current && appliedRevision != result.revision && weight <= 0.0f)
             adopt (wanted); // only a freshly confirmed clock mapping can move BLIND here
+        // A spent budget the service has answered waits for no content check again: at a new clock
+        // mapping PRE goes on at K at once (awaits() below) until PRE plays at its address.
+        answered = expired && (answered || result.current);
+        if (answered && checks && (readiness.pending() || ! result.current) && weight <= 0.0f) adopt ({});
         if (path.frames == 0) unserved.store (false);
         corrected = path.frames > 0;
         // BLIND: a correction is served only where PRE's run is known to reach it (not on the block that calibrates).
@@ -311,6 +353,16 @@ public:
         spent.store (expired, std::memory_order_relaxed);
     }
     bool pathProven() const noexcept { return proven.load (std::memory_order_relaxed); }
+    // After observed(): the block waits as POST for PRE's run or for the content check of the present
+    // clock mapping. Once the budget is spent and the service has answered that (the kept correction
+    // or K), only the first can wait: a later unchecked mapping plays PRE at K, which is not PRE at a
+    // confirmed address, so the budget stays spent.
+    bool awaits (const AlignUpdate& update) noexcept
+    {
+        if (! (readiness.pending() || ! update.current || update.revision != readiness.generation())) return update.deferred;
+        serves = false;
+        return update.deferred || ! (answered && applied == AlignValue {});
+    }
     // The content service (non-RT) has seen the present budget waiting for a content check.
     void arm() const noexcept { armed.store (budget.load (std::memory_order_relaxed), std::memory_order_relaxed); }
     // The one budget is spent: a pending content check is answered at once (PRE at K or the kept correction).
@@ -340,9 +392,9 @@ private:
     // Audio Thread only. held: frames of counted playback without PRE since PRE last played at its
     // address; stake: this block's share of it; expired: the budget is spent (latched); holdEnded: it
     // was spent while PRE's run did not serve a correction; serves: PRE playing this block is PRE at
-    // its address (corrected: a correction).
+    // its address (corrected: a correction); answered: the service has answered the spent budget.
     std::int64_t held = 0, stake = 0, played = 0, bound = 0;
-    bool expired = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
+    bool expired = false, answered = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
     std::atomic<bool> unserved { false }, proven { false }, spent { false };
     std::atomic<std::uint64_t> budget { 1 }; // written by the Audio Thread: which budget is running
     mutable std::atomic<std::uint64_t> armed { 0 }; // written by the content service only

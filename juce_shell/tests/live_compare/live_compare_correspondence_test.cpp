@@ -263,6 +263,7 @@ int main()
     aaxChunkPositionContract();
     liveCompareAlignContract();
     keptCorrectionWaitsForPresNewRun();
+    takeoverIsKnownByItsOwnStepOfK();
     alignTransportStorm();
     std::printf ("live compare correspondence: all checks passed\n");
     return 0;
