@@ -441,8 +441,7 @@ void KirinHyphaEditor::dropReferenceAfterTail() noexcept
 {
     using hypha::live_compare_ui::AfterTail;
     if (afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
-        || afterTail.action == AfterTail::referenceB)
-        afterTail = {};
+        || afterTail.action == AfterTail::referenceB) afterTail = {};
 }
 void KirinHyphaEditor::serviceAfterTailPress()
 {
@@ -473,7 +472,8 @@ void KirinHyphaEditor::serviceAfterTailPress()
         const auto* bypass = processorRef.getBypassParameter();
         const bool bypassed = bypass != nullptr && bypass->getValue() >= 0.5f;
         const bool offline = processorRef.isNonRealtime();
-        if (nowSecs() - afterTail.since >= 10.0 && (bypassed || offline))
+        // V/C/B end at 10 s; Keep keeps its two-minute tail wait (INV-AB6). POST's return goes on.
+        if (reference && nowSecs() - afterTail.since >= 10.0 && (bypassed || offline))
         { afterTail = {}; showToast (offline ? hypha::live_compare_ui::offlineHoldsReturnNotice : hypha::live_compare_ui::bypassHoldsReturnNotice); }
         return;
     }

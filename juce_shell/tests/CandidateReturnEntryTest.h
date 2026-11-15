@@ -172,6 +172,15 @@ template<class Require> void verifyAfterTailBlockedReturn (Require require)
             require (waiting.action == action, "press waits before ten seconds");
             waiting.since = now - 10.1;
             (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
+            if (action == AfterTail::keepPair || action == AfterTail::keepAll)
+            {
+                require (waiting.action == action, "a blocked Keep keeps waiting for the tail past ten seconds");
+                waiting.since = now - 121.0;
+                (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
+                require (waiting.action == AfterTail::none && candidateToast (*editor) == keepTailEndedNotice,
+                         "a blocked Keep still ends at its two-minute deadline with the reason");
+                continue;
+            }
             const auto* expected = offline ? offlineHoldsReturnNotice : bypassHoldsReturnNotice;
             require (waiting.action == AfterTail::none && candidateToast (*editor) == expected,
                      "press ends at ten seconds with the blocked return reason");
