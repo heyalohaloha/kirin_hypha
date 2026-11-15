@@ -106,7 +106,10 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     // uses it only under the same host conditions (INV-LC28).
     if (! liveCompare.candidate.selectedPre.empty())
     {
-        const auto before = liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
+        // The Audio Thread learns of the restart before it can see the new format.
+        auto before = liveCompare.alignFormat.load (std::memory_order_acquire);
+        do liveCompare.renderer.alignState().readiness.carryInto (before + 1);
+        while (! liveCompare.alignFormat.compare_exchange_weak (before, before + 1, std::memory_order_acq_rel));
         liveCompare.preAlign.candidateRestarted (before, permission, hypha::live_compare::pairKeyForPreInstance (pre.toStdString()));
     }
     stopLiveCompare();

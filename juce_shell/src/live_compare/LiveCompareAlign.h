@@ -167,6 +167,10 @@ class AlignReadiness
 public:
     void newContext() noexcept { started = haveK = false; } // a new session: its first K is still one step from the last
     void forgetClock() noexcept { everK = false; }           // another pair, format or PRE owner: no step leads there
+    // A/B: the same candidate starts again under `format` (each start counts the format on). The step
+    // of K from its last session to this one is still watched: the host may have taken the delay over.
+    void carryInto (std::uint64_t format) const noexcept { carried.store (format); }
+    bool carriesInto (std::uint64_t format) const noexcept { return carried.load() == format; }
     void observe (bool enabled, bool playing, bool validK, std::int64_t k) noexcept
     {
         if (! playing) return;
@@ -222,6 +226,7 @@ private:
     std::atomic<std::int64_t> observedK { 0 };
     mutable AlignWatch watch;
     mutable std::atomic<std::int64_t> keptAgreement { 0 };
+    mutable std::atomic<std::uint64_t> carried { 0 }; // the format a candidate restart announced
     bool started = false, haveK = false, everK = false, wasEnabled = true; // Audio Thread only
     std::int64_t previousK = 0;
 };
@@ -262,9 +267,12 @@ public:
     {
         if (playback.context != context)
         {
+            const bool restarted = playback.context.format != context.format && readiness.carriesInto (playback.context.format)
+                && AlignContext { context.authority, playback.context.format, context.ownerA, context.ownerB } == playback.context;
             applied = {}; weight = 0.0f; context = playback.context;
             shown.publishDisplay ({}, context);
-            newSession(); readiness.forgetClock();
+            newSession();
+            if (! restarted) readiness.forgetClock();
         }
         reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;
