@@ -17,6 +17,8 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
     foreach(contract IN ITEMS live_blind_session live_compare_completion live_compare_authority)
         add_executable(Kirin_${contract}_Tests tests/live_compare/${contract}_test.cpp)
         target_compile_features(Kirin_${contract}_Tests PRIVATE cxx_std_17)
+        # The recovery text reaches the candidate state, whose engine hold declares the FFI handle types.
+        target_include_directories(Kirin_${contract}_Tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
         target_compile_options(Kirin_${contract}_Tests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
         add_test(NAME kirin_${contract} COMMAND Kirin_${contract}_Tests)
     endforeach()
