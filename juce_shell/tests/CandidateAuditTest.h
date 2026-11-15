@@ -42,6 +42,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyLiveMatchDeadline (require);
     verifyLiveBlindSeekBack (require);
     verifyLiveBlindPreparationDeadline (require);
+    verifyLiveBlindPreparationPlayedTime (require);
     verifyCandidatePostOnlyReturn (require);
     verifyCandidateActivationGuidance (require);
     verifyCandidateHelpText (require);

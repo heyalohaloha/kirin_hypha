@@ -54,4 +54,27 @@ template<class Require> void verifyLiveBlindPreparationDeadline (Require require
                  && ! post.liveCompareStatus().active,
              "thirty seconds of playback end the preparation with its reason and POST is normal");
 }
+
+// The DAW stops during the preparation and calls nothing while it is stopped (its last callback said
+// playing): that time is not counted. A message thread that stalls while the DAW plays loses none of it.
+template<class Require> void verifyLiveBlindPreparationPlayedTime (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair(); auto& post = host.post();
+    host.inputScale = 0.0f; host.render (100, false, false);
+    require (post.beginLiveBlind() == StartResult::started, "BLIND starts on silence");
+    host.render (100, false, false);
+    for (int tick = 0; tick < 800; ++tick) // 40 s stopped: no callback, while the message thread still runs
+    { wall.advance (std::chrono::milliseconds (50)); post.serviceLiveBlind(); }
+    require (post.liveBlindStatus().stage == BlindStage::preparing, "stopped time without callbacks is not counted");
+    host.render (2200, false, false);
+    require (post.liveBlindStatus().stage == BlindStage::preparing, "about 25 s of playback still prepare");
+    host.serviceBlindAfterAudio = false; host.render (600, false, false); host.serviceBlindAfterAudio = true;
+    post.serviceLiveBlind();
+    const auto status = post.liveBlindStatus();
+    require (status.stage == BlindStage::failed && status.waiting == MatchFailure::notEnoughSignal,
+             "the playback a stalled message thread did not see still counts toward the 30 s");
+}
 }

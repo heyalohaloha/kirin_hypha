@@ -127,6 +127,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         return;
     }
 
+    // BLIND's preparation counts its 30 s of playback in these frames, never in wall time.
+    if (block.playing && frames > 0) liveCompare.playedFrames.fetch_add (static_cast<std::uint64_t> (frames), std::memory_order_release);
     // INV-LC10: a playback run starts at play after stop; a content timing notice ends with its run.
     if (block.playing && ! liveCompare.wasPlaying)
         liveCompare.playbackRun.fetch_add (1, std::memory_order_acq_rel);

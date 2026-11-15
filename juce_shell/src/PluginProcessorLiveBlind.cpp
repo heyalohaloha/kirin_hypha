@@ -131,8 +131,8 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     liveCompare.blindPreparationReason = RecoveryReason::none;
     ++liveCompare.blindPreparation;
     liveCompare.blindMeasuredEnd = 0;
-    liveCompare.blindMatchSince = liveCompare.blindSeenNanos = callbackWallNanos();
-    liveCompare.blindPlayedNanos = 0;
+    liveCompare.blindMatchSince = callbackWallNanos();
+    liveCompare.blindPlayedFrom = liveCompare.playedFrames.load (std::memory_order_acquire);
     liveCompare.blindContentNoticeMs = 0.0;
     liveCompare.blindWaiting = MatchFailure::notProven;
     liveCompare.blindStage = BlindStage::preparing;
@@ -179,13 +179,12 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     if (! status.active || status.finishing) return;
     if (liveCompare.blindTimingReceipt.load (std::memory_order_acquire)
         != liveCompare.blindTimingRequest.load (std::memory_order_acquire)) return;
-    const auto now = callbackWallNanos();
-    if (isPlaying() && now > liveCompare.blindSeenNanos)
-        liveCompare.blindPlayedNanos += std::min<std::uint64_t> (now - liveCompare.blindSeenNanos, 1'000'000'000);
-    liveCompare.blindSeenNanos = now;
     // Thirty seconds of playback without a measurable window end the preparation with its reason; POST
     // returns to normal and nothing else waits on it (a stopped DAW is the user's wait, not counted).
-    if (liveCompare.blindStage == BlindStage::preparing && liveCompare.blindPlayedNanos >= 30'000'000'000ull)
+    // Playback is the Audio Thread's count of frames the host called playing: a DAW stopped without
+    // callbacks adds none, and a message thread that stalls loses none.
+    const auto played = liveCompare.playedFrames.load (std::memory_order_acquire) - liveCompare.blindPlayedFrom;
+    if (liveCompare.blindStage == BlindStage::preparing && static_cast<double> (played) >= 30.0 * preparedFormat.sampleRate)
     {
         if (returnBlindToCandidateListen()) return;
         stopLiveCompare();
