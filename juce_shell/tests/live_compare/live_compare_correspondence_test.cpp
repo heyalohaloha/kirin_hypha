@@ -1,3 +1,4 @@
+#define KIRIN_ALIGN_WATCH_TEST 1
 #include "LiveCompareNotifiedStopTest.h"
 #include "LiveCompareHostModel.h"
 
@@ -264,6 +265,8 @@ int main()
     liveCompareAlignContract();
     keptCorrectionWaitsForPresNewRun();
     takeoverIsKnownByItsOwnStepOfK();
+    takeoverDuringPromotion();
+    takeoverOfBothWatchSlots();
     spentBudgetNeverWaitsAgainInTheRenderer();
     alignTransportStorm();
     std::printf ("live compare correspondence: all checks passed\n");

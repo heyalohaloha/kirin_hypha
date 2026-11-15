@@ -1,5 +1,6 @@
 #pragma once
 #include "LiveCompareRing.h"
+#include "LiveCompareAlignWatch.h"
 
 #include <cstdint>
 #include <cmath>
@@ -157,6 +158,10 @@ inline bool matchingScaledBlock (float* const* post, float* const* pre, int chan
 
 // A separate audition check, never a clock proof. Changed clock mapping requests fresh
 // content evidence before the retained correction can sound; the value itself is kept.
+class AlignReadiness;
+#ifdef KIRIN_ALIGN_WATCH_TEST
+inline void (*afterAlignWatchReadForTest) (const AlignReadiness&) = nullptr;
+#endif
 class AlignReadiness
 {
 public:
@@ -180,8 +185,15 @@ public:
                 revision.fetch_add (1);
             // After the revision: the owner reads the revision again once it has handed an estimate down.
             if (stepped)
-                for (const auto amount : { keptFrames.load(), nextFrames.load() })
-                    if (hostTookOver ({ amount }, previousK, k, keptAgreement.load())) takenFrames.store (amount);
+            {
+                const auto amounts = watch.snapshot();
+               #ifdef KIRIN_ALIGN_WATCH_TEST
+                if (afterAlignWatchReadForTest) afterAlignWatchReadForTest (*this);
+               #endif
+                const auto agreement = keptAgreement.load();
+                if (hostTookOver ({ amounts.kept }, previousK, k, agreement)) watch.recordKept (amounts.epoch);
+                if (hostTookOver ({ amounts.next }, previousK, k, agreement)) watch.recordNext (amounts.epoch);
+            }
             previousK = k;
             haveK = everK = true;
         }
@@ -194,11 +206,11 @@ public:
     // delay over, whatever K did afterwards. Nothing is logged and nothing waits. watchNext: an
     // estimate about to be kept is watched as well, before the owner reads the revision again, so no
     // step falls between the two; the amount kept so far stays watched throughout.
-    void watchNext (std::int64_t frames, std::int64_t agreement) const noexcept { keptAgreement.store (agreement); nextFrames.store (frames); }
+    void watchNext (std::int64_t frames, std::int64_t agreement) const noexcept { keptAgreement.store (agreement); watch.watchNext (frames); }
     void watchKept (std::int64_t frames, std::int64_t agreement) const noexcept
-    { keptAgreement.store (agreement); keptFrames.store (frames); nextFrames.store (0); }
+    { keptAgreement.store (agreement); watch.watchKept (frames); }
     // The watched amount K stepped by since the last call; 0 when it did not.
-    std::int64_t takenOver() const noexcept { return takenFrames.exchange (0); }
+    std::int64_t takenOver() const noexcept { return watch.takenOver(); }
     std::uint64_t generation() const noexcept { return revision.load(); }
     bool pending() const noexcept { return confirmed.load() != revision.load(); }
     void recheck() noexcept { if (! pending()) revision.fetch_add (1); }
@@ -208,7 +220,8 @@ public:
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
-    mutable std::atomic<std::int64_t> keptFrames { 0 }, nextFrames { 0 }, keptAgreement { 0 }, takenFrames { 0 };
+    mutable AlignWatch watch;
+    mutable std::atomic<std::int64_t> keptAgreement { 0 };
     bool started = false, haveK = false, everK = false, wasEnabled = true; // Audio Thread only
     std::int64_t previousK = 0;
 };

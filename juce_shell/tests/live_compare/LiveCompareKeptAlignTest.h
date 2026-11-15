@@ -206,6 +206,47 @@ static void takeoverIsKnownByItsOwnStepOfK()
         }
 }
 
+// The owner promotes after the audio snapshot but before the receipt is written.
+static void takeoverDuringPromotion()
+{
+    using namespace hypha::live_compare;
+    AlignReadiness clock;
+    clock.observe (true, true, true, 0);
+    clock.watchKept (1000, 2);
+    clock.watchNext (2000, 2);
+    const auto revision = clock.generation();
+    require (clock.generation() == revision, "the estimate passed its generation re-check");
+    afterAlignWatchReadForTest = [] (const AlignReadiness& c) { c.watchKept (2000, 2); };
+    clock.observe (true, true, true, 2000);
+    afterAlignWatchReadForTest = nullptr;
+    require (clock.takenOver() == 2000, "promotion cannot hide the new correction's takeover");
+    clock.observe (true, true, true, 4000);
+    require (clock.takenOver() == 2000, "a snapshot taken after promotion also catches the takeover");
+}
+
+// One step can match both amounts; a rejected new estimate must not hide the old match.
+static void takeoverOfBothWatchSlots()
+{
+    using namespace live_compare_kept_test;
+    Session s; s.select (true); s.play (8); s.measure (1000);
+    auto& l = s.listeners[0]; auto& clock = l.alignment.readiness;
+    auto estimate = s.input (l, PreAlignEvent::estimate);
+    estimate.value = { 1003 }; estimate.measuredRevision = estimate.revision; estimate.measuredK = estimate.k;
+    clock.watchNext (1003, 2);
+    clock.observe (true, true, true, estimate.k + 1001);
+    require (clock.generation() != estimate.revision, "the new estimate is rejected after the clock step");
+    clock.watchNext (0, 2);
+    s.send (l, estimate);
+    require (l.owner.keptValue().frames == 0, "a rejected overlapping estimate cannot hide the kept takeover");
+
+    AlignReadiness rejected;
+    rejected.observe (true, true, true, 0);
+    rejected.watchKept (1000, 2); rejected.watchNext (2000, 2);
+    rejected.observe (true, true, true, 2000);
+    rejected.watchNext (0, 2);
+    require (rejected.takenOver() == 0, "a rejected next-slot match never drops the previous correction");
+}
+
 // INV-LC28 through the renderer itself: once the one budget is spent and answered, a new clock
 // mapping waits for no content check. PRE goes on at K from the first proven block.
 static void spentBudgetNeverWaitsAgainInTheRenderer()
