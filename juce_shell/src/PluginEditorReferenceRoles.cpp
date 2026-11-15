@@ -63,8 +63,8 @@ void KirinHyphaEditor::wireReferenceRoles()
             case Result::notPlaying: showToast ("C is not playing. Press C to play it matched."); break;
             case Result::original: showToast ("This Check plays at its original level."); break;
             case Result::peakMatch: showToast ("This Check matches True Peak when C starts. Press A, then C."); break;
-            case Result::levelUnavailable:  // 断らずに待たせ、A がたまったら合わせる（2026-10-31）
-                referenceRematchUntil = nowSecs() + 40.0;
+            case Result::levelUnavailable:  // 断らずに待たせ、A がたまったら合わせる（2026-10-31）。期限は置かない
+                referenceRematchUntil = nowSecs();  // 待っている印（押した時刻。期限ではない）
                 referenceRematchNextAt = nowSecs() + 1.0;
                 referenceRematchKey = referenceRematchTarget();
                 referenceRematchQuiet = false;
@@ -328,26 +328,20 @@ void KirinHyphaEditor::armCheckRematch (const hypha::reference_audition::Snapsho
     if (runtime.followA) return;  // FOLLOW A は押した時の MATCH で固定（黙って合わせ直さない）
     if (referenceRematchUntil > 0.0 || check.comparisonMode != "loudness_match") return;
     if (std::isfinite (processorRef.referenceWindowLoudness (2).loudness)) return;  // 窓の値で合わせてある
-    referenceRematchUntil = nowSecs() + 40.0;
+    referenceRematchUntil = nowSecs();  // 待っている印（期限ではない）
     referenceRematchNextAt = nowSecs() + 1.0;
     referenceRematchKey = referenceRematchTarget();
     referenceRematchQuiet = true;
 }
 
 // 待たせた C の MATCH を 1 秒ごとに読み直す。合えば黙って（状態の行が言う）、上限超えは押したときと同じ承認、
-// C を止めた・替えたら捨てる。上限まで A がたまらなければ、今までの理由を言う。
+// C を止めた・替えたら捨てる。期限は置かない：C は今の gain で鳴り続け、A がたまった時に当てる（押し直させない）。
 void KirinHyphaEditor::serviceReferenceRematch()
 {
     if (referenceRematchUntil <= 0.0 || nowSecs() < referenceRematchNextAt) return;
     referenceRematchNextAt = nowSecs() + 1.0;
-    // Target and deadline first: a MATCH for another C, or past its wait, never changes a gain.
+    // Target first: a MATCH for another C never changes a gain.
     if (referenceRematchTarget() != referenceRematchKey) { referenceRematchUntil = 0.0; return; }
-    if (nowSecs() >= referenceRematchUntil)
-    {
-        referenceRematchUntil = 0.0;
-        if (! referenceRematchQuiet) showToast ("Play A for the Cue length (up to 30 s), then MATCH again.");
-        return;
-    }
     using hypha::reference_ui::RematchWait;
     const auto next = hypha::reference_ui::rematchWait (processorRef.rematchReferenceCheck());
     if (next != RematchWait::wait) referenceRematchUntil = 0.0;

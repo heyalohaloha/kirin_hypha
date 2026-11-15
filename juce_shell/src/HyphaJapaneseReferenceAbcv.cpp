@@ -23,7 +23,6 @@ const Entry entries[] = {
     { "Play C matched to the latest A over the Cue's length.", u8"Cueと同じ長さの直近のAに合わせてCを鳴らします。" },
     { "C is not playing. Press C to play it matched.", u8"Cは鳴っていません。Cを押すと合わせて鳴らします。" },
     { "This Check plays at its original level.", u8"このCheckは元の音量で鳴らします。" },
-    { "Play A for the Cue length (up to 30 s), then MATCH again.", u8"Cueの長さ（最長30秒）だけAを再生してから、もう一度MATCHを押してください。" },
     { "This Check matches True Peak when C starts. Press A, then C.", u8"このCheckはCを鳴らすときにTrue Peakで合わせます。Aを押してからCを押してください。" },
     { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
     // 位置合わせの待ちが 30 秒を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。

@@ -144,6 +144,13 @@ inline void verifyWaitingRequests()
              "a LISTEN press for another pair is dropped without starting LISTEN");
     require (e->*privateMember (WaitMatchUntil {}) <= 0.0 && (e->*privateMember (HiddenToast {})).isEmpty(),
              "a MATCH for another C is dropped without matching");
+    // A waiting C MATCH has no deadline: it never asks for MATCH again. It ends only with its C
+    // (no C sounds here, so it ends quietly).
+    e->*privateMember (HiddenToast {}) = {};
+    e->*privateMember (WaitMatchUntil {}) = 1.0; e->*privateMember (WaitMatchNext {}) = 0.0;
+    e->*privateMember (WaitMatchKey {}) = {}; tick();
+    require (e->*privateMember (WaitMatchUntil {}) <= 0.0 && (e->*privateMember (HiddenToast {})).isEmpty(),
+             "a waiting C MATCH never asks for another press");
     e->*privateMember (WaitListenBlind {}) = true;
     e->*privateMember (WaitListenUntil {}) = now() + 5.0; e->*privateMember (WaitListenKey {}) = "another PRE|"; tick();
     require (e->*privateMember (WaitListenUntil {}) <= 0.0 && processor.liveBlindStatus().stage == live_compare::BlindStage::idle,
