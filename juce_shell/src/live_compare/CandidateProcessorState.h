@@ -21,8 +21,8 @@ struct CandidateProcessorState
     std::atomic<std::uint64_t> returnSince { 0 };
     // INV-AB6: the return that ended at that deadline without proof. Measurement and the entries go
     // on, but B may still carry comparison audio that the clocks and a strong content match cannot
-    // tell from the ordinary path: until an ordinary marker has passed the chain and settled, nothing
-    // is learnt for PRE's alignment and no correction is kept. The return observer lives on for it.
+    // tell from the ordinary path: until an ordinary marker or a withdrawn-source bound proves
+    // drainage and it settles, nothing is learnt or kept. The return observer lives on for it.
     std::atomic<std::uint64_t> tail { 0 };
     CandidateTailOwner tailHold; // non-RT; remains held across engine replacement
     CandidateKeepRosterOwner keepRoster; // non-RT; retains a waiting All Keep's exact roster
@@ -32,23 +32,24 @@ struct CandidateProcessorState
     CandidateReturnContinuity returnContinuity; // Audio Thread only
     CandidateReturnSettling returnSettling; // Audio Thread only; no PCM authority
     std::atomic<bool> hostActive { true };
-    // Audio Thread, every callback with or without a session: the tail's marker and settling count.
+    // Audio Thread: the tail's drainage proof and settling count, with or without a session.
     void observeTail (const BlockClock& block, std::uint32_t rate, bool eligible) noexcept
     {
         const auto request = tail.load (std::memory_order_acquire);
         if (request == 0 || token.load (std::memory_order_acquire) != 0) return;
         const auto context = returnContext.load (std::memory_order_acquire);
         if (observedReturnContext != context) { returnContinuity = {}; returnSettling = {}; observedReturnContext = context; }
-        bool reached = false;
+        bool reached = false, withdrawn = false;
         auto settled = block;
         returnObserver.withRealtime ([&] (CandidateReturnObserver& observer)
         {
             auto observed = block;
             observed.clockValid = observed.clockValid && eligible;
             reached = observer.reached (observed, rate);
+            withdrawn = observer.unavailable (block) && observer.withdrawn (request);
             settled = observer.coordinates (block);
         });
-        quietFrames.store (returnSettling.advance (request, settled, rate, reached, eligible), std::memory_order_release);
+        quietFrames.store (returnSettling.advance (request, settled, rate, reached, eligible, withdrawn), std::memory_order_release);
         quietContext.store (context, std::memory_order_release);
     }
     bool trackMismatch = false; // message thread, guidance only

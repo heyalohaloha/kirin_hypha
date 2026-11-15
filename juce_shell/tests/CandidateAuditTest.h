@@ -50,6 +50,10 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyLiveBlindPreparationPlayedTime (require);
     verifyLiveBlindSettlingDeadline (require);
     verifyLiveBlindDeadlineReturnsPost (require);
+    verifyCandidateTailWithdrawalReceipt (require, false);
+    verifyCandidateTailWithdrawalReceipt (require, true);
+    verifyCandidateExpiredSourceTail (require, false);
+    verifyCandidateExpiredSourceTail (require, true);
     verifyCandidatePostOnlyReturn (require);
     verifyCandidateActivationGuidance (require);
     verifyCandidateHelpText (require);

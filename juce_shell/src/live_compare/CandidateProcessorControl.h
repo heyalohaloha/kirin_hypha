@@ -34,6 +34,11 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
     auto* mapping = liveCompare.ring.control();
     if (mapping == nullptr || mapping->ring() == nullptr)
     { stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::notReady; }
+    observer->withdrawal = std::make_shared<SharedRingMapping>();
+    if (!observer->withdrawal->open (mapping->key(), mapping->rate(), false)
+        || observer->withdrawal->ring()->header.timing.ownerA.load() != mapping->ring()->header.timing.ownerA.load()
+        || observer->withdrawal->ring()->header.timing.ownerB.load() != mapping->ring()->header.timing.ownerB.load())
+    { stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::preUnavailable; }
     std::uint64_t scope = 0;
     bool admitted = false;
     {
@@ -148,9 +153,23 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
         {
             const juce::ScopedLock handleGuard (handleLock);
             // The deadline's tail keeps the original upstream witness even if the selected pair changes.
-            // The same marker and four-second count apply, without PRE2's receipt.
+            // A marker, or withdrawal plus the host bound, precedes the four-second count.
             if (state.tail.load() == 0) return;
             const auto rate = static_cast<std::uint32_t> (preparedFormat.sampleRate);
+            const auto key = pairKeyForPreInstance (state.tailPre);
+            const auto* observer = state.returnObserver.control();
+            if (!observer || !observer->source.ring()->matches (key, rate))
+            {
+                auto replacement = std::make_unique<CandidateReturnObserver>();
+                if (observer) replacement->withdrawal = observer->withdrawal;
+                if (replacement->withdrawal && replacement->prepare (key, rate))
+                {
+                    if (!state.returnObserver.withdraw()) return;
+                    state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+                    state.returnObserver.retire();
+                    state.returnObserver.collect(); state.returnObserver.publish (std::move (replacement));
+                }
+            }
             const bool proven = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
                 && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0);
             if (proven)
@@ -159,18 +178,6 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
                 state.tail.store (0, std::memory_order_release); state.tailPre.clear();
                 state.returnObserver.retire(); state.returnObserver.collect();
                 state.returnContext.fetch_add (1, std::memory_order_acq_rel);
-                return;
-            }
-            const auto key = pairKeyForPreInstance (state.tailPre);
-            if (const auto* observer = state.returnObserver.control(); observer && ! observer->source.ring()->matches (key, rate))
-            {
-                state.returnContext.fetch_add (1, std::memory_order_acq_rel);
-                state.returnObserver.retire(); state.returnObserver.collect();
-            }
-            if (! state.returnObserver.hasStorage())
-            {
-                auto replacement = std::make_unique<CandidateReturnObserver>();
-                if (replacement->prepare (key, rate)) state.returnObserver.publish (std::move (replacement));
             }
             return;
         }
@@ -191,16 +198,17 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             const auto* observer = state.returnObserver.control();
             if (observer && !observer->source.ring()->matches (key, rate))
             {
-                // Withdrawal is final: a marker already passed stays passed when its PRE goes.
-                const bool passed = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
-                    && state.quietFrames.load() > 0;
-                if (! passed) state.returnContext.fetch_add (1, std::memory_order_acq_rel);
-                state.returnObserver.retire(); state.returnObserver.collect();
-            }
-            if (!state.returnObserver.hasStorage())
-            {
                 auto replacement = std::make_unique<CandidateReturnObserver>();
-                if (replacement->prepare (key, rate)) state.returnObserver.publish (std::move (replacement));
+                replacement->withdrawal = observer->withdrawal;
+                if (replacement->prepare (key, rate) && state.returnObserver.withdraw())
+                {
+                    // Withdrawal is final: a marker already passed stays passed when its PRE goes.
+                    const bool passed = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+                        && state.quietFrames.load() > 0;
+                    if (! passed) state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+                    state.returnObserver.retire();
+                    state.returnObserver.collect(); state.returnObserver.publish (std::move (replacement));
+                }
             }
         }
         // Only a withdrawn, untouched request skips the downstream-history quarantine. Past the

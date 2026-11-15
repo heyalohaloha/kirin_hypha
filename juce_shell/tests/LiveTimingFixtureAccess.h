@@ -213,6 +213,17 @@ public:
     { return processor.liveCompare.renderer.historyView().kValid; }
     static const auto& candidateStateForTest (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.candidate; }
+    static bool candidateTailLeaseAvailable (KirinHyphaProcessorBase& processor)
+    {
+        const juce::ScopedLock guard (processor.handleLock);
+        std::uint64_t scope = 0;
+        if (!kirin_hypha_begin_local_blind (processor.hyphaHandle, &scope)) return false;
+        auto* hold = kirin_hypha_candidate_tail_begin (processor.hyphaHandle);
+        const bool acquired = hold != nullptr;
+        if (hold) kirin_hypha_candidate_tail_end (hold);
+        const bool released = kirin_hypha_end_local_blind (processor.hyphaHandle, scope);
+        return acquired && released;
+    }
     static auto& mutableCandidateStateForTest (KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.candidate; }
     static void failBlindPreparation (KirinHyphaProcessorBase& processor, hypha::live_compare::RecoveryReason reason)

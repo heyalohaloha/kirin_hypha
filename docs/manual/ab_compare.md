@@ -37,7 +37,9 @@ on: Keep starts after it is off** or **Rendering offline: Keep starts after it e
 POST's return; an All Keep waiting for another POST says **Clearing another POST's A/B tail, then Keep**,
 and a POST whose tail the host holds says **Bypass is on: the A/B tail clears after it is off** or
 **Rendering offline: the A/B tail clears after it ends** in its own window), and it
-starts by itself once four seconds of ordinary audio have passed through B. After two minutes
+starts by itself once B has cleared and four seconds of playback have settled. If the original PRE
+has been removed or its connection has expired, a supported host can confirm the clearing from its
+current delay limit; changing the pair alone does not clear it. After two minutes
 without that (playback kept stopping or seeking) it ends with **A/B tail not cleared: Keep not
 started**. A LISTEN or BLIND started in that time does not measure PRE's alignment from that audio:
 PRE plays at its clock position (or with the amount confirmed before) and the status line says

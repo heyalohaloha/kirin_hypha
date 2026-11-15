@@ -13,6 +13,8 @@ namespace hypha::live_compare
 struct CandidateReturnObserver
 {
     SharedRingMapping source;
+    // Keep the exact comparison receiver's withdrawal receipt across pair and format changes.
+    std::shared_ptr<SharedRingMapping> withdrawal;
     TimingObserver timing;
     std::uint64_t generation = 0, reports = 0;
     std::int64_t marker = 0;
@@ -27,6 +29,21 @@ struct CandidateReturnObserver
         source.ring()->header.candidate.readers.fetch_add (1, std::memory_order_acq_rel);
         demanded = true;
         return true;
+    }
+    bool unavailable (const BlockClock& block) const noexcept
+    {
+        const auto* ring = source.ring();
+        if (ring->header.ownerClosed.load (std::memory_order_acquire) != 0) return true;
+        TimingSnapshot fresh;
+        return readTiming (ring->header.timing, fresh) && fresh.block.wallNanos != 0
+            && block.wallNanos >= fresh.block.wallNanos
+            && block.wallNanos - fresh.block.wallNanos > CandidateTransfer::leaseNanos;
+    }
+    bool withdrawn (std::uint64_t token) const noexcept
+    {
+        const auto* ring = withdrawal ? withdrawal->ring() : nullptr;
+        return ring && (ring->header.ownerClosed.load (std::memory_order_acquire) != 0
+            || ring->header.candidate.withdrawn (token));
     }
     bool reached (const CandidateTransfer& transfer, std::uint64_t token,
                   const BlockClock& block, std::uint32_t rate) noexcept

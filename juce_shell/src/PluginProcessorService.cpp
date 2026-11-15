@@ -34,8 +34,21 @@ void KirinHyphaProcessorBase::timerCallback()
     serviceLiveBlind();
     serviceLiveCompareMatch();
     // Observe topology independently of substitution permission, including after END.
-    nativeHostContext.reaper.service (candidateMeasurementIsolated() || role == Role::Pre || liveCompare.preparation.hasPeer()
-        || liveCompare.sessionActive.load (std::memory_order_acquire), candidateReturning());
+    const bool tail = candidateTailPending(), peer = liveCompare.preparation.hasPeer();
+    bool tailNeedsBound = false;
+    if (tail && !peer)
+    {
+        const juce::ScopedTryLock ownership (handleLock);
+        if (ownership.isLocked())
+            if (const auto* observer = liveCompare.candidate.returnObserver.control())
+            {
+                hypha::live_compare::BlockClock now;
+                now.wallNanos = hypha::live_compare::callbackWallNanos();
+                tailNeedsBound = observer->unavailable (now);
+            }
+    }
+    nativeHostContext.reaper.service (candidateMeasurementIsolated() || tail || role == Role::Pre || peer
+        || liveCompare.sessionActive.load (std::memory_order_acquire), candidateReturning() || tailNeedsBound);
     serviceReferencePendingAudition();
     serviceReferenceTracking();
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()

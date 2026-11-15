@@ -33,9 +33,26 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
         require (post.isRecording(), "the ordinary Keep reaches actual Record through its workers");
         require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::comparisonBusy
             && post.isRecording(), "A/B refuses active Record without ending or replacing it");
+        const auto generationDeadline = std::chrono::steady_clock::now() + std::chrono::seconds (10);
+        while (post.keepPhase() == KIRIN_KEEP_PHASE_PREPARING && std::chrono::steady_clock::now() < generationDeadline)
+        {
+            host.render (1, false, false);
+            for (auto& p : host.instances) awaitAnalysisExchange (*p, true);
+        }
+        require (post.keepPhase() == KIRIN_KEEP_PHASE_ARMED, "the Keep generation is committed before Stop");
         post.stopPair();
         host.render (20, false, false);
         for (auto& p : host.instances) awaitAnalysisExchange (*p, true);
+        require (!post.isRecording() && post.keepPhase() == KIRIN_KEEP_PHASE_IDLE,
+                 "Record stops before the next comparison starts");
+        bool released = false;
+        while (!(released = LiveTimingFixtureAccess::candidateTailLeaseAvailable (post))
+               && std::chrono::steady_clock::now() < generationDeadline)
+        {
+            host.render (1, false, false);
+            for (auto& p : host.instances) awaitAnalysisExchange (*p, true);
+        }
+        require (released, "the completed Keep releases its tail lease before the next comparison");
         juce::MemoryBlock beforeStart;
         if (channels == 1)
         {

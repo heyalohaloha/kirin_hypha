@@ -67,11 +67,15 @@ clock change or stopped/ineligible output requires a new return proof. The retur
 deadline: 10 s after END, normal measurement resumes in a new window even without that proof, also
 while audio is stopped, and a queued start then goes on. Nothing of the old count carries over, and
 later comparisons prove their own clock positions and content as before. A return ended by the
-deadline alone keeps observing the ordinary pair: until its marker has passed the chain and four
-seconds have settled, B's remaining comparison audio is never recorded or kept (Record and Keep do
+deadline alone keeps observing the original ordinary source: until its marker has passed the chain,
+or that source is withdrawn or its lease expires and coherent withdrawal plus the current host
+delay bound and scheduling allowance prove drainage, and four seconds have settled, B's remaining
+comparison audio is never recorded or kept (Record and Keep do
 not start; a pressed Keep waits, says so, starts by itself after the proof and ends with its reason
 after two minutes) and is never used to learn or keep PRE's alignment. The settling count reads the
-coordinates the observer's clock proof corroborated, so an accepted loop wrap does not restart it. MATCH reports the remaining verified settling/window duration.
+coordinates the observer's clock proof corroborated, so an accepted loop wrap does not restart it.
+A pair change or an unrelated PRE is not proof; stop, seek, chain, delay, rate or clock changes
+restart the bounded drainage and settling count. MATCH reports the remaining verified settling/window duration.
 The isolated POST callback still records its input and output in an explicitly armed chain trace. Saved comparisons never restart.
 
 The common renderer and ring layout serve macOS and Windows and the supported AU/VST3/AAX

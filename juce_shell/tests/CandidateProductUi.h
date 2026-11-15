@@ -237,6 +237,7 @@ template<class Require> void enterCandidateThroughEditor (KirinHyphaProcessorBas
         std::cerr << "candidate start diagnostic: returning=" << post.candidateReturning()
             << " isolated=" << post.candidateMeasurementIsolated() << " finishing=" << post.liveCompareStatus().finishing
             << " admission=" << int (post.liveCompareAdmission (false)) << " blind=" << int (post.liveBlindStatus().stage)
+            << " recording=" << post.isRecording() << " keep=" << post.keepPhase()
             << " source=" << post.liveComparePreInstance() << '\n';
         if (const auto* view = candidateView (*editor))
             std::cerr << "candidate final feedback: " << view->feedback() << '\n';
