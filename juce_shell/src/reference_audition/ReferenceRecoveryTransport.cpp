@@ -3,7 +3,7 @@
 #include "../AtomicFile.h"
 #include <cmath>
 #include <limits>
-#include <regex>
+#include "ReferenceValidation.h"
 #include <set>
 #include <utility>
 
@@ -21,22 +21,17 @@ namespace hypha::reference_audition
 
         bool safeRuntimeId (const juce::String& value)
         {
-            static const std::regex pattern (R"(^[A-Za-z0-9._:-]{1,160}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::id (value);
         }
 
         bool canonicalUuidV4 (const juce::String& value)
         {
-            static const std::regex pattern (
-                R"(^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::uuid (value, validation::Uuid::v4Lower);
         }
 
         bool workUuid (const juce::String& value)
         {
-            static const std::regex pattern (
-                R"(^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::uuid (value, validation::Uuid::anyCase);
         }
 
         bool validTime (std::int64_t value)

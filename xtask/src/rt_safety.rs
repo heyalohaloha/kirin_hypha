@@ -1,4 +1,8 @@
 #[cfg(test)]
+#[path = "reference_worker_lifetime_tests.rs"]
+mod reference_worker_lifetime_tests;
+
+#[cfg(test)]
 #[path = "rt_safety_meter_input_tests.rs"]
 mod meter_input_tests;
 

@@ -1,6 +1,6 @@
 #include "ReferenceRuntimeV2Presentation.h"
 
-#include <regex>
+#include "ReferenceValidation.h"
 
 namespace hypha::reference_audition
 {
@@ -10,16 +10,12 @@ namespace hypha::reference_audition
 
         bool uuidV4 (const juce::String& value)
         {
-            static const std::regex expression (
-                R"(^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$)");
-            return std::regex_match (value.toStdString(), expression);
+            return validation::uuid (value, validation::Uuid::v4Lower);
         }
 
         bool timestamp (const juce::String& value)
         {
-            static const std::regex expression (
-                R"(^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\.[0-9]{3}Z$)");
-            return std::regex_match (value.toStdString(), expression);
+            return validation::timestamp (value);
         }
 
         bool exactProperties (const juce::DynamicObject& object,

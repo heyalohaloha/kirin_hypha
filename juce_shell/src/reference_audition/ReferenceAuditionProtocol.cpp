@@ -1,8 +1,8 @@
 #include "ReferenceAuditionProtocol.h"
 #include "ReferenceTextEdges.h"
+#include "ReferenceValidation.h"
 
 #include <cmath>
-#include <regex>
 #include <set>
 
 namespace hypha::reference_audition
@@ -193,21 +193,17 @@ namespace hypha::reference_audition
 
     bool safeId (const juce::String& value) noexcept
     {
-        static const std::regex pattern (R"(^[A-Za-z0-9._:-]{1,160}$)");
-        return std::regex_match (value.toStdString(), pattern);
+        return validation::id (value);
     }
 
     bool safeSha256 (const juce::String& value) noexcept
     {
-        static const std::regex pattern (R"(^[a-f0-9]{64}$)");
-        return std::regex_match (value.toStdString(), pattern);
+        return validation::sha256 (value);
     }
 
     bool safeUuid (const juce::String& value) noexcept
     {
-        static const std::regex pattern (
-            R"(^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$)");
-        return std::regex_match (value.toStdString(), pattern);
+        return validation::uuid (value, validation::Uuid::versioned);
     }
 
     bool RuntimeIdentity::valid() const noexcept
@@ -372,11 +368,10 @@ namespace hypha::reference_audition
         output.revisionSize = stringProperty (*revision, "size");
         output.revisionModifiedMs = stringProperty (*revision, "mtime_ms");
         output.revisionChangedMs = stringProperty (*revision, "ctime_ms");
-        static const std::regex decimal (R"(^[0-9]+(?:\.[0-9]+)?$)");
         for (const auto& revisionValue : { output.revisionDevice, output.revisionInode,
                                            output.revisionSize, output.revisionModifiedMs,
                                            output.revisionChangedMs })
-            if (! std::regex_match (revisionValue.toStdString(), decimal))
+            if (! validation::decimal (revisionValue))
                 return false;
         if (stringProperty (*measurement, "standard") != "ITU-R BS.1770"
             || stringProperty (*measurement, "measured_at").isEmpty()

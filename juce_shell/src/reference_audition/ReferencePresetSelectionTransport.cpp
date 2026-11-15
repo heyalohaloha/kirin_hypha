@@ -2,7 +2,7 @@
 #include "../AtomicFile.h"
 #include <algorithm>
 #include <cmath>
-#include <regex>
+#include "ReferenceValidation.h"
 #include <utility>
 #include <vector>
 
@@ -20,22 +20,17 @@ namespace hypha::reference_audition
 
         bool runtimeIdValue (const juce::String& value)
         {
-            static const std::regex pattern (R"(^[A-Za-z0-9._:-]{1,160}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::id (value);
         }
 
         bool uuidValue (const juce::String& value)
         {
-            static const std::regex pattern (
-                R"(^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::uuid (value, validation::Uuid::anyLower);
         }
 
         bool uuidV4Value (const juce::String& value)
         {
-            static const std::regex pattern (
-                R"(^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::uuid (value, validation::Uuid::v4Lower);
         }
 
         bool exactProperties (const juce::DynamicObject& object,

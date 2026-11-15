@@ -7,13 +7,13 @@
 #include "reference_runtime_lazy_candidates_test_support.h"
 #include "reference_runtime_test_entries.h"
 #include "ReferenceRepairTestEntry.h"
+#include "ReferenceValidationTest.h"
 int main (int argc, char** argv)
 {
+    if (argc == 2 && juce::String (argv[1]) == "--validation-only") { hypha::tests::verifyReferenceValidation (require, workId, preparationId); return 0; }
     if (runSnapshotOwnerChild (argc, argv) || runSourceShutdownChild (argc, argv)) return 0;
     if (runReferenceMonoInvocation (argc, argv) || prepareReferenceRuntimeInvocation (argc, argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
-    require (ref::safeId (workId), "Work UUID must be a safe ID");
-    require (! ref::safeId ("../escape"), "path separators must be rejected");
-    require (ref::safeUuid (preparationId), "preparation UUID must validate");
+    hypha::tests::verifyReferenceValidation (require, workId, preparationId);
     testRuntimeV2SourceCache();
     const auto sandbox = hypha::tests::temporaryParent()
                              .getNonexistentChildFile ("ref", {}, false);
