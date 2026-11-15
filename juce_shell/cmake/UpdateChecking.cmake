@@ -46,6 +46,14 @@ function(hypha_au_resource_usage target)
                     "set -e; /usr/libexec/PlistBuddy -c 'Delete :KirinHyphaUpdateKeySha256' \"$1\" >/dev/null 2>&1 || true; /usr/libexec/PlistBuddy -c 'Add :KirinHyphaUpdateKeySha256 string ${KIRIN_HYPHA_UPDATE_KEY_SHA256}' \"$1\""
                     _ "$<TARGET_FILE_DIR:${target}_${format}>/../Info.plist"
                 VERBATIM COMMENT "${format}: bind update verification key to actual payload")
+            if(format STREQUAL "AU" OR format STREQUAL "VST3")
+                # JUCE's earlier ad-hoc signature no longer covers the changed Info.plist.
+                # Formal distribution replaces this local signature in its normal signing stage.
+                add_custom_command(TARGET ${target}_${format} POST_BUILD
+                    COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/macos/resign_plugin_bundle.sh"
+                        "$<TARGET_BUNDLE_DIR:${target}_${format}>"
+                    VERBATIM COMMENT "${format}: ad-hoc sign and verify final bundle")
+            endif()
         endif()
     endforeach()
 endfunction()
