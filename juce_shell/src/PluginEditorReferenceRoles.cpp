@@ -306,8 +306,10 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     if (runtime.comparisonSlot == 3 && selectedSongMissing)
         hypha::reference_ui::markSourceMissing (state.rolePreparation);
     const bool measuringA = pendingWaiting && state.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::level;
+    const bool pressWaits = pendingWaiting && state.pendingAudition.stage != hypha::reference_audition::PendingAuditionView::Stage::play;
     state.preparationOverdue = referencePreparationWatch.observe (
-        watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);
+        watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0,
+        pressWaits);
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
     // （直し方は曲の側から）。
     if (runtime.comparisonSlot == 3) { state.actionText.clear(); state.action = {}; }

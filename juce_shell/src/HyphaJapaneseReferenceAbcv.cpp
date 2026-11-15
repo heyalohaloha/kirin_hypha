@@ -128,6 +128,7 @@ const Entry entries[] = {
     { "OTHER SONGS", u8"他の曲" },
     { "NOT SENT TO HYPHA", u8"Hyphaに出していない" },  // Kirin OS で外した CHECK セット（2026-10-18）
     { "CHECKING", u8"確認中" },
+    { "A PLAYS UNTIL READY / PRESS A TO STOP WAITING", u8"準備できるまでAを鳴らします / Aで待つのをやめる" },
     { "%1 AHEAD", u8"前に%1曲" },
     { "KIRIN OS CANNOT FIND THE FILE / IT RETRIES ONCE SOON", u8"Kirin OSがファイルを見つけられません / まもなく再試行" },
     { "KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS", u8"Kirin OSがファイルを見つけられません / Kirin OSで再試行" },

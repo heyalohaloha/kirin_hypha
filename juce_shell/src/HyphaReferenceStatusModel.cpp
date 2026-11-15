@@ -4,6 +4,7 @@
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferencePendingUI.h"
+#include "HyphaReferencePreparationWatch.h"
 #include "HyphaReferenceStages.h"
 #include "HyphaTheme.h"
 
@@ -124,11 +125,15 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         return { StatusKind::unable, state.status };
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {
-        // 自動で進む処理は、長く待っていても待機として表示する。
+        // 自動で進む処理は、長く待っていても待機として表示する。押してからの全体の上限を越えた待ちは、何が鳴っていて
+        // 何をすればよいかを先に言う（3 秒の読み込みの遅れの札より先）。
+        const auto letter = juce::String (roleLetter (state.pendingAudition.slot));
+        if (state.pendingAudition.waiting() && state.preparationOverdue == PreparationWatch::pressOverdueLine)
+            return { StatusKind::waiting, letter + ": " + state.preparationOverdue };
         if (state.pendingAudition.waiting() && state.pendingAudition.reasonCode == "reference_page_wait_slow")
             return { StatusKind::waiting, pending };
         if (state.pendingAudition.waiting() && state.preparationOverdue.isNotEmpty())
-            return { StatusKind::waiting, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
+            return { StatusKind::waiting, letter + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
     }
     if (state.osAccess == os_access::State::unowned) return { StatusKind::unable, state.status };

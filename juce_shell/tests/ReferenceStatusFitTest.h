@@ -10,6 +10,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaReferencePreparationWatch.h"
 #include "../src/HyphaReferenceStages.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaTheme.h"
@@ -168,6 +169,10 @@ inline void verifyReferenceStatusFits()
         cases.push_back ({ "B waits past the song's end", waiting });
         waiting.pendingAudition = { 3, reference_audition::PendingAuditionView::Stage::play, "reference_follow_before_start" };
         cases.push_back ({ "B waits before the song's start", waiting });
+        // 2026-11-15：押した役の自動の待ちが全体の上限を越えた：何が鳴っていて何をすればよいかを言う。
+        waiting.pendingAudition = { 3, reference_audition::PendingAuditionView::Stage::checking, "reference_page_wait_slow" };
+        waiting.preparationOverdue = reference_ui::PreparationWatch::pressOverdueLine;
+        cases.push_back ({ "B press past its overall wait", waiting });
     }
     for (const int slot : { 1, 2, 3 })
         for (const int change : { 1, 2 })

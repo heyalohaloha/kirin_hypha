@@ -20,6 +20,8 @@ struct PreparationBudget
     static constexpr double alignmentPlaySeconds = 30.0;
     static constexpr double aLevelPlaySeconds = 10.0;
     static constexpr double checkALevelPlaySeconds = 35.0;
+    // 押した役の自動の待ちの全体の上限（待たせた LISTEN の 10 秒と揃える）。段階が替わっても数え直さない。
+    static constexpr double pressSeconds = 10.0;
 };
 
 class PreparationWatch
@@ -27,12 +29,19 @@ class PreparationWatch
 public:
     // 見ている役の今の段階を時刻（秒）とともに入れる。上限を超えていれば「理由 / 直し方」の 1 行（英語、
     // 画面で訳す）、超えていなければ空。measuringA は MATCH のために A の音量を待っているとき。
-    juce::String observe (int slot, SourceStep step, bool measuringA, bool kirinOsOnline, bool playing, double nowSeconds);
+    // pressWaits は押した役が自動で進む段階（確認・読み込み・音量）を待っているとき。
+    juce::String observe (int slot, SourceStep step, bool measuringA, bool kirinOsOnline, bool playing, double nowSeconds,
+                          bool pressWaits = false);
+
+    static constexpr const char* pressOverdueLine = "A PLAYS UNTIL READY / PRESS A TO STOP WAITING";
 
 private:
+    juce::String stageLine (int slot, SourceStep step, bool measuringA, bool kirinOsOnline, bool playing, double nowSeconds);
     int watchedSlot = -1;
     SourceStep watchedStep = SourceStep::ready;
     bool watchedA = false, watchedOnline = false;
     double since = 0.0, played = 0.0, last = 0.0;
+    int pressSlot = 0;
+    double pressSince = 0.0;
 };
 }

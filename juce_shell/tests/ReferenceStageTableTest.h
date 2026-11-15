@@ -70,6 +70,24 @@ inline void verifyReferenceStageTable()
         }
     }
 
+    // 押した役の自動の待ちは、段階が入れ替わって段階ごとの上限が数え直されても、押してから 10 秒で何が鳴っていて
+    // 何をすればよいかを言う（押しは捨てない）。押していない見ている役の数え直しは今までどおり。
+    {
+        reference_ui::PreparationWatch pressed, watched;
+        double first = -1.0;
+        for (double now = 0.0; now <= 12.0; now += 0.5)
+        {
+            const auto step = static_cast<int> (now / 2.0) % 2 == 0 ? SourceStep::verifyingSource : SourceStep::preparing;
+            const auto line = pressed.observe (3, step, false, true, true, now, true);
+            if (line.isNotEmpty() && first < 0.0) first = now;
+            require (line.isEmpty() || line == "A PLAYS UNTIL READY / PRESS A TO STOP WAITING",
+                     "past its deadline a waiting press says what plays and what to do: " + line);
+            require (watched.observe (3, step, false, true, true, now).isEmpty(),
+                     "a role that is only watched keeps its per-stage limits");
+        }
+        require (first >= 10.0 && first < 10.5, "a waiting press has one overall deadline of ten seconds");
+    }
+
     // 300% の B・C・V の並びは 300% だけ。200% は選択欄の段と見出し（2026-10-06：200% の B に 300% の欄が詰まり、
     // C・V の見出しが消えていた）。
     for (const auto& [width, height] : { std::pair { 600, 400 }, std::pair { 900, 600 } })
