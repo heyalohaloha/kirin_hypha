@@ -76,7 +76,7 @@ inline void verifyWaitingRequests()
 {
     const juce::String changed = "All Keep targets changed or unavailable. Try again.";
     require (i18n::translate (changed, i18n::Language::english) == changed
-             && i18n::translate (changed, i18n::Language::japanese) == juce::String::fromUTF8 (u8"All Keepの対象が変わったか確認できません。押し直してください。"),
+             && i18n::translate (changed, i18n::Language::japanese) == juce::String::fromUTF8 (u8"All Keepの対象が変更・不明。再試行してください。"),
              "the cancelled All Keep explains its changed or missing targets in both languages");
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);

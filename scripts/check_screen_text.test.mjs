@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { catalogEnglish, findStale, findUntranslated, literals, looksLikeProse }
   from './check_screen_text.mjs';
@@ -91,4 +92,9 @@ test('entries whose English left the source are stale; composed and engine Engli
     assert.deepEqual(findStale(root).map(entry => `${entry.kind}:${entry.english}`),
       ['catalog:Gone from the source', 'kept:Kept but removed']);
   });
+});
+
+test('the Keep tail notice that can reach the screen has Japanese', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  assert.ok(catalogEnglish(root).exact.has('A/B tail pending'));
 });
