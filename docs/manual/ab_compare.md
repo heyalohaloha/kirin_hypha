@@ -34,7 +34,8 @@ Keep pressed meanwhile starts by itself. If the ten seconds ended the wait while
 out the comparison, nothing of that audio is recorded: a Keep pressed then waits, the status line
 says **Clearing the A/B tail, then Keep** (or **Play to continue, then Keep** while stopped; **Bypass is
 on: Keep starts after it is off** or **Rendering offline: Keep starts after it ends** while the host holds
-POST's return), and it
+POST's return; an All Keep waiting for another POST says **Clearing another POST's A/B tail, then Keep**,
+and that POST's window says what holds it), and it
 starts by itself once four seconds of ordinary audio have passed through B. After two minutes
 without that (playback kept stopping or seeking) it ends with **A/B tail not cleared: Keep not
 started**. A LISTEN or BLIND started in that time does not measure PRE's alignment from that audio:

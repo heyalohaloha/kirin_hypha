@@ -311,8 +311,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
             processorRef.isPlaying(), status.finishing, processorRef.candidateReturning()));
     }
     if ((liveCompareWarning.isEmpty() || status.finishing) && afterTail.action != hypha::live_compare_ui::AfterTail::none)
-        liveCompareWarning = hypha::live_compare_ui::afterTailNotice (afterTail.action, processorRef.isPlaying(), hypha::live_compare_ui::returnBlock (
-            processorRef, processorRef.candidateTailPending() || processorRef.allKeepTailPending()));
+        liveCompareWarning = hypha::live_compare_ui::afterTailWaitNotice (afterTail.action, processorRef);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));

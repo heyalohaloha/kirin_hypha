@@ -164,9 +164,11 @@ void decisionsCombineStates()
                      "a stopped Keep waits for playback: only ordinary audio through B clears the tail");
         struct FakeBypass { float v = 0.0f; float getValue() const { return v; } };
         struct FakeStatus { bool finishing = false; };
-        struct FakeHost { bool returning = false, offline = false; FakeBypass bypass;
+        struct FakeHost { bool returning = false, offline = false, ownTail = false, otherTail = false; FakeBypass bypass;
             bool candidateReturning() const { return returning; } FakeStatus liveCompareStatus() const { return {}; }
-            bool isNonRealtime() const { return offline; } const FakeBypass* getBypassParameter() const { return &bypass; } };
+            bool isNonRealtime() const { return offline; } const FakeBypass* getBypassParameter() const { return &bypass; }
+            bool candidateTailPending() const { return ownTail; } bool allKeepTailPending() const { return ownTail || otherTail; }
+            bool isPlaying() const { return true; } };
         FakeHost host; host.bypass.v = 1.0f; // the return finished; only the tail is still unproven
         require (returnBlock (host) == ReturnBlock::none && returnBlock (host, true) == ReturnBlock::bypass,
                  "a tail still pending under bypass is blocked for Keep, not for V/C/B's ten-second end");
@@ -174,6 +176,13 @@ void decisionsCombineStates()
         require (returnBlock (host, true) == ReturnBlock::offline
                      && std::string (afterTailNotice (AfterTail::keepAll, true, returnBlock (host, true))) == keepOfflineWaitNotice,
                  "a Keep waiting for the tail during an offline render says so");
+        FakeHost other; other.bypass.v = 1.0f; other.otherTail = true; // this POST is clear; another POST's tail is pending
+        require (std::string (afterTailWaitNotice (AfterTail::keepAll, other)) == keepOtherTailNotice
+                     && std::string (afterTailWaitNotice (AfterTail::keepPair, other)) == "Clearing the A/B tail, then Keep",
+                 "All Keep waiting for another POST says so and does not blame this POST's bypass");
+        other.ownTail = true;
+        require (std::string (afterTailWaitNotice (AfterTail::keepAll, other)) == keepBypassWaitNotice,
+                 "this POST's own tail under bypass names the bypass");
         std::set<std::string> afterTail;
         for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
             for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));

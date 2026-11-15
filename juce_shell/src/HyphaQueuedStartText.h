@@ -68,6 +68,17 @@ constexpr const char* afterTailNotice (AfterTail action, bool playing, ReturnBlo
     return keep && block == ReturnBlock::offline ? keepOfflineWaitNotice
          : keep && block == ReturnBlock::bypass ? keepBypassWaitNotice : afterTailNotice (action, playing);
 }
+// This plug-in states only what it knows: its own blocked return or tail, or that All Keep waits for
+// another POST's tail (that POST's own window says what holds it).
+inline constexpr const char* keepOtherTailNotice = "Clearing another POST's A/B tail, then Keep";
+template <class Processor> const char* afterTailWaitNotice (AfterTail action, Processor& processor)
+{
+    const bool ownTail = processor.candidateTailPending();
+    const auto block = returnBlock (processor, ownTail);
+    if (block == ReturnBlock::none && action == AfterTail::keepAll && ! ownTail && processor.isPlaying()
+        && processor.allKeepTailPending()) return keepOtherTailNotice;
+    return afterTailNotice (action, processor.isPlaying(), block);
+}
 
 constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noexcept
 {
