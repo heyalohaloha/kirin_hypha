@@ -47,7 +47,7 @@ void Component::configureCheckPage()
     checkChooser.setLookAndFeel (&selectorLookAndFeel);
     checkChooser.setComponentID ("reference-check-choice");
     checkChooser.setTitle ("Check");
-    checkChooser.setTooltip ("Choose a Check from this set.");
+    checkChooser.setTooltip (help_text::checkTabs);
     checkChooser.setColour (juce::ComboBox::textColourId, COL_NORMAL);
     checkChooser.setColour (juce::ComboBox::arrowColourId, COL_FLORA);
     checkChooser.onChange = [this]
@@ -135,7 +135,7 @@ void Component::syncCheckPage (bool blindSession)
     const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
     songSwitch.setChoice (current.song.chosen && songAvailable, songAvailable,
                           compact ? juce::String ("CUE") : SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
-    songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr);
+    songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr && ! listeningCheck());
     if (page)
     {
         // C の画面では V の選択と、Check と曲を 1 つにした選択欄を出さない（V の画面とタブ・曲で選ぶ）。

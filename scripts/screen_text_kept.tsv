@@ -115,7 +115,9 @@ MAKE TARGET	Reference action label; simple English retained in both languages
 C / DATA	Reference role badge; simple English retained in both languages
 C TARGET	Reference chart legend; simple English retained in both languages
 C / KIRIN OS	Reference comparison source selector label
-A WINDOW / 3 S	Reference minimum observation window label
+Song 1	Synthetic preview song title, treated as a user-provided name
+Song 2	Synthetic preview song title, treated as a user-provided name
+Example target	Synthetic preview target name, treated as a user-provided name
 MONO / STEREO	channel layout names retained in both languages
 ALIGN OFF	Fixed action label for explicitly disabling automatic alignment during a Blind timing wait; its explanation is localized
 PRE1 → A → PRE2 → B → POST	User-confirmed insertion order; role and candidate labels stay identical in both languages

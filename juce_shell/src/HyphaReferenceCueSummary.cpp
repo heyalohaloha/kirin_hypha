@@ -308,7 +308,7 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
     {
         static constexpr const char* names[] { "LOW", "L-M", "MID", "HI" };
         const auto font = labelFont (context, typography::TextRole::unit, typography::Composition::information);
-        g.setFont (font); g.setColour (COL_NORMAL);
+        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information)); g.setColour (COL_NORMAL);
         const auto headingWidth = juce::roundToInt (std::ceil (text_style::shownWidth (font, bandHeading))) + 4;
         text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (headingWidth), juce::Justification::centredLeft);
         for (size_t band = 0; band < 4; ++band)

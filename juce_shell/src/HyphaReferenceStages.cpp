@@ -29,10 +29,10 @@ const std::array<Stage, stageCount> stages { {
       "AUTO finds it while A plays, or choose it in V / VERSION above. V plays another Version of the song you are playing." },
     // enableCheck
     { K::unable, W::none, "NO CHECK SET FOR C / ADD SONGS TO A CHECK SET IN KIRIN OS", "", "Add songs to a CHECK SET in Kirin OS",
-      "No CHECK SET for C in Kirin OS", "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none." },
+      "No CHECK SET for C in Kirin OS", "Add songs to a CHECK SET in Kirin OS to compare with A." },
     // chooseSource
     { K::unable, W::none, "NO SOURCE FOR %1 / CHOOSE A SOURCE IN KIRIN OS", "", "Choose a source in Kirin OS",
-      "Choose a source for %1 in Kirin OS", "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none." },
+      "Choose a source for %1 in Kirin OS", "Choose a source in Kirin OS to compare its section with A." },
     // playDaw
     { K::waiting, W::none, "%1 WAITS FOR THE DAW / PLAY A TO AUDITION", "", "Ready when the DAW plays",
       "Play the song in your DAW", "B: Reference song / C: Check source / V: another Version of this song" },

@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-// 2026-10-18: the REF page's B (the song list and its set), C (the Check tabs) and V at every editor size,
+// The REF page's B (the song list and its set), C (the Check selector) and V at every editor size,
 // display scale and language: every control it shows lies inside the page, a press at its centre reaches
 // it and Tab reaches it. The page is laid out at the body the shipping view gives it at that size.
 namespace hypha::tests
@@ -26,14 +26,16 @@ inline void verifyReferenceReachability()
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage shown (language);
-        for (const auto& [page, state] : { std::pair { "B", readme_media::songPage() }, std::pair { "C", readme_media::checkPage() },
-                                           std::pair { "V", readme_media::versionPage() } })
+        for (const auto& entry : { std::pair { "B", readme_media::songPage() }, std::pair { "C", readme_media::checkPage() },
+                                   std::pair { "V", readme_media::versionPage() } })
         {
+            const auto* page = entry.first;
             reference_ui::Component panel;
             panel.setVisible (true);
-            panel.setState (state);
-            for (const auto& [width, height] : walk)
+            panel.setState (entry.second);
+            for (const auto& size : walk)
             {
+                const auto width = size.first, height = size.second;
                 observatory::View shell (observatory::Role::post);
                 shell.setSize (width, height);
                 shell.setDomain (observatory::Domain::reference);

@@ -189,7 +189,7 @@ inline NumberLook numberLook (int lineColour, bool shown, bool dimmed, bool high
 }
 
 // What a number says in ALL SHAPE, which takes every song and target whatever the numbers say.
-inline constexpr const char* allShapeFixedText = "ALL SHAPE uses every song. Choose SHAPE to pick songs.";
+inline constexpr const char* allShapeFixedText = "ALL SHAPE uses every line. Choose SHAPE to pick lines.";
 
 // A row's number in ALL: a framed box in the line's colour while its line shows, plain while it does not.
 // In ALL SHAPE the boxes are dimmed (their text stays readable) and say why a press changes nothing.

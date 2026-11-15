@@ -113,6 +113,9 @@ inline void verifyReferenceSongComparePage()
         panel.setPresentationContext (presentation::forEditor (editorWidth, editorHeight));
         panel.setSize (width, height);
         panel.setState (check);  // LOOP
+        auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+        require (details != nullptr && details->isVisible(), "C details can be opened");
+        details->onClick();
         auto* switcher = panel.findChildWithID ("reference-compare");
         auto* cueHalf = dynamic_cast<juce::Button*> (switcher != nullptr ? switcher->findChildWithID ("reference-compare-cue") : nullptr);
         auto* songHalf = dynamic_cast<juce::Button*> (switcher != nullptr ? switcher->findChildWithID ("reference-compare-song") : nullptr);
@@ -210,11 +213,16 @@ inline void verifyReferenceSongComparePage()
                      && ! songHalf->getToggleState() && ! songHalf->isEnabled()
                      && hypha::unavailable::reasonAt (songHalf) == reference_ui::songUnsupportedText,
                  "a range-strip Check keeps CUE, SONG cannot be pressed and says why");
-        // 目標と耳で聴き比べる Check は CUE／SONG を持たない。
+        // 耳で聴き比べる Check は CUE／SONG を持たない。
         auto listening = check;
         listening.listeningChecks = { "chk-low" };
         panel.setState (listening);
         require (! switcher->isVisible(), "a Check heard by ear has nothing to switch");
+        reference_ui::Component compact;
+        compact.setVisible (true); compact.setPresentationContext (presentation::forEditor (300, 200));
+        compact.setSize (288, 136); compact.setState (listening);
+        require (! compact.findChildWithID ("reference-compare")->isVisible(),
+                 "an ear-only Check has no CUE / SONG switch at 100% either");
     }
 
     // SONG で比べられるのは主の図がどれもスペクトルの Check だけ（ほかは図と 4 帯域のどちらも CUE のまま）。
@@ -234,7 +242,7 @@ inline void verifyReferenceSongComparePage()
     require (japanese (reference_ui::songUnsupportedText) == u8 (u8"SONGはSpectrumのCheckで使えます。このCheckはCueで比べます。"),
              "the reason SONG cannot be pressed reads in Japanese");
 
-    // 目標を選んだ C は SONG を使わない（選択は覚えたまま）。
+    // 保存済みの目標は C の SONG 比較を変えない。
     {
         auto target = song;
         reference_audition::MeasuredTarget measured;
@@ -243,9 +251,9 @@ inline void verifyReferenceSongComparePage()
         reference_audition::TargetSnapshot targets;
         targets.collection.items = { measured }; targets.collection.selected = "t1";
         reference_ui::applyMeasuredTarget (target, targets, true);
-        require (target.targetSelected && target.song.chosen && ! target.song.shown
-                     && reference_ui::cueSpectrumLegend (target).contains ("C TARGET"),
-                 "a target is compared as it was, SONG is kept for later");
+        require (! target.targetSelected && target.song.chosen && target.song.shown
+                     && ! reference_ui::cueSpectrumLegend (target).contains ("C TARGET"),
+                 "a saved target leaves C's song comparison intact");
     }
 
     // 使えない時の理由（英日）：C の曲全体の値が無い（CUE のまま描く）、A が 30 分より後。

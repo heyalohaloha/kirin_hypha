@@ -126,6 +126,20 @@ private:
                 if (b.matchFailure != hypha::reference_audition::MatchFailure::ceilingExceeded) break;
                 needed = b.neededAttenuationDb;
                 require (needed < -10.0, "the offer names how far A must be lowered");
+                if (! targetSafetyChecked)
+                {
+                    using Request = hypha::reference_audition::TargetRequest;
+                    const hypha::reference_audition::LowerAOffer offer { 3, needed, b.playbackIdentity, b.selectionGeneration, b.matchFailureSerial };
+                    const auto targets = post->referenceTargetSnapshot();
+                    require (targets.collection.items.size() == 1
+                        && post->changeReferenceTarget ({ Request::Action::select, {}, targets.collection.items.front().id }),
+                        "select B target while an offer exists");
+                    require (post->approveReferenceLowerA (offer) == hypha::reference_audition::LowerAApproval::stale
+                        && post->referenceHeldAttenuationDb() == 0.0 && ! post->selectReferenceRef(),
+                        "a target invalidates B's old offer and cannot start audio or lower A");
+                    require (post->changeReferenceTarget ({ Request::Action::select, {}, {} }), "return to B song");
+                    targetSafetyChecked = true; stage = 0; break;
+                }
                 KirinMeterSession meter {};
                 require (post->pollMeterSession (meter) && std::isfinite (meter.lufs_m), "A is measured before the approval");
                 beforeLufs = meter.lufs_m;
@@ -359,6 +373,7 @@ private:
     std::atomic<float> loweredPeak { 0.0f }, risePeak { 0.0f };
     std::int64_t stageBlocks = 0, windowCurrentAt = -1, followedAt = -1;
     std::atomic<int> stage { -1 };
+    bool targetSafetyChecked = false;
     ReferenceTargetProductFlow targetFlow;
     juce::File targetSource, referenceRoot;
     double needed = 0.0, beforeLufs = 0.0;

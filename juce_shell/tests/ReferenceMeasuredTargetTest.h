@@ -303,7 +303,7 @@ void testMeasuredTargets (const juce::File& sandbox)
     const auto round = target::TargetCollection::read (state);
     std::setlocale (LC_NUMERIC, originalLocale.toRawUTF8());
     require (round.items.size() == 1 && round.selected == collection.selected
-        && round.items[0].spectrum.p10Db == measured.target.spectrum.p10Db, "facts and C selection round trip exactly");
+        && round.items[0].spectrum.p10Db == measured.target.spectrum.p10Db, "facts and target selection round trip exactly");
     testTargetPublicationCrossing (file, round);
     juce::XmlElement old ("KirinHyphaState");
     require (target::TargetCollection::read (old).items.empty(), "older project state has no local targets");

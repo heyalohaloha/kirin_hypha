@@ -106,7 +106,7 @@ inline void verifyReferenceAbcvRoles()
             };
             visit (panel);
             visit (panel.footerStatusStrip());
-            require (buttons.size() == 12, "the twelve REF buttons (A B C V, MATCH, VERSION BLIND, action, LOOP, FOLLOW A and "
+            require (buttons.size() == 13, "the thirteen REF buttons (A B C V, DETAILS, MATCH, VERSION BLIND, action, LOOP, FOLLOW A and "
                                                "the song offset's three) are all visited (" + juce::String (static_cast<int> (buttons.size())) + ")");
         }
         auto* a = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-a"));
@@ -279,12 +279,23 @@ inline void verifyReferenceAbcvRoles()
         set->setSelectedId (2, juce::sendNotificationSync);
         require (auditions == 1 && chosenSong == "e2/e2/song-2" && chosenSet == "set-2" && explained.isEmpty(),
                  "B plays, and a song or a set is chosen on the B page");
+        const auto readyImage = b->createComponentSnapshot (b->getLocalBounds());
 
         auto empty = state;
         empty.songSets.clear(); empty.songs.clear(); empty.songId.clear(); empty.songSetId.clear();
         empty.referenceReady = empty.referenceArmable = false;
         empty.referenceStep = reference_ui::SourceStep::rankSet;  // editor が Kirin OS の届き方と B セットから決める
         panel.setState (empty);
+        const auto unavailableImage = b->createComponentSnapshot (b->getLocalBounds());
+        long readyInk = 0, unavailableInk = 0;
+        for (int y = 3; y < readyImage.getHeight() - 3; ++y)
+            for (int x = 3; x < readyImage.getWidth() - 3; ++x)
+            {
+                const auto readyPixel = readyImage.getPixelAt (x, y), unavailablePixel = unavailableImage.getPixelAt (x, y);
+                readyInk += readyPixel.getRed() + readyPixel.getGreen() + readyPixel.getBlue();
+                unavailableInk += unavailablePixel.getRed() + unavailablePixel.getGreen() + unavailablePixel.getBlue();
+            }
+        require (unavailableInk < readyInk, "an unavailable B is visibly quieter than a ready B");
         b->onClick();
         require (auditions == 1 && explained == "B: Rank a Reference set for Hypha in Kirin OS",
                  "a B that cannot play says why instead of doing nothing");

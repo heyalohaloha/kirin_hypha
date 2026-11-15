@@ -20,7 +20,7 @@ namespace hypha::reference_ui
 // What a target row says when it is pressed to be heard, and the line's own words.
 inline constexpr const char* targetSilentText = "A target has no audio. A stays live.";
 inline constexpr const char* overlayEmptyText = "PRESS A NUMBER TO SHOW ITS LINE";
-inline constexpr const char* shapeEmptyText = "TURN ON SONGS TO SEE THEIR SHAPE";
+inline constexpr const char* shapeEmptyText = "TURN ON LINES TO SEE THEIR SHAPE";
 inline constexpr const char* noSongsText = "NO SONGS IN THIS SET / CHOOSE A TARGET";
 
 // One row of B's list as the overlay sees it.

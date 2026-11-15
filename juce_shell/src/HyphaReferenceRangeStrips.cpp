@@ -198,9 +198,9 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         return;
     }
     const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
-    auto numberFont = monoFont (context, typography::TextRole::readout, typography::Composition::information);
-    if (context.referenceCheck && area.getHeight() / static_cast<float> (prepared.size()) >= 110.0f)
-        numberFont = numberFont.withHeight (juce::jmin (22.0f, numberFont.getHeight() * 1.45f));
+    const auto numberRole = context.referenceCheck && area.getHeight() / static_cast<float> (prepared.size()) >= 110.0f
+        ? typography::TextRole::referenceRangeValue : typography::TextRole::readout;
+    const auto numberFont = monoFont (context, numberRole, typography::Composition::information);
     float numberWidth = std::max (text_style::shownWidth (unitFont, "MEDIAN"), text_style::shownWidth (unitFont, "P90-P10"));
     float differenceWidth = 0.0f;
     for (const auto& item : prepared)
@@ -256,7 +256,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
             paintBar (g, juce::Rectangle<float>::leftTopRightBottom (barLeft, line.getY(), barRight, line.getBottom()), bar, item.row,
                       item.minimum, item.maximum, colour);
             const auto number = juce::Rectangle<float>::leftTopRightBottom (barRight + gap, line.getY(), barRight + gap + numberWidth, line.getBottom());
-            g.setFont (numberFont);
+            g.setFont (monoFont (context, numberRole, typography::Composition::information));
             g.setColour (bar.shown ? valueColour : context.referenceCheck ? COL_NORMAL : COL_MUTED);
             text_style::drawEllipsized (g, text, number.toNearestInt(), juce::Justification::centredRight);
             if (letter == "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())  // 差は A の行に（A が主語）

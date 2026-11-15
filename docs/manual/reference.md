@@ -78,6 +78,7 @@ The saved A window starts with fresh K-weighting state, matching a file of that 
 are not stored, and no target is written into Kirin OS. The Kirin OS license is required; its library
 registration and measurement preparation are unnecessary for these targets. Remove a selected target
 with the minus button.
+Targets saved by an earlier version while C was selected remain available in B's list when the project is reopened.
 
 Only one role sounds at a time. The A/B/C/V buttons change the sound; pages within Reference change only the
 display. Leaving Reference returns to A with a short fade and cancels pending playback. The selections remain,
@@ -168,7 +169,7 @@ instead.
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
 the B page chooses the Reference set and the song, also while A plays, and switches FOLLOW A beside the song.
-At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue row.
+At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
@@ -201,7 +202,7 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
   Hypha ignore them). Below 300 %, a compact Balance shows the current ONE or ALL selection,
   with the same line colours and numbered legend. At 100 %, close DETAILS to restore the chart.
-- **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. The main view follows the Check definition, and DETAILS opens its other views and the timeline without changing sound or comparison. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
+- **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. C's status line stays at the bottom of its own page. The first view in the Check definition fills the main area; DETAILS opens its other views, the FOLLOW A offset and the timeline without changing sound or comparison. At 100–150%, the one-line description is omitted for a spectrum or while a compact guide is shown; the guide explains the next step. At 200%, when an approval notice needs extra lines, the description is temporarily hidden to keep the chart legible. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
@@ -216,7 +217,7 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   A FROM START keeps the first 30 minutes of the timeline, is not saved with the project, and is emptied
   by RESET A WINDOW, the one item of A's list in SONG; a new sample rate or channel count empties it too, a
   new C song does not. SONG compares Checks whose charts are spectra; on a Check with range strips SONG
-  cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check.
+  cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check. A Check meant only for listening has no CUE / SONG switch because it has no measurement chart.
   Without a whole-song range (an older Kirin OS) C keeps the Cue and the status line says WHOLE-SONG VALUES
   COME WITH KIRIN OS 1.7.0, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
   saved with the project. A Check

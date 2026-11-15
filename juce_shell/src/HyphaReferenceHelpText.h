@@ -21,7 +21,7 @@ inline constexpr const char* timeLines = "The first fact over the last 30 second
 // スペクトルと 4 帯域（HyphaReferenceCueSummary.cpp・HyphaReferenceVersionPage.cpp・HyphaReferenceBalance.cpp）。
 inline constexpr const char* cueSpectrum = "Spectrum of C's Cue with its target range, and A over the chosen window, with C at its playing level.";
 inline constexpr const char* versionSpectrum = "Spectrum of A and V over the same aligned section, with V at the level it plays at.";
-inline constexpr const char* balance = "Balance: A over the chosen window, the chosen song and the target range, at B's level.";
+inline constexpr const char* balance = "Balance: A over the chosen window, the chosen song or target, and the set's range, at B's level.";
 inline constexpr const char* blauert = "Blauert's bands: A's 1 kHz against 300-400 Hz and 3-4 kHz, bands tied to sensed distance.";
 inline constexpr const char* cueBands = "Four bands: how much more or less A has than C in each band, after matching level.";
 inline constexpr const char* versionBands = "Four bands: how much more or less A has than V in each band, over the same section.";
@@ -32,7 +32,7 @@ inline constexpr const char* truePeak = "Highest true peak of A and of C at the 
 inline constexpr const char* cueBar = "Where C's Cue sits in the song and its loop. The line is C's playing position.";
 inline constexpr const char* cueBarFollow = "FOLLOW A: C plays the whole song from A's position. The line is C's playing position.";
 inline constexpr const char* match = "The gain C plays at: matched to A's recent window, or the gain it plays at now.";
-inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS. A tab changes C's Check and keeps the song.";
+inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS. Choosing one keeps the song.";
 // C は何のためか（2026-11-11：初めての人に C の役目が伝わっていなかった）。C のボタン・CHECK SET の欄と見出し・C の案内。
 // C の曲は CHECK セットの曲。CHECK セットに曲が無い時は、Kirin OS が 1 位の Reference のセットの曲を渡す。
 // C の比べる値 CUE／SONG（HyphaReferenceSongSwitch.h）と、SONG の図・4 帯域（HyphaReferenceCueSummary.cpp）。
@@ -56,7 +56,7 @@ inline constexpr const char* later = "Move the song 0.1 s ahead of A (Shift: 0.0
 
 // B の Balance の重ね比べ（HyphaReferenceOverlay.h）：ALL の図、ONE／ALL の切り替え、一覧の番号。
 inline constexpr const char* balanceAll = "Balance: A over the chosen window and the lines you show, each at the level B plays it at.";
-inline constexpr const char* overlay = "ONE: A, the chosen song and the set's range. ALL: A with the lines of the numbers you press.";
+inline constexpr const char* overlay = "ONE: A, the chosen song or target and the set's range. ALL: A with your chosen lines.";
 inline constexpr const char* overlayNumber = "Shows or hides this line on Balance. B keeps playing the song you chose.";
 inline constexpr const char* drawing = "LINES: each line you turn on. SHAPE: their mean and range. ALL SHAPE: of every song and target.";
 inline constexpr const char* balanceShape = "Balance: A over the chosen window, with the mean and range of the songs and targets in it.";

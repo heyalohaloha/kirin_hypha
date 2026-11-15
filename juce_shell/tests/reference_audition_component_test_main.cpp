@@ -46,6 +46,7 @@ int main (int argc, char** argv)
     repairs::verifyVersionStopText();
     repairs::verifyApprovalPreview(); repairs::verifyLegends (true); repairs::verifyLegends (false);
     repairs::verifyCMatchFit(); repairs::verifyOnsetMeaning(); repairs::verifyCueLabels();
+    repairs::verifyCLimitNoticeFits();
     hypha::tests::reference_a_window::verify();
     hypha::tests::reference_overlay::verify();
     hypha::tests::reference_overlay::verifyRepairs();

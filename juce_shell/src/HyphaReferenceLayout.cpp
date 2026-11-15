@@ -8,6 +8,14 @@
 
 namespace hypha::reference_ui
 {
+bool Component::showCheckPurpose() const noexcept
+{
+    if (! presentationContext.referenceCheck) return false;
+    if (guideShown && ! detailedLayout()) return false;
+    if (detailedLayout() && ! rolePage() && actionButton.isVisible() && statusRowHeight() > 24) return false;
+    return detailedLayout() || current.viewBindings.empty() || ! current.viewBindings.front().startsWith ("spectrum_");
+}
+
 void Component::resized()
 {
     if (targetBar.isVisible())
@@ -136,8 +144,7 @@ void Component::resized()
         }
         layoutPlayback (row);
     }
-    if (presentationContext.referenceCheck && ! blindSession
-        && (detailedLayout() || current.viewBindings.empty() || ! current.viewBindings.front().startsWith ("spectrum_"))) area.removeFromTop (16);
+    if (! blindSession && showCheckPurpose()) area.removeFromTop (16);
     area.removeFromTop (panelGap());
     const bool rowInPanel = ! statusInFooter();
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};

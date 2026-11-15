@@ -445,6 +445,7 @@ private:
     std::vector<help::Region> helpRegions;  // 最後に描いた図に添えた説明の場所
     bool statusFooterMode = false;
     int statusRowHeight() const noexcept;
+    bool showCheckPurpose() const noexcept;
     bool statusLineShown() const noexcept;
     void layoutStatusRow (juce::Rectangle<int>);
     void configureAWindowControls();

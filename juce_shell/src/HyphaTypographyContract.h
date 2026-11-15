@@ -17,6 +17,7 @@ enum class TextRole
     axis,
     legend,
     readout,
+    referenceRangeValue,
     sectionTitle,
     body,
     status,
@@ -108,6 +109,7 @@ constexpr Scale roleScale (TextRole role, Composition composition) noexcept
         case TextRole::axis: return { 11.0f, 11.0f, 11.0f, 12.0f, 14.0f };
         case TextRole::legend: return { 11.0f, 11.0f, 11.5f, 13.0f, 16.0f };
         case TextRole::readout: return { 11.0f, 11.0f, 12.0f, 14.0f, 17.0f };
+        case TextRole::referenceRangeValue: return { 11.0f, 11.0f, 12.0f, 14.0f, 17.0f };
         case TextRole::sectionTitle: return { 12.0f, 13.0f, 15.0f, 18.0f, 23.0f };
         case TextRole::body: return { 11.0f, 11.5f, 12.5f, 14.0f, 17.0f };
         case TextRole::status: return { 11.0f, 12.0f, 14.0f, 17.0f, 22.0f };
@@ -157,6 +159,7 @@ constexpr Overflow overflowFor (TextRole role) noexcept
         case TextRole::axis:
         case TextRole::legend:
         case TextRole::readout:
+        case TextRole::referenceRangeValue:
         case TextRole::sectionTitle:
         case TextRole::listenAction:
         case TextRole::action:
@@ -180,11 +183,15 @@ constexpr TextStyle resolve (const presentation::Context& context,
         fontHeight = roleScale (TextRole::tooltip, Composition::shell).front();
     if (context.referenceCheck && context.output != presentation::OutputTarget::popup
         && context.output != presentation::OutputTarget::tooltip)
+    {
         fontHeight = fontHeight < (role == TextRole::body ? 14.0f : 12.0f)
             ? (role == TextRole::body ? 14.0f : 12.0f) : fontHeight;
+        if (role == TextRole::referenceRangeValue)
+            fontHeight = fontHeight * 1.45f < 22.0f ? fontHeight * 1.45f : 22.0f;
+    }
 
     const auto numeric = role == TextRole::primaryValue || role == TextRole::secondaryValue
-                      || role == TextRole::readout || role == TextRole::axis;
+                      || role == TextRole::readout || role == TextRole::referenceRangeValue || role == TextRole::axis;
     const auto lineMultiplier = numeric ? 1.12f : role == TextRole::body || role == TextRole::listenChoice ? 1.32f : 1.20f;
     const auto padding = role == TextRole::action || role == TextRole::selector
         ? fontHeight * 0.55f : fontHeight * 0.25f;

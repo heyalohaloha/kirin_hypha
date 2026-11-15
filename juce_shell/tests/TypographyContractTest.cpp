@@ -35,7 +35,7 @@ constexpr std::array roles {
     typography::TextRole::primaryValue, typography::TextRole::secondaryValue,
     typography::TextRole::metricLabel, typography::TextRole::unit,
     typography::TextRole::axis, typography::TextRole::legend,
-    typography::TextRole::readout, typography::TextRole::sectionTitle,
+    typography::TextRole::readout, typography::TextRole::referenceRangeValue, typography::TextRole::sectionTitle,
     typography::TextRole::body, typography::TextRole::status,
     typography::TextRole::action, typography::TextRole::selector,
     typography::TextRole::menu, typography::TextRole::tooltip,
@@ -129,6 +129,19 @@ void verifyResolvedStyles()
 
     const auto compact = presentation::forEditor (300, 200);
     const auto inspection = presentation::forEditor (900, 600);
+    auto compactCheck = compact;
+    compactCheck.referenceCheck = true;
+    KIRIN_TYPOGRAPHY_REQUIRE (typography::resolve (compactCheck, typography::TextRole::readout,
+        typography::Composition::information).fontHeight >= 12.0f);
+    KIRIN_TYPOGRAPHY_REQUIRE (typography::resolve (compactCheck, typography::TextRole::body,
+        typography::Composition::information).fontHeight >= 14.0f);
+    for (const auto preset : observatory::sizePresets)
+    {
+        auto check = presentation::forEditor (preset.width, preset.height); check.referenceCheck = true;
+        const auto readout = typography::resolve (check, typography::TextRole::readout, typography::Composition::information).fontHeight;
+        const auto range = typography::resolve (check, typography::TextRole::referenceRangeValue, typography::Composition::information).fontHeight;
+        KIRIN_TYPOGRAPHY_REQUIRE (std::abs (range - std::min (22.0f, readout * 1.45f)) < 0.001f);
+    }
     KIRIN_TYPOGRAPHY_REQUIRE (
         typography::resolve (compact, typography::TextRole::primaryValue,
                              typography::Composition::facts).fontHeight

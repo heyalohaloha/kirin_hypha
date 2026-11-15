@@ -4,8 +4,7 @@
 // 重ね比べの直し：曲が無くても目標があれば出す。
 namespace hypha::tests::reference_overlay
 {
-// No song in the set but dropped targets: the list, ONE / ALL and Balance still show; ONE's chart says why it has
-// nothing to draw, ALL compares the targets with A. Nothing at all: no list and no switch, as before.
+// No song in the set but dropped targets: ONE lets the user select one and ALL shows both.
 inline void verifyTargetsWithoutSongs()
 {
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -15,15 +14,14 @@ inline void verifyTargetsWithoutSongs()
         auto state = page (0, 2);
         panel.setState (state);
         auto& list = listOf (panel);
-        require (list.rows().empty() && panel.findChildWithID ("reference-overlay")->isVisible(),
+        require (list.rows().size() == 2 && list.rows()[0].target && panel.findChildWithID ("reference-overlay")->isVisible(),
                  "targets without songs keep the list and ONE / ALL");
         auto drawn = a_direction::drawnTexts (panel);
         reference_text_repairs::requireWhole (drawn, "NO SONGS IN THIS SET");
-        reference_text_repairs::requireWhole (drawn, "ALL SHOWS TARGETS");
+        reference_text_repairs::requireWhole (drawn, "CHOOSE A TARGET");
         reference_text_repairs::requireWhole (drawn, reference_ui::aWindowLegend (state.aKirin->frames));
         switchHalf (panel, "reference-overlay-all").onClick();
         require (list.rows().size() == 2 && list.rows()[0].target && boxesOf (list).size() == 2, "ALL lists the targets");
-        boxesOf (list)[0]->onClick();
         drawn = a_direction::drawnTexts (panel);
         reference_text_repairs::requireWhole (drawn, "1 Drop 1");
         require (! drawn.contains (text_style::shownText (reference_ui::overlayEmptyText)), "a shown target is drawn with A");
@@ -91,8 +89,8 @@ inline void verifyMeanReading()
         const i18n::ScopedLanguage scoped (language);
         const bool japanese = language == i18n::Language::japanese;
         require (text_style::shownText ("MEAN -30.0") == (japanese ? juce::String::fromUTF8 (u8"平均 -30.0") : juce::String ("MEAN -30.0"))
-                 && text_style::shownText ("MEAN OF 3") == (japanese ? juce::String::fromUTF8 (u8"3曲の平均") : juce::String ("MEAN OF 3"))
-                 && text_style::shownText ("MEAN OF ALL 6") == (japanese ? juce::String::fromUTF8 (u8"全6曲の平均") : juce::String ("MEAN OF ALL 6")),
+                 && text_style::shownText ("MEAN OF 3") == (japanese ? juce::String::fromUTF8 (u8"3件の平均") : juce::String ("MEAN OF 3"))
+                 && text_style::shownText ("MEAN OF ALL 6") == (japanese ? juce::String::fromUTF8 (u8"全6件の平均") : juce::String ("MEAN OF ALL 6")),
                  "the mean reading and the legend's counts read in the screen's language");
         reference_ui::Component panel; reference_text_repairs::sizePanel (panel, 900, 600);
         panel.setState (page (4, 0));

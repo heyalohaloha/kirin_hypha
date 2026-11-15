@@ -10,7 +10,8 @@
 
 inline int previewWidth()
 {
-    return juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_SIZE", {}) == "100" ? 300 : 900;
+    const auto size = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_SIZE", {});
+    return size == "100" ? 300 : size == "200" ? 600 : 900;
 }
 inline bool previewDetails()
 {
@@ -19,6 +20,23 @@ inline bool previewDetails()
 inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State state)
 {
     using namespace hypha;
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_GUIDE", {}) == "listening")
+    {
+        state.viewBindings.clear();
+        state.listeningChecks.insert (state.checkId.upToFirstOccurrenceOf ("/", false, false));
+        return state;
+    }
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_GUIDE", {}) == "no-check")
+    {
+        state.viewBindings.clear(); state.checks.clear(); state.checkId.clear();
+        state.checkStep = reference_ui::SourceStep::enableCheck;
+        state.versionStep = reference_ui::SourceStep::chooseVersion;
+        state.checkReady = state.checkArmable = false;
+        state.readiness = reference_ui::Readiness::waiting;
+        state.osAccess = os_access::State::connectedUnprepared;
+        state.status = "ADD SONGS TO A CHECK SET IN KIRIN OS";
+        return state;
+    }
     const auto path = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_RANGES", {});
     if (path.isEmpty()) return state;
     const auto fixture = juce::JSON::parse (juce::File (path).loadFileAsString());

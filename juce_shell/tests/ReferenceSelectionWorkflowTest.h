@@ -22,10 +22,16 @@ inline void verifyReferenceSelectionWorkflow (reference_ui::State state)
         component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
         component.setSize (preset.width, preset.height);
         state.comparisonSlot = 1; component.setState (state);
-        const auto b = version->getBounds(), c = check->getBounds();
         state.comparisonSlot = 2; component.setState (state);
-        require (version->getBounds() == b && check->getBounds() == c,
-                 "B/C dropdowns do not move when Check details appear");
+        if (preset.density == observatory::Density::inspection)
+        {
+            auto* choice = component.findChildWithID ("reference-check-choice");
+            require (choice && choice->isVisible() && component.getLocalBounds().contains (choice->getBounds())
+                         && ! version->isVisible(), "C's Check selector is reachable and V stays on its page");
+        }
+        else
+            require (check->isVisible() && component.getLocalBounds().contains (check->getBounds()),
+                     "the compact C selection remains reachable");
         const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
         if (directory.isNotEmpty())
         {

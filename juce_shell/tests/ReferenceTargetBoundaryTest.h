@@ -221,8 +221,8 @@ void testMakeTargetRestoreCrossing (const juce::File& sandbox)
             && controller.savedSettings().viewedSlot == 3,
             "a stale MAKE cannot add, select, change page or overwrite the restored state");
     }
-    require (controller.makeTarget() && controller.savedSettings().viewedSlot == 2,
-             "the first current MAKE works after the crossed request is discarded");
+    require (controller.makeTarget() && controller.savedSettings().viewedSlot == 3,
+             "the first current MAKE opens B after the crossed request is discarded");
 }
 
 void testMakeTargetAfterReset (const juce::File& sandbox)

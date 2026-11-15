@@ -2,8 +2,11 @@
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaObservatoryContract.h"
 #include "../src/HyphaReferenceCueSummary.h"
+#include "../src/HyphaReferenceBalance.h"
+#include "../src/HyphaReferenceOverlay.h"
 #include "../src/HyphaReferenceStatusModel.h"
 #include "../src/PluginEditor.h"
+#include <algorithm>
 #include <chrono>
 
 namespace hypha::tests::target_editor
@@ -62,6 +65,8 @@ public:
         if (stage == 0)
         {
             require (! runtime.libraryReceived, "local target creation needs no Kirin OS publication");
+            if (runtime.aWindowTarget.slot != 3)
+            { processor.selectReferenceVisualSlot (3); return false; } // wait for the controller's initial state
             if (! windowChosen)
             {
                 if (! processor.selectReferenceAWindow (runtime.aWindowTarget, hypha::reference_audition::AWindowChoice::seconds3)) return false;
@@ -70,15 +75,18 @@ public:
             if (! runtime.visualTimeline || ! runtime.visualTimeline->aKirin || runtime.visualTimeline->aKirin->frames < 30) return false;
             auto* bar = panel->findChildWithID ("reference-targets");
             require (bar && bar->isVisible(), "licensed owner can reach target controls before registration");
+            auto* details = dynamic_cast<juce::Button*> (bar->findChildWithID ("reference-target-details"));
             auto* make = dynamic_cast<juce::Button*> (bar->findChildWithID ("reference-make-target"));
-            if (! make || ! make->isEnabled()) return false;
+            require (details && make, "target management controls exist");
+            if (! make->isVisible()) details->onClick();
+            if (! make->isEnabled()) return false;
             make->onClick();
             const auto targets = processor.referenceTargetSnapshot();
             require (targets.collection.items.size() == 1 && targets.collection.selected.isNotEmpty(),
                      "the real MAKE TARGET button stores and selects A's window");
             selected = targets.collection.selected;
             openedEpoch = targets.restoreEpoch;
-            require (! processor.selectReferenceC(), "a numerical C cannot start a hidden audio source");
+            require (! processor.selectReferenceC(), "no unavailable C source starts audio");
             processor.getStateInformation (saved);
             const auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
             require (xml && xml->getChildByName ("MeasuredTargets")
@@ -92,38 +100,49 @@ public:
         }
         if (stage == 1)
         {
-            if (! panel->state().targetSelected) return false;
-            require (panel->state().aWindowBlocks == 30
-                && std::isfinite (hypha::reference_ui::comparisonGainDb (panel->state())),
-                "the shipping editor compares a numeric target from A's three-second observation");
-            const auto levels = hypha::reference_audition::targetWindowLevels (*panel->state().visualTimeline);
-            require (std::abs (panel->state().aIntegratedLoudness - levels.lufs) < 1.0e-9
-                && std::abs (panel->state().aMaximumTruePeakDbtp - levels.maxTruePeak) < 1.0e-9,
-                "the shipping editor's numeric metrics use its displayed A window");
+            if (panel->state().comparisonSlot != 3 || panel->state().targets.collection.selected != selected) return false;
+            require (! panel->state().targetSelected, "the target does not replace C's Check");
             if (! compactRequested)
             {
+                auto* list = dynamic_cast<hypha::reference_ui::SongList*> (panel->findChildWithID ("reference-song-list"));
+                if (! list || ! list->isVisible() || list->rows().empty()) return false;
+                require (std::any_of (list->rows().begin(), list->rows().end(), [&] (const auto& row) {
+                    return row.target && row.selected && row.id == selected;
+                }), "MAKE TARGET selects the measured row in the real B list");
+                const auto items = hypha::reference_ui::overlayItems (panel->state());
+                require (std::any_of (items.begin(), items.end(), [&] (const auto& item) {
+                    return item.id == selected && item.target && item.drawable();
+                }), "the new B target can be drawn immediately");
                 editor->setSize (300, 200); compactRequested = true; return false;
             }
             if (! expanded)
             {
                 if (panel->state().blindLargeScreen) return false;
-                auto* data = dynamic_cast<juce::Button*> (panel->findChildWithID ("reference-target-data"));
-                require (data && data->isVisible(), "numeric C has a real compact DATA entrance");
-                data->onClick();
-                require (editor->getWidth() == 900 && editor->getHeight() == 600
-                    && ! processor.referenceAuditionSnapshot().bSelected,
-                    "the shipping DATA button expands to the comparison charts without starting playback");
-                expanded = true;
+                auto* bar = panel->findChildWithID ("reference-targets");
+                require (bar && bar->isVisible(), "B target management remains reachable at 100%");
+                editor->setSize (900, 600); expanded = true; return false;
             }
             const auto targets = processor.referenceTargetSnapshot();
-            require (targets.collection.selected == selected, "file measurement preserves the displayed C target");
+            require (targets.collection.selected == selected, "file measurement preserves the selected B target");
             if (targets.measuring) return false;
             require (targets.collection.items.size() == 16 && targets.issue == "5 NOT ADDED: 16 TARGETS MAX / REMOVE ONE TO MAKE ROOM",
                      "the real REF drop fills the fifteen remaining slots and says how many files were not added");
-            processor.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+            auto legacyProject = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+            require (legacyProject && legacyProject->getChildByName ("ReferenceChoices"), "project contains Reference choices");
+            legacyProject->getChildByName ("ReferenceChoices")->setAttribute ("viewed_slot", 2);
+            juce::MemoryBlock legacyData; juce::AudioProcessor::copyXmlToBinary (*legacyProject, legacyData);
+            processor.setStateInformation (legacyData.getData(), static_cast<int> (legacyData.getSize()));
             const auto round = processor.referenceTargetSnapshot();
             require (round.collection.items.size() == 1 && round.collection.selected == selected
                 && ! processor.referenceAuditionSnapshot().bSelected, "processor state round trip retains facts and never starts playback");
+            require (processor.selectReferenceVisualSlot (3), "the old C target remains available on B after restore");
+            auto* shipping = dynamic_cast<KirinHyphaEditor*> (editor.get());
+            require (shipping != nullptr, "the restored project uses the shipping editor");
+            hypha::tests::target_editor::refresh (*shipping, {});
+            auto* restoredList = dynamic_cast<hypha::reference_ui::SongList*> (panel->findChildWithID ("reference-song-list"));
+            require (restoredList && restoredList->isVisible() && std::any_of (restoredList->rows().begin(), restoredList->rows().end(),
+                [&] (const auto& row) { return row.target && row.selected && row.id == selected; }),
+                "a target saved on C in an old project is selected in the real B list after opening");
             require (! processor.changeReferenceTarget ({ Action::select, {}, {}, openedEpoch })
                 && processor.referenceTargetSnapshot().collection.selected == selected,
                 "a stale menu reply cannot overwrite the processor's restored selection");
@@ -177,20 +196,28 @@ public:
             }
             const auto match = processor.referenceWindowLoudness (2);
             if (check.state != hypha::reference_audition::RuntimeState::ready || ! check.auditionBuffered || match.neededBlocks != 300) return false;
+            if (runtime.aWindowTarget.slot != 3)
+            { processor.selectReferenceVisualSlot (3); return false; } // selecting a Check opens C; return to B
             if (processor.referenceTargetSnapshot().collection.selected != selected)
-            { require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "select numeric C after the long Check"); return false; }
-            if (! panel->state().targetSelected) return false;
-            if (! panel->state().visualTimeline || panel->state().visualTimeline->binding.aDisplayWindowBlocks != 30) return false;
-            if (panel->state().aWindowBlocks < 30) return false;
-            require (panel->state().aWindowBlocks == 30
-                && std::isfinite (hypha::reference_ui::comparisonGainDb (panel->state())),
-                "a two-second target uses at least three seconds of A in default CUE, even beside a thirty-second Check");
+            { require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "select B target after the long Check"); return false; }
+            if (panel->state().comparisonSlot != 3 || panel->state().targets.collection.selected != selected) return false;
             const auto* selectedTarget = panel->state().targets.collection.find (selected);
-            require (selectedTarget && selectedTarget->channels == 1
-                && std::abs (panel->state().cueLoudnessOffsetLu - 10.0 * std::log10 (2.0)) < 1.0e-12
-                && std::abs (panel->state().adjustedBIntegratedLoudness - selectedTarget->integrated
-                             - panel->state().cueLoudnessOffsetLu) < 1.0e-12,
-                "real drop, selection and editor normalize a mono target to stereo A");
+            require (selectedTarget && selectedTarget->channels == 1, "real drop retains mono target metadata in B");
+            const auto items = hypha::reference_ui::overlayItems (panel->state());
+            require (! items.empty() && items.back().id == selected && items.back().drawable(),
+                     "imported target immediately appears in B's drawable data");
+            require (! panel->state().targetSelected, "the B target does not replace C");
+            auto withoutTarget = panel->state(); withoutTarget.targets.collection.selected.clear();
+            juce::Image chart (juce::Image::ARGB, 400, 240, true), emptyChart (juce::Image::ARGB, 400, 240, true);
+            juce::Graphics chartGraphics (chart), emptyGraphics (emptyChart);
+            const auto context = hypha::presentation::forEditor (900, 600);
+            hypha::reference_ui::paintReferenceBalance (chartGraphics, chart.getBounds().toFloat(), panel->state(), context);
+            hypha::reference_ui::paintReferenceBalance (emptyGraphics, emptyChart.getBounds().toFloat(), withoutTarget, context);
+            int different = 0;
+            for (int y = 30; y < 210; ++y)
+                for (int x = 15; x < 385; ++x)
+                    different += chart.getPixelAt (x, y) != emptyChart.getPixelAt (x, y) ? 1 : 0;
+            require (different > 20, "the imported B target changes the actual Balance chart immediately");
             if (! channelRoundTripped)
             {
                 juce::MemoryBlock round;
@@ -202,7 +229,7 @@ public:
                 return false;
             }
             playing.store (false);
-            require (processor.changeReferenceTarget ({ Action::select, {}, {} }), "return to audio C before queuing it");
+            require (processor.changeReferenceTarget ({ Action::select, {}, {} }), "clear B target before queuing C");
             stage = 4; started = std::chrono::steady_clock::now(); return false;
         }
         if (stage == 4)
@@ -229,20 +256,14 @@ public:
             hypha::tests::target_editor::refresh (*shipping, {});
             require (panel->statusTextLayout (panel->footerStatusStrip().getLocalBounds()).line.text == "FILE UNREADABLE",
                      "the compact product initially shows the failed drop");
-            require (processor.selectReferenceC() && processor.referenceAuditionSnapshot().pendingAudition.waiting(),
+            require (processor.selectReferenceVisualSlot (2) && processor.selectReferenceC()
+                && processor.referenceAuditionSnapshot().pendingAudition.waiting(),
                      "the real C button queues a stopped audition");
             hypha::tests::target_editor::refresh (*shipping, {});
             const auto line = panel->statusTextLayout (panel->footerStatusStrip().getLocalBounds()).line;
-            require (line.text == "FILE UNREADABLE / " + hypha::reference_ui::referenceStatusLine (panel->state()).text,
-                     "the actual C entrance retains the failed-drop reason with its current audition status");
-            const hypha::text_style::ShownTextLog log;
-            juce::Image image (juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
-            juce::Graphics graphics (image); editor->paintEntireComponent (graphics, true);
-            bool painted = false;
-            for (const auto& text : log.texts())
-                painted = painted || text.contains (hypha::text_style::shownText ("FILE UNREADABLE"));
-            require (painted && processor.referenceAuditionSnapshot().pendingAudition.waiting(),
-                     "the shipping editor paints the async drop failure without cancelling the queued audition");
+            require (panel->state().comparisonSlot == 2 && ! line.text.contains ("FILE UNREADABLE")
+                && processor.referenceTargetSnapshot().issue == "FILE UNREADABLE",
+                "C keeps its audition status while the B import failure is retained");
             require (root.getChildFile ("long-check.wav").appendText ("changed"), "change the queued C fixture source");
             stage = 5; started = std::chrono::steady_clock::now(); return false;
         }
@@ -262,21 +283,14 @@ public:
             hypha::tests::target_editor::refresh (*shipping, {});
             require (panel->state().comparisonSlot == 1 && panel->state().visualTimeline == previous,
                      "V keeps its prior display while the real switch waits");
-            require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "choose numeric C while V is switching");
+            require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "choose B target while V is switching");
             hypha::tests::target_editor::refresh (*shipping, {});
             const auto& shown = panel->state();
-            const auto current = shown.visualTimeline;
-            require (shown.targetSelected && shown.switchingSlot == 1 && current && current != previous
-                && shown.aKirin == current->aKirin && current->aTickChannels == 2,
-                "numeric C uses its current A spectrum and channel layout instead of V's held snapshot");
-            const auto levels = hypha::reference_audition::targetWindowLevels (*current);
-            require (std::isfinite (levels.lufs) && std::abs (levels.lufs + 60) > 1
-                && std::abs (shown.aIntegratedLoudness - levels.lufs) < 1.0e-9
-                && std::abs (shown.aMaximumTruePeakDbtp - levels.maxTruePeak) < 1.0e-9
-                && std::abs (shown.cueLoudnessOffsetLu - 10.0 * std::log10 (2.0)) < 1.0e-12,
-                "the shipping numeric comparison takes LUFS, TP and channel normalization from that same A snapshot");
+            require (shown.comparisonSlot == 3 && ! shown.targetSelected && shown.switchingSlot == 1
+                && shown.targets.collection.selected == selected,
+                "B target selection preserves the pending V switch and does not replace C");
             processor.selectReferenceA();
-            require (processor.changeReferenceTarget ({ Action::select, {}, {} }), "return to audio C after the display regression");
+            require (processor.changeReferenceTarget ({ Action::select, {}, {} }), "clear B target after the display regression");
             versionChecked = true; stage = 4; started = std::chrono::steady_clock::now(); return false;
         }
         if (stage == 5)
@@ -295,7 +309,7 @@ public:
                     && waiting.audibleComparisonSlot == 0,
                     "stopped callbacks through the real processor service cannot cancel the queued C during source retry");
                 // A changed audio file can recover. A corrupt content-addressed publication
-                // is a definite rejection; use it to exercise numeric C replacing a failure.
+                // is a definite rejection; exercise its independence from B target selection.
                 require (checkSourceReceipt.appendText ("changed"), "corrupt only the queued C source receipt");
                 sourceLossObserved = true; started = std::chrono::steady_clock::now(); return false;
             }
@@ -311,20 +325,23 @@ public:
                 && runtime.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::sourceChanged
                 && runtime.pendingAudition.reasonCode == "reference_source_receipt_rejected",
                 "the queued C ends with a visible source failure");
-            require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "choose a numeric target after the C failure");
+            require (processor.changeReferenceTarget ({ Action::select, {}, selected }), "choose a B target after the C failure");
             playing.store (true);
             stage = 6; started = std::chrono::steady_clock::now(); return false;
         }
         if (stage == 6)
         {
-            if (! panel->state().targetSelected) return false;
-            const auto line = hypha::reference_ui::referenceStatusLine (panel->state());
-            require (runtime.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::none
-                && line.kind == hypha::reference_ui::StatusKind::ready && line.text == "DATA ONLY",
-                "the shipping editor replaces the failed C recovery request with DATA ONLY");
+            if (panel->state().comparisonSlot != 3 || panel->state().targets.collection.selected != selected) return false;
+            require (! panel->state().targetSelected && runtime.pendingAudition.slot == 2
+                && runtime.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::sourceChanged,
+                "B target selection leaves the C source failure intact");
             juce::XmlElement old ("KirinHyphaState");
             juce::MemoryBlock oldData; juce::AudioProcessor::copyXmlToBinary (old, oldData);
             processor.setStateInformation (oldData.getData(), static_cast<int> (oldData.getSize()));
+            processor.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+            require (processor.referenceTargetSnapshot().collection.items.size() == 1
+                && processor.changeReferenceTarget ({ Action::select, {}, {} }),
+                "retain the saved numeric fixture without selecting it for the next product scenario");
             processor.editorBeingDeleted (editor.get());
             editor.reset();
             return true;

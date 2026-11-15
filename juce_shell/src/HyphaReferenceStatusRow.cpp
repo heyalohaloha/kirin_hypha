@@ -39,21 +39,25 @@ juce::String fittedSegments (const juce::String& shown, const juce::Font& font, 
 
 int Component::statusRowHeight() const noexcept
 {
-    if (! presentationContext.referenceCheck || detailedLayout() || ! actionButton.isVisible())
+    if (! presentationContext.referenceCheck || ! actionButton.isVisible())
         return detailedLayout() ? 24 : 18;
-    if (! shortPanel()) return 36;
+    if (! shortPanel() && ! detailedLayout()) return 36;
     const auto font = labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information);
     const auto actionFont = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
     const auto width = panelArea().getWidth();
-    const auto actionWidth = juce::jlimit (116, juce::jmax (116, width),
+    const int minimum = detailedLayout() ? 188 : 116;
+    const int limit = shortPanel() ? width : juce::jmax (minimum, width / 2);
+    const auto actionWidth = juce::jlimit (minimum, juce::jmax (minimum, limit),
         juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, actionButton.getButtonText()))) + 24);
     const auto line = text_style::shownText (referenceStatusLine (current, false).text);
+    if (detailedLayout() && text_style::shownWidth (font, line) <= width - actionWidth - 22) return 24;
     const auto japaneseSplit = line.indexOfChar (juce::juce_wchar (0x3002));
     const auto englishSplit = line.indexOf (". ");
     const auto split = japaneseSplit >= 0 ? japaneseSplit : englishSplit;
     if (split < 0) return text_style::shownWidth (font, line) <= width - 16 ? 36 : 54;
     return text_style::shownWidth (font, line.substring (0, split + 1)) <= width - 16
-        && text_style::shownWidth (font, line.substring (split + 1).trimStart()) <= width - actionWidth - 5 ? 36 : 54;
+        && text_style::shownWidth (font, line.substring (split + 1).trimStart())
+            <= width - actionWidth - (shortPanel() ? 5 : 19) ? 36 : 54;
 }
 
 // 300% の B・C・V のページの並びかどうかは、ここだけで決める（inspection の密度）。2026-10-06：200% にも当たり、200% の
@@ -93,7 +97,7 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
     }
     if (actionButton.isVisible())
     {
-        if (presentationContext.referenceCheck && ! detailedLayout()) row = row.removeFromBottom (18);
+        if (presentationContext.referenceCheck && statusRowHeight() > 24) row = row.removeFromBottom (18);
         // 承認のボタンは文字の幅に合わせる（量と鳴らす役まで言う。2026-10-05、300% で「Aを0.8 dB下げて
         // Bを…」と切れた。英語の「LOWER A 0.8 DB & PLAY B」も 188 に入らなかった）。最小は今までの幅、最大は行の半分。
         const int minimum = detailedLayout() ? 188 : 116;
@@ -130,7 +134,7 @@ Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> st
         available.setRight (juce::jmin (available.getRight(), actionButton.getX() - 6));
     // 鳴っている役の gain の読みは要るだけの幅（右）。残りを状態の文に渡す（C は MATCH の横に出す）。案内が出ている
     // あいだと Blind の間は出さない（Blind では gain がどちらが鳴っているかの手がかりになる）。
-    const bool gainShown = detailedLayout() && current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage()
+    const bool gainShown = detailedLayout() && current.bSelected && std::isfinite (current.appliedGainDb) && current.comparisonSlot != 2
                         && ! guideShown && ! isBlindSession (current.blindPhase);
     const auto gainFont = labelFont (presentationContext, typography::TextRole::status, typography::Composition::information);
     layout.gain = gainShown ? gainReadout (current) : juce::String();
@@ -170,14 +174,14 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
     const auto statusColour = kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
     if (statusLineShown())
     {
-        paintStatusDot (g, presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible()
+        paintStatusDot (g, presentationContext.referenceCheck && actionButton.isVisible() && statusRowHeight() > 24
                           ? layout.primary.withHeight (18) : layout.primary, kind);
         g.setColour (presentationContext.referenceCheck ? COL_NORMAL : statusColour.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information));
         const auto full = text_style::shownText (layout.line.text);
         const auto split = full.indexOfChar (juce::juce_wchar (0x3002));
         const auto englishSplit = full.indexOf (". ");
-        if (presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible() && (split >= 0 || englishSplit >= 0))
+        if (presentationContext.referenceCheck && actionButton.isVisible() && statusRowHeight() > 24 && (split >= 0 || englishSplit >= 0))
         {
             const auto end = split >= 0 ? split + 1 : englishSplit + 1;
             auto first = statusArea.removeFromTop (18).withTrimmedLeft (16);
@@ -186,7 +190,7 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
             text_style::drawEllipsized (g, full.substring (0, end), first, juce::Justification::centredLeft);
             text_style::drawEllipsized (g, full.substring (end).trimStart(), second, juce::Justification::centredLeft);
         }
-        else if (presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible())
+        else if (presentationContext.referenceCheck && actionButton.isVisible() && statusRowHeight() > 24)
         {
             auto textArea = statusArea.withTrimmedBottom (18).withTrimmedLeft (16);
             text_style::drawLines (g, full, textArea, juce::Justification::centredLeft, textArea.getHeight() / 18);

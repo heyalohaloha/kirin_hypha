@@ -1,4 +1,6 @@
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaHelpLineBar.h"
+#include "../src/HyphaHelpLineText.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
@@ -270,6 +272,23 @@ juce::Image render (hypha::reference_ui::State state, bool japanese, int width, 
     juce::Image image (juce::Image::ARGB, surface.getWidth(), surface.getHeight(), true);
     juce::Graphics graphics (image);
     surface.paintEntireComponent (graphics, true);
+    const auto helpPreview = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_DETAILS_HELP", {});
+    if (helpPreview.isNotEmpty())
+    {
+        const auto* button = reference.findChildWithID ("reference-check-details");
+        if (button == nullptr || ! button->isVisible()) fail ("reference-preview-help-unavailable");
+        const auto help = reference.helpAt (button->getBounds().getCentre());
+        if (help.isEmpty()) fail ("reference-preview-help-unavailable");
+        hypha::HelpLineBar bar;
+        const auto footer = shell.footerBounds();
+        bar.show (hypha::help_line::forLine (help, true), footer, footer, hypha::presentation::forEditor (width, height));
+        const auto before = japanese && helpPreview == "before";
+        const hypha::i18n::ScopedLanguage shown (before ? hypha::i18n::Language::english
+                                                         : japanese ? hypha::i18n::Language::japanese : hypha::i18n::Language::english);
+        const juce::Graphics::ScopedSaveState saved (graphics);
+        graphics.reduceClipRegion (footer);
+        graphics.setOrigin (bar.getX(), bar.getY()); bar.paint (graphics);
+    }
     return image;
 }
 }

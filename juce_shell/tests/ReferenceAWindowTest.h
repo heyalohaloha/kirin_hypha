@@ -90,7 +90,7 @@ inline void verifyShownWhereTheChartIs()
                 const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::legend,
                                              typography::Composition::visualization);
                 const auto textWidth = text_style::shownWidth (font, "A LAST 10:00");
-                for (int chart = 0; chart < (page == 2 ? 2 : 1); ++chart)
+                for (int chart = 0; chart < 1; ++chart)  // C shows the first view until DETAILS opens.
                 {
                     auto* control = controlOf (panel, chart);
                     require (control != nullptr && control->isVisible() && panel.getLocalBounds().contains (control->getBounds()),
@@ -326,7 +326,7 @@ inline void verifyReading()
             const auto label = controlOf (panel)->getBounds().toFloat();
             requireReading (panel, 'B', label.withY (label.getY() - 120.0f).withHeight (100.0f).withWidth (360.0f), "B 300%");
         }
-        // C は図の数と並びごと（2 つ・3 つの図は狭い）。図が出る大きさすべてで。
+        // C は詳しくを閉じて最初の図を全幅で出す。図が出る大きさすべてで。
         for (const auto& size : observatory::sizePresets)
         {
             if (! observatory::isFullDensity (size.density)) continue;
@@ -349,11 +349,8 @@ inline void verifyReading()
                     panel.setState (state);
                     const auto area = panel.observationWindowBounds().toFloat();
                     require (! area.isEmpty(), "the C page shows its charts");
-                    const auto cells = reference_ui::referenceVisualCells (area, static_cast<int> (bindings.size()), layout);
-                    for (size_t index = 0; index < bindings.size(); ++index)
-                        requireReading (panel, 'C', cells[index].reduced (10.0f, 8.0f),
-                                        juce::String (size.label) + " " + layout + " chart " + juce::String (static_cast<int> (index))
-                                            + " of " + juce::String (static_cast<int> (bindings.size())));
+                    requireReading (panel, 'C', area.reduced (10.0f, 8.0f),
+                                    juce::String (size.label) + " " + layout + " main chart");
                 }
         }
     }

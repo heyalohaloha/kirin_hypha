@@ -356,11 +356,11 @@ void Component::paint (juce::Graphics& g)
 
     if (presentationContext.referenceCheck && ! detailedLayout())
         area.removeFromTop (panelPickerHeight());
-    if (presentationContext.referenceCheck
-        && (detailedLayout() || current.viewBindings.empty() || ! current.viewBindings.front().startsWith ("spectrum_")))
+    if (showCheckPurpose())
     {
         g.setColour (COL_NORMAL);
-        g.setFont (labelFont (presentationContext, typography::TextRole::body, typography::Composition::information));
+        g.setFont (labelFont (presentationContext, detailedLayout() ? typography::TextRole::body : typography::TextRole::readout,
+                              typography::Composition::information));
         text_style::drawEllipsized (g, "C: A vs Kirin OS song and cue", area.removeFromTop (16), juce::Justification::centredLeft);
     }
     area.removeFromTop (panelGap());

@@ -108,9 +108,11 @@ inline void verifyReferenceStageTable()
             const bool large = width == 900;
             const auto texts = a_direction::drawnTexts (panel);
             auto* tabs = panel.findChildWithID ("reference-check-tabs");
+            auto* choice = panel.findChildWithID ("reference-check-choice");
             auto* list = panel.findChildWithID ("reference-song-list");
-            require (tabs != nullptr && list != nullptr, "the page parts exist");
-            require (tabs->isVisible() == (large && slot != 3) && list->isVisible() == (large && slot == 3)
+            require (tabs != nullptr && choice != nullptr && list != nullptr, "the page parts exist");
+            require (tabs->isVisible() == (large && slot == 1) && choice->isVisible() == (large && slot == 2)
+                         && list->isVisible() == (large && slot == 3)
                          && texts.contains ("REFERENCE") == ! large,
                      juce::String ("the 300% page layout is used at 300% only (") + juce::String (width) + ", "
                          + reference_ui::roleLetter (slot) + ")");
