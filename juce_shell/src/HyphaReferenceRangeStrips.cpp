@@ -1,6 +1,7 @@
 #include "HyphaReferenceRangeStrips.h"
 
 #include "HyphaReferenceAComparison.h"
+#include "HyphaReferenceAxisLabels.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceHelp.h"
@@ -242,14 +243,14 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         text_style::drawEllipsized (g, item.row.fact == DynamicsFact::crest ? sides.crestName : item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
         text_style::drawEllipsized (g, item.row.spread ? "P90-P10" : "MEDIAN",
             title.withLeft (barRight + gap).withWidth (numberWidth).toNearestInt(), juce::Justification::centredRight);
-        for (auto value = item.minimum; value <= item.maximum + 1.0e-9; value += item.row.step)
+        const auto labels = axis_labels::layout (item.minimum, item.maximum, item.row.step, barLeft, barRight,
+                                                  axis, unitFont, [&item] (double value) { return tickText (item.row.unit, value); });
+        for (const auto& label : labels)
         {
-            const auto x = barLeft + static_cast<float> ((value - item.minimum) / (item.maximum - item.minimum)) * (barRight - barLeft);
             g.setColour (COL_MUTED.withAlpha (0.12f));
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, aLine.getY(), 1.0f, otherLine.getBottom() - aLine.getY()));
+            g.fillRect (juce::Rectangle<float> (label.x - 0.5f, aLine.getY(), 1.0f, otherLine.getBottom() - aLine.getY()));
             g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY.withAlpha (0.85f));
-            text_style::drawText (g, tickText (item.row.unit, value), juce::Rectangle<float> (x - 24.0f, axis.getY(), 48.0f, axis.getHeight()),
-                                  juce::Justification::centred, false);
+            if (label.visible) text_style::drawText (g, label.text, label.bounds, juce::Justification::centred, false);
         }
         for (const auto& [line, bar, letter, colour, valueColour, text] :
              { std::tuple { aLine, item.aBar, juce::String ("A"), COL_FLORA_BR, COL_FLORA_BR, item.aText },

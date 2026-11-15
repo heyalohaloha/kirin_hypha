@@ -4,13 +4,81 @@
 #include "ReferenceControlLookup.h"
 #include "ReferenceComparisonLayoutContract.h"
 #include "../src/HyphaReferenceRangeStrips.h"
+#include <map>
 #include <vector>
 
 namespace hypha::tests
 {
+inline void verifyRangeLabelSpacing()
+{
+    using reference_guide_contract::require;
+    struct Range { double low, high; };
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const int width : { 600, 900 })
+    for (const int paneWidth : { 200, 300, 450 })
+    for (const bool checkView : { false, true })
+    for (const auto limits : { Range { -90.0, -6.0 }, Range { -90.0, 6.0 },
+                               Range { -18.0, -12.0 }, Range { -12.0, -11.0 } })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        auto context = presentation::forEditor (width, width * 2 / 3);
+        context.referenceCheck = checkView;
+        auto timeline = std::make_shared<reference_audition::VisualTimeline>();
+        auto ticks = std::make_shared<std::vector<KirinReferenceVisualBin>>();
+        for (int index = 0; index < 100; ++index)
+        {
+            KirinReferenceVisualBin bin {};
+            bin.frames = 4800; bin.rms[0] = bin.rms[1] = 0.1;
+            bin.peak[0] = bin.peak[1] = 0.2;
+            bin.momentary_lufs = index < 25 ? limits.low : index < 75 ? (limits.low + limits.high) / 2 : limits.high;
+            bin.short_lufs = -15.0;
+            ticks->push_back (bin);
+        }
+        timeline->aPairTicks = ticks; timeline->vPairTicks = ticks; timeline->pairTickChannels = 2;
+        juce::Image image (juce::Image::ARGB, paneWidth, 300, true);
+        juce::Graphics graphics (image); text_style::ShownTextLog log;
+        require (reference_ui::paintVersionRangeStrips (graphics, image.getBounds().toFloat(), timeline.get(),
+                                                        "loudness", 0.0, context), "range strips render");
+        std::map<int, std::vector<juce::Rectangle<float>>> rows;
+        for (int index = 0; index < log.texts().size(); ++index)
+        {
+            const auto number = log.texts()[index].trimCharactersAtStart (juce::String::fromUTF8 (u8"−+-"));
+            if (number.isNotEmpty() && number.containsOnly ("0123456789"))
+            {
+                const auto box = log.areas()[static_cast<size_t> (index)];
+                rows[juce::roundToInt (box.getY())].push_back (box);
+            }
+        }
+        require (! rows.empty(), "the strips draw numeric axis labels");
+        for (auto& [y, boxes] : rows)
+        {
+            juce::ignoreUnused (y);
+            std::sort (boxes.begin(), boxes.end(), [] (const auto& a, const auto& b) { return a.getX() < b.getX(); });
+            for (size_t index = 1; index < boxes.size(); ++index)
+                require (boxes[index - 1].getRight() <= boxes[index].getX(), "axis label boxes do not overlap");
+        }
+        const auto minimum = static_cast<int> (std::floor ((limits.low - 2.0) / 6.0) * 6.0);
+        const auto maximum = std::max (minimum + 12, static_cast<int> (std::ceil ((limits.high + 2.0) / 6.0) * 6.0));
+        const auto numberText = [] (int value)
+        { return (value < 0 ? juce::String::fromUTF8 (u8"−") : juce::String()) + juce::String (std::abs (value)); };
+        const int first = log.texts().indexOf (numberText (minimum));
+        require (first >= 0, "the lower endpoint remains labelled");
+        const auto axisY = log.areas()[static_cast<size_t> (first)].getY();
+        const auto onAxis = [&] (const juce::String& text)
+        {
+            for (int index = 0; index < log.texts().size(); ++index)
+                if (log.texts()[index] == text && log.areas()[static_cast<size_t> (index)].getY() == axisY) return true;
+            return false;
+        };
+        require (onAxis (numberText (maximum)), "the upper endpoint remains labelled");
+        if (minimum <= 0 && maximum >= 0) require (onAxis ("0"), "zero remains labelled");
+    }
+}
+
 inline void verifyVersionCompact()
 {
     using reference_guide_contract::require;
+    verifyRangeLabelSpacing();
     require (! reference_ui::rangeStripBinding ("version_movement"),
              "V-only detail choices do not extend Kirin OS Check bindings");
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })

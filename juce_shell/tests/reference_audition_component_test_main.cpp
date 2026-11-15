@@ -6,6 +6,7 @@
 #include "ReferenceFollowViewContract.h"
 #include "ReferenceMeasuredTargetUiTest.h"
 #include "ReferenceOverlayRepairsTest.h"
+#include "ReferenceVersionCompactTest.h"
 #include "../src/reference_audition/ReferenceLiveWindowLoudness.cpp"
 #include "ValidationStorageSandbox.h"
 
@@ -24,6 +25,7 @@ int main (int argc, char** argv)
     const juce::String mode (argc == 2 ? argv[1] : "");
     if (mode == "--listening-check-sizes-only") { hypha::tests::reference_a_window::verifyListeningAtSizes(); return 0; }
     if (mode == "--target-balance-sizes-only") { hypha::tests::reference_overlay::verifyTargetBalanceSizes(); return 0; }
+    if (mode == "--range-label-only") { hypha::tests::verifyRangeLabelSpacing(); return 0; }
     if (mode == "--reference-follow-only") { hypha::tests::reference_follow_view::verify(); return 0; }
     if (mode == "--reference-guide-only") { hypha::tests::verifyReferenceGuideContract(); return 0; }
     if (mode == "--missing-check-navigation-only") { hypha::tests::verifyMissingCheckNavigation(); return 0; }
