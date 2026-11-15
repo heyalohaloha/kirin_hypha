@@ -145,10 +145,12 @@ inline bool corroborateLoop (const LoopAnchor& anchor, const BlockClock& block,
     const auto length = (anchor.loop.end - anchor.loop.start) * samplesPerBeat;
     if (! std::isfinite (expected) || ! std::isfinite (length) || ppq < anchor.loop.start || ppq >= anchor.loop.end
         || std::abs (expected) >= 9007199254740992.0) return false;
-    // Measured Studio Pro VST3 boundary: native samples clamp to the loop start, but PPQ
-    // reports the delayed tail BEFORE the start. Only an already certified content-clock
-    // address, a native-measured cycle and the reported positive PDC span can corroborate it.
-    // PPQ never chooses start/K/PCM, and arbitrary clamps or another lap cannot pass this rule.
+    // Measured Studio Pro VST3 boundary: PPQ reports the delayed tail BEFORE the start, and
+    // native samples either clamp to the loop start (Windows) or name that same tail (macOS:
+    // the host wraps POST's position the reported delay early). Only an already certified
+    // content-clock address, a native-measured cycle and the reported positive PDC span can
+    // corroborate it. PPQ never chooses start/K/PCM, and arbitrary positions or another lap
+    // cannot pass this rule.
     if (preProof != nullptr && block.loop.ppq < block.loop.start)
     {
         const auto content = static_cast<std::uint8_t> (ClockBasis::vst3Continuous);
@@ -162,12 +164,13 @@ inline bool corroborateLoop (const LoopAnchor& anchor, const BlockClock& block,
             || preProof->presentationSource != 1 || block.presentationSource != 1
             || preProof->outputPresentationSamples <= block.outputPresentationSamples
             || anchor.loopSamples <= 0
-            || std::abs (length - static_cast<double> (anchor.loopSamples)) > 1.01
-            || std::abs (static_cast<double> (block.project) - loopStart) > 1.01) return false;
+            || std::abs (length - static_cast<double> (anchor.loopSamples)) > 1.01) return false;
         const auto delay = preProof->outputPresentationSamples - block.outputPresentationSamples;
         const auto tail = (block.loop.start - block.loop.ppq) * samplesPerBeat;
         const auto tolerance = block.loop.beats (1, rate) + 1.0e-9;
         if (! std::isfinite (tail) || tail > static_cast<double> (delay) + 1.01
+            || (std::abs (static_cast<double> (block.project) - loopStart) > 1.01
+                && std::abs (static_cast<double> (block.project) - (loopStart - tail)) > 1.01)
             || static_cast<double> (anchor.loopSamples) <= static_cast<double> (delay)
             || std::abs (block.loop.ppq + block.loop.end - block.loop.start - ppq) > tolerance)
             return false;

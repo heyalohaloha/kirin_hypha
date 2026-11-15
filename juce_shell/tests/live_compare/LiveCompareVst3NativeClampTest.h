@@ -35,7 +35,11 @@ inline BlockClock clock (std::int64_t native, std::int64_t continuous, std::int6
         static_cast<double> (loopStart + length) / 24000.0, 120.0 };
     return block;
 }
-inline void continuation()
+// clamped: the Windows observation above. Not clamped: the macOS observation at a loop of 32 beats
+// from beat 116 with PRE's output presentation 4168 / POST 0 and 2048 frames: at the wrap POST's
+// native position and PPQ both name the delayed tail before the loop start (2779832 = 2784000 - 4168,
+// PPQ 115.826...) while its continuous clock runs on (5849784, then 5851832).
+inline void continuation (bool clamped)
 {
     unsigned audited = 0, clamps = 0;
     for (const auto nativeStart : { std::int64_t (0), std::int64_t (86016), std::int64_t (98304) })
@@ -59,7 +63,7 @@ inline void continuation()
             const bool looping = initial || index >= 100;
             const auto preNative = nativeStart + (looping ? emission % length : emission);
             const auto rawPost = preNative - delay;
-            const auto nativePost = looping ? std::max (nativeStart, rawPost) : rawPost;
+            const auto nativePost = looping && clamped ? std::max (nativeStart, rawPost) : rawPost;
             const auto pre = clock (preNative, emission, preNative, nativeStart, looping, delay);
             const auto post = clock (nativePost, emission - delay, rawPost, nativeStart, looping, 0);
             if (delayedDemand && index == demandIndex) ring->header.demand.store (1);
@@ -101,8 +105,46 @@ inline void continuation()
         }
     }
     check (clamps > 100, "fixture really exercises non-block-aligned clamped tails");
-    std::printf ("VST3 native clamp: initial/late LOOP, delayed demand, 3 native starts, %u exact blocks, %u tails PASS\n",
-                 audited, clamps);
+    std::printf ("VST3 native %s: initial/late LOOP, delayed demand, 3 native starts, %u exact blocks, %u tails PASS\n",
+                 clamped ? "clamp" : "tail before the loop start", audited, clamps);
+}
+// The wrap block of the macOS observation, with its own numbers.
+inline void observedTailBeforeStart()
+{
+    constexpr std::int64_t loopStart = 2784000, loopLength = 768000, observedDelay = 4168;
+    const auto observed = [&] (std::int64_t native, std::int64_t continuous, unsigned presentation)
+    {
+        auto block = clock (native, continuous, native, loopStart, true, presentation);
+        block.frames = 2048;
+        block.loop.end = static_cast<double> (loopStart + loopLength) / 24000.0;
+        return block;
+    };
+    LoopAnchor anchor;
+    anchor.loopKnown = true; anchor.loopSamples = loopLength;
+    anchor.clock = anchor.project = loopStart;
+    anchor.loop = { true, true, 116.0, 116.0, 148.0, 120.0 };
+    const auto pre = observed (loopStart, 5856000, static_cast<unsigned> (observedDelay));
+    const auto post = observed (loopStart - observedDelay, 5851832, 0);
+    auto verified = post;
+    check (corroborateLoop (anchor, post, post.clock, rate, verified, &pre)
+        && verified.project == loopStart + loopLength - observedDelay,
+        "the observed wrap, native position at the delayed tail before the loop start, is corroborated");
+    const auto straddling = observed (loopStart - 72, 5855928, 0); // the last tail block reaches the loop start
+    verified = straddling;
+    check (corroborateLoop (anchor, straddling, straddling.clock, rate, verified, &pre)
+        && verified.project == loopStart + loopLength - 72, "the tail block that reaches the loop start is corroborated");
+    for (const auto wrong : { std::int64_t (3), std::int64_t (-3), std::int64_t (2048), observedDelay / 2, -loopLength })
+    {
+        auto b = post; b.project += wrong; verified = b;
+        check (! corroborateLoop (anchor, b, b.clock, rate, verified, &pre),
+               "a native position that is neither the loop start nor the tail PPQ names is refused");
+    }
+    auto beyond = observed (loopStart - observedDelay - 2048, 5851832 - 2048, 0); // a tail longer than the reported delay
+    verified = beyond;
+    check (! corroborateLoop (anchor, beyond, beyond.clock, rate, verified, &pre), "a tail beyond the reported delay is refused");
+    auto otherLap = post; verified = otherLap;
+    check (! corroborateLoop (anchor, otherLap, otherLap.clock + 2048, rate, verified, &pre), "another address is refused");
+    std::puts ("VST3 native tail before the loop start: observed wrap and 8 controls PASS");
 }
 inline void contradictoryProof()
 {
@@ -148,5 +190,5 @@ inline void contradictoryProof()
     }
     std::puts ("VST3 native clamp: 22 contradictory proof controls PASS");
 }
-inline void run() { continuation(); contradictoryProof(); }
+inline void run() { continuation (true); continuation (false); observedTailBeforeStart(); contradictoryProof(); }
 }
