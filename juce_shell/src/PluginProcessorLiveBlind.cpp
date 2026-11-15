@@ -189,6 +189,9 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         if (liveCompare.blindWaiting == MatchFailure::none) liveCompare.blindWaiting = MatchFailure::notProven;
         if (returnBlindToCandidateListen()) return;
         stopLiveCompare();
+        // INV-LC18: a lowered POST (LISTEN's MATCH, or this preparation's) rises to normal as END and RETURN
+        // raise it, while the screen keeps the reason. With the session stopped no other gain writer is open.
+        if (GainUpdate update (liveCompare.gainRevision); update) liveCompare.postTarget.store (1.0f, std::memory_order_release);
         liveCompare.blindStage = BlindStage::failed;
         return;
     }

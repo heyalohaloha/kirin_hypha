@@ -104,4 +104,35 @@ template<class Require> void verifyLiveBlindSettlingDeadline (Require require)
                  && ! post.liveCompareStatus().active && post.liveCompareStatus().postTarget == 1.0f,
              "30 s of playback end a preparation waiting for its applied MATCH, with its reason");
 }
+
+// LISTEN's MATCH lowered POST, then BLIND starts from that LISTEN and its timing is never confirmed. Past
+// the 30 s the preparation ends with its reason and POST rises to its normal level by itself (no END).
+template<class Require> void verifyLiveBlindDeadlineReturnsPost (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair(); auto& post = host.post();
+    require (post.startLiveCompare() == StartResult::started, "LISTEN starts before its MATCH lowers POST");
+    host.render (100, false, false);
+    MatchResult level; level.failure = MatchFailure::none; level.measuredDb = 8.0;
+    level.prePeakDbtp = -1.0; level.postPeakDbtp = -4.0; level.ceilingDbtp = -1.0;
+    require (post.applyLiveCompareMatch (planMatch (level, 0.0), MatchChoice::lowerPost), "the approved MATCH lowers POST");
+    host.render (60, false, false);
+    require (post.liveCompareStatus().postActual < 0.5f, "POST plays lowered in LISTEN");
+    require (post.beginLiveBlind() == StartResult::started, "BLIND starts from the lowered LISTEN");
+    for (auto& clock : host.clocks) clock.available = clock.auxiliaryAvailable = false;
+    host.render (2700, false, false);
+    require (post.liveBlindStatus().stage == BlindStage::preparing && post.liveCompareStatus().postActual < 0.5f,
+             "the lowered level holds while BLIND prepares");
+    host.render (250, false, false);
+    const auto status = post.liveBlindStatus();
+    require (status.stage == BlindStage::failed && status.waiting == MatchFailure::notProven
+                 && ! post.liveCompareStatus().active, "30 s of playback end the preparation with its reason");
+    host.render (60, false, false);
+    const auto after = post.liveCompareStatus();
+    require (after.postTarget == 1.0f && after.postActual == 1.0f && ! after.finishing
+                 && post.liveBlindStatus().stage == BlindStage::failed && post.liveBlindStatus().waiting == MatchFailure::notProven,
+             "POST rises to normal by itself while the reason stays on the screen");
+}
 }
