@@ -45,9 +45,11 @@ pub unsafe extern "C" fn kirin_hypha_keep_roster_attach(
 
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_keep_roster_drop(roster: *mut CandidateKeepRoster) {
-    if !roster.is_null() {
-        drop(unsafe { Box::from_raw(roster) });
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !roster.is_null() {
+            drop(unsafe { Box::from_raw(roster) });
+        }
+    }));
 }
 impl Drop for CandidateTailHold {
     fn drop(&mut self) {
@@ -113,9 +115,11 @@ pub unsafe extern "C" fn kirin_hypha_candidate_tail_attach(
 
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_candidate_tail_end(hold: *mut CandidateTailHold) {
-    if !hold.is_null() {
-        drop(unsafe { Box::from_raw(hold) });
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !hold.is_null() {
+            drop(unsafe { Box::from_raw(hold) });
+        }
+    }));
 }
 
 #[no_mangle]
@@ -162,6 +166,21 @@ pub unsafe extern "C" fn kirin_hypha_keep_all_stage(handle: *mut KirinHyphaEngin
 #[cfg(test)]
 mod roster_tests {
     use super::*;
+
+    #[test]
+    fn release_entries_accept_null_and_drop_one_owned_roster() {
+        let group: SharedKeepRoster = Arc::default();
+        let owned = Box::into_raw(Box::new(CandidateKeepRoster {
+            group: Arc::clone(&group),
+        }));
+        assert_eq!(Arc::strong_count(&group), 2);
+        unsafe {
+            kirin_hypha_keep_roster_drop(owned);
+            kirin_hypha_keep_roster_drop(std::ptr::null_mut());
+            kirin_hypha_candidate_tail_end(std::ptr::null_mut());
+        }
+        assert_eq!(Arc::strong_count(&group), 1);
+    }
 
     #[test]
     fn waiting_roster_survives_engine_replacement_and_null_engine() {
