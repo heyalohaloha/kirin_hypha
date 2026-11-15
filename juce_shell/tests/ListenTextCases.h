@@ -57,6 +57,7 @@ inline std::vector<Notice> notices()
     add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());
     add ("LISTEN is not active");
     add ("MATCH first");
+    add ("All Keep targets changed or unavailable. Try again.");
     // B, C or V in REF holding the output past 3 s (currentListenPresentation).
     for (int slot = 1; slot <= 3; ++slot)
     {
