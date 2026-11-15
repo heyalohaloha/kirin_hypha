@@ -44,6 +44,7 @@ struct LiveBlindStatus
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
     bool contentUnmeasured = false; // INV-LC28: the bounded wait ended unconfirmed; PRE plays at K, told
     bool contentNotRemeasured = false; // INV-LC28: PRE plays at K plus the kept correction, told
+    bool contentUnapplied = false; // INV-LC28: a settled delay BLIND has not moved PRE to yet, told
     std::int64_t contentLagFrames = 0; // INV-LC10 notice: positive when PRE is late
     double contentNoticeMs = 0.0;      // the last notice in this trial, for the RESULT only
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
@@ -79,6 +80,7 @@ struct Status
     bool contentHeld = false; // INV-LC10: a strong estimate the clock cannot act on; PRE still sounds at K
     bool contentUnmeasured = false; // INV-LC28: no position confirmed by the bound; PRE plays at K, told
     bool contentNotRemeasured = false; // INV-LC28: no position confirmed by the bound; the kept correction plays
+    bool contentUnapplied = false; // INV-LC28, BLIND: a settled delay waits for the listener to hear both sources
     std::int64_t contentJumpLagFrames = 0; // the settled offset of that notice; zero without one
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off
     RecoveryReason reason = RecoveryReason::none; // retained first failure, never a current blocker
@@ -209,6 +211,7 @@ struct ProcessorState
     // INV-LC28, message thread, in memory only: the one owner of PRE's alignment state (the kept
     // correction with its K, pair, format, PRE owner and host conditions, and what is told).
     hypha::live_compare::PreAlignState preAlign;
+    hypha::live_compare::BlindHeardBoth blindHeard; // message thread
     std::atomic<std::uint64_t> alignConditions { 0 }; // Audio Thread: the A/B host conditions' fingerprint
     std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
     std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second

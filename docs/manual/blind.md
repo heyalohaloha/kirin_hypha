@@ -59,7 +59,8 @@ PRE plays with it instead and both sources show **Delay not re-measured**. When 
 reaching a correction of up to a second, POST stands in for at most one second in all, whatever the
 reason PRE was not playing; these waits and lines come at the same time whichever source is selected.
 Then PRE plays at its clock position with **Delay unmeasured** until it
-can. A correction the host starts compensating itself is dropped. Source buttons show your selection, while internal played receipts count only the source that
+can. When a delay changes during a trial, both sources show **Delay changed: hear both sources**
+until you have listened to each of them for half a second: PRE takes the new position while the other source plays. A correction the host starts compensating itself is dropped. Source buttons show your selection, while internal played receipts count only the source that
 actually sounded.
 
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.

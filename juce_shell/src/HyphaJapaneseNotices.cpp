@@ -27,6 +27,7 @@ const Entry entries[] = {
     { "Check delay compensation", u8"遅延補正を確認" },
     { "Delay unmeasured", u8"遅延を測れません" },
     { "Delay not re-measured", u8"遅延は前回の測定のまま" },
+    { "Delay changed: hear both sources", u8"遅延が変わりました：両方のSourceを聴いてください" },
     { "Audio estimate: PRE may have been %1 ms off", u8"音の推定：PREが%1 msずれていた可能性" },
     { "Audio estimate: A may have been %1 ms off", u8"音の推定：Aが%1 msずれていた可能性" },
     { "Paired with PRE  %1", u8"PRE  %1 と組みました" },

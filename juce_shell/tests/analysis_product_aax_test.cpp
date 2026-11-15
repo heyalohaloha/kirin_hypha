@@ -1,6 +1,7 @@
 #include "AaxAnalysisProductFixture.h"
 #include "AaxChunkProductTest.h"
 #include "AlignChainProductTest.h"
+#include "AlignBlindAppliedTest.h"
 #include "AlignOutboardProductTest.h"
 
 using namespace aax_analysis_product;
@@ -204,6 +205,7 @@ try
             chainFindsDelayAddedWhilePlaying (layout == "mono" ? 1 : 2);
             shortCorrectionHoldIsBounded (layout == "mono" ? 1 : 2);
             blindHoldTellsBothSourcesAlike (layout == "mono" ? 1 : 2);
+            blindTellsAddedDelayUntilApplied (layout == "mono" ? 1 : 2);
             wideSearchReadsEachChannel (layout == "mono" ? 1 : 2);
             wideSearchWeighsEveryCandidate (layout == "mono" ? 1 : 2);
             wideSearchFollowsHypotheses (layout == "mono" ? 1 : 2);

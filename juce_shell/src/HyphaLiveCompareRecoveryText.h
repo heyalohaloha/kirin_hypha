@@ -123,6 +123,9 @@ inline const char* chainDelayNotice() noexcept { return "Check delay compensatio
 inline const char* unmeasuredNotice() noexcept { return "Delay unmeasured"; }
 // INV-LC28: the bound ended unconfirmed; PRE (A) plays at K plus the correction confirmed before.
 inline const char* notRemeasuredNotice() noexcept { return "Delay not re-measured"; }
+// BLIND, INV-LC28: a delay settled during the trial; PRE's read position follows while the listener
+// is away from PRE, so the same words show for both sources until each has been heard.
+inline const char* unappliedNotice() noexcept { return "Delay changed: hear both sources"; }
 inline Reason contentNoticeReason (std::int64_t lagFrames) noexcept
 { return lagFrames > 0 ? Reason::preLate : Reason::contentChanged; }
 inline const char* positionNotice (bool candidate) noexcept

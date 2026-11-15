@@ -38,6 +38,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     const auto told = liveCompare.preAlign.notice (liveCompare.renderer.alignState().unservedCorrection());
     status.contentUnmeasured = told.unmeasured;
     status.contentNotRemeasured = told.notRemeasured;
+    status.contentUnapplied = told.unapplied;
     if (status.contentHeld)
         status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
     status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);

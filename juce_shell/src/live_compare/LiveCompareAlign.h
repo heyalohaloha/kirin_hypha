@@ -57,7 +57,7 @@ inline bool hostTookOver (AlignValue kept, std::int64_t keptK, std::int64_t k, s
 
 // INV-LC28: what is told once a wait ended without a position. unserved: a short correction's hold
 // ended and PRE (A) plays at K until its run serves it. One rule for LISTEN, BLIND and A/B.
-struct AlignNotice { bool unmeasured = false, notRemeasured = false; };
+struct AlignNotice { bool unmeasured = false, notRemeasured = false, unapplied = false; };
 inline AlignNotice alignNotice (bool unserved, bool unmeasured, bool notRemeasured) noexcept
 { return { unserved || unmeasured, ! unserved && notRemeasured }; }
 

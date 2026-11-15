@@ -176,6 +176,13 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     tick.now = now; tick.readRetryNanos = keptReadNanos;
     if (const auto fallback = liveCompare.preAlign.transition (tick); fallback.request)
         liveCompare.renderer.requestAlign (fallback.value, context, fallback.revision);
+    // BLIND: a correction settled during the trial plays once each source has been heard for half a
+    // second of playback (PRE's read position moves while the listener is away from PRE).
+    if (! liveCompare.preAlign.awaitsListener()) liveCompare.blindHeard.restart();
+    else if (const auto command = liveCompare.blind.command();
+             liveCompare.blindHeard.observe (command.word, liveCompare.blind.valid (command) ? command.stimulus() : 0,
+                 liveCompare.playedFrames.load (std::memory_order_acquire), static_cast<std::uint64_t> (preparedFormat.sampleRate * 0.5)))
+        preAlignEvent (hypha::live_compare::PreAlignEvent::heardBoth);
     // INV-AB6: after an A/B return that ended at its deadline, B may still carry comparison audio.
     // Nothing is learnt from it; PRE plays at K or with a correction kept before, told as above.
     if (!state.active || state.compensationOff || ! liveContentPathProven (state)
@@ -301,6 +308,9 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         // Confirmed: published for the revision it was measured at, and kept (in memory only) with
         // the K it was measured against, never whatever K has become since the checks above.
         auto confirmed = preAlignInput (hypha::live_compare::PreAlignEvent::estimate);
+        confirmed.requested = requested;
+        confirmed.pending = liveCompare.renderer.alignPending();
+        confirmed.spent = liveCompare.renderer.alignState().budgetSpent();
         confirmed.context = estimate.alignContext;
         confirmed.value = value;
         confirmed.measuredRevision = estimate.alignRevision;
@@ -333,6 +343,7 @@ hypha::live_compare::PreAlignInput KirinHyphaProcessorBase::preAlignInput (hypha
     in.revision = liveCompare.renderer.alignRevision();
     in.k = liveCompare.renderer.alignClockK(); in.clock = &liveCompare.renderer.alignState().readiness;
     in.active = true;
+    in.blind = liveCompare.blind.valid (liveCompare.blind.command());
     in.agreement = static_cast<std::int64_t> (std::floor (preparedFormat.sampleRate * hypha::live_compare::offsetAgreementSeconds));
     return in;
 }

@@ -9,7 +9,10 @@ namespace hypha::live_compare
 // belongs to, and what is told. Every change goes through transition(), fed by explicit events; the
 // Audio Thread's part (RendererAlignment) owns the single budget of waiting and publishes it. Nothing
 // here depends on which source is selected or on the address a source applied, so a Blind trial's
-// two anonymous sources share every decision.
+// two anonymous sources share every decision. A settled estimate and the address PRE plays at are
+// two facts: a Blind trial moves PRE's read position only while the listener is away from PRE, so a
+// correction settled during the trial is told as not applied yet, for both sources alike, until
+// each source has been heard (BlindHeardBoth below) or the Audio Thread holds PRE back for it.
 struct PreAlignHost
 {
     bool candidate = false; // A/B, which keeps a correction only for the same candidate and conditions
@@ -29,6 +32,7 @@ enum class PreAlignEvent : std::uint8_t
     measured,       // two agreeing strong windows settled: nothing unmeasured is left to tell
     doubted,        // a strong window found the content away from the settled position: unmeasured until two agree
     estimate,       // a settled correction to publish, measured at `measuredRevision` against `measuredK`
+    heardBoth,      // BLIND: each source was heard since, so PRE's read position has followed the request
     tick            // the periodic service: the budget and the kept correction
 };
 
@@ -41,7 +45,9 @@ struct PreAlignInput
     std::int64_t k = 0;         // ... and its K
     const AlignReadiness* clock = nullptr; // the Audio Thread's watch for the kept amount
     bool active = false;
-    // estimate
+    bool blind = false; // a Blind trial runs: PRE's address follows a new request only away from PRE
+    // estimate: what was requested before it
+    AlignValue requested;
     AlignValue value;
     std::uint64_t measuredRevision = 0;
     std::int64_t measuredK = 0;
@@ -66,12 +72,16 @@ public:
     {
         PreAlignOutput out;
         observeClock (in);
+        if (! in.blind) unapplied.store (false, std::memory_order_release); // LISTEN and A/B fade PRE to it
         switch (in.event)
         {
-            case PreAlignEvent::contextChanged:
+            case PreAlignEvent::contextChanged: unapplied.store (false, std::memory_order_release); tell (false, false); break;
+            case PreAlignEvent::heardBoth: unapplied.store (false, std::memory_order_release); break;
             case PreAlignEvent::clockChanged:
-            case PreAlignEvent::measured: tell (false, false); break;
-            case PreAlignEvent::transport: if (! in.active) tell (false, false); break;
+            case PreAlignEvent::measured: tell (false, false); break; // settled; whether it plays is `unapplied`
+            case PreAlignEvent::transport:
+                if (! in.active) { unapplied.store (false, std::memory_order_release); tell (false, false); }
+                break;
             case PreAlignEvent::doubted: tell (! in.host.candidate, false); break; // A/B says its A is unconfirmed
             case PreAlignEvent::estimate:
                 // An estimate measured against an older mapping proves nothing about this one. The
@@ -121,6 +131,14 @@ public:
                 break;
             }
         }
+        // BLIND: while the one budget still holds PRE back for this check, both sources are POST and
+        // the Audio Thread takes the new address at once. Any later change of the request waits for the
+        // listener to leave PRE, which only the hidden assignment knows: told for both sources.
+        if (in.event == PreAlignEvent::estimate && out.request && in.blind)
+        {
+            if (in.pending && ! in.spent) unapplied.store (false, std::memory_order_release);
+            else if (out.value != in.requested) unapplied.store (true, std::memory_order_release);
+        }
         watch (in);
         return out;
     }
@@ -131,7 +149,12 @@ public:
             && kept.host.peer == peer) kept.context.format = formatBefore + 1;
     }
     AlignNotice notice (bool unserved) const noexcept
-    { return alignNotice (unserved, unmeasured.load (std::memory_order_acquire), notRemeasured.load (std::memory_order_acquire)); }
+    {
+        auto told = alignNotice (unserved, unmeasured.load (std::memory_order_acquire), notRemeasured.load (std::memory_order_acquire));
+        told.unapplied = ! told.unmeasured && unapplied.load (std::memory_order_acquire);
+        return told;
+    }
+    bool awaitsListener() const noexcept { return unapplied.load (std::memory_order_acquire); }
     // For tests and diagnostics: the kept correction and the K it is bound to.
     AlignValue keptValue() const noexcept { return kept.value; }
     std::int64_t keptK() const noexcept { return kept.k; }
@@ -164,5 +187,23 @@ private:
     std::uint64_t missSince = 0; // the first read of the kept position that missed
     bool awaited = false; // the kept correction is requested and waits for PRE's new run to reach it
     std::atomic<bool> unmeasured { false }, notRemeasured { false };
+    std::atomic<bool> unapplied { false }; // BLIND: a settled request PRE's address may not have followed yet
+};
+
+// BLIND: which source is PRE stays hidden, so a new address counts as applied once each of the two
+// sources has been selected, without another press, through `needed` frames of playback: one of
+// them is not PRE, and PRE's read position moved while it played (the fade is 5 ms).
+struct BlindHeardBoth
+{
+    void restart() noexcept { heard[0] = heard[1] = 0; counting = false; }
+    bool observe (std::uint64_t command, int selected, std::uint64_t played, std::uint64_t needed) noexcept
+    {
+        if (counting && command == word && played >= last && (selected == 1 || selected == 2)) heard[selected - 1] += played - last;
+        word = command; last = played; counting = true;
+        return heard[0] >= needed && heard[1] >= needed;
+    }
+private:
+    std::uint64_t word = 0, last = 0, heard[2] { 0, 0 };
+    bool counting = false; // the first observation after a restart only sets the start
 };
 }
