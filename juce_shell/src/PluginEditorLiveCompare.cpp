@@ -58,10 +58,11 @@ juce::String matchFailure (MatchFailure failure)
     switch (failure)
     {
         case MatchFailure::none:            return {};
-        case MatchFailure::notProven:
+        // These only end a MATCH at its deadline (it measures again until then); LISTEN goes on.
+        case MatchFailure::notProven:       return "No MATCH: timing not confirmed";
         case MatchFailure::tooShort:
         case MatchFailure::overwritten:
-        case MatchFailure::notEnoughSignal: return {};
+        case MatchFailure::notEnoughSignal: return "No MATCH: not enough signal";
         case MatchFailure::outOfRange:      return "MATCH over 24 dB";
         case MatchFailure::stale:
         case MatchFailure::invalidPlan:     return "MATCH failed; try again";

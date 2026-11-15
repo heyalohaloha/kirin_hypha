@@ -133,6 +133,8 @@ const Entry entries[] = {
     { "MATCH waits for PRE", u8"MATCHはPRE待ちです" },
     { "MATCH failed; try again", u8"MATCHをやり直してください" },
     { "MATCH over 24 dB", u8"MATCHの差が24 dBを超えています" },
+    { "No MATCH: timing not confirmed", u8"位置を確かめられず、MATCHしていません" },
+    { "No MATCH: not enough signal", u8"信号が足りず、MATCHしていません" },
     { "MATCH: POST %1", u8"MATCH：POST %1" },
     { "MATCH off: original levels", u8"MATCHを外しました（元の音量）" },
     { "MATCH on", u8"MATCHに戻しました" },
