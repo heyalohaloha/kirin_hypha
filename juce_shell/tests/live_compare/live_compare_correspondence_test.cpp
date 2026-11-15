@@ -264,6 +264,7 @@ int main()
     liveCompareAlignContract();
     keptCorrectionWaitsForPresNewRun();
     takeoverIsKnownByItsOwnStepOfK();
+    spentBudgetNeverWaitsAgainInTheRenderer();
     alignTransportStorm();
     std::printf ("live compare correspondence: all checks passed\n");
     return 0;

@@ -86,7 +86,7 @@ struct World
         PreAlignInput in;
         in.event = event; in.context = context; in.host = host; in.active = true; in.agreement = agreement;
         in.revision = l.alignment.readiness.generation(); in.k = l.alignment.readiness.clockK();
-        in.steps = &l.alignment.readiness.clockSteps();
+        in.clock = &l.alignment.readiness;
         return in;
     }
 

@@ -155,40 +155,6 @@ inline bool matchingScaledBlock (float* const* post, float* const* pre, int chan
     return error <= postEnergy * precision * precision;
 }
 
-// INV-LC28: every step of K the Audio Thread saw from one proven mapping to the next, for the owner
-// of PRE's alignment state. A service slower than the changes still tells the one step by which a
-// host took a kept delay over from any other change of K. One Audio Thread writer, one non-RT
-// reader; nothing waits. Steps the log no longer holds are not judged.
-class ClockSteps
-{
-public:
-    static constexpr std::uint64_t capacity = 64;
-    void push (std::int64_t step) noexcept
-    {
-        const auto next = total.load (std::memory_order_relaxed);
-        steps[next % capacity].store (step, std::memory_order_relaxed);
-        total.store (next + 1, std::memory_order_release);
-    }
-    // Whether a step after `seen` moved K by `frames` within `agreement`; `seen` moves on to now.
-    bool moved (std::uint64_t& seen, std::int64_t frames, std::int64_t agreement) const noexcept
-    {
-        const auto end = total.load (std::memory_order_acquire);
-        bool found = false;
-        for (auto index = end - seen > capacity ? end - capacity : seen; index != end; ++index)
-        {
-            const auto step = steps[index % capacity].load (std::memory_order_relaxed);
-            std::int64_t rest = 0;
-            if (total.load (std::memory_order_acquire) - index > capacity) continue; // overwritten meanwhile
-            found = found || (frames > 0 && checkedClockSubtract (step, frames, rest) && rest >= -agreement && rest <= agreement);
-        }
-        seen = end;
-        return found;
-    }
-private:
-    std::atomic<std::int64_t> steps[capacity] {};
-    std::atomic<std::uint64_t> total { 0 };
-};
-
 // A separate audition check, never a clock proof. Changed clock mapping requests fresh
 // content evidence before the retained correction can sound; the value itself is kept.
 class AlignReadiness
@@ -208,16 +174,25 @@ public:
         wasEnabled = enabled;
         if (validK)
         {
+            const bool stepped = haveK && k != previousK;
             if (! haveK || k != previousK)
                 revision.fetch_add (1);
-            std::int64_t step = 0;
-            if (everK && k != previousK && checkedClockSubtract (k, previousK, step)) steps.push (step);
+            // After the revision: the owner reads the revision again once it has handed an amount down.
+            if (const auto amount = keptFrames.load(); stepped && hostTookOver ({ amount }, previousK, k, keptAgreement.load()))
+                takenFrames.store (amount);
             previousK = k;
-            haveK = everK = true;
+            haveK = true;
         }
     }
     std::int64_t clockK() const noexcept { return observedK.load(); }
-    const ClockSteps& clockSteps() const noexcept { return steps; }
+    // INV-LC28, the owner of PRE's alignment state (non-RT): the kept amount to watch for from now on
+    // (0: none). The Audio Thread compares each step of K between two proven mappings of one session
+    // with it, there and then, so a service slower than the changes still learns that the host took
+    // that delay over, whatever K did afterwards. Nothing is logged and nothing waits.
+    void watchKept (std::int64_t frames, std::int64_t agreement) const noexcept
+    { keptAgreement.store (agreement); keptFrames.store (frames); takenFrames.store (0); }
+    // The watched amount K stepped by since the last call; 0 when it did not.
+    std::int64_t takenOver() const noexcept { return takenFrames.exchange (0); }
     std::uint64_t generation() const noexcept { return revision.load(); }
     bool pending() const noexcept { return confirmed.load() != revision.load(); }
     void recheck() noexcept { if (! pending()) revision.fetch_add (1); }
@@ -227,8 +202,8 @@ public:
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
-    bool started = false, haveK = false, everK = false, wasEnabled = true; // Audio Thread only
-    ClockSteps steps;
+    mutable std::atomic<std::int64_t> keptFrames { 0 }, keptAgreement { 0 }, takenFrames { 0 };
+    bool started = false, haveK = false, wasEnabled = true; // Audio Thread only
     std::int64_t previousK = 0;
 };
 

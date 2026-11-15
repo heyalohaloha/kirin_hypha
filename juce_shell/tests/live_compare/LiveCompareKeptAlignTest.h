@@ -1,5 +1,6 @@
 #pragma once
 #include "../../src/live_compare/LiveComparePreAlign.h"
+#include "AaxChunkChain.h"
 
 // INV-LC28: a correction confirmed before stays for the next LISTEN, BLIND or A/B although PRE's new
 // run does not serve it yet when the wait ends. PRE plays at K, told as unmeasured, until the run
@@ -37,7 +38,7 @@ struct Session
         PreAlignInput in;
         in.event = event; in.context = context; in.host = host; in.active = true; in.agreement = 2;
         in.revision = l.alignment.readiness.generation(); in.k = l.alignment.readiness.clockK();
-        in.steps = &l.alignment.readiness.clockSteps();
+        in.clock = &l.alignment.readiness;
         return in;
     }
     void send (Listener& l, const PreAlignInput& in) noexcept
@@ -159,14 +160,15 @@ static void keptCorrectionWaitsForPresNewRun()
         }
 }
 
-// INV-LC28: a host that takes the kept delay over is known by that one step of K, also when K
-// changes again (a buffer size, a re-calibrated origin) before the service has seen either step.
+// INV-LC28: a host that takes the kept delay over is known by that one step of K, whatever K does
+// after it (a buffer size, a re-calibrated origin) before the service has seen either step. The
+// Audio Thread compares each step with the kept amount; nothing else can tell the two apart later.
 static void takeoverIsKnownByItsOwnStepOfK()
 {
     using namespace live_compare_kept_test;
     constexpr std::int64_t correction = 96000;
     for (const bool blind : { false, true })
-        for (const std::int64_t first : { correction, std::int64_t (512) })
+        for (const int scenario : { 0, 1, 2 }) // the takeover and another change; two other changes; a stale estimate
         {
             Session s; s.blind = blind;
             auto& x = s.listeners[0]; auto& y = s.listeners[1];
@@ -174,15 +176,49 @@ static void takeoverIsKnownByItsOwnStepOfK()
             s.measure (correction);
             s.play (500);
             require (x.owner.keptValue().frames == correction && y.owner.keptValue().frames == correction, "the fixture keeps a correction");
+            // An estimate of the same amount whose snapshot of the mapping is taken before K moves.
+            PreAlignInput stale[2];
+            for (int i = 0; i < 2; ++i)
+            {
+                stale[i] = s.input (s.listeners[i], PreAlignEvent::estimate);
+                stale[i].value = { correction }; stale[i].measuredRevision = stale[i].revision; stale[i].measuredK = stale[i].k;
+            }
             s.serviced = false; // both changes happen between two services
-            s.k += first; s.play (1);
+            s.k += scenario == 1 ? 512 : correction; s.play (1);
+            if (scenario == 2) for (int i = 0; i < 2; ++i) s.send (s.listeners[i], stale[i]);
             s.k += 256; s.play (1);
             s.serviced = true; s.play (400);
-            const auto kept = first == correction ? 0 : correction;
+            const auto kept = scenario == 1 ? correction : 0;
             require (x.owner.keptValue().frames == kept && y.owner.keptValue().frames == kept,
-                     first == correction ? "K moved by the kept amount and then again: the host took the delay over, the correction is dropped"
-                                         : "two other changes of K keep the correction");
-            if (first == correction)
+                     scenario == 0 ? "K moved by the kept amount and then again: the host took the delay over, the correction is dropped"
+                     : scenario == 1 ? "two other changes of K keep the correction"
+                                     : "an estimate from before the takeover never puts the correction back");
+            if (scenario != 1)
                 require (x.address() == 0 && y.address() == 0, "PRE never plays the kept amount late after the host took it over");
         }
+}
+
+// INV-LC28 through the renderer itself: once the one budget is spent and answered, a new clock
+// mapping waits for no content check. PRE goes on at K from the first proven block.
+static void spentBudgetNeverWaitsAgainInTheRenderer()
+{
+    using namespace aax_chunk_test;
+    Options options; options.k = -512; options.candidate = true; // alignment is verified
+    Chain chain (options);
+    chain.run (30);
+    const auto& alignment = chain.postRenderer().alignState();
+    for (int i = 0; i < 600 && ! alignment.budgetSpent(); ++i) { alignment.arm(); chain.chunk(); }
+    require (alignment.budgetSpent() && chain.report.alignWaiting, "the fixture spends the budget waiting for a content check");
+    chain.relocate (48000);
+    chain.run (4);
+    chain.confirmAlign ({ 96000 }); // the service's answer: a kept correction PRE's new run does not serve yet
+    chain.run (12);
+    require (chain.report.preAudible && ! chain.report.alignWaiting && alignment.budgetSpent()
+             && chain.postRenderer().alignFrames (alignOwner ({}, chain.sharedRing())) == 0, "PRE plays at K while the kept correction waits for its run");
+    chain.setK (options.k + 1024);
+    int waited = 0;
+    for (int i = 0; i < 30; ++i)
+        chain.chunk ([&] (int callback, BlockClock&) { if (callback > 0 && chain.report.alignWaiting) ++waited; });
+    require (chain.decision.kValid && chain.decision.k == options.k + 1024, "the fixture proves the new clock mapping");
+    require (waited == 0 && chain.report.preAudible, "a spent budget never puts POST in PRE's place for a new content check");
 }
