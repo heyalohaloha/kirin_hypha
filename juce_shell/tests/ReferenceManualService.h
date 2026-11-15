@@ -8,17 +8,15 @@ namespace hypha::tests::reference_control
 {
 struct PreparationClockTag {};
 void elapsePreparationClocks (Runtime&, PreparationClockTag);
-template <auto Hold, auto Failure> struct PreparationClockAccess
+template <auto Failure> struct PreparationClockAccess
 {
     friend void elapsePreparationClocks (Runtime& r, PreparationClockTag)
     {
-        auto& hold = r.*Hold;
-        if (hold.load() != 0) hold.store (juce::Time::getMillisecondCounter() - 21000u);
         auto& failure = r.*Failure;
         if (failure != 0) failure = juce::Time::currentTimeMillis() - 4000;
     }
 };
-template struct PreparationClockAccess<&Runtime::versionHoldSinceMs, &Runtime::pendingSourceFailureSinceMs>;
+template struct PreparationClockAccess<&Runtime::pendingSourceFailureSinceMs>;
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
 inline void probeSourceNow (const reference_audition::RuntimeSource& source, std::int64_t missingMs = 0)
 {

@@ -8,11 +8,6 @@
 
 namespace hypha::tests::reference_control
 {
-struct StagedLimitTag {};
-std::uint32_t& stagedLimitFor (Runtime&, StagedLimitTag);
-template <auto Member> struct StagedLimitAccess
-{ friend std::uint32_t& stagedLimitFor (Runtime& r, StagedLimitTag) { return r.*Member; } };
-template struct StagedLimitAccess<&Runtime::stagedVersionLimitMs>;
 struct PositionSearchFacts { bool searching = false, window = false, staged = false; };
 struct PositionSearchTag {};
 PositionSearchFacts positionSearchFor (Runtime&, PositionSearchTag);
@@ -374,13 +369,12 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     require (c.selectVersion (ids[0]), "choose right after a seek");
     require (switchTo (ids[0]) <= 8 && cursor - 24000 >= 3 * 48000, "the old Version sounds until the new window is ready");
     require (c.selectVersion (ids[1]) && switchTo (ids[1]) <= 8, "the next choice swaps at once");
-    // 位置が確かめられないまま上限を過ぎたら、今までどおり A で待って鳴らす（ここでは上限 0 で A の待ちへ進める）。
-    auto& limit = control::stagedLimitFor (control::roleFor (c, {1}), {});
-    const auto ordinary = limit;
-    limit = 0;
-    require (c.selectVersion (ids[0]), "choose with no time to keep V");
-    require (switchTo (ids[0]) >= 0, "the A wait still brings the new Version");
-    limit = ordinary;
+    // 位置を確かめられないまま長く過ぎても、前の Version を鳴らし続けて探す（A へ戻さない。押し直しも要らない）。
+    cursor = 24000;
+    require (c.selectVersion (ids[0]), "choose right after another seek");
+    for (int n = 0; n < 4; ++n) require (feed (true), "the old Version sounds while A's window fills");
+    control::elapsePreparationClocks (control::roleFor (c, {1}), {});
+    require (switchTo (ids[0]) <= 8, "past any alignment time the old Version sounds until the new one is positioned");
     // 本番と同じく別の thread で探す。探している途中で選び直しても、取り消した探索を待たずに最後の選択へ進む。
     launch = std::launch::async;
     const auto periodic = [&] { return control::positionSearchFor (control::roleFor (c, {1}), {}); };

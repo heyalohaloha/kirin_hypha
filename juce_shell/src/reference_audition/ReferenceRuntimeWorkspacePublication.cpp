@@ -126,7 +126,6 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared,
         const juce::ScopedLock lock (stateLock);
         if (requestedConfiguration.generation != configuration.generation
             || requestedSelection.generation != selection.generation) return;
-        versionHoldSinceMs.store (0, std::memory_order_release);
         requestedSelection.presetId = next.presetId;
         requestedSelection.checkId = next.checkId;
         requestedSelection.candidateId = next.candidateId;

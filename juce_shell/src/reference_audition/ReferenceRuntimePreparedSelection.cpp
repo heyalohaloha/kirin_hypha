@@ -131,7 +131,6 @@ std::future<RuntimeContentAlignment> RuntimeV2Controller::searchAlignment (
 
 void RuntimeV2Controller::clearPreparedWorkspace()
 {
-    versionHoldSinceMs.store (0, std::memory_order_release);
     if (preparedWorkspace) retireVersionSearch (preparedWorkspace->versionPosition.search);
     preparedWorkspace.reset();
     const juce::ScopedLock lock (stateLock);
@@ -165,20 +164,6 @@ void RuntimeV2Controller::supplyPreparedLevel (double loudness, double peak)
     }
 }
 
-// この期限は位置合わせだけに使う。音源の読取り・検証と再試行の時間は含めない。
-void RuntimeV2Controller::serviceVersionHold()
-{
-    const juce::ScopedLock lock (stateLock);
-    const auto since = versionHoldSinceMs.load (std::memory_order_acquire);
-    if (since == 0)
-    { versionHoldSinceMs.store (juce::jmax (1u, juce::Time::getMillisecondCounter()), std::memory_order_release); return; }
-    if (bSelected.load (std::memory_order_acquire) && juce::Time::getMillisecondCounter() - since < stagedVersionLimitMs) return;
-    versionHoldSinceMs.store (0, std::memory_order_release);
-    if (!bSelected.load (std::memory_order_acquire)) return;
-    revokeAfterFadeLocked();
-    selectA();
-}
-
 bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configuration)
 {
     if (!preparedWorkspace) return false;
@@ -208,8 +193,7 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
     if (sourceFailure.isNotEmpty())
         sourceFailure = sourceFailureCode (revision_detail::service().watch (*prepared.source)->unavailable.load (std::memory_order_acquire));
     holdSelectionForSourceRetry (sourceFailure, sourceFailure.isNotEmpty());
-    if (sourceFailure.isNotEmpty())
-    { versionHoldSinceMs.store (0, std::memory_order_release); return true; }
+    if (sourceFailure.isNotEmpty()) return true;
     auto& staging = nextPages();
     const auto start = outputSample (prepared.cue.startSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);
     const auto end = outputSample (prepared.cue.endSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);
@@ -248,7 +232,8 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
 }
 
 // V は鳴っている Version を保ったまま、新しい Version の位置を A の直近で確かめ、その位置の音を読み終えてから替える。
-// 止まった・A に戻ったなら保つ音が無いので待たない。
+// 見つからない・合わない・範囲の外のあいだも時間で諦めず、前の Version を鳴らしたまま次の A の窓で探し直す
+// （A へ戻さない。押し直しも要らない。2026-11-11）。止まった・A に戻ったなら保つ音が無いので待たない。
 bool RuntimeV2Controller::stagedVersionReady (WorkspaceSelection& prepared, AudioPages& staging)
 {
     auto& staged = prepared.versionPosition;
@@ -265,17 +250,14 @@ bool RuntimeV2Controller::stagedVersionReady (WorkspaceSelection& prepared, Audi
         if (found.established) staged.match = std::make_shared<RuntimeContentAlignment> (std::move (found));
         else if (found.reason == "reference_alignment_busy" || found.reason == "reference_alignment_source_unavailable")
         {
-            // No content comparison completed. Retry the same capture without
-            // charging a miss or letting storage time expire the audible V.
-            staged.capture.reset(); versionHoldSinceMs.store (0, std::memory_order_release);
+            // No content comparison completed. Retry the same capture.
+            staged.capture.reset();
             return false;
         }
-        else if (++staged.misses >= 2) return true;  // この Version は A の今の所と合わない。A の待ちが理由を言う
+        // A miss keeps the audible V; the next A window searches again.
     }
     if (staged.match == nullptr)
     {
-        serviceVersionHold();
-        if (!bSelected.load (std::memory_order_acquire)) return true;
         const auto capture = aCapture.currentAudio();
         if (capture == nullptr || capture->continuity != continuity || capture == staged.capture) return false;
         staged.capture = capture;
@@ -287,7 +269,7 @@ bool RuntimeV2Controller::stagedVersionReady (WorkspaceSelection& prepared, Audi
     const auto position = outputSample (staged.match->sourceStartSample, prepared.source->audio.sampleRateHz, hostRate)
         + latestHostPosition.load (std::memory_order_acquire) - staged.capture->startSample;
     const auto remaining = staging.lengthInSamples() - position;
-    if (position < 0 || remaining <= 0) return true;  // 範囲の外。A の待ちが理由を言う
+    if (position < 0 || remaining <= 0) { staged.match.reset(); return false; }  // 範囲の外：前の V のまま探し直す
     staging.request (position); staging.service();
     return staging.readyAt (position, static_cast<int> (std::min<std::int64_t> (hostRate / 2, remaining)));
 }
