@@ -52,6 +52,7 @@ public:
     blind_image::Sheet& imageSheet() noexcept { return *sheet; }
     // Writes the sheet's image to `file`; a failure stays on the sheet with its reason.
     bool saveImageTo (const juce::File& file);
+    juce::File imageSaveInitialDirectory() const;
     void closeImageSheet();
     void resized() override;
 
@@ -67,6 +68,7 @@ private:
     std::uint64_t answerGeneration = 0;
     std::uint32_t answerEpoch = 0;
     juce::File preferences;
+    juce::File lastImageFolder;
     std::unique_ptr<blind_image::Sheet> sheet;
     std::unique_ptr<juce::FileChooser> chooser;
 };

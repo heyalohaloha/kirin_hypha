@@ -236,7 +236,7 @@ void Component::chooseImageFile()
 {
     const auto name = "Hypha-BLIND-RESULT-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".png";
     chooser = std::make_unique<juce::FileChooser> (i18n::tr ("Save the BLIND RESULT image"),
-        juce::File::getSpecialLocation (juce::File::userPicturesDirectory).getChildFile (name), "*.png", true);
+        imageSaveInitialDirectory().getChildFile (name), "*.png", true);
     juce::Component::SafePointer<Component> safeThis (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                              #if ! JUCE_WINDOWS
@@ -264,6 +264,23 @@ void Component::chooseImageFile()
     });
 }
 
+juce::File Component::imageSaveInitialDirectory() const
+{
+    if (lastImageFolder.isDirectory()) return lastImageFolder;
+    const auto stored = ui_preferences::read (preferences, "blind-image-folder");
+    juce::MemoryOutputStream decoded;
+    if (stored.isNotEmpty() && juce::Base64::convertFromBase64 (decoded, stored))
+    {
+        const auto path = decoded.toUTF8();
+        if (juce::File::isAbsolutePath (path))
+        {
+            const juce::File folder (path);
+            if (folder.isDirectory()) return folder;
+        }
+    }
+    return juce::File::getSpecialLocation (juce::File::userPicturesDirectory);
+}
+
 bool Component::saveImageTo (const juce::File& file)
 {
     // Made on the message thread from the frozen RESULT; the audio is never touched.
@@ -276,6 +293,8 @@ bool Component::saveImageTo (const juce::File& file)
             : "The file could not be written; check free space");
         return false;
     }
+    lastImageFolder = file.getParentDirectory();
+    ui_preferences::write (preferences, "blind-image-folder", juce::Base64::toBase64 (lastImageFolder.getFullPathName()));
     closeImageSheet();
     setActionNotice (namesRemembered ? "Image saved" : "Image saved; names could not be remembered");
     return true;

@@ -260,6 +260,7 @@ void verifyBlindGuessAndImage (Require check)
         require (unable.saveImageTo (root.getChildFile ("saved.png"))
             && unable.actionNoticeShown() == "Image saved; names could not be remembered",
             "the image still saves when names cannot be remembered");
+        require (unable.imageSaveInitialDirectory() == root, "the current editor remembers the folder even without preferences");
     }
     {
         auto state = trial (true, true, false);
@@ -282,6 +283,7 @@ void verifyBlindGuessAndImage (Require check)
         require (folder.createDirectory().wasOk(), "image folder");
         require (! view.saveImageTo (folder) && view.imageSheet().reasonShown() == "The file could not be replaced; choose another name",
                  "a failed save says why");
+        require (ui_preferences::read (preferenceFixture, "blind-image-folder").isEmpty(), "a failed save does not remember a folder");
         for (auto language : { i18n::Language::english, i18n::Language::japanese })
         {
             const i18n::ScopedLanguage shown (language);
@@ -302,8 +304,26 @@ void verifyBlindGuessAndImage (Require check)
        #endif
         const auto target = folder.getChildFile ("result.png");
         require (view.saveImageTo (target) && ! view.imageSheetOpen() && view.actionNoticeShown() == "Image saved", "saved");
+        require (ui_preferences::read (preferenceFixture, "blind-image-folder")
+                     == juce::Base64::toBase64 (folder.getFullPathName()),
+                 "a successful image save remembers its parent folder");
+        require (view.imageSaveInitialDirectory() == folder, "the next chooser starts in the saved folder");
+        live_blind_ui::Component reopened;
+        reopened.setPreferenceFile (preferenceFixture);
+        require (reopened.imageSaveInitialDirectory() == folder, "a new editor remembers the saved folder");
         const auto saved = juce::ImageFileFormat::loadFrom (target);
         require (saved.getWidth() == blind_image::pixelSize && saved.getHeight() == blind_image::pixelSize, "a 1080 square PNG");
+        require (folder.deleteRecursively(), "remove the saved folder fixture");
+        require (view.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory)
+                 && reopened.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory),
+                 "a missing saved folder falls back to Pictures");
+        const auto invalidPreferences = root.getChildFile ("invalid-folder-preferences");
+        require (ui_preferences::write (invalidPreferences, "blind-image-folder", juce::Base64::toBase64 (juce::String ("relative"))),
+                 "invalid folder preference fixture");
+        live_blind_ui::Component invalid;
+        invalid.setPreferenceFile (invalidPreferences);
+        require (invalid.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory),
+                 "a relative saved path falls back to Pictures");
     }
 
     // The image: only the RESULT's facts and the typed names, in the screen's language, ending with
