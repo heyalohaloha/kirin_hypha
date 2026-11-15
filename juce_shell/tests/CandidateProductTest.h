@@ -152,11 +152,12 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
                      "END keeps the next confirmed entry pending while measurement is isolated");
             require ((post.referenceOwnOutputStates() & output_owner::bit (output_owner::State::localBlind)) != 0,
                      "the ended candidate BLIND still owns its capture scope during return");
-            wall.advance (std::chrono::seconds (12));
-            expireCandidateEntryDeadline (editor); // deterministic editor timeout, with the host stopped
-            candidateTick (editor);
-            require (!post.candidateCompareActive(), "no audio callback fabricates a completed return");
-            require (candidateEntryPending (editor), "a stopped host preserves the next confirmed entry past its deadline");
+            wall.advance (std::chrono::seconds (9)); candidateTick (editor);
+            require (post.candidateReturning() && !post.candidateCompareActive() && candidateEntryPending (editor),
+                     "a stopped host keeps the return and the next confirmed entry within the overall deadline");
+            wall.advance (std::chrono::seconds (2)); candidateTick (editor);
+            require (!post.candidateReturning() && (post.candidateCompareActive() || candidateEntryPending (editor)),
+                     "past the overall deadline the stopped return ends and the confirmed entry goes on by itself");
             for (auto& clock : host.clocks) clock.playing = true;
             for (int tick = 0; tick < 850 && !post.candidateCompareActive(); ++tick)
             {
