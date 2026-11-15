@@ -53,14 +53,26 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear();
         return StartResult::notReady;
     }
+    const bool hadTail = state.tail.load (std::memory_order_acquire) != 0;
+    if (hadTail) state.returnContext.fetch_add (1, std::memory_order_acq_rel);
     state.returnObserver.retire();
     if (!state.returnObserver.collect() || !state.returnObserver.publish (std::move (observer)))
     {
         releaseLocalBlindProductScope (scope);
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::notReady;
     }
+    bool heldTail = false;
+    {
+        const juce::ScopedLock handleGuard (handleLock);
+        heldTail = state.tailHold.begin (hyphaHandle);
+    }
+    if (!heldTail)
+    {
+        state.returnObserver.retire(); state.returnObserver.collect();
+        releaseLocalBlindProductScope (scope);
+        stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::comparisonBusy;
+    }
     state.scope = scope; // existing project exclusion, reused by BLIND without declaring a trial
-    state.tail.store (0, std::memory_order_release); state.tailPre.clear(); // this A/B's own return covers it
     state.isolated.store (true, std::memory_order_release);
     state.returning.store (false, std::memory_order_release);
     state.quietFrames.store (0, std::memory_order_release);
@@ -69,11 +81,13 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
             original.ring()->header.timing.ownerB.load(), callbackWallNanos()))
     {
         state.scope = 0; state.token.store (0); state.isolated.store (false);
+        if (!hadTail) state.tailHold.clear();
         state.returnObserver.retire(); state.returnObserver.collect();
         releaseLocalBlindProductScope (scope);
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear();
         return StartResult::comparisonBusy;
     }
+    state.tail.store (0, std::memory_order_release); state.tailPre.clear(); // this A/B's own return covers it
     if (liveCompare.authority.ticket() != permission || ! liveCompare.authority.permitted())
     { stopLiveCompare(); return StartResult::notReady; }
     const auto track = state.trackHash.load (std::memory_order_acquire);
@@ -139,6 +153,7 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
                 && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0);
             if (proven || state.tailPre != pairedPreInstanceId().toStdString())
             {
+                state.tailHold.clear();
                 state.tail.store (0, std::memory_order_release); state.tailPre.clear();
                 state.returnObserver.retire(); state.returnObserver.collect();
                 state.returnContext.fetch_add (1, std::memory_order_acq_rel);
@@ -199,11 +214,16 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0));
         if (state.returning.load() && (proven || expired))
         {
+            if (!proven)
+            {
+                const juce::ScopedLock handleGuard (handleLock);
+                if (! state.tailHold.begin (hyphaHandle)) return;
+            }
             if (state.scope != 0 && ! releaseLocalBlindProductScope (state.scope)) return;
             if (liveCompare.blindScope == state.scope) liveCompare.blindScope = 0;
             state.scope = 0;
             // Ended by the deadline alone: the tail stays out of PRE's alignment until it is proven.
-            if (proven) { state.returnObserver.retire(); state.returnObserver.collect(); }
+            if (proven) { state.tailHold.clear(); state.returnObserver.retire(); state.returnObserver.collect(); }
             else { state.tailPre = state.originalPre; state.tail.store (state.token.load(), std::memory_order_release); }
             state.returnContext.fetch_add (1, std::memory_order_acq_rel); // no count carries into a later return
             state.returnSince.store (0, std::memory_order_release);

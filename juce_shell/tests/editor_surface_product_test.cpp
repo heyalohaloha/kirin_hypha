@@ -472,7 +472,7 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI init;
     // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
     hypha::i18n::holdLanguage (true);
-    if (argc > 1 && juce::String (argv[1]) == "--header-reference-only") { hypha::tests::editor_product::verifyHeaderReferenceExitProduct (sandbox.directory()); return EXIT_SUCCESS; }
+    if (argc > 1 && juce::String (argv[1]) == "--keep-tail-timeout-only") { hypha::tests::editor_product::verifyWaitingRequests(); return EXIT_SUCCESS; } if (argc > 1 && juce::String (argv[1]) == "--header-reference-only") { hypha::tests::editor_product::verifyHeaderReferenceExitProduct (sandbox.directory()); return EXIT_SUCCESS; }
     if (argc > 1 && juce::String (argv[1]) == "--shell-repairs-only")
     {
         verifyEditorShellRepairs();

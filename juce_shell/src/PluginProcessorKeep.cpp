@@ -20,7 +20,7 @@ bool KirinHyphaProcessorBase::keepPair (std::optional<std::uint64_t> ticket)
     return kirin_hypha_keep (hyphaHandle);
 }
 
-bool KirinHyphaProcessorBase::keepAll (std::optional<std::uint64_t> ticket)
+bool KirinHyphaProcessorBase::keepAll (std::optional<std::uint64_t> ticket, bool resume)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     if (ticket && *ticket != restoreOrPairTicket()) return false;
@@ -30,5 +30,11 @@ bool KirinHyphaProcessorBase::keepAll (std::optional<std::uint64_t> ticket)
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
-    return kirin_hypha_keep_all (hyphaHandle);
+    return resume ? kirin_hypha_keep_all_resume (hyphaHandle) : kirin_hypha_keep_all (hyphaHandle);
+}
+
+bool KirinHyphaProcessorBase::allKeepTailPending() const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle == nullptr || kirin_hypha_all_keep_tail_pending (hyphaHandle);
 }

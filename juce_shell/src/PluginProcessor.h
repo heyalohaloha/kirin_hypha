@@ -308,7 +308,8 @@ public:
         juce::String pairedPreInstanceId;
         bool hasPairedPreInstanceId = false;
     };
-    bool keepAll (std::optional<std::uint64_t> ticket = {}); // FFI kirin_hypha_keep_all; a stale ticket starts nothing
+    bool keepAll (std::optional<std::uint64_t> ticket = {}, bool resume = false); // a stale ticket starts nothing
+    bool allKeepTailPending() const;
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
     hypha::pair_preview::Ticket createPairPreview() const;
     bool pairPreviewMatches (const KirinPairPreview*) const;

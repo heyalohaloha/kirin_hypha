@@ -116,9 +116,13 @@ impl KirinHyphaEngine {
             let keep_phase_generation_started_at_ms =
                 Arc::clone(&self.keep_phase_generation_started_at_ms);
             let keep_record_generation = Arc::clone(&self.keep_record_generation);
+            let tail_pending = Arc::clone(&self.audition.tail_pending);
             Arc::new(
                 move |_originator: &str, _started_at: &str, generation: &CaptureGeneration| {
                     if !record_workflow_supported {
+                        return false;
+                    }
+                    if tail_pending.load(Ordering::Acquire) {
                         return false;
                     }
                     let control = keep_control

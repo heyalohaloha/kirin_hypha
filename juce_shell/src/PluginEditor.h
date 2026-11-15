@@ -479,7 +479,7 @@ private:
     juce::String waitingPairKey() const;
     void dropWaitingRequests();    // 隠す・Stop・組み／state の変更・別の試聴で、まだ始めていない要求を捨てる
     void requestKeepPair (bool retry, std::optional<std::uint64_t> ticket = {});
-    void requestKeepAll (std::optional<std::uint64_t> ticket);
+    void requestKeepAll (std::optional<std::uint64_t> ticket, bool resume = false, double since = 0.0);
     uint8_t comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};

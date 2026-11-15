@@ -135,6 +135,16 @@ inline void verifyWaitingRequests()
                      && ! processor.referenceAuditionSnapshot().bSelected,
                  "a press waiting for the A/B tail is dropped when the pair changes");
     }
+    for (const auto action : { live_compare_ui::AfterTail::keepPair, live_compare_ui::AfterTail::keepAll })
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        waiting = { action, (e->*privateMember (WaitPairKey {})) (), processor.restoreOrPairTicket(),
+                    now() - (keep_ui::preWaitSeconds + 1.0), now() + 60.0 };
+        e->*privateMember (HiddenToast {}) = {}; tick();
+        require (waiting.action == live_compare_ui::AfterTail::none && ! processor.isRecording()
+                 && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: Keep not started",
+                 "an expired tail wait ends before a throttled check can start Keep");
+    }
     // LISTEN after RETURN and C MATCH: another target drops the press without starting or matching.
     e->*privateMember (HiddenToast {}) = {};
     e->*privateMember (WaitListenUntil {}) = now() + 5.0; e->*privateMember (WaitListenKey {}) = "another PRE|";

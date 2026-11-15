@@ -477,8 +477,8 @@ int main (int argc, char** argv)
     { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only")
     { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
-    if (argc == 3 && std::string (argv[2]) == "--candidate-only")
-    { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-tail-all-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyAllKeepWaitsForOtherTail (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-only") { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
     using Reason = hypha::live_compare::RecoveryReason;
     const auto mode = argc == 3 ? std::string (argv[2]) : std::string();
     if (mode.empty())

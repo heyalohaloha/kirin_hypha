@@ -189,6 +189,31 @@ struct CandidateOtherPair
     ~CandidateOtherPair() { for (auto* processor : { pre.get(), post.get() }) processor->releaseResources(); }
 };
 
+template<class Require> void verifyAllKeepWaitsForOtherTail (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.delayA = 0; host.delayB = 30 * 48000;
+    host.pair(); auto& post = host.post();
+    CandidateOtherPair other (host, require);
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "A/B starts");
+    host.render (180, true, false, false);
+    require (host.replacementBlocks > 0, "the candidate actually replaces audio");
+    post.finishLiveCompare(); host.render (20, true, false, false); host.render (950, false, false, false);
+    require (! post.candidateReturning() && post.candidateTailPending(), "the deadline leaves a downstream tail");
+    host.changeFormat (post); host.render (10, false, false, false);
+    require (post.candidateTailPending(), "the tail and its capture exclusion survive an engine rebuild");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (10);
+    while (other.post->keepReadyCount() < 2 && std::chrono::steady_clock::now() < deadline)
+    { host.render (1, false, false, false); std::this_thread::sleep_for (std::chrono::milliseconds (100)); }
+    require (other.post->keepReadyCount() >= 2, "both exact pairs are ready for All Keep");
+    require (! other.post->keepAll(), "All Keep from the other POST waits for the tail");
+    require (other.post->allKeepTailPending(), "the waiting origin can see the other POST's tail");
+    require (! post.isRecording() && ! other.post->isRecording(), "no member begins to record the tail");
+    host.passengers.clear();
+}
+
 // A format change inside the return keeps the project's capture exclusion on the new engine.
 template<class Require> void verifyCandidateHeldExclusion (Require require)
 {

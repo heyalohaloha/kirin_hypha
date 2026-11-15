@@ -37,6 +37,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     std::cout << "Candidate product: host return\n" << std::flush;
     verifyCandidateRecoveryAudit (require);
     verifyCandidateLongReturn (require);
+    verifyAllKeepWaitsForOtherTail (require);
     verifyCandidateReturnDeadline (require);
     verifyCandidateDeadlineTail (require);
     verifyCandidateShortLoopTail (require);

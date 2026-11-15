@@ -146,11 +146,19 @@ void KirinHyphaEditor::updatePost()
 
 // Keep（2026-10-31）：組んだ PRE がまだ応答しない（project を開いた直後・PRE の準備中）だけなら、押した Keep を
 // 待たせて 0.5 秒ごとに確かめ、応答したら始める。上限まで応答しない時だけ「選び直して」と言う。retry は timer から。
-void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket)
+void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket, bool resume, double since)
 {
-    if (processorRef.keepAll (ticket)) return;
+    if (processorRef.keepAll (ticket, resume)) return;
     if (ticket && *ticket != processorRef.restoreOrPairTicket()) return;  // restored or re-paired: dropped, not refused
     const juce::String notice = processorRef.drainKeepActionNotice();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (notice == "A/B tail pending")
+    {
+        afterTail = { hypha::live_compare_ui::AfterTail::keepAll, waitingPairKey(), processorRef.restoreOrPairTicket(),
+                      resume ? since : nowSecs() };
+        return;
+    }
+   #endif
     if (notice.isNotEmpty()) { showToast (notice); return; }
     const juce::String err = processorRef.recordErrorMessage();
     if (err.isNotEmpty()) { showToast (err); return; }

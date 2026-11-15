@@ -98,6 +98,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         hyphaHandle = nullptr;
     }
     hyphaHandle = kirin::createEngineForRoles (sampleRate, roles);
+    liveCompare.candidate.tailHold.attach (hyphaHandle);
     if (candidateExclusion != nullptr && ! kirin_hypha_attach_local_blind (hyphaHandle, candidateExclusion))
         liveCompare.candidate.scope = 0;
     // Every AAX host feeds SHARP through the engine-clock route: a certified build proves K within

@@ -12,6 +12,7 @@ pub mod attack_perception;
 pub mod attack_runtime;
 mod broadcast_edge;
 mod capture_clock;
+pub mod candidate_tail;
 pub mod capture_contract;
 pub mod capture_generation;
 pub mod capture_generation_lifecycle;
@@ -411,7 +412,6 @@ fn daw_session_id_cell() -> &'static Arc<RwLock<String>> {
     static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
     CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
 }
-
 /// 新規 project_uuid を生成する（UUID v4 の文字列形式）。
 ///
 /// chunk-persist 機構に保存される値の初期値として使用。Plugin が

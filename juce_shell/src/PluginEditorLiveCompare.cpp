@@ -462,13 +462,15 @@ void KirinHyphaEditor::serviceAfterTailPress()
         afterTail = {};
         return;
     }
+    if (!reference && nowSecs() - afterTail.since >= hypha::keep_ui::preWaitSeconds)
+    { afterTail = {}; showToast (hypha::live_compare_ui::keepTailEndedNotice); return; }
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
-    if (! reference && processorRef.candidateTailPending())
+    if (afterTail.action == AfterTail::keepAll && nowSecs() < afterTail.nextGroupCheck) return;
+    if (! reference && (processorRef.candidateTailPending()
+        || (afterTail.action == AfterTail::keepAll && processorRef.allKeepTailPending())))
     {
+        afterTail.nextGroupCheck = nowSecs() + hypha::keep_ui::preRetrySeconds;
         // Within Keep's own two minutes of waiting; then it ends and says why (INV-AB6).
-        if (nowSecs() - afterTail.since < hypha::keep_ui::preWaitSeconds) return;
-        afterTail = {};
-        showToast (hypha::live_compare_ui::keepTailEndedNotice);
         return;
     }
     const auto waited = std::exchange (afterTail, {});
@@ -479,7 +481,7 @@ void KirinHyphaEditor::serviceAfterTailPress()
         case AfterTail::referenceC: if (referenceView.onSelectC) referenceView.onSelectC(); break;
         case AfterTail::referenceB: if (referenceView.onSelectRef) referenceView.onSelectRef(); break;
         case AfterTail::keepPair:   requestKeepPair (false, waited.ticket); break;
-        case AfterTail::keepAll:    requestKeepAll (waited.ticket); break;
+        case AfterTail::keepAll:    requestKeepAll (waited.ticket, true, waited.since); break;
         case AfterTail::none:       break;
     }
 }

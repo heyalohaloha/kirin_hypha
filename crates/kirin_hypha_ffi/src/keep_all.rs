@@ -6,6 +6,10 @@ impl KirinHyphaEngine {
     /// Stage an immutable roster, notify its exact POSTs, and enter the local pair. Both writers
     /// of every member must be ready before the generation commits; failures abort the roster.
     pub fn keep_all(&self) -> bool {
+        self.keep_all_impl(false)
+    }
+
+    pub(crate) fn keep_all_impl(&self, resume: bool) -> bool {
         let control = self
             .keep_control
             .lock()
@@ -87,6 +91,35 @@ impl KirinHyphaEngine {
             KeepFailure::SetupChanged.publish(&self.keep_action_notice);
             return false;
         }
+        let mut roster: Vec<_> = generation
+            .members
+            .iter()
+            .map(|member| {
+                (
+                    member.project_hash.clone(),
+                    member.post_instance_id.clone(),
+                    member.pre_instance_id.clone(),
+                )
+            })
+            .collect();
+        roster.sort();
+        let previous = {
+            let mut pending = self
+                .audition
+                .tail_group
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if resume {
+                pending.take()
+            } else {
+                *pending = None;
+                None
+            }
+        };
+        if previous.as_ref().is_some_and(|old| *old != roster) {
+            KeepFailure::SetupChanged.publish(&self.keep_action_notice);
+            return false;
+        }
         let plugin_data_dir = p.plugin_data_dir();
         let mut transaction =
             match CaptureGenerationTransaction::begin(&plugin_data_dir, &generation) {
@@ -101,6 +134,18 @@ impl KirinHyphaEngine {
                 }
             };
         if let Err(error) = transaction.stage() {
+            if matches!(&error, kirin_measure::CaptureGenerationError::Io(e) if e.kind() == std::io::ErrorKind::WouldBlock)
+            {
+                *self
+                    .audition
+                    .tail_group
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(roster);
+                if let Ok(mut notice) = self.keep_action_notice.write() {
+                    *notice = Some("A/B tail pending".to_string());
+                }
+                return false;
+            }
             KeepFailure::from_generation(&error).report(
                 &self.keep_action_notice,
                 "All Keep stage",

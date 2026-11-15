@@ -1,6 +1,8 @@
 //! Non-RT admission shared by Reference and local PRE/POST Blind audition.
 
 use super::*;
+#[path = "candidate_tail_ffi.rs"]
+pub(crate) mod candidate_tail;
 #[path = "audition_hold_ffi.rs"]
 mod hold;
 #[path = "reference_analysis_ffi.rs"]
@@ -34,6 +36,8 @@ pub(crate) struct AuditionState {
     kind: Arc<AtomicU8>,
     epoch: AtomicU64,
     version_blind: Mutex<Option<kirin_measure::reference_gain::visual::BlindCaptureExclusion>>,
+    pub(crate) tail_pending: Arc<AtomicBool>,
+    pub(crate) tail_group: Mutex<Option<Vec<(String, String, String)>>>,
     reference_owner: kirin_measure::reference_gain::visual::ReferenceAnalysisOwner,
 }
 
@@ -46,6 +50,8 @@ impl AuditionState {
             epoch: AtomicU64::new(0),
             reference_owner: Default::default(),
             version_blind: Mutex::new(None),
+            tail_pending: Arc::new(AtomicBool::new(false)),
+            tail_group: Mutex::new(None),
         }
     }
 

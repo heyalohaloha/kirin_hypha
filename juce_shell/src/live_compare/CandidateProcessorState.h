@@ -1,6 +1,7 @@
 #pragma once
 #include "CandidateReceiver.h"
 #include "CandidateReturn.h"
+#include "CandidateEngineHold.h"
 #include "../local_blind/RtPublicationSlot.h"
 #include <string>
 
@@ -23,6 +24,7 @@ struct CandidateProcessorState
     // tell from the ordinary path: until an ordinary marker has passed the chain and settled, nothing
     // is learnt for PRE's alignment and no correction is kept. The return observer lives on for it.
     std::atomic<std::uint64_t> tail { 0 };
+    CandidateTailOwner tailHold; // non-RT; remains held across engine replacement
     std::string tailPre; // message thread
     std::uint64_t observedReturnContext = 0; // Audio Thread only
     std::uint64_t scope = 0; // existing project capture exclusion, separate from a BLIND trial

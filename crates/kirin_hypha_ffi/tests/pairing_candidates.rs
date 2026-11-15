@@ -18,6 +18,8 @@ use kirin_hypha_ffi::{
 mod local_blind_handshake;
 #[path = "support/storage_sandbox.rs"]
 mod storage_sandbox;
+#[path = "support/candidate_tail_regression.rs"]
+mod tail_regression;
 
 const SR: u32 = 48_000;
 
@@ -309,10 +311,7 @@ fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
         "pair ownership must cross AU/VST shelves: {claims:?}"
     );
 
-    assert!(
-        post_2mix.keep_all(),
-        "All Keep accepts one exact broadcast edge"
-    );
+    tail_regression::wait_and_resume(&post_2mix, &post_music);
     wait_until_all_armed(
         &[&pre_2mix, &pre_drum, &pre_music],
         &[&post_2mix, &post_drum, &post_music],
