@@ -118,9 +118,9 @@ mod writer;
 use writer::service_post_record_writer;
 #[path = "io_thread_post_polls.rs"]
 mod polls;
-use polls::PostControlPolls;
 #[cfg(test)]
 pub(crate) use polls::saved_pair_waits_for_audio;
+use polls::PostControlPolls;
 
 #[path = "io_thread_post_observation.rs"]
 mod observation;
