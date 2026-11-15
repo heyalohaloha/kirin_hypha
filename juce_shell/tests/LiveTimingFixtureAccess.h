@@ -172,6 +172,8 @@ public:
     }
     static void deferContentMonitorForTest (KirinHyphaProcessorBase& processor)
     { processor.liveCompare.contentMonitorNext = std::numeric_limits<std::uint64_t>::max(); }
+    static bool awaitingAlignmentListener (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.preAlign.awaitsListener(); }
     static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.renderer.historyView().kValid; }
     static void heldGains (KirinHyphaProcessorBase& processor)

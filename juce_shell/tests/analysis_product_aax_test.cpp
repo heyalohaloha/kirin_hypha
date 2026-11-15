@@ -178,11 +178,12 @@ try
     const juce::String layout (argv[1]), scenario (argv[2]);
     require (layout == "mono" || layout == "stereo", "supported channel layout");
     if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery"
-        || scenario == "alignment_chain" || scenario == "alignment_outboard" || scenario == "alignment_blind_repeat")
+        || scenario == "alignment_chain" || scenario == "alignment_outboard" || scenario == "alignment_blind_repeat" || scenario == "alignment_blind_fallback" || scenario == "alignment_blind_bypass")
     {
         ReferenceValidationStorageSandbox sandbox;
         hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
         if (scenario == "alignment_blind_repeat") blindRepeatedCorrectionRestartsHearing (layout == "mono" ? 1 : 2);
+        if (scenario == "alignment_blind_fallback" || scenario == "alignment_blind_bypass") blindFallbackDoesNotCountAsHeard (layout == "mono" ? 1 : 2, scenario == "alignment_blind_bypass");
         if (scenario == "alignment_restart") restartingConfirmsNewContent (layout == "mono" ? 1 : 2);
         if (scenario == "alignment_publication")
         {

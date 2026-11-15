@@ -195,15 +195,13 @@ private:
 // them is not PRE, and PRE's read position moved while it played (the fade is 5 ms).
 struct BlindHeardBoth
 {
-    void restart() noexcept { heard[0] = heard[1] = 0; counting = false; }
-    bool observe (std::uint64_t command, int selected, std::uint64_t played, std::uint64_t needed) noexcept
+    void restart() noexcept { heard[0] = heard[1] = 0; }
+    bool observe (std::uint64_t first, std::uint64_t second, std::uint64_t needed) noexcept
     {
-        if (counting && command == word && played >= last && (selected == 1 || selected == 2)) heard[selected - 1] += played - last;
-        word = command; last = played; counting = true;
+        heard[0] = first; heard[1] = second;
         return heard[0] >= needed && heard[1] >= needed;
     }
 private:
-    std::uint64_t word = 0, last = 0, heard[2] { 0, 0 };
-    bool counting = false; // the first observation after a restart only sets the start
+    std::uint64_t heard[2] { 0, 0 };
 };
 }

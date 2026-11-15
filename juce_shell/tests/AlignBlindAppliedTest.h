@@ -4,6 +4,85 @@
 
 namespace aax_analysis_product
 {
+inline void blindFallbackDoesNotCountAsHeard (int channels, bool bypass)
+{
+    using namespace hypha::live_compare;
+    // A receipt interrupted by a new correction cannot lend old frames to the new request.
+    BlindHearingFrames receipts;
+    const auto original = receipts.generation();
+    receipts.observe (original, 17, 256, 240, true, true); // symmetric transition
+    receipts.observe (original, 17, 256, 240, true, true);
+    require (receipts.read().valid && receipts.read().first == 256 && receipts.read().second == 0,
+             "only stable audible frames are published");
+    receipts.beginChange();
+    require (!receipts.read().valid, "a correction publication closes the old receipt");
+    receipts.observe (original, 17, 256, 240, true, true); // interrupted old callback
+    receipts.endChange();
+    require (!receipts.read().valid, "old callbacks cannot attest the new correction");
+    const auto current = receipts.generation();
+    receipts.observe (current, 25, 256, 240, true, true);
+    receipts.observe (current, 25, 256, 240, true, true);
+    require (receipts.read().valid && receipts.read().command == 25 && receipts.read().first == 256,
+             "the new command owns only its own stable frames");
+    receipts.observe (current, 27, 256, 240, true, true);
+    receipts.observe (current, 27, 256, 240, true, true);
+    require (receipts.read().first == 256 && receipts.read().second == 256,
+             "a source switch preserves both audible counts even without an intervening read");
+    receipts.observe (current, (std::uint64_t (1) << 32) | 27, 256, 240, true, true);
+    receipts.observe (current, (std::uint64_t (1) << 32) | 27, 256, 240, true, true);
+    require (receipts.read().first == 0 && receipts.read().second == 256,
+             "a new trial cannot inherit either source's frames");
+    std::vector<int> notices[2];
+    for (int assignment = 0; assignment < 2; ++assignment)
+    {
+        ChunkedPost chain (channels);
+        chain.setDelay (512); chain.auditOutput = false;
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the chain");
+        require (post.beginLiveBlind() == StartResult::started, "BLIND starts");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND prepares");
+        LiveTimingFixtureAccess::assignBlind (post, assignment == 0);
+        require (post.selectLiveBlind (1), "select the first anonymous source");
+        chain.run (80); LiveTimingFixtureAccess::deferContentMonitorForTest (post);
+        require (LiveTimingFixtureAccess::confirmAlignmentForTest (post, 1200), "a correction settles");
+        chain.run (35);
+        require (LiveTimingFixtureAccess::awaitingAlignmentListener (post), "the correction is still announced");
+        if (bypass) post.getBypassParameter()->setValue (1.0f); else chain.postClock.available = false;
+        require (post.selectLiveBlind (2), "switch source while callbacks continue through the fault");
+        for (int i = 0; i < 35; ++i)
+        {
+            chain.chunk(); const auto status = post.liveBlindStatus();
+            notices[assignment].push_back ((status.contentUnmeasured ? 1 : 0) + (status.contentUnapplied ? 2 : 0));
+        }
+        require (LiveTimingFixtureAccess::awaitingAlignmentListener (post), "fallback POST does not count as hearing the source");
+        if (bypass) post.getBypassParameter()->setValue (0.0f); else chain.postClock.available = true;
+        for (int i = 0; i < 90; ++i)
+        {
+            chain.chunk(); const auto status = post.liveBlindStatus();
+            notices[assignment].push_back ((status.contentUnmeasured ? 1 : 0) + (status.contentUnapplied ? 2 : 0));
+        }
+        require (!LiveTimingFixtureAccess::awaitingAlignmentListener (post), "the notice ends after real source playback returns");
+    }
+    require (notices[0] == notices[1], "fault and recovery notices do not reveal the anonymous assignment");
+    if (! bypass)
+    for (const bool firstPre : { false, true })
+    {
+        ChunkedPost chain (channels); chain.setDelay (512); chain.auditOutput = false;
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the chain");
+        require (post.beginLiveBlind() == StartResult::started, "BLIND starts");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND prepares");
+        LiveTimingFixtureAccess::assignBlind (post, firstPre);
+        require (post.selectLiveBlind (1), "select the first source");
+        chain.run (80); LiveTimingFixtureAccess::deferContentMonitorForTest (post);
+        require (LiveTimingFixtureAccess::confirmAlignmentForTest (post, 1200), "a correction settles");
+        for (int i = 0; i < 30; ++i) chain.chunk (false); // audio continues while service is delayed
+        require (post.selectLiveBlind (2), "switch before service reads the first source");
+        chain.run (35);
+        require (! LiveTimingFixtureAccess::awaitingAlignmentListener (post),
+                 "audible frames from both commands survive a delayed service");
+    }
+}
 inline void blindRepeatedCorrectionRestartsHearing (int channels)
 {
     using namespace hypha::live_compare;

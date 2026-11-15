@@ -175,14 +175,23 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
    #endif
     tick.now = now; tick.readRetryNanos = keptReadNanos;
     if (const auto fallback = liveCompare.preAlign.transition (tick); fallback.request)
+    {
+        const bool changed = tick.blind && fallback.value != liveCompare.renderer.alignRequested (context);
+        if (changed) { liveCompare.blindHeard.restart(); liveCompare.blindHearing.beginChange(); }
         liveCompare.renderer.requestAlign (fallback.value, context, fallback.revision);
+        if (changed) liveCompare.blindHearing.endChange();
+    }
     // BLIND: a correction settled during the trial plays once each source has been heard for half a
     // second of playback (PRE's read position moves while the listener is away from PRE).
     if (! liveCompare.preAlign.awaitsListener()) liveCompare.blindHeard.restart();
-    else if (const auto command = liveCompare.blind.command();
-             liveCompare.blindHeard.observe (command.word, liveCompare.blind.valid (command) ? command.stimulus() : 0,
-                 liveCompare.playedFrames.load (std::memory_order_acquire), static_cast<std::uint64_t> (preparedFormat.sampleRate * 0.5)))
-        preAlignEvent (hypha::live_compare::PreAlignEvent::heardBoth);
+    else if (const auto receipt = liveCompare.blindHearing.read(); receipt.valid)
+    {
+        const auto command = liveCompare.blind.command();
+        if (liveCompare.blind.valid (command) && command.word == receipt.command
+            && liveCompare.blindHeard.observe (receipt.first, receipt.second,
+                                               static_cast<std::uint64_t> (preparedFormat.sampleRate * 0.5)))
+            preAlignEvent (hypha::live_compare::PreAlignEvent::heardBoth);
+    }
     // INV-AB6: after an A/B return that ended at its deadline, B may still carry comparison audio.
     // Nothing is learnt from it; PRE plays at K or with a correction kept before, told as above.
     if (!state.active || state.compensationOff || ! liveContentPathProven (state)
@@ -317,8 +326,10 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         confirmed.measuredK = estimate.windowReady ? estimate.clockK : confirmed.k;
         if (const auto publish = liveCompare.preAlign.transition (confirmed); publish.request)
         {
-            if (confirmed.blind && publish.value != requested) liveCompare.blindHeard.restart();
+            const bool changed = confirmed.blind && publish.value != requested;
+            if (changed) { liveCompare.blindHeard.restart(); liveCompare.blindHearing.beginChange(); }
             liveCompare.renderer.requestAlign (publish.value, estimate.alignContext, publish.revision);
+            if (changed) liveCompare.blindHearing.endChange();
         }
     }
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
