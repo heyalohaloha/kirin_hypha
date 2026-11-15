@@ -193,10 +193,9 @@ struct BalanceOverlay
     }
     void write (juce::XmlElement& parent) const
     {
-        if (! all && drawing == Drawing::lines && lines.empty() && ! used) return;
         auto* overlay = parent.createNewChildElement ("Overlay");
         overlay->setAttribute ("all", all);
-        if (used) overlay->setAttribute ("used", true);
+        overlay->setAttribute ("used", used);
         if (drawing != Drawing::lines) overlay->setAttribute ("draw", drawing == Drawing::shape ? "shape" : "all_shape");
         for (const auto& line : lines)
         {

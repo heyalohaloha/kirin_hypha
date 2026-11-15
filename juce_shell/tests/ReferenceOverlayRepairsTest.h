@@ -95,6 +95,32 @@ inline void verifyFirstUseOnly()
     require (again.state().overlay.lines.empty(), "a saved, emptied selection stays empty after reopening");
 }
 
+inline void verifyUnusedOverlayRoundTrip()
+{
+    juce::XmlElement defaultProject ("ReferenceChoices");
+    ref::BalanceOverlay {}.write (defaultProject);
+    const auto* defaultOverlay = defaultProject.getChildByName ("Overlay");
+    require (defaultOverlay != nullptr && defaultOverlay->hasAttribute ("used")
+                 && ! defaultOverlay->getBoolAttribute ("used"), "a new default state explicitly saves unused");
+    auto state = page (4, 1);
+    state.overlay.lines = { { state.targets.collection.items.front().id, 0 } };
+    require (! state.overlay.used && ! state.overlay.all, "a target can be registered before ALL is used");
+    juce::XmlElement project ("ReferenceChoices"); state.overlay.write (project);
+    auto reopened = state; reopened.overlay = ref::BalanceOverlay::read (project);
+    require (reopened.overlay == state.overlay, "an unused overlay survives saving and reopening");
+    reference_ui::Component original, restored;
+    reference_text_repairs::sizePanel (original, 900, 600); reference_text_repairs::sizePanel (restored, 900, 600);
+    original.setState (state); restored.setState (reopened);
+    switchHalf (original, "reference-overlay-all").onClick();
+    switchHalf (restored, "reference-overlay-all").onClick();
+    require (original.state().overlay == restored.state().overlay && original.state().overlay.lines.size() == 5,
+             "the first ALL after reopening shows the same songs and target");
+    auto* old = project.getChildByName ("Overlay"); old->removeAttribute ("used");
+    require (ref::BalanceOverlay::read (project).used, "an older unmarked overlay with a line is still treated as used");
+    old->deleteAllChildElements();
+    require (! ref::BalanceOverlay::read (project).used, "an older empty unmarked overlay remains unused");
+}
+
 // Every number box state (shown or not, ALL SHAPE's dimmed, pointed, held) reads at 4.5:1 over its own fill on
 // the page's ground and on the lightest list glass, and a line's number keeps its line's hue.
 inline void verifyNumberContrast()
@@ -150,6 +176,7 @@ inline void verifyRepairs()
     verifyNumberContrast();
     verifyTargetsWithoutSongs();
     verifyFirstUseOnly();
+    verifyUnusedOverlayRoundTrip();
     std::cout << "Reference Balance overlay repairs: PASS\n";
 }
 }

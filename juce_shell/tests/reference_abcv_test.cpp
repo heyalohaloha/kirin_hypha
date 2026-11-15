@@ -11,6 +11,7 @@ void testReferenceRoles (const juce::File&);
 void testReferenceCueRestart (const juce::File&);
 void testReferenceLowerA (const juce::File&);
 void testReferenceKirinSpectrum();
+void testReferenceOverlayPersistence();
 void testReferenceBlauertBands();
 void testReferenceDynamicsRange();
 void testReferenceKirinFingerprint();
@@ -41,7 +42,8 @@ bool runReferenceAbcvTests (int argc, char** argv, const juce::File& sandbox)
 {
     if (argc != 2) return false;
     const juce::String mode (argv[1]);
-    if (mode == "--roles-only") testReferenceRoles (sandbox);
+    if (mode == "--overlay-persistence-only") testReferenceOverlayPersistence();
+    else if (mode == "--roles-only") testReferenceRoles (sandbox);
     else if (mode == "--dynamics-range-only") testReferenceDynamicsRange();
     else if (mode == "--library-skipped-only") testReferenceLibrarySkipped (sandbox);
     else if (mode == "--abcv-only") testReferenceAbcv (sandbox);
