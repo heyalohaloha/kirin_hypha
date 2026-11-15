@@ -256,6 +256,9 @@ public:
     }
     static std::atomic<std::uint64_t>& gainRevision (KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.gainRevision; }
+    // Whether a block during a gain writer still outputs the last whole tuple (INV-LC26, B-1772).
+    static bool lastWholeGainsUsable (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.lastGains.coherent && ! processor.liveCompare.blindLevel.pending(); }
     struct TimingAdmission { std::uint64_t request, receipt, authority; };
     static TimingAdmission timingAdmission (const KirinHyphaProcessorBase& processor) noexcept
     {
