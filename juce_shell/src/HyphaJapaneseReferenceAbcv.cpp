@@ -253,7 +253,7 @@ const Entry entries[] = {
     { "A FROM START", u8"A頭から" },
     { "C SONG %1", u8"C曲全体 %1" },
     { "C SONG", u8"C曲全体" },
-    { "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1", u8"Kirin OS 1.6.1で曲全体の値が出ます" },
+    { "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0", u8"Kirin OS 1.7.0で曲全体の値が出ます" },
     { "A FROM START HOLDS THE DAW'S FIRST 30 MIN", u8"A頭からはDAWの最初の30分まで" },
     { "SONG works on Spectrum Checks. This Check compares its Cue.", u8"SONGはSpectrumのCheckで使えます。このCheckはCueで比べます。" },
     { "SONG compares the whole song, framed in gold. The inner box is the Cue C plays.",

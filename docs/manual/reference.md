@@ -209,7 +209,7 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
   FOLLOW A and the offset). **CUE / SONG** at the right end of the Cue row chooses what C is compared
   over; it changes neither what plays nor MATCH. CUE is the comparison above. SONG compares C's whole song
-  (the whole-song range Kirin OS 1.6.1 and later publishes for every song) with A FROM START: what A played
+  (the whole-song range Kirin OS 1.7.0 and later publishes for every song) with A FROM START: what A played
   in each 100 ms step of the DAW timeline, counted from its start, where playing a step again replaces it,
   so a loop or a seek does not count a passage twice (after a start or a seek, A is taken from the next step
   boundary, and the loudness joins only steps played in one go). The legend reads A FROM START 2:41 (how
@@ -220,7 +220,7 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   new C song does not. SONG compares Checks whose charts are spectra; on a Check with range strips SONG
   cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check.
   Without a whole-song range (an older Kirin OS) C keeps the Cue and the status line says WHOLE-SONG VALUES
-  COME WITH KIRIN OS 1.6.1, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
+  COME WITH KIRIN OS 1.7.0, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
   saved with the project. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the

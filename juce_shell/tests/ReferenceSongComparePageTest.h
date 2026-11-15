@@ -5,7 +5,7 @@
 //    Check では出さない。300% と大きい画面のどちらでも、流し方とずらしの右で枠の中に収まる。
 //  - SONG：図と 4 帯域は A FROM START（DAW の頭から）と C の曲全体の値。凡例は「A FROM START 2:41 / C SONG 0:00-4:55」、
 //    gain は両方の曲全体の音量をそろえる量（MATCH の読みは鳴らす gain のまま）。A の窓のリストは RESET だけ。
-//  - C の曲全体の値が無い（古い Kirin OS）時は CUE の値のまま描き、状態の行が「Kirin OS 1.6.1 で曲全体の値が出ます」。
+//  - C の曲全体の値が無い（古い Kirin OS）時は CUE の値のまま描き、状態の行が「Kirin OS 1.7.0 で曲全体の値が出ます」。
 //    A が DAW の 30 分より後を鳴らした時も状態の行が言う。C を鳴らしている間も後ろの区切りで言う。どれも英日。
 //  - SONG は主の図がどれもスペクトルの Check だけ。範囲の帯の Check はどこも CUE のまま、SONG は押せず理由を持つ。
 //  - 時間軸は SONG で曲全体を Cue の箱の金で示す。切り替えは枠の中の 2 つの区切りで、文字は 12 px 以上・4.5:1 以上。
@@ -256,8 +256,8 @@ inline void verifyReferenceSongComparePage()
         reference_ui::applySongComparison (missing, &aSong, nullptr, std::numeric_limits<double>::quiet_NaN());
         const auto line = reference_ui::referenceStatusLine (missing).text;
         require (missing.song.cMissing && ! missing.song.shown && missing.cueKirin == check.cueKirin
-                     && line == "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1"
-                     && japanese (line) == u8 (u8"Kirin OS 1.6.1で曲全体の値が出ます")
+                     && line == "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0"
+                     && japanese (line) == u8 (u8"Kirin OS 1.7.0で曲全体の値が出ます")
                      && reference_ui::cueSpectrumLegend (missing).contains ("C CUE"),
                  "without C's whole-song values the page keeps the Cue and says why: " + line + " / " + japanese (line));
         auto beyond = check;
@@ -276,9 +276,9 @@ inline void verifyReferenceSongComparePage()
             playing->audibleComparisonSlot = 2;
             playing->tracking = reference_audition::TrackingState::fixed;
             const auto said = reference_ui::referenceStatusLine (*playing).text;
-            const auto reason = playing == &missing ? juce::String ("WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1")
+            const auto reason = playing == &missing ? juce::String ("WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0")
                                                     : juce::String ("A FROM START HOLDS THE DAW'S FIRST 30 MIN");
-            const auto reasonJa = playing == &missing ? u8 (u8"Kirin OS 1.6.1で曲全体の値が出ます") : u8 (u8"A頭からはDAWの最初の30分まで");
+            const auto reasonJa = playing == &missing ? u8 (u8"Kirin OS 1.7.0で曲全体の値が出ます") : u8 (u8"A頭からはDAWの最初の30分まで");
             require (said.startsWith ("C CUE 1:02-1:32 LOOP") && said.contains ("  /  " + reason) && japanese (said).contains (reasonJa),
                      "while C plays the page still says why SONG is not whole: " + said + " / " + japanese (said));
         }

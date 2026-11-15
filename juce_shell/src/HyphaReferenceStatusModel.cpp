@@ -31,7 +31,7 @@ juce::String publicationReturnLine (int change, int slot)
 static juce::String songLine (const State& state)
 {
     if (state.comparisonSlot != 2) return {};
-    if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1";
+    if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0";
     if (state.song.shown && state.song.aBeyond) return "A FROM START HOLDS THE DAW'S FIRST 30 MIN";
     return {};
 }
