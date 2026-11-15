@@ -48,8 +48,10 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     const juce::String loweredLevel = "Lowered " + juce::String (returnDb, 1) + " dB to avoid clipping; END restores it";
     juce::String instruction, explanation = returnDb > 0.05 ? loweredLevel : normalLevel;
     if (current.stage == Stage::failed)
-        instruction = current.waiting == live_compare::MatchFailure::outOfRange
-            ? "MATCH over 24 dB" : "MATCH failed; try again";
+        instruction = current.waiting == live_compare::MatchFailure::outOfRange ? "MATCH over 24 dB"
+            : current.waiting == live_compare::MatchFailure::notProven ? "No MATCH: timing not confirmed"
+            : current.waiting == live_compare::MatchFailure::tooShort || current.waiting == live_compare::MatchFailure::notEnoughSignal
+                ? "No MATCH: not enough signal" : "MATCH failed; try again";
     else if (stopped)
     {
         instruction = current.reason == live_compare::RecoveryReason::outputTaken

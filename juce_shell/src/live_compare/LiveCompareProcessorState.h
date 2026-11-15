@@ -157,6 +157,9 @@ struct ProcessorState
     MatchPlan blindPlan;
     std::uint64_t blindPreparation = 0, blindScope = 0, finishServiced = 0;
     std::int64_t blindMeasuredEnd = 0;
+    // BLIND's own MATCH may wait for 30 s of playback (as the Reference alignment does); stopped time is
+    // the user's to take. Message thread.
+    std::uint64_t blindPlayedNanos = 0, blindSeenNanos = 0;
     std::uint32_t blindApprovalRun = 0;
     std::atomic<std::uint64_t> timelineGeneration { 0 };
     std::atomic<std::uint64_t> matchGeneration { 0 };
