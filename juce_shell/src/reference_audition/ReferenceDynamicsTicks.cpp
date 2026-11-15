@@ -11,7 +11,7 @@ void DynamicsTicks::reset() noexcept
 {
     kirin_reference_visual_drop (meter);
     meter = nullptr;
-    fill = 0;
+    fill = silentTicks = 0;
     held.clear();
     published.reset();
 }
@@ -40,6 +40,10 @@ void DynamicsTicks::push (const float* interleaved, int frames, int rate, int ch
         KirinReferenceVisualBin bin {};
         if (! kirin_reference_visual_finish (meter, &bin)) { reset(); return; }
         fill = 0;
+        // Preserve the full input-window evidence even when the visible history is later cropped.
+        silentTicks = silentVisualBin (bin, channels) ? std::min (30, silentTicks + 1) : 0;
+        if (silentTicks >= 4) bin.momentary_lufs = std::numeric_limits<double>::quiet_NaN();
+        if (silentTicks >= 30) bin.short_lufs = std::numeric_limits<double>::quiet_NaN();
         if (static_cast<int> (held.size()) >= limit) held.erase (held.begin());
         held.push_back (bin);
         published = std::make_shared<const std::vector<KirinReferenceVisualBin>> (held);

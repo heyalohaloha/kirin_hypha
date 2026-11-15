@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -12,6 +13,13 @@
 
 namespace hypha::reference_audition
 {
+inline bool silentVisualBin (const KirinReferenceVisualBin& bin, int channels) noexcept
+{
+    if (bin.frames == 0 || channels < 1 || channels > 2) return false;
+    for (int channel = 0; channel < channels; ++channel)
+        if (std::fpclassify (bin.rms[channel]) != FP_ZERO) return false;
+    return true;
+}
 // 2026-10-04：Dynamics・Loudness・Stereo・Waveform・Transient の Check を、
 // A と比べる側（C・V）の区間ごとの値の p10・中央値・p90 で比べる。値は Kirin OS の解析と
 // 同じ定義：
@@ -73,7 +81,7 @@ public:
 
 private:
     KirinReferenceVisualMeter* meter = nullptr;
-    int limit = capacity, meterRate = 0, meterChannels = 0, fill = 0;
+    int limit = capacity, meterRate = 0, meterChannels = 0, fill = 0, silentTicks = 0;
     std::vector<KirinReferenceVisualBin> held;
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> published;
 };

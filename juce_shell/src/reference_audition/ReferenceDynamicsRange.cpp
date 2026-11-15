@@ -45,6 +45,14 @@ double attackOf (double peakDb, double momentaryLufs) noexcept
 {
     return std::isfinite (peakDb) && std::isfinite (momentaryLufs) ? peakDb - momentaryLufs : nan;
 }
+
+bool silentWindow (const KirinReferenceVisualBin* bins, std::size_t end, std::size_t length, int channels) noexcept
+{
+    if (end < length) return false;
+    for (auto index = end - length; index < end; ++index)
+        if (! silentVisualBin (bins[index], channels)) return false;
+    return true;
+}
 }
 
 DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t count, int binsPerHop, int channels)
@@ -80,8 +88,9 @@ DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t cou
         const auto samplePeak = std::max (peak[0], peak[1]);
         const bool stereo = channels == 2;
         hops[DynamicsFact::crest].push_back (rms > 1e-15 && samplePeak > 0.0 ? 20.0 * std::log10 (samplePeak / rms) : nan);
-        hops[DynamicsFact::lufsM].push_back (std::isfinite (last.momentary_lufs) ? last.momentary_lufs : nan);
-        hops[DynamicsFact::lufsS].push_back (std::isfinite (last.short_lufs) ? last.short_lufs : nan);
+        const auto end = first + (hop + 1) * static_cast<std::size_t> (binsPerHop);
+        hops[DynamicsFact::lufsM].push_back (std::isfinite (last.momentary_lufs) && ! silentWindow (bins, end, 4, channels) ? last.momentary_lufs : nan);
+        hops[DynamicsFact::lufsS].push_back (std::isfinite (last.short_lufs) && ! silentWindow (bins, end, 30, channels) ? last.short_lufs : nan);
         hops[DynamicsFact::correlation].push_back (stereo && energy[0] > 0.0 && energy[1] > 0.0
             ? std::clamp (cross / std::sqrt (energy[0] * energy[1]), -1.0, 1.0) : nan);
         hops[DynamicsFact::width].push_back (stereo && mid + side > 0.0
