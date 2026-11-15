@@ -3,6 +3,7 @@
 #include "../host_clock_diagnostic/IdentityAudit.h"
 #include <cstdlib>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <thread>
 
@@ -38,6 +39,8 @@ static void writer (const std::filesystem::path& parent)
     environment ("relative-folder"); assert (!Recorder::fromEnvironment());
     environment ((parent / "missing").string().c_str()); assert (!Recorder::fromEnvironment());
     std::filesystem::create_directories (parent);
+    std::set<std::filesystem::path> earlier; // a reused build folder keeps sessions written by older builds
+    for (const auto& entry : std::filesystem::directory_iterator (parent)) earlier.insert (entry.path());
     environment (parent.string().c_str());
     auto recorder = Recorder::fromEnvironment(); assert (recorder != nullptr);
     float left[] { 1, -0.0f, 0.125f, -0.5f }, right[] { -1, 0, 0.25f, 0.5f };
@@ -56,7 +59,7 @@ static void writer (const std::filesystem::path& parent)
     for (const auto& entry : std::filesystem::directory_iterator (parent))
     {
         const auto metaPath = entry.path() / "blocks.jsonl";
-        if (!std::filesystem::exists (metaPath)) continue;
+        if (earlier.count (entry.path()) != 0 || !std::filesystem::exists (metaPath)) continue;
         std::ifstream file (metaPath); const std::string text ((std::istreambuf_iterator<char> (file)), {});
         assert (text.find ("\"dropped\":1") != std::string::npos);
         assert (text.find ("\"precisionBits\":64") != std::string::npos);
