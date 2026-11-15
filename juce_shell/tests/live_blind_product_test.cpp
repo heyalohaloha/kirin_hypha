@@ -427,7 +427,6 @@ private:
 
    #include "LiveBlindAudioFixture.h"
    #include "LiveBlindLoopStallStep.h"
-
     // Retain the 8192-frame host block; the synthetic clock defines callback cadence.
     static constexpr int blockFrames = 8192;
     Clock clock, postClock;
@@ -459,7 +458,6 @@ private:
     bool demanded = false;
 };
 }
-
 int main (int argc, char** argv)
 {
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
@@ -477,6 +475,8 @@ int main (int argc, char** argv)
     { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only")
     { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-tail-loop-only") { hypha::tests::verifyCandidateShortLoopTail (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-tail-pair-only") { hypha::tests::verifyTailSurvivesPairChange (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-tail-all-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyAllKeepWaitsForOtherTail (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-only") { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
     using Reason = hypha::live_compare::RecoveryReason;

@@ -3,6 +3,60 @@
 
 namespace hypha::tests
 {
+#if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+inline int tailEstimateCalls = 0;
+#endif
+template<class Require> void verifyTailSurvivesPairChange (Require require)
+{
+    using namespace live_compare;
+    ValidationStorageSandbox isolated;
+    writeCandidateFixtureIdentity (require, isolated.directory());
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.delayA = 0; host.delayB = 12 * 48000 + 1920; host.reportedDelayB = -1920;
+    host.processorTimers = true; host.timerBlocks = 4; candidateBroadband = true;
+    host.pair(); auto& post = host.post(); post.setLiveCompareAutoAlign (true);
+    host.render (1200, false, false, false);
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "A/B starts");
+    host.render (180, true, false, false);
+    require (host.replacementBlocks > 0, "the candidate substituted audio");
+    post.finishLiveCompare(); host.render (20, true, false, false); host.render (930, false, false, false);
+    require (post.candidateTailPending(), "the deadline leaves a tail");
+    const auto oldTicket = post.restoreOrPairTicket();
+    require (post.setPairCandidate (host.pre2().instanceId(), "Source"), "select a different PRE");
+    host.pre1Enabled = false; // the selected PRE is no evidence that the original input drained
+    host.render (10, false, false, false);
+    require (post.candidateTailPending() && ! post.keepPair() && post.keepPhase() == KIRIN_KEEP_PHASE_IDLE,
+             "a pair change cannot clear downstream audio or start Keep");
+    require (post.startLiveCompare() == StartResult::started, "LISTEN continues on the new pair");
+    post.selectLiveComparePre (true);
+   #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    tailEstimateCalls = 0; beforeContentEstimateForTest = [] { ++tailEstimateCalls; };
+   #endif
+    host.render (1200, false, true, false); // allow the newly demanded PRE run to cover B's delay
+    require (post.liveCompareStatus().verdict == Verdict::accepted, "the new pair has a proven playback path");
+   #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    require (tailEstimateCalls == 0, "the new pair does not learn from remaining comparison audio");
+   #endif
+    require (post.candidateTailPending() && post.liveCompareAlignFrames() == 0,
+             "the new pair retains the tail and learns no correction");
+    host.pre1Enabled = true;
+    int blocks = 0;
+    // A restarted PRE first fills B's delay, then a fresh marker traverses it and settles.
+    for (; blocks < 4000 && post.candidateTailPending(); ++blocks) host.render (1, false, true, false);
+    require (!post.candidateTailPending(), "the original path's marker and four settled seconds clear the tail");
+    require (LiveTimingFixtureAccess::candidateStateForTest (post).quietFrames.load() >= 4 * 48000,
+             "the original path's clock-proven count reaches four seconds");
+    host.render (200, false, true, false);
+   #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    beforeContentEstimateForTest = nullptr;
+    require (tailEstimateCalls > 0, "content monitoring resumes only after the tail clears");
+   #endif
+    post.finishLiveCompare(); host.render (40, false, false, false);
+    require (!post.keepPair (oldTicket), "the old pair's waiting press stays cancelled after drainage");
+    host.requireKeep (post, "a fresh Keep starts on the new pair after drainage");
+    candidateBroadband = false;
+}
 template<class Require> void verifyCandidateLongReturn (Require require)
 {
     using namespace live_compare;
@@ -173,6 +227,9 @@ template<class Require> void verifyCandidateShortLoopTail (Require require)
     host.render (960, false, false, false); // 10.2 s after END, stopped: only the deadline ends the return
     const auto& state = LiveTimingFixtureAccess::candidateStateForTest (post);
     require (! post.candidateReturning() && state.tail.load() != 0, "the deadline ends the return and leaves the tail");
+    require (post.setPairCandidate (host.pre2().instanceId(), "Source"), "select the other PRE during the tail");
+    host.render (4, false, false, false);
+    require (state.tail.load() != 0, "changing pair does not erase the loop's tail");
     for (auto& clock : host.clocks) clock.playing = true;
     int blocks = 0, wraps = 0;
     for (; blocks < 1500 && state.tail.load() != 0; ++blocks) // up to 16 s of looped playback

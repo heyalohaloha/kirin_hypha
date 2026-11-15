@@ -146,12 +146,13 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
         state.returnObserver.collect();
         if (state.token.load() == 0)
         {
-            // The deadline's tail: the same marker and four-second count, without PRE2's receipt.
+            // The deadline's tail keeps the original upstream witness even if the selected pair changes.
+            // The same marker and four-second count apply, without PRE2's receipt.
             if (state.tail.load() == 0) return;
             const auto rate = static_cast<std::uint32_t> (preparedFormat.sampleRate);
             const bool proven = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
                 && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0);
-            if (proven || state.tailPre != pairedPreInstanceId().toStdString())
+            if (proven)
             {
                 state.tailHold.clear();
                 state.tail.store (0, std::memory_order_release); state.tailPre.clear();

@@ -184,6 +184,12 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_candidate_tail_all_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --candidate-tail-all-only)
     set_tests_properties(kirin_candidate_tail_all_product PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_candidate_tail_pair_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --candidate-tail-pair-only)
+    set_tests_properties(kirin_candidate_tail_pair_product PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_candidate_tail_loop_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --candidate-tail-loop-only)
+    set_tests_properties(kirin_candidate_tail_loop_product PROPERTIES TIMEOUT 90)
     add_test(NAME kirin_live_blind_reuse_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --reuse)
     set_tests_properties(kirin_live_blind_reuse_product PROPERTIES TIMEOUT 170)
