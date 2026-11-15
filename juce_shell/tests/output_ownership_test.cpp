@@ -183,6 +183,12 @@ void decisionsCombineStates()
         other.ownTail = true;
         require (std::string (afterTailWaitNotice (AfterTail::keepAll, other)) == keepBypassWaitNotice,
                  "this POST's own tail under bypass names the bypass");
+        FakeHost holding; holding.bypass.v = 1.0f; // no press waits here; an All Keep on another POST waits for this tail
+        require (std::string (heldTailNotice (holding)).empty(), "no tail pending says nothing");
+        holding.ownTail = true;
+        require (std::string (heldTailNotice (holding)) == tailBypassNotice, "a held tail names the bypass in its own window");
+        holding.offline = true;
+        require (std::string (heldTailNotice (holding)) == tailOfflineNotice, "a held tail names the offline render");
         std::set<std::string> afterTail;
         for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
             for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));

@@ -79,6 +79,16 @@ template <class Processor> const char* afterTailWaitNotice (AfterTail action, Pr
         && processor.allKeepTailPending()) return keepOtherTailNotice;
     return afterTailNotice (action, processor.isPlaying(), block);
 }
+// A POST whose own tail cannot clear because the host bypasses it or renders offline says so in its own
+// window, whether or not a press waits there (an All Keep pressed on another POST waits for this one).
+inline constexpr const char* tailBypassNotice = "Bypass is on: the A/B tail clears after it is off";
+inline constexpr const char* tailOfflineNotice = "Rendering offline: the A/B tail clears after it ends";
+template <class Processor> const char* heldTailNotice (Processor& processor)
+{
+    if (! processor.candidateTailPending()) return "";
+    const auto block = returnBlock (processor, true);
+    return block == ReturnBlock::offline ? tailOfflineNotice : block == ReturnBlock::bypass ? tailBypassNotice : "";
+}
 
 constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noexcept
 {

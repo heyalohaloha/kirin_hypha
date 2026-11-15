@@ -60,6 +60,7 @@ void verifyAllListenText (Require require)
                     && item.text != live_compare_ui::bypassHoldsReturnNotice
                     && item.text != live_compare_ui::keepBypassWaitNotice && item.text != live_compare_ui::keepOfflineWaitNotice
                     && item.text != live_compare_ui::keepOtherTailNotice
+                    && item.text != live_compare_ui::tailBypassNotice && item.text != live_compare_ui::tailOfflineNotice
                     && item.text != "Cannot write to folder. Check access."
                     && item.text != "2MIX has no DRUM; showing TIME / HISTORY"
                     && item.text != "Measurements saved; waiting for Kirin OS audio (auto link)"

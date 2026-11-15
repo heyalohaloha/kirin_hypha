@@ -86,6 +86,8 @@ inline std::vector<Notice> notices()
     add (live_compare_ui::keepBypassWaitNotice);
     add (live_compare_ui::keepOfflineWaitNotice);
     add (live_compare_ui::keepOtherTailNotice);
+    add (live_compare_ui::tailBypassNotice);
+    add (live_compare_ui::tailOfflineNotice);
     for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
                          live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
         for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));

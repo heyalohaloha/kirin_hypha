@@ -312,6 +312,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
     }
     if ((liveCompareWarning.isEmpty() || status.finishing) && afterTail.action != hypha::live_compare_ui::AfterTail::none)
         liveCompareWarning = hypha::live_compare_ui::afterTailWaitNotice (afterTail.action, processorRef);
+    if (liveCompareWarning.isEmpty()) liveCompareWarning = hypha::live_compare_ui::heldTailNotice (processorRef);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));
