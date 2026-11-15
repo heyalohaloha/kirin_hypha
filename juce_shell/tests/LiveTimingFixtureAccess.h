@@ -158,6 +158,20 @@ public:
     }
     static void assignBlind (KirinHyphaProcessorBase& processor, bool firstPre)
     { processor.liveCompare.blind.start (firstPre); }
+    static bool confirmAlignmentForTest (KirinHyphaProcessorBase& processor, std::int64_t frames)
+    {
+        using namespace hypha::live_compare;
+        OffsetEstimate estimate;
+        estimate.determined = true; estimate.sampleRate = 48000; estimate.peak = 0.8; estimate.dominance = 20;
+        estimate.alignContext = processor.liveCompare.alignContext();
+        estimate.alignRevision = processor.liveCompare.renderer.alignRevision();
+        estimate.stopGeneration = processor.liveCompare.contentHold.generation();
+        estimate.timelineGeneration = processor.liveCompare.timelineGeneration.load();
+        OffsetMonitor::Step step; step.settled = true; step.sampleRate = 48000; step.lagFrames = -frames;
+        return processor.alignLiveCompare (step, estimate);
+    }
+    static void deferContentMonitorForTest (KirinHyphaProcessorBase& processor)
+    { processor.liveCompare.contentMonitorNext = std::numeric_limits<std::uint64_t>::max(); }
     static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.renderer.historyView().kValid; }
     static void heldGains (KirinHyphaProcessorBase& processor)

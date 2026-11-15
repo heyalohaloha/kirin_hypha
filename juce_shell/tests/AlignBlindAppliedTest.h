@@ -4,6 +4,41 @@
 
 namespace aax_analysis_product
 {
+inline void blindRepeatedCorrectionRestartsHearing (int channels)
+{
+    using namespace hypha::live_compare;
+    for (const bool firstPre : { false, true })
+    for (const std::int64_t next : { std::int64_t (0), std::int64_t (2400) })
+    {
+        ChunkedPost chain (channels);
+        chain.setDelay (512);
+        auto& post = *chain.post;
+        selectPreparedPair (chain, "select the chain");
+        require (post.beginLiveBlind() == StartResult::started, "BLIND starts");
+        chain.until (400, [&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND prepares");
+        LiveTimingFixtureAccess::assignBlind (post, firstPre);
+        const int postSource = firstPre ? 2 : 1;
+        require (post.selectLiveBlind (postSource), "select POST anonymously");
+        chain.run (80);
+        LiveTimingFixtureAccess::deferContentMonitorForTest (post);
+        require (LiveTimingFixtureAccess::confirmAlignmentForTest (post, 1200), "first correction settles");
+        chain.run (35);
+        require (post.liveBlindStatus().contentUnapplied, "first change is told while one source plays");
+        require (post.selectLiveBlind (3 - postSource), "return to PRE");
+        chain.run (2);
+        require (LiveTimingFixtureAccess::confirmAlignmentForTest (post, next), "second correction settles on PRE");
+        chain.run (35);
+        require (post.liveBlindStatus().contentUnapplied, "the second change requires both sources again");
+        for (int i = 0; i < 4; ++i)
+        {
+            require (LiveTimingFixtureAccess::confirmAlignmentForTest (post, next), "the same estimate is confirmed again");
+            chain.run (7);
+        }
+        require (post.selectLiveBlind (postSource), "switch away from PRE again");
+        chain.run (35);
+        require (! post.liveBlindStatus().contentUnapplied, "same estimates do not restart the hearing count");
+    }
+}
 // BLIND, INV-LC28: an effect that reports no delay is added between PRE and POST while the listener
 // stays on one source. Two agreeing windows settle the new position, but PRE's read position moves
 // only while the listener is away from PRE: a listener who stays on PRE hears the earlier position.

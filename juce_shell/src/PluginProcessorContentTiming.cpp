@@ -316,7 +316,10 @@ bool KirinHyphaProcessorBase::alignLiveCompare (const hypha::live_compare::Offse
         confirmed.measuredRevision = estimate.alignRevision;
         confirmed.measuredK = estimate.windowReady ? estimate.clockK : confirmed.k;
         if (const auto publish = liveCompare.preAlign.transition (confirmed); publish.request)
+        {
+            if (confirmed.blind && publish.value != requested) liveCompare.blindHeard.restart();
             liveCompare.renderer.requestAlign (publish.value, estimate.alignContext, publish.revision);
+        }
     }
     liveCompare.candidateUnconfirmed.store (false, std::memory_order_release);
     return ! unreadable || slightlyLate;
