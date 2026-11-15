@@ -249,7 +249,9 @@ void View::resized()
     // Keep all action slots, and reserve a full-width row only when the rail cannot fit it.
     if (!captureFrame && !folded && feedbackText.isNotEmpty())
     {
-        const auto font = monoFont (context, typography::TextRole::legend);
+        const auto font = feedbackText == "Cannot write to folder. Check access."
+            ? footer_notice_font::fontForText (context, feedbackText, sessionArea.getWidth())
+            : monoFont (context, typography::TextRole::legend);
         const int reservedChain = chainReadoutText.isEmpty() ? 0 : juce::roundToInt (text_style::shownWidth (
             monoFont (context, typography::TextRole::action), "LOAD 100%/100%")) + 12;
         if (text_style::shownWidth (font, feedbackText) > sessionArea.getWidth() - reservedChain - 8)

@@ -8,6 +8,7 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Cannot write to folder. Check access.", u8"保存先に書き込めません。アクセスを確認してください" },
     // Why a control or key did nothing, or why the view changed by itself (2026-11-11).
     { "Copied", u8"コピーしました" },
     { "Delta has no M/S; showing one channel", u8"DeltaにM/Sは無いため、1chで表示します" },

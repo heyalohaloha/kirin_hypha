@@ -52,6 +52,7 @@ inline std::vector<Notice> notices()
         state.observation = RecoveryReason::reaperDelayUnverified; state.reaperRestriction = restriction;
         add (live_compare_ui::namedPresentation (state).instruction, state);
     }
+    add ("Cannot write to folder. Check access.");
     add ("MATCH waits for more signal");
     add ("Repeated audio: checked per block");
     add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());

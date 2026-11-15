@@ -67,6 +67,7 @@ bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
 
 StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t> pressedTicket)
 {
+    blindStorageFailed.store (false, std::memory_order_release);
     const juce::ScopedLock pairLock (automaticPair.lock);
     using Phase = hypha::local_blind::ProductSessionPhase;
     const auto permission = pressedTicket.value_or (liveCompare.authority.ticket());
@@ -110,6 +111,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     if (! admitted)
     {
         if (startedHere) stopLiveCompare();
+        if (epoch == 1) { blindStorageFailed.store (true, std::memory_order_release); return StartResult::notReady; }
         return StartResult::comparisonBusy;
     }
     const bool borrowedCandidateScope = candidateScopeBeforeBlind != 0 && epoch == candidateScopeBeforeBlind;

@@ -75,6 +75,7 @@ public:
 #include "PrecisionProcessorApi.h"
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
+    bool liveBlindStorageFailed() const noexcept { return blindStorageFailed.load (std::memory_order_acquire); }
     hypha::update::ServiceOwner& updateServicesForEditor() noexcept { return updateServiceOwner; }
     juce::AudioProcessorParameter* getBypassParameter() const override;
     // Editor (message thread) reads the latest RT result. Null handle / lock contention -> false.
@@ -392,6 +393,7 @@ private:
     hypha::local_blind::LocalBlindProductSession localBlindProductSession;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
     hypha::live_compare::ProcessorState liveCompare;
+    std::atomic<bool> blindStorageFailed { false };
     std::atomic<std::uint64_t> localBlindProductSerial { 0 };
 #if JUCE_DEBUG
     std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };

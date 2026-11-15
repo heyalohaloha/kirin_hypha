@@ -27,6 +27,9 @@ void verifyAllListenText (Require require)
                          ? juce::String::fromUTF8 (u8"書き出し中です。終わってから押してください")
                          : juce::String ("Rendering offline: press again after it finishes")),
                  "offline return notice has the intended wording in each language");
+        if (language == i18n::Language::japanese)
+            require (i18n::tr ("Cannot write to folder. Check access.") != "Cannot write to folder. Check access.",
+                     "storage failure guidance is translated");
         for (const auto& item : notices)
             inventory += juce::String (static_cast<int> (language)) + "\t" + item.text + "\t"
                 + text_style::shownText (item.text) + "\n";
@@ -36,7 +39,8 @@ void verifyAllListenText (Require require)
             for (int session : { 0, 1, 2 }) // listening, entry refusal / END, held POST attenuation
             for (const auto& item : notices)
             {
-                if (width > 450 && item.text != "Rendering offline: press again after it finishes") continue;
+                if (width > 450 && item.text != "Rendering offline: press again after it finishes"
+                    && item.text != "Cannot write to folder. Check access.") continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
                 named.setChainReadout (chain ? "CHAIN LOAD 100% / 100%" : "", true);
@@ -58,8 +62,9 @@ void verifyAllListenText (Require require)
                 const auto pixels = painted.createComponentSnapshot (painted.getLocalBounds());
                 const auto room = painted.getLocalBounds().reduced (named.statusStripFolded() ? 6 : 3,
                                                                     named.statusStripFolded() ? 0 : 1);
-                const auto font = monoFont (named.presentationContext(), footer_notice_font::roleForText (
-                    named.presentationContext(), item.text, room.getWidth()));
+                const auto font = footer_notice_font::fontForText (named.presentationContext(), item.text, room.getWidth());
+                if (item.text == "Cannot write to folder. Check access.")
+                    require (font.getHeight() >= 14.0f, "storage guidance is readable at every size");
                 const bool complete = pixels.isValid()
                     && withoutWhitespace (actual.texts().joinIntoString ("")) == withoutWhitespace (text_style::shownText (item.text))
                     && text_style::shownWrappedHeight (item.text, font, room.getWidth()) <= room.getHeight() + 0.5f;
