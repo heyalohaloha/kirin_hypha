@@ -155,6 +155,9 @@ inline std::vector<BlindCase> blindCases()
       state.trial.active = state.trial.revealed = true; state.trial.played = 3;
       state.trial.usedPostFallback = state.trial.fallbackForTiming = state.trial.fallbackForCeiling = candidate;
       add (state, true, 1.0f); add (state, true, 0.0630957f); }
+    // A finished preparation keeps its timing failure even when the previous wait remains prolonged.
+    { LiveBlindStatus state; state.stage = BlindStage::failed; state.waiting = MatchFailure::notProven;
+      state.prolongedWait = state.timingUnavailable = true; add (state, true, 1.0f); add (state, true, 0.0630957f); }
     // A to B BLIND adds the chain to the END line; the longest level is 24 dB.
     for (auto stage : { BlindStage::approval, BlindStage::active, BlindStage::finishing, BlindStage::invalidated })
     { LiveBlindStatus state; state.candidate = true; state.stage = stage; state.lowerPostDb = -24.0;

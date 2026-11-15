@@ -33,12 +33,13 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     const bool live = current.stage == Stage::active && !current.trial.invalidated;
     const bool revealed = live && current.trial.revealed;
     const bool finishing = current.stage == Stage::finishing;
+    const bool failed = current.stage == Stage::failed;
     const bool stopped = current.stage == Stage::invalidated || current.trial.invalidated;
     const auto guidance = live_compare_ui::blindRecovery (current, stopped);
     // INV-LC10: after REVEAL a standing content notice gives way to RESULT, which states its amount.
     const bool noticeOnly = ! stopped && current.contentHeld
         && juce::String (guidance.instruction) == live_compare_ui::chainDelayNotice();
-    screen.guidanceShown = stopped || (current.prolongedWait && ! (revealed && noticeOnly && current.contentNoticeMs != 0.0));
+    screen.guidanceShown = ! failed && (stopped || (current.prolongedWait && ! (revealed && noticeOnly && current.contentNoticeMs != 0.0)));
     screen.cause = screen.guidanceShown && !current.signalWait ? live_compare_ui::cause (guidance.reason) : "";
     screen.recovery = screen.guidanceShown ? guidance.instruction : "";
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
@@ -47,7 +48,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     // A lower level always says why: BLIND matched on the quieter side so nothing goes over the ceiling.
     const juce::String loweredLevel = "Lowered " + juce::String (returnDb, 1) + " dB to avoid clipping; END restores it";
     juce::String instruction, explanation = returnDb > 0.05 ? loweredLevel : normalLevel;
-    if (current.stage == Stage::failed)
+    if (failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange ? "MATCH over 24 dB"
             : current.waiting == live_compare::MatchFailure::notProven ? "No MATCH: timing not confirmed"
             : current.waiting == live_compare::MatchFailure::tooShort || current.waiting == live_compare::MatchFailure::notEnoughSignal
@@ -117,7 +118,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.revealEnabled = current.trial.played == 3 && (! guess.asked || guess.answer == 1 || guess.answer == 2);
     if (guess.asked) screen.revealTitle = "Reveal the sources after choosing an answer";
     // Keep an earned REVEAL reachable; ALIGN OFF only replaces an unavailable action.
-    screen.alignOffShown = !stopped && !finishing && current.prolongedWait
+    screen.alignOffShown = !failed && !stopped && !finishing && current.prolongedWait
         && guidance.reason == live_compare::RecoveryReason::contentAmbiguous
         && !(screen.revealShown && current.trial.played == 3);
     screen.approveShown = current.stage == Stage::approval && !current.compensationOff;

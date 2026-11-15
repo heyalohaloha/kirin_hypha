@@ -53,6 +53,9 @@ template<class Require> void verifyLiveBlindPreparationDeadline (Require require
     require (status.stage == BlindStage::failed && status.waiting == MatchFailure::notEnoughSignal
                  && ! post.liveCompareStatus().active,
              "thirty seconds of playback end the preparation with its reason and POST is normal");
+    const auto screen = live_blind_ui::screenFor (status, true, post.liveCompareStatus().postActual);
+    require (! screen.guidanceShown && screen.instruction == "No MATCH: not enough signal",
+             "the screen retains the signal failure instead of waiting for more playback");
 }
 
 // The DAW stops during the preparation and calls nothing while it is stopped (its last callback said
@@ -129,10 +132,27 @@ template<class Require> void verifyLiveBlindDeadlineReturnsPost (Require require
     const auto status = post.liveBlindStatus();
     require (status.stage == BlindStage::failed && status.waiting == MatchFailure::notProven
                  && ! post.liveCompareStatus().active, "30 s of playback end the preparation with its reason");
+    const auto failedScreen = live_blind_ui::screenFor (status, true, post.liveCompareStatus().postActual);
+    require (! failedScreen.guidanceShown && ! failedScreen.alignOffShown
+                 && failedScreen.instruction == "No MATCH: timing not confirmed",
+             "the actual screen puts the final reason ahead of recovery guidance");
     host.render (60, false, false);
     const auto after = post.liveCompareStatus();
     require (after.postTarget == 1.0f && after.postActual == 1.0f && ! after.finishing
                  && post.liveBlindStatus().stage == BlindStage::failed && post.liveBlindStatus().waiting == MatchFailure::notProven,
              "POST rises to normal by itself while the reason stays on the screen");
+    host.render (400, false, false); // more than three seconds after unity, with callbacks still going
+    const auto later = post.liveBlindStatus();
+    const auto laterScreen = live_blind_ui::screenFor (later, true, post.liveCompareStatus().postActual);
+    require (later.stage == BlindStage::failed && later.waiting == MatchFailure::notProven
+                 && ! laterScreen.guidanceShown && ! laterScreen.alignOffShown
+                 && laterScreen.instruction == "No MATCH: timing not confirmed",
+             "the actual screen keeps the final reason after the return and the old wait notice ages");
+    auto stale = later; stale.trial.invalidated = true; stale.prolongedWait = stale.contentHeld = true;
+    stale.observation = RecoveryReason::contentAmbiguous;
+    const auto staleScreen = live_blind_ui::screenFor (stale, true, 1.0f);
+    require (! staleScreen.guidanceShown && ! staleScreen.alignOffShown
+                 && staleScreen.instruction == "No MATCH: timing not confirmed",
+             "a failed preparation never revives stale recovery controls or hides its reason");
 }
 }

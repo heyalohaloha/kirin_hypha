@@ -88,9 +88,10 @@ void verifyAllListenText (Require require)
                 require (named.analysisBodyBounds() == originalBody, "clearing notice restores analysis space");
                 ++namedCount;
             }
-            if (width > 450) continue;
             for (const auto& item : blindCases)
             {
+                if (width > 450 && ! (item.state.stage == live_compare::BlindStage::failed
+                    && item.state.waiting == live_compare::MatchFailure::notProven && item.state.prolongedWait)) continue;
                 blind.setSize (width, width * 2 / 3); blind.setState (item.state, item.playing, item.post);
                 const auto pixels = blind.createComponentSnapshot (blind.getLocalBounds());
                 require (pixels.isValid(), "BLIND screen rendered");
