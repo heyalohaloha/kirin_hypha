@@ -33,7 +33,7 @@ void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC
 void returnLiveComparePostToNormal() noexcept;
 bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
-hypha::live_compare::WideOffset searchLiveCompareWideOffset();
+hypha::live_compare::WideOffset searchLiveCompareWideOffset (bool recentFirst = false);
 void serviceLiveContentTiming();
 bool alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step&, const hypha::live_compare::OffsetEstimate&) noexcept;
 bool liveCompareAlignPending() const noexcept;

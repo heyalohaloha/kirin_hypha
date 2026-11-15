@@ -198,6 +198,7 @@ struct ProcessorState
     MatchPlan namedMatchPlan;
     OffsetMonitor contentMonitor;
     OffsetMonitor::Step contentStep;
+    bool contentDoubt = false; // message thread, INV-LC7: a window since did not confirm the settled position
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
     std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a notice (INV-LC10)

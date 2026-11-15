@@ -46,7 +46,7 @@ hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareO
 
 // Message thread, INV-LC7: a wide, coarse search proposes where the fine search looks; it is no
 // evidence itself. The same lock, session and ring checks as the fine search.
-hypha::live_compare::WideOffset KirinHyphaProcessorBase::searchLiveCompareWideOffset()
+hypha::live_compare::WideOffset KirinHyphaProcessorBase::searchLiveCompareWideOffset (bool recentFirst)
 {
     const juce::ScopedTryLock formatLock (handleLock);
     if (! formatLock.isLocked() || formatChangeHeld.load (std::memory_order_acquire)) return {};
@@ -54,6 +54,12 @@ hypha::live_compare::WideOffset KirinHyphaProcessorBase::searchLiveCompareWideOf
     const auto* mapping = liveCompare.ring.control();
     if (mapping == nullptr || mapping->ring() == nullptr
         || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0) return {};
+    // A settled position that fresh windows no longer confirm: a delay added while playing shows in
+    // the latest seconds first, so those are searched before the whole history.
+    if (recentFirst)
+        for (const double seconds : { 2.0, 4.0 })
+            if (const auto recent = hypha::live_compare::searchWideOffset (*mapping->ring(), liveCompare.renderer,
+                    static_cast<std::int64_t> (preparedFormat.sampleRate * seconds)); recent.found) return recent;
     return hypha::live_compare::searchWideOffset (*mapping->ring(), liveCompare.renderer);
 }
 
@@ -112,7 +118,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.alignServiced = context;
         liveCompare.alignPreferenceSeen = preference;
         liveCompare.contentMonitor = {};
-        liveCompare.contentStep = {};
+        liveCompare.contentStep = {}; liveCompare.contentDoubt = false;
         liveCompare.offsetFacts = {};
         liveCompare.contentMonitorNext = 0;
         liveCompare.contentWindow = {};
@@ -129,7 +135,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.offsetCenter = 0;
         liveCompare.wideSearchNext = 0;
         liveCompare.contentMonitor = {};
-        liveCompare.contentStep = {};
+        liveCompare.contentStep = {}; liveCompare.contentDoubt = false;
         liveCompare.contentMonitorNext = 0;
         liveCompare.contentWindow = {};
     }
@@ -142,7 +148,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         ended.active = state.active;
         liveCompare.preAlign.transition (ended);
         liveCompare.contentMonitor = {};
-        liveCompare.contentStep = {};
+        liveCompare.contentStep = {}; liveCompare.contentDoubt = false;
         liveCompare.contentMonitorRun = run;
         liveCompare.contentMonitorNext = 0;
         liveCompare.contentWindow = {};
@@ -183,7 +189,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     if (estimate.windowReady && ! hypha::live_compare::offsetCanVote (estimate) && now >= liveCompare.wideSearchNext)
     {
         liveCompare.wideSearchNext = now + 1'000'000'000;
-        if (const auto wide = searchLiveCompareWideOffset(); wide.found && wide.lagFrames != liveCompare.offsetCenter)
+        if (const auto wide = searchLiveCompareWideOffset (liveCompare.contentDoubt); wide.found && wide.lagFrames != liveCompare.offsetCenter)
         {
             liveCompare.offsetCenter = wide.lagFrames;
             estimate = measureLiveCompareOffset();
@@ -197,11 +203,11 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
         liveCompare.contentAlignRevision = estimate.alignRevision;
         liveCompare.alignServiced = estimate.alignContext;
         liveCompare.contentMonitor = {};
-        liveCompare.contentStep = {};
+        liveCompare.contentStep = {}; liveCompare.contentDoubt = false;
         liveCompare.contentWindow = {};
     }
     const bool fast = state.contentHeld
-        || (liveCompareAutoAlign() && (liveCompare.renderer.alignPending() || ! liveCompare.contentStep.settled));
+        || (liveCompareAutoAlign() && (liveCompare.renderer.alignPending() || ! liveCompare.contentStep.settled || liveCompare.contentDoubt));
     liveCompare.contentMonitorNext = now + (fast ? 100'000'000 : 2'000'000'000);
     if (estimate.windowReady)
     {
@@ -220,6 +226,22 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
                                                 std::memory_order_release);
     }
     const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
+    // INV-LC7: a settled position that this fresh window did not confirm (a delay added between PRE
+    // and POST while playing moves no clock) is checked at the preparing pace again until two windows
+    // agree. PRE keeps playing where it is. A strong window elsewhere is told as unmeasured meanwhile.
+    if (estimate.windowReady && liveCompare.contentStep.settled && liveCompareAutoAlign())
+    {
+        if (! step.settled && ! liveCompare.contentDoubt) liveCompare.contentMonitorNext = now + 100'000'000;
+        liveCompare.contentDoubt = ! step.settled;
+        const auto apart = std::llabs (estimate.lagFrames - liveCompare.contentStep.lagFrames);
+        if (! step.settled && hypha::live_compare::offsetCanVote (estimate) && ! estimate.verifySamples
+            && estimate.alignRevision == liveCompare.renderer.alignRevision()
+            && static_cast<double> (apart) > std::floor (estimate.sampleRate * hypha::live_compare::offsetAgreementSeconds))
+        {
+            preAlignEvent (hypha::live_compare::PreAlignEvent::doubted);
+            liveCompare.candidateUnconfirmed.store (candidateCompareActive(), std::memory_order_release);
+        }
+    }
     if (step.settled) liveCompare.contentStep = step;
     if (step.settled) preAlignEvent (hypha::live_compare::PreAlignEvent::measured);
     const bool aligned = step.settled && alignLiveCompare (step, estimate);

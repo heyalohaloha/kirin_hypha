@@ -360,7 +360,7 @@ static WideOffset wideCorrelation (const WideSpectrum& post, const WideSpectrum&
     return wide;
 }
 
-WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
+WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer, std::int64_t recentFrames)
 {
     const auto view = renderer.historyView();
     if (view.samples == nullptr || ! view.kValid) return {};
@@ -376,7 +376,8 @@ WideOffset searchWideOffset (const Ring& ring, const PostRenderer& renderer)
     const auto spanEnd = std::min (view.end, preLast);
     // At most half the ring, so that PRE's writer never reaches the oldest copied frame.
     const auto longest = std::min (offsetWideFrames (rate), static_cast<std::int64_t> (ringCapacityFrames / 2));
-    const auto spanStart = std::max ({ view.start, retainedStart, preFirst, spanEnd - longest });
+    const auto spanStart = std::max ({ view.start, retainedStart, preFirst,
+                                       spanEnd - (recentFrames > 0 ? std::min (longest, recentFrames) : longest) });
     const auto overlap = static_cast<std::int64_t> (rate * offsetWideOverlapSeconds);
     if (spanEnd - spanStart < overlap + offsetWindowFrames) return {};
     const auto frames = spanEnd - spanStart;

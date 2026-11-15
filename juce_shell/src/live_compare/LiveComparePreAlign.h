@@ -27,6 +27,7 @@ enum class PreAlignEvent : std::uint8_t
     clockChanged,   // the Audio Thread's clock mapping moved on (a new session, a changed K): nothing is told yet
     transport,      // a seek, stop, loop or mode end: `active` says whether a comparison still runs
     measured,       // two agreeing strong windows settled: nothing unmeasured is left to tell
+    doubted,        // a strong window found the content away from the settled position: unmeasured until two agree
     estimate,       // a settled correction to publish, measured at `measuredRevision` against `measuredK`
     tick            // the periodic service: the budget and the kept correction
 };
@@ -71,6 +72,7 @@ public:
             case PreAlignEvent::clockChanged:
             case PreAlignEvent::measured: tell (false, false); break;
             case PreAlignEvent::transport: if (! in.active) tell (false, false); break;
+            case PreAlignEvent::doubted: tell (! in.host.candidate, false); break; // A/B says its A is unconfirmed
             case PreAlignEvent::estimate:
                 // An estimate measured against an older mapping proves nothing about this one. The
                 // Audio Thread refuses the old revision anyway; the kept K is the measured one, never

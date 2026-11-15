@@ -216,7 +216,10 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
 
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
   two seconds of settled playback Hypha also compares the audio itself. Initial alignment and
-  a changed clock mapping are checked every 100 ms using fresh, validated audio windows;
+  a changed clock mapping are checked every 100 ms using fresh, validated audio windows, and so is
+  a settled position that a fresh window did not confirm (an effect that reports no delay was
+  added while playing): PRE keeps playing where it is, the latest seconds are searched first, and
+  **Delay unmeasured** shows from the first strong window elsewhere until two windows agree;
   **Aligning PRE** shows that this check is incomplete. An EQ and a limiter between PRE and POST
   usually still confirm it, bass-heavy passages included: the rest of the spectrum shows the
   position. Initial silence, a held tone, very heavy processing or outboard between PRE and POST

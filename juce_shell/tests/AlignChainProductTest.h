@@ -209,6 +209,48 @@ inline void chainFindsLongDelays (int channels)
     }
 }
 
+// An effect that reports no delay is added between PRE and POST while PRE plays: POST's audio is
+// 250 ms later from one block to the next and no clock moves. PRE keeps playing at its clock
+// position; the first window that no longer confirms the settled position brings the content check
+// back to its preparing pace and the wide search to the latest seconds; the label says that the delay
+// is not measured from the first strong window elsewhere until two agree, and the correction follows.
+inline void chainFindsDelayAddedWhilePlaying (int channels)
+{
+    using namespace hypha::live_compare;
+    constexpr std::int64_t added = 12000;
+    const auto tracks = hypha::tests::chain_music::render (1068544 - 250000, 1800000, { 12.0, 12.0, 240, -12.0 });
+    ChunkedPost chain (channels);
+    chain.music = &tracks;
+    chain.setDelay (512);
+    auto& post = *chain.post;
+    selectPreparedPair (chain, "select the chain before the effect is added");
+    require (post.startLiveCompare() == StartResult::started, "LISTEN starts");
+    post.selectLiveComparePre (true);
+    chain.until (200, [&] { return post.liveCompareStatus().preAudible; }, "PRE plays before the effect is added");
+    chain.run (400); // settled: the content check is at its steady pace
+    require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 0 && ! post.liveCompareStatus().contentUnmeasured,
+             "PRE plays at its clock position, confirmed");
+    chain.contentK = 512 + added;
+    int chunks = 0, told = 0, firstTold = -1;
+    for (; chunks < 400 && post.liveCompareAlignFrames() != added; ++chunks)
+    {
+        chain.chunk();
+        const auto s = post.liveCompareStatus();
+        require (s.preAudible && ! s.preWaiting, "PRE keeps playing while the added delay is found");
+        if (s.contentUnmeasured && post.liveCompareAlignFrames() != added) { ++told; if (firstTold < 0) firstTold = chunks; }
+    }
+    std::printf ("delay added while playing: corrected after %d chunks (%.2f s), unmeasured told from chunk %d for %d chunks\n",
+                 chunks, chunks * 1024.0 / 48000.0, firstTold, told);
+    require (post.liveCompareAlignFrames() == added, "the added delay is found and PRE is read that much later");
+    require (firstTold >= 0 && told > 0, "from the first strong window elsewhere until two agree, the label says unmeasured");
+    require ((chunks - firstTold) * 1024 <= 48000 / 2, "two agreeing windows and the correction follow the first within half a second");
+    require (chunks * 1024 <= 4 * 48000, "the added delay is corrected within four seconds (ten at the steady pace over the whole history)");
+    chain.run (20);
+    require (post.liveCompareStatus().preAudible && ! post.liveCompareStatus().contentUnmeasured && post.liveCompareAlignFrames() == added,
+             "the correction plays and nothing is told as unmeasured");
+    chain.clean ("every PRE sample is at the address the renderer claims while the delay is found");
+}
+
 // BLIND never tells which source is PRE: under the same seeks, the waits' notices come at the same
 // chunks whichever source the listener has selected (the first source is PRE, then POST).
 inline void blindHoldTellsBothSourcesAlike (int channels)

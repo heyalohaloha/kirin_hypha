@@ -77,7 +77,9 @@ struct WideOffset
     std::int64_t lagFrames = 0; // the same sign as OffsetEstimate: positive when PRE plays late
     double peak = 0.0, dominance = 0.0;
 };
-WideOffset searchWideOffset (const Ring&, const PostRenderer&);
+// recentFrames > 0 looks only that far back: after a delay was added while playing, the older history
+// still shows the old position and outweighs the new one for seconds. A shorter span reaches less far.
+WideOffset searchWideOffset (const Ring&, const PostRenderer&, std::int64_t recentFrames = 0);
 
 // INV-LC10: time tolerances, independent of rate. GCC-PHAT's display threshold is too
 // permissive for a safety hold after clipping. Only a strong, unambiguous peak votes here.
