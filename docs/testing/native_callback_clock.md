@@ -68,3 +68,17 @@ the running worker with no dropped input.
 The optional `KirinProcessorWallClockTests --real-clock-control` restores the old real-clock
 route under the same 175 ms assertion and is expected to fail. It is a regression control,
 not a passing CTest case. The normal tests belong to the release-source inventory.
+
+## Named selection trace
+
+When an explicitly armed chain trace observes a named LISTEN selection in a POST callback,
+`selectionSeen` is true and `selectionCommand` records the exact command read by that callback.
+The command's high 32 bits are its selection serial; its low bit is the requested PRE selection.
+`selectionReadNanos` uses the same monotonic clock as `entryNanos` and `exitNanos`.
+`selectionAccepted` reports that this callback was eligible to apply the current named selection;
+`selectionAcceptedNanos` is its in-callback observation time, or zero when it was not eligible.
+These 64-bit values are JSON strings to preserve precision. Repeated eligible callbacks repeat the
+current command: use the first accepted row after a serial change, and start tracing before the
+operation to observe its first acceptance. Dropped callbacks and a trace started after the operation
+cannot establish that first time. Anonymous Blind selections do not populate these fields. The
+existing render and PCM observations show what was actually output; acceptance alone does not.

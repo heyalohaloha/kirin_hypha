@@ -97,6 +97,54 @@ static void verifyMatchChoiceControls()
     require (! popup.isVisible() && rig.post->liveCompareStatus().active, "LISTEN closes the choice and starts again");
 }
 
+static void verifySelectionTrace (const juce::File& sandbox)
+{
+    NoticeRig rig;
+    rig.selectPair(); rig.advance (0.2);
+    require (rig.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts for trace");
+    rig.expectOrdinaryAudio = false; rig.advance (0.5);
+    const auto folder = sandbox.getChildFile ("selection-trace");
+    require (folder.createDirectory().wasOk(), "trace uses the disposable fixture folder");
+    const auto previous = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_CHAIN_TRACE_DIR", {});
+   #if JUCE_WINDOWS
+    _putenv_s ("KIRIN_HYPHA_CHAIN_TRACE_DIR", folder.getFullPathName().toRawUTF8());
+   #else
+    setenv ("KIRIN_HYPHA_CHAIN_TRACE_DIR", folder.getFullPathName().toRawUTF8(), 1);
+   #endif
+    auto recorder = chain_trace::Recorder::fromEnvironment();
+   #if JUCE_WINDOWS
+    _putenv_s ("KIRIN_HYPHA_CHAIN_TRACE_DIR", previous.toRawUTF8());
+   #else
+    setenv ("KIRIN_HYPHA_CHAIN_TRACE_DIR", previous.toRawUTF8(), 1);
+   #endif
+    require (recorder != nullptr, "the trace recorder is armed");
+    LiveTimingFixtureAccess::traceForTest (*rig.post, std::move (recorder));
+    for (const bool pre : { false, true, false })
+    {
+        rig.post->selectLiveComparePre (pre);
+        rig.block();
+    }
+    LiveTimingFixtureAccess::traceForTest (*rig.post, {});
+    const auto files = folder.findChildFiles (juce::File::findFiles, true, "blocks.jsonl");
+    require (files.size() == 1, "the trace was flushed");
+    std::vector<std::uint64_t> commands;
+    const auto number = [] (const juce::var& value) { return static_cast<std::uint64_t> (value.toString().getLargeIntValue()); };
+    for (const auto& line : juce::StringArray::fromLines (files[0].loadFileAsString()))
+    {
+        const auto row = juce::JSON::parse (line);
+        if (! row.hasProperty ("selectionSeen") || ! static_cast<bool> (row["selectionSeen"])) continue;
+        require (static_cast<bool> (row["selectionAccepted"]), "a current named selection is accepted");
+        const auto entry = number (row["entryNanos"]), observed = number (row["selectionReadNanos"]);
+        const auto accepted = number (row["selectionAcceptedNanos"]), exit = number (row["exitNanos"]);
+        require (entry > 0 && entry <= observed && observed == accepted && accepted <= exit,
+                 "selection acceptance is timestamped inside its own audio callback");
+        commands.push_back (number (row["selectionCommand"]));
+    }
+    require (commands.size() == 3 && (commands[0] & 1u) == 0 && (commands[1] & 1u) != 0 && (commands[2] & 1u) == 0
+                 && (commands[0] >> 32) < (commands[1] >> 32) && (commands[1] >> 32) < (commands[2] >> 32),
+             "each accepted selection keeps its own callback and command serial");
+}
+
 struct GeometryCounter final : juce::ComponentListener
 {
     int changes = 0;
@@ -319,7 +367,7 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
 int main (int argc, char** argv)
 {
     const std::string part = argc > 1 ? argv[1] : "all";
-    if (part != "all" && part != "presentation" && part != "notices" && part != "host" && part != "choice")
+    if (part != "all" && part != "presentation" && part != "notices" && part != "host" && part != "choice" && part != "trace")
     {
         std::cerr << "unknown recovery product part: " << part << '\n';
         return 2;
@@ -346,5 +394,6 @@ int main (int argc, char** argv)
     }
     if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
     if (runs ("choice")) hypha::tests::editor_product::verifyMatchChoiceControls();
+    if (runs ("trace")) hypha::tests::editor_product::verifySelectionTrace (sandbox.directory());
     std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

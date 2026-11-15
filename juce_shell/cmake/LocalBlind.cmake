@@ -146,7 +146,7 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_include_directories(KirinLiveRecoveryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinLiveRecoveryProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
     # One part per item, with time for the fixture and slower native hosts.
-    foreach(part_budget IN ITEMS presentation:30 notices:120 host:45 choice:60)
+    foreach(part_budget IN ITEMS presentation:30 notices:120 host:45 choice:60 trace:60)
         string(REPLACE ":" ";" part_budget "${part_budget}")
         list(GET part_budget 0 part)
         list(GET part_budget 1 budget)

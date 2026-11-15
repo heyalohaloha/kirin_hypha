@@ -226,6 +226,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool preSelected = permitted && ! finishing && steady && ! blindRejected
         && (blindCommand.active() ? blindCommand.pre()
                                   : selection.pre());
+    if (trace != nullptr && ! blindCommand.active())
+        hypha::chain_trace::observeNamedSelection (*trace, selection.word, permitted && ! finishing && steady && ! blindRejected
+            && liveCompare.sessionActive.load (std::memory_order_relaxed));
     // END first removes PRE, then returns POST. A closed/retired ring still returns normally.
     const float heldTarget = postTarget;
     if (finishing) postTarget = 1.0f;
