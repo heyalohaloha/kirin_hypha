@@ -46,10 +46,10 @@ void Component::resized()
     {
         area.removeFromTop (panelGap());
         auto row = area.removeFromTop (panelPickerHeight());
-        const auto width = (row.getWidth() - 4) * 35 / 100;
+        const auto width = (row.getWidth() - 8) * 30 / 100;
         presetBox.setBounds (row.removeFromLeft (width)); row.removeFromLeft (4);
+        cueBox.setBounds (row.removeFromRight ((row.getWidth() - 4) * 35 / 100)); row.removeFromRight (4);
         checkBox.setBounds (row);
-        cueBox.setBounds (selectors.removeFromBottom (panelPickerHeight()));
     }
     else if (current.separateComparisons && ! blindSession)
     {
@@ -136,7 +136,8 @@ void Component::resized()
         }
         layoutPlayback (row);
     }
-    if (presentationContext.referenceCheck && ! blindSession) area.removeFromTop (16);
+    if (presentationContext.referenceCheck && ! blindSession
+        && (detailedLayout() || current.viewBindings.empty() || ! current.viewBindings.front().startsWith ("spectrum_"))) area.removeFromTop (16);
     area.removeFromTop (panelGap());
     const bool rowInPanel = ! statusInFooter();
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};

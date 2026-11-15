@@ -339,7 +339,7 @@ void Component::paint (juce::Graphics& g)
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
-    if (! rolePage() && ! (presentationContext.referenceCheck && ! detailedLayout()))  // 小さい C の見出しには Cue の欄を置く
+    if (! rolePage())  // 小さい C も見出しを残し、Cue は曲の隣に置く
     {
         g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
@@ -356,7 +356,8 @@ void Component::paint (juce::Graphics& g)
 
     if (presentationContext.referenceCheck && ! detailedLayout())
         area.removeFromTop (panelPickerHeight());
-    if (presentationContext.referenceCheck)
+    if (presentationContext.referenceCheck
+        && (detailedLayout() || current.viewBindings.empty() || ! current.viewBindings.front().startsWith ("spectrum_")))
     {
         g.setColour (COL_NORMAL);
         g.setFont (labelFont (presentationContext, typography::TextRole::body, typography::Composition::information));

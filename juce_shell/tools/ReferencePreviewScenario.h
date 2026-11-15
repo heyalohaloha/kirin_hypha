@@ -34,15 +34,18 @@ inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State st
     if (medians == nullptr || lowValues == nullptr || highValues == nullptr || balances == nullptr
         || centers->size() != medians->size() || centers->size() != lowValues->size()
         || centers->size() != highValues->size() || balances->size() != 4) return state;
+    const bool bExample = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_B", {}).isNotEmpty();
     auto reference = std::make_shared<reference_audition::KirinSpectrumWindow>();
     for (int i = 0; i < centers->size(); ++i)
     {
         reference->centersHz.push_back (static_cast<double> ((*centers)[i]));
         const auto octave = std::log2 (static_cast<double> ((*centers)[i]) / 100.0);
-        const auto level = -21.0 - 3.0 * octave + 2.2 * std::sin (octave * 1.3) + 0.7 * std::sin (octave * 3.1);
+        const auto highOctaves = std::max (0.0, std::log2 (static_cast<double> ((*centers)[i]) / 2000.0));
+        const auto level = bExample ? -21.0 - 3.0 * octave + 2.2 * std::sin (octave * 1.3) + 0.7 * std::sin (octave * 3.1)
+                                    : -23.0 - 2.5 * octave - 10.0 * highOctaves + 1.8 * std::sin (octave * 1.3);
         reference->medianDb.push_back (static_cast<float> (level));
-        reference->p10Db.push_back (static_cast<float> (level - 3.2));
-        reference->p90Db.push_back (static_cast<float> (level + 3.2));
+        reference->p10Db.push_back (static_cast<float> (level - (bExample ? 3.2 : 7.0)));
+        reference->p90Db.push_back (static_cast<float> (level + (bExample ? 3.2 : 7.0)));
     }
     reference->balanceDb = { -14.0, -18.0, -25.0, -33.0 };
     reference->frames = reference->wantedFrames = 160;
@@ -50,7 +53,9 @@ inline hypha::reference_ui::State previewScenario (hypha::reference_ui::State st
     for (size_t i = 0; i < live->medianDb.size(); ++i)
     {
         const auto octave = std::log2 (live->centersHz[i] / 100.0);
-        const auto delta = static_cast<float> (4.0 + 2.0 * std::sin (octave * 0.8));
+        const auto blend = juce::jlimit (0.0, 1.0, (octave - 1.0) / 5.0);
+        const auto delta = static_cast<float> (bExample ? 4.0 + 2.0 * std::sin (octave * 0.8)
+                                                         : 3.3 + 2.5 - 4.0 * blend + 0.3 * std::sin (octave));
         live->medianDb[i] += delta;
         live->p10Db[i] += delta - 0.7f;
         live->p90Db[i] += delta + 0.7f;

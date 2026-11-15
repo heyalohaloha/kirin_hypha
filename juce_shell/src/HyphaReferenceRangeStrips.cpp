@@ -191,8 +191,8 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
     if (prepared.empty()) return;
     if (context.referenceCheck && area.getHeight() < 140.0f && prepared.size() == 2)
     {
-        auto first = area.removeFromLeft ((area.getWidth() - 8.0f) * 0.5f);
-        area.removeFromLeft (8.0f);
+        auto first = area.removeFromLeft ((area.getWidth() - 28.0f) * 0.5f);
+        area.removeFromLeft (28.0f);
         paintRows (g, first, { prepared[0] }, sides, context);
         paintRows (g, area, { prepared[1] }, sides, context);
         return;
