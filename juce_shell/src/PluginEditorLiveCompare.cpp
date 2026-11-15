@@ -311,7 +311,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
             processorRef.isPlaying(), status.finishing, processorRef.candidateReturning()));
     }
     if ((liveCompareWarning.isEmpty() || status.finishing) && afterTail.action != hypha::live_compare_ui::AfterTail::none)
-        liveCompareWarning = hypha::live_compare_ui::afterTailNotice (afterTail.action, processorRef.isPlaying());
+        liveCompareWarning = hypha::live_compare_ui::afterTailNotice (afterTail.action, processorRef.isPlaying(), hypha::live_compare_ui::returnBlock (processorRef));
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));
@@ -469,12 +469,10 @@ void KirinHyphaEditor::serviceAfterTailPress()
     if (restoringGroup) return;
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
     {
-        const auto* bypass = processorRef.getBypassParameter();
-        const bool bypassed = bypass != nullptr && bypass->getValue() >= 0.5f;
-        const bool offline = processorRef.isNonRealtime();
-        // V/C/B end at 10 s; Keep keeps its two-minute tail wait (INV-AB6). POST's return goes on.
-        if (reference && nowSecs() - afterTail.since >= 10.0 && (bypassed || offline))
-        { afterTail = {}; showToast (offline ? hypha::live_compare_ui::offlineHoldsReturnNotice : hypha::live_compare_ui::bypassHoldsReturnNotice); }
+        const auto block = hypha::live_compare_ui::returnBlock (processorRef);
+        // V/C/B end at 10 s; Keep keeps its two-minute tail wait (INV-AB6) and says why. POST's return goes on.
+        if (reference && nowSecs() - afterTail.since >= 10.0 && block != hypha::live_compare_ui::ReturnBlock::none)
+        { afterTail = {}; showToast (block == hypha::live_compare_ui::ReturnBlock::offline ? hypha::live_compare_ui::offlineHoldsReturnNotice : hypha::live_compare_ui::bypassHoldsReturnNotice); }
         return;
     }
     if (afterTail.action == AfterTail::keepAll && nowSecs() < afterTail.nextGroupCheck) return;

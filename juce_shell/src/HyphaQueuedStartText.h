@@ -47,6 +47,26 @@ constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
     return "";
 }
 
+// POST's return after A/B cannot move while the host bypasses the plug-in or renders offline.
+enum class ReturnBlock : unsigned char { none, bypass, offline };
+template <class Processor> ReturnBlock returnBlock (Processor& processor)
+{
+    if (! (processor.candidateReturning() || processor.liveCompareStatus().finishing)) return ReturnBlock::none;
+    if (processor.isNonRealtime()) return ReturnBlock::offline;
+    const auto* bypass = processor.getBypassParameter();
+    return bypass != nullptr && bypass->getValue() >= 0.5f ? ReturnBlock::bypass : ReturnBlock::none;
+}
+
+// A Keep waiting for the tail while the return is blocked says why and that it still starts by itself.
+inline constexpr const char* keepBypassWaitNotice = "Bypass is on: Keep starts after it is off";
+inline constexpr const char* keepOfflineWaitNotice = "Rendering offline: Keep starts after it ends";
+constexpr const char* afterTailNotice (AfterTail action, bool playing, ReturnBlock block) noexcept
+{
+    const bool keep = action == AfterTail::keepPair || action == AfterTail::keepAll;
+    return keep && block == ReturnBlock::offline ? keepOfflineWaitNotice
+         : keep && block == ReturnBlock::bypass ? keepBypassWaitNotice : afterTailNotice (action, playing);
+}
+
 constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noexcept
 {
     switch (wait)

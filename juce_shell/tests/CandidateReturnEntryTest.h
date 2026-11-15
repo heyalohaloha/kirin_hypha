@@ -175,6 +175,10 @@ template<class Require> void verifyAfterTailBlockedReturn (Require require)
             if (action == AfterTail::keepPair || action == AfterTail::keepAll)
             {
                 require (waiting.action == action, "a blocked Keep keeps waiting for the tail past ten seconds");
+                require (returnBlock (post) == (offline ? ReturnBlock::offline : ReturnBlock::bypass)
+                             && juce::String (afterTailNotice (action, true, returnBlock (post)))
+                                    == (offline ? keepOfflineWaitNotice : keepBypassWaitNotice),
+                         "a blocked Keep says what blocks it and that it still starts by itself");
                 waiting.since = now - 121.0;
                 (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
                 require (waiting.action == AfterTail::none && candidateToast (*editor) == keepTailEndedNotice,

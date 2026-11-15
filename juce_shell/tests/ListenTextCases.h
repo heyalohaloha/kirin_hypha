@@ -83,6 +83,8 @@ inline std::vector<Notice> notices()
             add (live_compare_ui::queuedStartNotice (start, wait));
     add (live_compare_ui::bypassHoldsReturnNotice);
     add ("Rendering offline: press again after it finishes");
+    add (live_compare_ui::keepBypassWaitNotice);
+    add (live_compare_ui::keepOfflineWaitNotice);
     for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
                          live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
         for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));
