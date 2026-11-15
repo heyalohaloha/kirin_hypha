@@ -280,6 +280,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             {
                 bool returned = hypha::live_compare::candidateReturnReached (*ring, candidateToken, block, timing,
                     static_cast<std::uint32_t> (preparedFormat.sampleRate), returnProjection, returnTimingFresh);
+                auto settled = block; // the wrap coordinates the observer's clock proof corroborates
                 state.returnObserver.withRealtime ([&] (hypha::live_compare::CandidateReturnObserver& observer)
                 {
                     auto observed = block;
@@ -287,8 +288,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                     const bool drained = observer.reached (ring->header.candidate, candidateToken, observed,
                         static_cast<std::uint32_t> (preparedFormat.sampleRate));
                     returned = returned || drained;
+                    settled = observer.coordinates (block);
                 });
-                state.quietFrames.store (state.returnSettling.advance (candidateToken, block,
+                state.quietFrames.store (state.returnSettling.advance (candidateToken, settled,
                     static_cast<std::uint32_t> (preparedFormat.sampleRate), returned, timingEligible,
                     ring->header.candidate.withdrawn (candidateToken)), std::memory_order_release);
                 state.quietContext.store (returnContext, std::memory_order_release);

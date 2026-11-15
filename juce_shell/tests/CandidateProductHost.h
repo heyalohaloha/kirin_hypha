@@ -36,6 +36,7 @@ struct CandidateClock final : juce::AudioPlayHead
     std::int64_t clock = 0, delay = 0, offset = 0, loopStart = 0, loopLength = 0, continuousOffset = 0;
     bool playing = true, available = true;
     bool compensatedContent = false, auxiliaryAvailable = true, presentationAvailable = true;
+    bool tailBeforeStart = false; // a VST3 host's loop wrap: a delayed insert's position runs on before the loop start
     std::int64_t outputPresentation = 0;
     int source = 1, reportFrames = 0;
     double sampleRate = 48000.0;
@@ -47,7 +48,8 @@ struct CandidateClock final : juce::AudioPlayHead
         auto project = reported - delay + offset;
         if (loopLength > 0)
         {
-            project = loopStart + ((project - loopStart) % loopLength + loopLength) % loopLength;
+            project = tailBeforeStart ? loopStart + ((reported + offset - loopStart) % loopLength + loopLength) % loopLength - delay
+                                      : loopStart + ((project - loopStart) % loopLength + loopLength) % loopLength;
             info.setIsLooping (true); info.setBpm (120.0);
             info.setPpqPosition (static_cast<double> (project) / (sampleRate * 0.5));
             info.setLoopPoints (LoopPoints { static_cast<double> (loopStart) / (sampleRate * 0.5),

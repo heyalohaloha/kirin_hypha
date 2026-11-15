@@ -37,13 +37,15 @@ struct CandidateProcessorState
         const auto context = returnContext.load (std::memory_order_acquire);
         if (observedReturnContext != context) { returnContinuity = {}; returnSettling = {}; observedReturnContext = context; }
         bool reached = false;
+        auto settled = block;
         returnObserver.withRealtime ([&] (CandidateReturnObserver& observer)
         {
             auto observed = block;
             observed.clockValid = observed.clockValid && eligible;
             reached = observer.reached (observed, rate);
+            settled = observer.coordinates (block);
         });
-        quietFrames.store (returnSettling.advance (request, block, rate, reached, eligible), std::memory_order_release);
+        quietFrames.store (returnSettling.advance (request, settled, rate, reached, eligible), std::memory_order_release);
         quietContext.store (context, std::memory_order_release);
     }
     bool trackMismatch = false; // message thread, guidance only

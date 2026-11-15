@@ -61,6 +61,10 @@ struct CandidateReturnObserver
         std::int64_t address = 0;
         return checkedClockSubtract (block.clock, proof.k, address) && address >= marker;
     }
+    // After reached(): the block as this observer's clock proof corroborated it. The settling count
+    // reads these coordinates, so a wrap the proof accepts (a delayed insert's position before the
+    // loop start) is no break for the count either. A seek is never corroborated and still restarts it.
+    BlockClock coordinates (const BlockClock& block) const noexcept { return timing.corroboratedCoordinates (block); }
 };
 // Retired positions remain useful through an uninterrupted POST projection only. A seek,
 // missing clock or changed clock authority cannot turn an old return marker into new evidence.

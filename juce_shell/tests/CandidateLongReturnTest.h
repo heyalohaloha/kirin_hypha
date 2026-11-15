@@ -143,4 +143,45 @@ template<class Require> void verifyCandidateDeadlineTail (Require require)
     post.finishLiveCompare(); host.render (40, false, false, false);
     candidateBroadband = false;
 }
+// A VST3 host that wraps a delayed insert's position the reported delay before the loop start, in a
+// loop shorter than the four settling seconds: the return ends at its deadline while stopped, and the
+// tail's watch then counts across the wraps the clock proof corroborates, so it ends after four seconds
+// of looped playback. A seek still restarts the count.
+template<class Require> void verifyCandidateShortLoopTail (Require require)
+{
+    using namespace live_compare;
+    ValidationStorageSandbox isolated;
+    writeCandidateFixtureIdentity (require, isolated.directory());
+    constexpr std::int64_t loopStart = 64 * 24000, length = 96000; // two seconds
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.delayA = 1024; host.delayB = 3072;
+    for (std::size_t side = 0; side < host.instances.size(); ++side)
+    {
+        require (LiveTimingFixtureAccess::configureStudioProClock (*host.instances[side]), "the certified VST3 content clock");
+        auto& clock = host.clocks[side];
+        clock.compensatedContent = clock.tailBeforeStart = true;
+        clock.outputPresentation = side == 0 ? host.delayA + host.delayB : side == 1 ? host.delayB : 0;
+        clock.offset = clock.loopStart = loopStart; clock.loopLength = length;
+    }
+    host.pair(); auto& post = host.post();
+    host.render (400, false, false, false);
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "A/B starts in the short loop");
+    host.render (200, true, false, false);
+    post.finishLiveCompare(); host.render (20, true, false, false);
+    for (auto& clock : host.clocks) clock.playing = false;
+    host.render (960, false, false, false); // 10.2 s after END, stopped: only the deadline ends the return
+    const auto& state = LiveTimingFixtureAccess::candidateStateForTest (post);
+    require (! post.candidateReturning() && state.tail.load() != 0, "the deadline ends the return and leaves the tail");
+    for (auto& clock : host.clocks) clock.playing = true;
+    int blocks = 0, wraps = 0;
+    for (; blocks < 1500 && state.tail.load() != 0; ++blocks) // up to 16 s of looped playback
+    {
+        const auto before = host.clocks[2].getPosition()->getTimeInSamples();
+        host.render (1, false, false, false);
+        wraps += *host.clocks[2].getPosition()->getTimeInSamples() < *before ? 1 : 0;
+    }
+    std::printf ("A/B deadline tail in a 2 s loop: the watch ended after %.1f s of playback and %d wraps\n", blocks * 512.0 / 48000.0, wraps);
+    require (state.tail.load() == 0 && wraps >= 2, "the tail's watch ends across the wraps of a short loop");
+}
 }
