@@ -1,5 +1,6 @@
 #include "HyphaBlindScreen.h"
 #include "HyphaLanguage.h"
+#include "HyphaPreProcessingNotice.h"
 #include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaUnavailableReason.h"
 
@@ -205,8 +206,10 @@ void ScreenComponent::resized()
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     detail.setFont (labelFont (context, typography::TextRole::status, typography::Composition::information));
-    cause.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
-    recovery.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
+    const auto guidanceRole = shown.cause == live_compare_ui::preProcessingCause
+        ? typography::TextRole::listenChoice : typography::TextRole::body;
+    cause.setFont (labelFont (context, guidanceRole, typography::Composition::information));
+    recovery.setFont (labelFont (context, guidanceRole, typography::Composition::information));
     auto area = getLocalBounds().reduced (compact ? 12 : 24);
     const auto needed = [&] (const juce::Label& label)
     {

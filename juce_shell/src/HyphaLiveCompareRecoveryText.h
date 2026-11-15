@@ -183,7 +183,7 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
     if (! stopped)
     {
         if (state.candidate) return { reason, RecoveryAction::checkPre, candidateRecoveryText (false, false) };
-        if (reason == Reason::notWritten) return { reason, RecoveryAction::checkPre, "Play the DAW and check PRE is enabled" };
+        if (reason == Reason::notWritten) return { reason, RecoveryAction::automatic, "Keep playing; resumes when confirmed" };
         return { reason, RecoveryAction::automatic, "Keep playing; resumes when confirmed" };
     }
     if (reason == Reason::pairChanged || reason == Reason::preUnavailable || reason == Reason::foreignRing)

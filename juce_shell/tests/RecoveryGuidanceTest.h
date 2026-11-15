@@ -144,6 +144,42 @@ template <class Require> void verifyRecoveryGuidance (Require require)
                      && juce::String (presentation.instruction) == "No new PRE processing; DAW may pause it (POST)",
                  "a silent host can pause PRE callbacks without disabling PRE");
     }
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const bool firstPre : { false, true }) for (const int selected : { 1, 2 })
+        {
+            LiveBlindStatus waiting;
+            waiting.stage = BlindStage::active; waiting.prolongedWait = true;
+            waiting.observation = RecoveryReason::notWritten;
+            waiting.trial.firstPre = firstPre; waiting.trial.selected = selected;
+            const auto shown = live_blind_ui::screenFor (waiting, true, 1);
+            require (shown.cause == "No new PRE processing; DAW may pause it"
+                         && shown.recovery == "Keep playing; resumes when confirmed",
+                     "BLIND explains a host-paused PRE without asking to enable it or revealing a source");
+            require (language != i18n::Language::japanese || i18n::hasTranslation (shown.cause),
+                     "the PRE processing cause is translated");
+            for (const int width : { 300, 375, 450, 600, 750, 900 })
+            {
+                live_blind_ui::Component view; view.setSize (width, width * 2 / 3); view.setScreen (shown);
+                for (const auto* id : { "live-blind-text-4", "live-blind-text-5" })
+                {
+                    const auto* label = dynamic_cast<const juce::Label*> (view.findChildWithID (id));
+                    require (label != nullptr && label->getFont().getHeight() >= 14.0f,
+                             "the PRE processing guidance is readable at each size");
+                }
+            }
+        }
+    }
+    {
+        LiveBlindStatus waiting;
+        waiting.stage = BlindStage::active; waiting.prolongedWait = waiting.candidate = true;
+        waiting.observation = RecoveryReason::notWritten;
+        const auto shown = live_blind_ui::screenFor (waiting, true, 1);
+        require (shown.cause == "PRE data has not arrived"
+                     && shown.recovery == candidateRecoveryText (false, false),
+                 "A/B retains its own PRE1/PRE2 guidance");
+    }
     for (auto loop : { LoopPairingBlock::auCycle, LoopPairingBlock::aaxLoop })
     {
         Status named; named.active = named.prolongedWait = true; named.loopBlock = loop;

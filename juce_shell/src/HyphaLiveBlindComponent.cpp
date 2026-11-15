@@ -40,7 +40,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     const bool noticeOnly = ! stopped && current.contentHeld
         && juce::String (guidance.instruction) == live_compare_ui::chainDelayNotice();
     screen.guidanceShown = ! failed && (stopped || (current.prolongedWait && ! (revealed && noticeOnly && current.contentNoticeMs != 0.0)));
-    screen.cause = screen.guidanceShown && !current.signalWait ? live_compare_ui::cause (guidance.reason) : "";
+    screen.cause = screen.guidanceShown && !current.signalWait
+        ? (!stopped && !current.candidate && guidance.reason == live_compare::RecoveryReason::notWritten
+            ? live_compare_ui::preProcessingCause : live_compare_ui::cause (guidance.reason)) : "";
     screen.recovery = screen.guidanceShown ? guidance.instruction : "";
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
