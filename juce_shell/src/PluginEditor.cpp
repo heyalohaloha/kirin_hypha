@@ -1,5 +1,6 @@
 #include "HyphaPairLabels.h"
 #include "PluginEditor.h"
+#include "HyphaRecordBindingNotice.h"
 #include "HyphaKeyLight.h"
 #include "HyphaTextStyle.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -365,7 +366,9 @@ void KirinHyphaEditor::updateFeedback (
         comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     }
 
-    if (feedbackRead && shownNotice.isEmpty() && now >= toastUntil && persistentError.isEmpty()
+    const bool wavWaiting = persistentError == hypha::record_ui::wavWaiting;
+    if (feedbackRead && (shownNotice.isEmpty() || (wavWaiting && shownNotice == persistentError))
+        && now >= toastUntil && (persistentError.isEmpty() || wavWaiting)
         && ! keeping && ! pendingAutomaticNotices.isEmpty() && automaticNoticeMayShow())
     {
         toastText = pendingAutomaticNotices[0];

@@ -8,6 +8,7 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Measurements saved; waiting for Kirin OS audio (auto link)", u8"計測保存済み。Kirin OSの音源待ち（自動確定）" },
     { "Cannot write to folder. Check access.", u8"保存先に書き込めません。アクセスを確認してください" },
     // Why a control or key did nothing, or why the view changed by itself (2026-11-11).
     { "Copied", u8"コピーしました" },

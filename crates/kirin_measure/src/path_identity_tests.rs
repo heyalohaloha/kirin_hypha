@@ -5,6 +5,14 @@ fn fresh_events() -> test_scope::Capture {
     test_scope::capture()
 }
 
+#[test]
+fn read_only_observation_uses_the_same_quarantine_without_a_new_warning() {
+    let _events = fresh_events();
+    assert_eq!(observed_path_component("safe-id"), "safe-id");
+    assert_eq!(observed_path_component("../unsafe"), quarantine_name("../unsafe"));
+    assert!(drain_path_events().is_empty());
+}
+
 // ── wall: path-safety 判定 ───────────────────────────────────────────────
 #[test]
 fn safe_components_pass_through_unchanged() {

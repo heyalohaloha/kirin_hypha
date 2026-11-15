@@ -10,6 +10,11 @@ use crate::storage::StoragePaths;
 
 use super::{TriggerPairResolutionFn, TriggerStopResolutionFn};
 
+#[path = "io_thread_post_wav_binding.rs"]
+mod wav_binding;
+#[cfg(test)]
+pub(crate) use wav_binding::saved_pair_waits_for_audio;
+
 const ONE_SECOND: Duration = Duration::from_secs(1);
 const IO_TICK: Duration = Duration::from_millis(100);
 
@@ -42,6 +47,8 @@ pub(super) struct PostControlPolls {
     pair_label: PollDeadline,
     pre_liveness: PollDeadline,
     broadcasts: PollDeadline,
+    wav_binding: PollDeadline,
+    wav_binding_observer: wav_binding::WavBindingObserver,
     processed_keep: crate::broadcast_edge::BroadcastEdgeMemory,
     processed_stop: crate::broadcast_edge::BroadcastEdgeMemory,
 }
@@ -55,6 +62,8 @@ impl PostControlPolls {
             pair_label: PollDeadline::new(now, IO_TICK),
             pre_liveness: PollDeadline::new(now, ONE_SECOND),
             broadcasts: PollDeadline::new(now, IO_TICK),
+            wav_binding: PollDeadline::new(now, ONE_SECOND),
+            wav_binding_observer: wav_binding::WavBindingObserver::default(),
             processed_keep: crate::broadcast_edge::BroadcastEdgeMemory::default(),
             processed_stop: crate::broadcast_edge::BroadcastEdgeMemory::default(),
         }
@@ -76,6 +85,18 @@ impl PostControlPolls {
         trigger_pair_resolution: &TriggerPairResolutionFn,
         trigger_stop_resolution: &TriggerStopResolutionFn,
     ) {
+        if self.wav_binding.is_due(Instant::now()) {
+            let base = StoragePaths::default_platform()
+                .ok()
+                .map(|paths| paths.plugin_data_dir());
+            self.wav_binding_observer.poll(
+                base.as_deref(),
+                project_hash,
+                post_instance_id,
+                record_sm,
+            );
+            self.wav_binding.complete(Instant::now());
+        }
         if self.preset.is_due(Instant::now()) {
             super::record_ack::poll_preset_availability(
                 project_hash,
@@ -137,3 +158,7 @@ impl PostControlPolls {
 #[cfg(test)]
 #[path = "io_thread_post_polls_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "io_thread_post_wav_binding_tests.rs"]
+mod wav_binding_tests;

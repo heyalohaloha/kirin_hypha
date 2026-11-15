@@ -5,6 +5,7 @@
 //! 1スナップショットだけを読む。Audio Threadからは呼ばない。
 
 use crate::{DeltaMode, DeltaResult, DeltaSnapshot, MeasureResult, SessionSummary};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -33,6 +34,7 @@ pub struct RecordDisplaySnapshot {
 #[derive(Debug, Default)]
 pub struct RecordDisplayStore {
     inner: Mutex<RecordDisplaySnapshot>,
+    wav_binding_generation: AtomicU64,
 }
 
 impl RecordDisplayStore {
@@ -54,6 +56,7 @@ impl RecordDisplayStore {
             status: RecordDisplayStatus::Live,
             ..RecordDisplaySnapshot::default()
         };
+        self.wav_binding_generation.store(0, Ordering::Release);
     }
 
     pub fn mark_measure_started(&self, generation: u64) {
@@ -168,6 +171,7 @@ impl RecordDisplayStore {
     pub fn abandon(&self, generation: u64) {
         let mut state = self.lock();
         if state.generation == generation {
+            self.wav_binding_generation.store(0, Ordering::Release);
             *state = RecordDisplaySnapshot {
                 generation,
                 status: RecordDisplayStatus::Dismissed,
@@ -196,12 +200,45 @@ impl RecordDisplayStore {
         self.inner.try_lock().ok().map(|state| state.clone())
     }
 
+    pub fn set_wav_binding_pending(&self, generation: u64, pending: bool) {
+        let state = self.lock();
+        if state.generation == generation && wav_binding_status_allowed(generation, state.status) {
+            self.wav_binding_generation.store(
+                if pending {
+                    generation.checked_add(1).unwrap_or(0)
+                } else {
+                    0
+                },
+                Ordering::Release,
+            );
+        }
+    }
+
+    pub fn try_wav_binding_pending(&self, generation: u64) -> Option<bool> {
+        self.inner.try_lock().ok().map(|state| {
+            state.generation == generation
+                && wav_binding_status_allowed(generation, state.status)
+                && generation.checked_add(1).is_some_and(|encoded| {
+                    self.wav_binding_generation.load(Ordering::Acquire) == encoded
+                })
+        })
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, RecordDisplaySnapshot> {
         match self.inner.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         }
     }
+}
+
+fn wav_binding_status_allowed(generation: u64, status: RecordDisplayStatus) -> bool {
+    (generation == 0 && status == RecordDisplayStatus::Empty)
+        || (generation != 0
+            && matches!(
+                status,
+                RecordDisplayStatus::Finalized | RecordDisplayStatus::Dismissed
+            ))
 }
 
 fn materialize_last_active(delta: DeltaResult) -> DeltaResult {
@@ -386,5 +423,26 @@ mod tests {
 
         store.begin(9);
         assert!(store.snapshot().pair_pre_instance_id.is_none());
+    }
+
+    #[test]
+    fn wav_binding_notice_is_generation_bound_and_nonblocking() {
+        let store = RecordDisplayStore::default();
+        store.begin(1);
+        store.set_wav_binding_pending(1, true);
+        assert_eq!(store.try_wav_binding_pending(1), Some(false));
+        store.request_stop(1);
+        store.set_wav_binding_pending(1, true);
+        assert_eq!(store.try_wav_binding_pending(1), Some(true));
+        let guard = store.lock();
+        assert_eq!(store.try_wav_binding_pending(1), None);
+        drop(guard);
+        store.begin(2);
+        store.set_wav_binding_pending(1, true);
+        assert_eq!(store.try_wav_binding_pending(2), Some(false));
+        store.request_stop(2);
+        store.set_wav_binding_pending(2, true);
+        store.abandon(2);
+        assert_eq!(store.try_wav_binding_pending(2), Some(false));
     }
 }

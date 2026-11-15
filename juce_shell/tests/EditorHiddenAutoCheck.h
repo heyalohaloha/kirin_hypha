@@ -74,6 +74,15 @@ inline void verifyAutomaticNoticeDelivery()
     (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
     require (editor->*privateMember (AutoNoticeShown {}) == "First queued", "new arrivals do not overtake a waiting notice");
     expire(); require (editor->*privateMember (AutoNoticeShown {}) == "Second queued", "the later notice follows in order");
+    expire();
+    const juce::String wavWaiting = "Measurements saved; waiting for Kirin OS audio (auto link)";
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, wavWaiting);
+    (editor->*automatic) ("Page notice", true);
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, wavWaiting);
+    require (editor->*privateMember (AutoNoticeShown {}) == "Page notice", "audio wait never hides a page-change notice");
+    editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, wavWaiting);
+    require (editor->*privateMember (AutoNoticeShown {}) == wavWaiting, "audio wait returns after the page notice");
 }
 
 inline int runAutomaticNoticeDelivery()

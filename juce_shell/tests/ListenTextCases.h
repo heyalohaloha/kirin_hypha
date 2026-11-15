@@ -53,6 +53,7 @@ inline std::vector<Notice> notices()
         add (live_compare_ui::namedPresentation (state).instruction, state);
     }
     add ("Cannot write to folder. Check access.");
+    add ("Measurements saved; waiting for Kirin OS audio (auto link)");
     add ("MATCH waits for more signal");
     add ("Repeated audio: checked per block");
     add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());

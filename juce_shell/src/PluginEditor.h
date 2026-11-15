@@ -486,6 +486,7 @@ private:
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
+    bool recordWavBindingWaiting = false;
     std::uint64_t observedHostProcessHeartbeat = 0;
     double observedHostProcessHeartbeatAt = 0.0;
     hypha::appearance::Snapshot appearanceSnapshot;

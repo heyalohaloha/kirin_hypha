@@ -82,6 +82,7 @@ public:
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
     bool pollRecordDisplay (KirinRecordDisplay& out) const; bool pollMeterSession (KirinMeterSession& out) const;
+    bool pollRecordWavBindingWaiting (bool& waiting) const;
     bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
     bool pollLevelSnapshot (KirinLevelSnapshot& out,
                             std::vector<KirinMeterHistoryEntry>& history,

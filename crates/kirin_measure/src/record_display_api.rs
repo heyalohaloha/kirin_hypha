@@ -45,4 +45,19 @@ impl RecordStateMachine {
     pub fn try_record_display_snapshot(&self) -> Option<crate::RecordDisplaySnapshot> {
         self.record_display.try_snapshot()
     }
+
+    pub fn set_record_wav_binding_pending(&self, generation: u64, pending: bool) {
+        if generation == self.generation() && !self.is_recording() {
+            self.record_display
+                .set_wav_binding_pending(generation, pending);
+        }
+    }
+
+    pub fn try_record_wav_binding_pending(&self) -> Option<bool> {
+        if self.is_recording() {
+            return Some(false);
+        }
+        self.record_display
+            .try_wav_binding_pending(self.generation())
+    }
 }

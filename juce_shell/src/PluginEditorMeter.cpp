@@ -2,6 +2,7 @@
 #include "HyphaKeepPreWait.h"
 #include "HyphaChainTimingPreference.h"
 #include "HyphaChainTimingText.h"
+#include "HyphaRecordBindingNotice.h"
 
 void KirinHyphaEditor::refreshWatchSnapshot()
 {
@@ -119,6 +120,9 @@ void KirinHyphaEditor::updatePost()
     observatoryView.setChainReadout (chain.text, chain.caution);
 
     const auto recordError = processorRef.recordErrorMessage();
+    const auto liveWarning = liveCompareWarningText();
+    if (keepActive) recordWavBindingWaiting = false;
+    else processorRef.pollRecordWavBindingWaiting (recordWavBindingWaiting);
     const juce::String status = anomalyActive ? pathAnomalyText
                               : recordError.isNotEmpty() ? recordError
                               : recordPhase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
@@ -127,7 +131,9 @@ void KirinHyphaEditor::updatePost()
                               : armed ? juce::String ("Ready to bounce")
                               : keepPreWaitSince > 0.0
                                   ? juce::String (hypha::keep_ui::waitingLine.data(), hypha::keep_ui::waitingLine.size())
-                              : liveCompareWarningText();
+                              : liveWarning.isNotEmpty() ? liveWarning
+                              : recordWavBindingWaiting ? juce::String (hypha::record_ui::wavWaiting)
+                              : juce::String();
     updateFeedback (now, now < bannerUntil, status);
 
     refreshWatchSnapshot();
