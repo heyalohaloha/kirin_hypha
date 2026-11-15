@@ -40,6 +40,12 @@ struct MatchChoiceMember
     friend Type privateMember (MatchChoiceMember);
 };
 template struct PrivateAccess<MatchChoiceMember, &KirinHyphaEditor::matchChoicePopup>;
+struct MatchShortcut
+{
+    using Type = void (KirinHyphaEditor::*) (shortcuts::Command);
+    friend Type privateMember (MatchShortcut);
+};
+template struct PrivateAccess<MatchShortcut, &KirinHyphaEditor::performShortcut>;
 
 static void verifyMatchChoiceControls()
 {
@@ -61,6 +67,17 @@ static void verifyMatchChoiceControls()
     auto* pre = button ("observatory-live-pre");
     auto* end = button ("observatory-live-end");
     auto* listen = button ("observatory-live-compare");
+    auto* match = button ("observatory-live-match");
+    for (const bool keyboard : { false, true })
+    {
+        if (keyboard) (rig.editor.get()->*privateMember (MatchShortcut {})) (shortcuts::Command::matchListen);
+        else match->onClick();
+        open(); // deliver the same measured choice to the editor without a desktop window
+        auto* focus = juce::Component::getCurrentlyFocusedComponent();
+        require (popup.isVisible() && rig.editor->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey))
+                     && ! popup.isVisible(), "Esc closes MATCH after button and shortcut requests");
+        require (juce::Component::getCurrentlyFocusedComponent() == focus, "Esc leaves the existing focus in place");
+    }
     for (const int width : { 300, 375, 450, 600, 750, 900 })
     {
         rig.editor->setSize (width, width * 2 / 3);
