@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonNotices.h"
 #include "HyphaBlindResultImage.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
@@ -72,7 +73,7 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
         else showToast (processorRef.liveBlindStorageFailed() ? "Cannot write to folder. Check access."
                       : result == StartResult::returnPending ? "Ended; POST back to normal within 0.5 s"
                       : result == StartResult::returnRequired ? "Press RETURN first"
-                      : result == StartResult::comparisonBusy ? "End the current comparison first"
+                      : result == StartResult::comparisonBusy ? hypha::comparison_ui::endThenRetry
                                                             : "BLIND COMPARE COULD NOT START");
         return;
     }

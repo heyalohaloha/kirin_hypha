@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonNotices.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaLiveStartAfterReturn.h"
@@ -11,7 +12,7 @@ const char* hypha::live_compare_ui::startFailure (StartResult result) noexcept
     {
         case StartResult::started:
         case StartResult::notPost:           return "";
-        case StartResult::comparisonBusy:    return "End the current comparison first";
+        case StartResult::comparisonBusy:    return hypha::comparison_ui::endThenRetry;
         case StartResult::returnPending:     return "Ended; POST back to normal within 0.5 s";
         case StartResult::returnRequired:    return "Press RETURN first";
         case StartResult::notReady:          return "LISTEN could not start";

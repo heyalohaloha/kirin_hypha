@@ -171,7 +171,7 @@ const Entry entries[] = {
     { "Waiting up to 10 s, then B", u8"最大10秒後にBを再生" },
     { "Play to continue, then Keep", u8"再生すると続き、そのあとKeepを始めます" },
     { "MATCH waits until A has played the Cue length (up to 30 s).", u8"Aがたまり次第MATCHします（最長30秒）" },
-    { "Realtime bounce records what you hear; END first", u8"リアルタイム書き出しは聴く音が入ります。先にEND" },
+    { "Before realtime bounce, press END and wait for normal level", u8"リアルタイム書き出し前にENDを押し、音量が戻るのを待つ" },
     // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
     { "LISTEN is restoring; try again in a moment", u8"LISTENを戻しています。少し待ってください" },
     { "End Blind Compare first", u8"先にBlind Compareを終えてください" },

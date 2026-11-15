@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonNotices.h"
 
 // What each command does: the same request a click makes, never a click on a hidden button and never
 // the processor directly, so a key cannot do what the button would have refused.
@@ -80,7 +81,7 @@ void KirinHyphaEditor::performComparisonShortcut (Command command)
             const auto& footer = observatoryView.liveCompareFooter();
             if (footer.postHeldTenthsDb >= 0) showActionNotice ("POST is at its normal level");
             else if (footer.finishing) showActionNotice ("Ended; POST back to normal within 0.5 s");
-            else if (footer.active) showActionNotice ("End the current comparison first");
+            else if (footer.active) showActionNotice (hypha::comparison_ui::endThenRetry);
             else requestNormalLevelReturn();
             break;
         }
@@ -89,7 +90,7 @@ void KirinHyphaEditor::performComparisonShortcut (Command command)
             // The same two menus as the A/B button: PRE2, then the placement. The key never starts A/B.
             const auto context = shortcutContext();
             if (context.candidateCompareActive) showActionNotice ("A/B is on");
-            else if (context.listen) showActionNotice ("End the current comparison first");
+            else if (context.listen) showActionNotice (hypha::comparison_ui::endThenRetry);
             else if (! observatoryView.liveCompareFooter().entryEnabled)
                 showActionNotice (*liveCompareEntryRefusal (false) != 0 ? liveCompareEntryRefusal (false) : "A/B could not start");
             else showCandidateCompareMenu();

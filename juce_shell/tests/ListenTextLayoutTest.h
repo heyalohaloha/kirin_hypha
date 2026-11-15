@@ -43,6 +43,10 @@ void verifyAllListenText (Require require)
             for (const auto& item : notices)
                 if (item.text.startsWith ("Waiting up to 10 s, then "))
                     require (i18n::tr (item.text) != item.text, "automatic wait guidance is translated");
+        if (language == i18n::Language::japanese)
+            for (const auto* text : { "Before realtime bounce, press END and wait for normal level",
+                                      "Press END to finish the current comparison, then try again" })
+                require (i18n::tr (text) != text, "comparison instructions are translated");
         for (const auto& item : notices)
             inventory += juce::String (static_cast<int> (language)) + "\t" + item.text + "\t"
                 + text_style::shownText (item.text) + "\n";
@@ -57,7 +61,9 @@ void verifyAllListenText (Require require)
                     && item.text != "2MIX has no DRUM; showing TIME / HISTORY"
                     && item.text != "Measurements saved; waiting for Kirin OS audio (auto link)"
                     && item.text != "No new PRE processing; DAW may pause it (POST)"
-                    && ! item.text.startsWith ("Waiting up to 10 s, then ")) continue;
+                    && ! item.text.startsWith ("Waiting up to 10 s, then ")
+                    && item.text != "Before realtime bounce, press END and wait for normal level"
+                    && item.text != "Press END to finish the current comparison, then try again") continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
                 named.setChainReadout (chain ? "CHAIN LOAD 100% / 100%" : "", true);
@@ -83,7 +89,9 @@ void verifyAllListenText (Require require)
                 if (item.text == "Cannot write to folder. Check access." || item.text == "2MIX has no DRUM; showing TIME / HISTORY"
                     || item.text == "Measurements saved; waiting for Kirin OS audio (auto link)"
                     || item.text == "No new PRE processing; DAW may pause it (POST)"
-                    || item.text.startsWith ("Waiting up to 10 s, then "))
+                    || item.text.startsWith ("Waiting up to 10 s, then ")
+                    || item.text == "Before realtime bounce, press END and wait for normal level"
+                    || item.text == "Press END to finish the current comparison, then try again")
                     require (font.getHeight() >= 14.0f, "storage guidance is readable at every size");
                 const bool complete = pixels.isValid()
                     && withoutWhitespace (actual.texts().joinIntoString ("")) == withoutWhitespace (text_style::shownText (item.text))

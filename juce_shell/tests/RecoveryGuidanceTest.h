@@ -109,6 +109,9 @@ template <class Require> void verifyRecoveryGuidance (Require require)
     }
     using namespace live_compare;
     using namespace live_compare_ui;
+    require (juce::String (startFailure (StartResult::comparisonBusy))
+                 == "Press END to finish the current comparison, then try again",
+             "a busy comparison gives a concrete next action");
     for (auto reason : { RecoveryReason::reaperFirstCycle, RecoveryReason::reaperDelayUnverified,
                         RecoveryReason::loopWaiting, RecoveryReason::loopTooShort })
     for (auto restriction : { ReaperChainRestriction::none, ReaperChainRestriction::unavailable })

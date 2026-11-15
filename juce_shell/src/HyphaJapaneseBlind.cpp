@@ -150,7 +150,7 @@ const Entry entries[] = {
     { "End and restore normal level", u8"終了して通常の音量に戻します" },
     { "LOWER POST", u8"POSTを下げる" },
     { "RETURNING", u8"戻し中" },
-    { "End the current comparison first", u8"現在の比較を終了してください" },
+    { "Press END to finish the current comparison, then try again", u8"今の比較でENDを押してから、もう一度お試しください" },
     { "Match levels and compare while the song plays", u8"再生を続けたまま、音量を揃えて聴き比べます" },
     { "End listening and restore normal POST level", u8"試聴を終了してPOSTを通常の音量に戻します" },
     // The step bar and the purpose line (HyphaLocalBlindSteps.h, INV-S43).

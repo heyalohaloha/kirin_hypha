@@ -3,6 +3,7 @@
 #include "HyphaTextStyle.h"
 #include "HyphaRecordBindingNotice.h"
 #include "HyphaPreProcessingNotice.h"
+#include "HyphaComparisonNotices.h"
 
 namespace hypha::footer_notice_font
 {
@@ -21,7 +22,8 @@ inline juce::Font fontForText (const presentation::Context& context, const juce:
     auto font = monoFont (context, roleForText (context, text, width));
     if (text == "Cannot write to folder. Check access." || text == "2MIX has no DRUM; showing TIME / HISTORY"
         || text == record_ui::wavWaiting || text == live_compare_ui::preProcessingNotice
-        || text.startsWith ("Waiting up to 10 s, then "))
+        || text.startsWith ("Waiting up to 10 s, then ")
+        || text == comparison_ui::beforeRealtimeBounce || text == comparison_ui::endThenRetry)
         font.setHeight (juce::jmax (14.0f, font.getHeight()));
     return font;
 }

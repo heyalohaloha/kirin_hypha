@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaComparisonNotices.h"
 
 // A LISTEN, BLIND or A/B press that waits says what it waits for, all the time it waits (2026-11-11):
 // POST returning to its normal level, the A/B tail clearing from B, or the DAW to play again.
@@ -9,7 +10,7 @@ enum class QueuedStart { listen, blind, candidate };
 // A realtime bounce cannot be told from playback (only an offline render is reported), so it records what
 // the comparison plays. The first LISTEN, BLIND or A/B that starts in a plug-in says so once; the buttons'
 // help says it too.
-inline constexpr const char* realtimeBounceNotice = "Realtime bounce records what you hear; END first";
+inline constexpr const char* realtimeBounceNotice = comparison_ui::beforeRealtimeBounce;
 enum class QueuedWait { returning, tail, stopped, other };
 // The host's bypass holds POST's return past the press's 10 s: the press ends; the return finishes once
 // bypass is off (INV-LC14).

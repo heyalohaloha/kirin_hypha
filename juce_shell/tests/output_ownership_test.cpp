@@ -1,6 +1,7 @@
 // 出力の持ち主の表（OutputOwnership.h）を、決まりの元（R-12・README・INV-S33・INV-S47・INV-LC4・INV-LC14）から
 // 状態ごとに書いた期待と突き合わせる。活動・状態の種類を足すと、ここの列を書き足すまで通らない。
 #include "../src/OutputOwnership.h"
+#include "../src/HyphaOutputOwnershipText.h"
 #include "../src/live_compare/LiveCompareAuthority.h"
 #include "../src/HyphaLiveStartAfterReturn.h"
 #include "../src/HyphaQueuedStartText.h"
@@ -131,6 +132,11 @@ void decisionsCombineStates()
     {
         // A waiting press names what it waits for: stopped first, then the return, then the A/B tail.
         using namespace hypha::live_compare_ui;
+        require (std::string (realtimeBounceNotice) == "Before realtime bounce, press END and wait for normal level",
+                 "bounce guidance says what END must precede and when the level is ready");
+        require (std::string (hypha::output_owner::refusalText (Reason::liveComparison))
+                     == "Press END to finish the current comparison, then try again",
+                 "the comparison refusal names the action and the next attempt");
         require (queuedWait (false, true, true) == QueuedWait::stopped
                      && queuedWait (true, true, true) == QueuedWait::returning
                      && queuedWait (true, false, true) == QueuedWait::tail

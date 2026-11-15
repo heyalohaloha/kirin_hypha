@@ -254,6 +254,7 @@ void View::resized()
                        || feedbackText == record_ui::wavWaiting
                        || feedbackText == live_compare_ui::preProcessingNotice
                        || feedbackText.startsWith ("Waiting up to 10 s, then ")
+                       || feedbackText == comparison_ui::beforeRealtimeBounce || feedbackText == comparison_ui::endThenRetry
             ? footer_notice_font::fontForText (context, feedbackText, sessionArea.getWidth())
             : monoFont (context, typography::TextRole::legend);
         const int reservedChain = chainReadoutText.isEmpty() ? 0 : juce::roundToInt (text_style::shownWidth (
