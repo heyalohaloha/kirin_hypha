@@ -238,8 +238,17 @@ void View::resized()
         }
         else
         {
-            const int minimum = footerButtonWidth ("RETURN +24.0 dB")
-                              + footerButtonWidth ("POST") + footerButtonWidth ("MENU");
+            int minimum = footerButtonWidth ("RETURN +24.0 dB")
+                        + footerButtonWidth ("POST") + footerButtonWidth ("MENU");
+            if (reference && liveCompareState.active && liveCompareState.blindAvailable)
+            {
+                // The longer label must not push the live Blind entry out of the Reference rail.
+                const int comparison = footerButtonWidth ("PRE WAIT") + footerButtonWidth ("POST -24.0 dB")
+                    + footerButtonWidth ("MATCH") + footerButtonWidth ("LIVE BLIND")
+                    + footerButtonWidth ("END +24.0 dB") + footerButtonWidth ("MENU");
+                const int available = footerActions.getRight() - footerArea.getX() - 48;
+                minimum = juce::jmax (minimum, juce::jmin (comparison, available));
+            }
             footerActions.setLeft (std::min (footerActions.getX(), footerActions.getRight() - minimum));
             sessionArea.setRight (footerActions.getX() - 4);
         }

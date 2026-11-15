@@ -72,7 +72,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     captureButton.setVisible (false); // Image Capture has one entry in MENU.
     localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
     unavailable::set (localBlindButton, ! keepActive, "Finish Keep / Record before PRE / POST Blind");
-    localBlindButton.setButtonText ("BLIND");
+    localBlindButton.setButtonText (reference ? "LIVE BLIND" : "BLIND");
     localBlindButton.setTooltip (keepActive ? juce::String ("Finish Keep / Record before PRE / POST Blind")
         : localBlindButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     // A POST that offers comparison keeps LISTEN and A/B; greyed, a click says why (INV-LC9).
