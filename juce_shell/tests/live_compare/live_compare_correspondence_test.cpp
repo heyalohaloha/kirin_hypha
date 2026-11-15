@@ -42,6 +42,7 @@ static void print (const char* name, const Tally& t)
 #include "AaxChunkChainTest.h"
 #include "LiveCompareAlignTest.h"
 #include "LiveCompareAlignStormTest.h"
+#include "LiveCompareKeptAlignTest.h"
 
 // The G1 protocol: loops, seeks, stop and play, a backward seek within one pass, a forward seek into
 // silence, a PRE-only sleep during playback and a POST-only sleep of about 5 s during a stop.
@@ -261,6 +262,7 @@ int main()
     concurrentReadersNeverSeeTornBlocks();
     aaxChunkPositionContract();
     liveCompareAlignContract();
+    keptCorrectionWaitsForPresNewRun();
     alignTransportStorm();
     std::printf ("live compare correspondence: all checks passed\n");
     return 0;

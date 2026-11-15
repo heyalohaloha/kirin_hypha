@@ -81,21 +81,31 @@ public:
                 break;
             case PreAlignEvent::tick:
             {
-                if (! (in.pending && in.spent)) { missSince = 0; break; }
+                const bool known = in.reach != std::numeric_limits<std::int64_t>::max();
+                if (! (in.pending && in.spent))
+                {
+                    missSince = 0;
+                    // PRE's new run has written as far as the kept correction: it plays from here on.
+                    if (awaited && usable (in) && known && in.reach >= kept.value.frames) tell (false, true);
+                    break;
+                }
                 // The budget ended without a confirmed position: the kept correction of this very
                 // pair, format, owner and host conditions plays, told as not re-measured; else K.
                 auto use = usable (in) ? kept.value : AlignValue {};
-                const bool known = in.reach != std::numeric_limits<std::int64_t>::max();
                 if (use.frames != 0 && ! known && (missSince == 0 || in.now - missSince < in.readRetryNanos))
                 {
                     if (missSince == 0) missSince = in.now;
                     break; // read PRE's run again on the next service, for a bounded time
                 }
                 missSince = 0;
-                if (use.frames != 0 && (! known || in.reach < use.frames)) use = {}; // PRE's run does not serve it
+                if (use.frames != 0 && ! known) use = {}; // its position could not be read in time: dropped
+                // A new run that has not written that far yet ends nothing: the correction stays kept and
+                // requested. The Audio Thread plays PRE at K until the run serves it, told as unmeasured.
+                const bool waits = use.frames != 0 && in.reach < use.frames;
                 kept = { use, in.k, in.context, in.host }; // played under this K from here on
                 out = { true, use, in.revision };
-                tell (use.frames == 0 && ! in.host.candidate, use.frames != 0);
+                tell (waits || (use.frames == 0 && ! in.host.candidate), use.frames != 0 && ! waits);
+                awaited = waits;
                 break;
             }
         }
@@ -129,11 +139,13 @@ private:
     {
         unmeasured.store (unmeasuredNow, std::memory_order_release);
         notRemeasured.store (notRemeasuredNow, std::memory_order_release);
+        awaited = false;
     }
     Kept kept;
     std::int64_t seenK = 0;
     bool clockSeen = false;
     std::uint64_t missSince = 0; // the first read of the kept position that missed
+    bool awaited = false; // the kept correction is requested and waits for PRE's new run to reach it
     std::atomic<bool> unmeasured { false }, notRemeasured { false };
 };
 }

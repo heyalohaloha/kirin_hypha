@@ -152,7 +152,8 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     // LISTEN and BLIND say that the delay was not measured instead of staying silent (A/B already says
     // its A is unconfirmed). A correction confirmed before for this pair, format and PRE owner plays
     // instead, told as not re-measured (INV-LC28). A snapshot that cannot be read now is read again on
-    // the next service, for at most keptReadNanos; one that PRE's run cannot serve yet is dropped.
+    // the next service, for at most keptReadNanos; one that PRE's new run cannot serve yet stays kept
+    // and requested: PRE plays at K, told as unmeasured, until the run reaches it, then with it.
     // LISTEN / BLIND and A/B never use each other's; A/B uses one only for the same candidate under the
     // same host conditions. K moved by the kept amount: the host compensates that delay now, so it is
     // dropped (PRE at K). All of it is the owner's one transition (LiveComparePreAlign.h).

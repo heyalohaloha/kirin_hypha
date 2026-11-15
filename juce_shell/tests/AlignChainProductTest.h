@@ -163,7 +163,8 @@ inline void chainFindsLongDelays (int channels)
         if (c.delay == 96000 && ! c.blind)
         {
             // A kept correction of seconds that PRE's new run cannot serve when the next session's
-            // bound ends is dropped (INV-LC28): K and the label, until the search finds it again.
+            // bound ends stays kept (INV-LC28): K and the label until the run reaches it, then the
+            // correction again, no longer told as unmeasured.
             post.finishLiveCompare();
             chain.until (60, [&] { const auto s = post.liveCompareStatus(); return ! s.active && ! s.finishing; }, "LISTEN ends");
             chain.setPlaying (false); chain.run (8); chain.setPlaying (true);
@@ -172,8 +173,9 @@ inline void chainFindsLongDelays (int channels)
             chain.until (90, [&] { const auto s = post.liveCompareStatus(); return s.contentUnmeasured || s.contentNotRemeasured; },
                          "the next session's bound ends");
             require (post.liveCompareStatus().contentUnmeasured && post.liveCompareAlignFrames() == 0,
-                     "a kept correction PRE's new run cannot serve yet is dropped");
-            corrected (400, "measured again, the correction returns");
+                     "until PRE's new run reaches a kept correction, PRE plays at K, told as unmeasured");
+            corrected (200, "the kept correction returns once PRE's new run reaches it");
+            require (! post.liveCompareStatus().contentUnmeasured, "a correction that plays is not told as unmeasured");
         }
         if (c.delay < 0 && c.delay > -100000)
             chain.until (400, [&] { const auto s = post.liveCompareStatus();

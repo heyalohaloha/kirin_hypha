@@ -238,9 +238,10 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   clock mapping with the same pair, format and PRE: when audio that confirms no position follows
   (a dense loop through outboard, for example), PRE plays with that amount after the first second
   and the status line says **Delay not re-measured** until new audio confirms a position. A
-  different pair or format, a restored session, an amount PRE cannot serve yet (seconds, right
-  after a start), or a host that starts compensating that amount itself (the clock mapping moves
-  by it) drops it. With **Align PRE automatically** off, or when PRE is late, the status line
+  different pair or format, a restored session, or a host that starts compensating that amount
+  itself (the clock mapping moves by it) drops it. An amount PRE cannot serve yet (more than a
+  second, right after a start) stays: PRE plays where the clocks put it with **Delay unmeasured**
+  until enough audio has passed, then with that amount and **Delay not re-measured**. With **Align PRE automatically** off, or when PRE is late, the status line
   shows the difference instead (**PRE 2.31 ms early**, **late**). An intentional delay, reverb or
   heavy processing can look the same, and silence cannot establish a position. Repeated audio uses a check of each current block, with a short notice; a nonmatching block uses POST immediately. Only the
   audition's read position moves: the clock proof, MATCH, A, the meters and Record stay as they are.
