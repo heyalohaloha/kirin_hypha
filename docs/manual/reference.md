@@ -154,8 +154,11 @@ notice in the footer takes its place while it shows; when the line carries an ap
 BLIND, the line moves back to the bottom of the page instead, so neither is hidden. A role that
 cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
-alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
-its reason and fix, shown even under the start guide, and returns to ready once the source is. While
+alignment, 30 s of play; A's level for MATCH, 10 s of play) it turns unavailable with its reason and
+fix, shown even under the start guide, and returns to ready once the source is. C's MATCH does not give
+up: it waits for A and applies once A has played enough, with no second press. While V changes to
+another Version, the previous Version keeps playing while Hypha looks for the new one's position; V
+does not return to A after a time limit. While
 Kirin OS prepares the song of a Reference set or CHECK set, the line says what Kirin OS is doing in its own
 terms — how many songs it prepares first, checking the file, waiting for another measurement — and a
 file Kirin OS cannot find turns the line unavailable with the retry as its fix (Kirin OS publishes
@@ -164,7 +167,9 @@ says which source plays or how it is matched. Pressing a role while it is still 
 (publishing a new choice, verifying, loading or aligning its source, or measuring A) waits for it
 and plays it as soon as it is ready, as when you press it while the DAW is stopped; a step only you
 can change (outside the Cue, no match in this passage) or a match that cannot be made is explained
-instead.
+instead. Ten seconds after the press the line says **A PLAYS UNTIL READY / PRESS A TO STOP WAITING**
+(準備できるまでAを鳴らします / Aで待つのをやめる): A plays meanwhile, pressing A stops the wait, and the
+role still plays by itself once it is ready.
 
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C is drawn dimmed; pressing
 it opens 300% without changing the sound (press again to listen). V works at the selected size, including
