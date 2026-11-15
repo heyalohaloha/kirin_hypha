@@ -19,7 +19,7 @@ public:
     {
         const key_light::Scope light (*this);
         surface_material::paintPanel (g, getLocalBounds().toFloat().reduced (1), 0.65f);
-        g.setColour (COL_NORMAL.withAlpha (hover ? 1.0f : 0.8f));
+        g.setColour (COL_NORMAL.withAlpha (context.referenceCheck || hover ? 1.0f : 0.8f));
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
         text_style::drawText (g, getButtonText(), getLocalBounds(), juce::Justification::centred);
     }
@@ -36,7 +36,7 @@ class TargetBar final : public juce::Component
             const key_light::Scope light (*this);
             surface_material::paintControl (g, getLocalBounds().toFloat().reduced (1), hover, down, false, COL_FLORA_BR, 3);
             g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-            g.setColour (isEnabled() ? COL_NORMAL : COL_MUTED);
+            g.setColour (isEnabled() || context.referenceCheck ? COL_NORMAL : COL_MUTED);
             text_style::drawText (g, getButtonText(), getLocalBounds(), juce::Justification::centred);
         }
     };

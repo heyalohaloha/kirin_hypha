@@ -58,6 +58,7 @@ void Component::resized()
         {
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
+            if (presentationContext.referenceCheck) checkBox.setBounds (b.getUnion (row));
         }
         songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに
         songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));

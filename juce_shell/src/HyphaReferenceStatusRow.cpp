@@ -39,7 +39,8 @@ juce::String fittedSegments (const juce::String& shown, const juce::Font& font, 
 
 int Component::statusRowHeight() const noexcept
 {
-    return detailedLayout() ? 24 : 18;
+    return presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible()
+        ? (shortPanel() ? 54 : 36) : detailedLayout() ? 24 : 18;
 }
 
 // 300% の B・C・V のページの並びかどうかは、ここだけで決める（inspection の密度）。2026-10-06：200% にも当たり、200% の
@@ -79,12 +80,14 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
     }
     if (actionButton.isVisible())
     {
+        if (presentationContext.referenceCheck && ! detailedLayout()) row = row.removeFromBottom (18);
         // 承認のボタンは文字の幅に合わせる（量と鳴らす役まで言う。2026-10-05、300% で「Aを0.8 dB下げて
         // Bを…」と切れた。英語の「LOWER A 0.8 DB & PLAY B」も 188 に入らなかった）。最小は今までの幅、最大は行の半分。
         const int minimum = detailedLayout() ? 188 : 116;
         const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
         const int fitted = juce::roundToInt (std::ceil (text_style::shownWidth (font, actionButton.getButtonText()))) + 24;
-        actionButton.setBounds (row.removeFromRight (juce::jlimit (minimum, juce::jmax (minimum, row.getWidth() / 2), fitted)));
+        const int limit = presentationContext.referenceCheck && shortPanel() ? row.getWidth() : juce::jmax (minimum, row.getWidth() / 2);
+        actionButton.setBounds (row.removeFromRight (juce::jlimit (minimum, juce::jmax (minimum, limit), fitted)));
     }
 }
 
@@ -154,10 +157,23 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
     const auto statusColour = kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
     if (statusLineShown())
     {
-        paintStatusDot (g, layout.primary, kind);
-        g.setColour (statusColour.withAlpha (0.92f));
+        paintStatusDot (g, presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible()
+                          ? layout.primary.withHeight (18) : layout.primary, kind);
+        g.setColour (presentationContext.referenceCheck ? COL_NORMAL : statusColour.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information));
-        text_style::drawEllipsized (g, layout.text, layout.textArea, juce::Justification::centredLeft);
+        const auto full = text_style::shownText (layout.line.text);
+        const auto split = full.indexOfChar (juce::juce_wchar (0x3002));
+        const auto englishSplit = full.indexOf (". ");
+        if (presentationContext.referenceCheck && ! detailedLayout() && actionButton.isVisible() && (split >= 0 || englishSplit >= 0))
+        {
+            const auto end = split >= 0 ? split + 1 : englishSplit + 1;
+            auto first = statusArea.removeFromTop (18).withTrimmedLeft (16);
+            auto second = statusArea.removeFromTop (18).withTrimmedLeft (16);
+            if (! shortPanel()) second.setRight (actionButton.getX() - 6);
+            text_style::drawEllipsized (g, full.substring (0, end), first, juce::Justification::centredLeft);
+            text_style::drawEllipsized (g, full.substring (end).trimStart(), second, juce::Justification::centredLeft);
+        }
+        else text_style::drawEllipsized (g, layout.text, layout.textArea, juce::Justification::centredLeft);
     }
     if (layout.gain.isNotEmpty())
     {

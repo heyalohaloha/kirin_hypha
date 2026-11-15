@@ -28,7 +28,7 @@ inline void paintFrequencyTicks (juce::Graphics& g, juce::Rectangle<float> chart
         const auto x = chart.getX() + static_cast<float> (std::log (hz / minimumHz) / std::log (maximumHz / minimumHz)) * chart.getWidth();
         g.setColour (COL_MUTED.withAlpha (0.10f));
         g.drawVerticalLine (juce::roundToInt (x), chart.getY(), chart.getBottom() - 14.0f);
-        g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
+        g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY.withAlpha (0.85f));
         const auto label = hz >= 1'000.0 ? juce::String (juce::roundToInt (hz / 1'000.0)) + "k" : juce::String (juce::roundToInt (hz));
         text_style::drawText (g, label, juce::Rectangle<float> (x - 18.0f, chart.getBottom() - 13.0f, 36.0f, 13.0f),
                               juce::Justification::centred, false);

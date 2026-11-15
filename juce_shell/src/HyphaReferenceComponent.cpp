@@ -161,6 +161,11 @@ void Component::setState (State next)
     next.chartPointer = current.chartPointer;
     next.overlayPointed = current.overlayPointed;
     current = std::move (next);
+    current.checkDetailsOpen = detailsOpen;
+    presentationContext.referenceCheck = current.separateComparisons && current.comparisonSlot == 2;
+    selectorLookAndFeel.setPresentationContext (presentationContext);
+    passPresentationContext (*this, presentationContext);
+    passPresentationContext (statusStrip, presentationContext);
     prepareDisplayNames (current);
     setTitle (current.title);
     connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
@@ -204,7 +209,8 @@ void Component::setState (State next)
     syncRoles (blindSession);
     syncCheckPage (blindSession);
     syncPlayback (blindSession);
-    targetBar.setVisible (current.targetsEnabled && current.comparisonSlot == 2 && ! blindSession);
+    targetBar.setVisible (current.targetsEnabled && current.comparisonSlot == 2 && ! blindSession
+                          && (detailsOpen || current.targetSelected));
     targetBar.update (current.targets, presentationContext, current.aKirin && current.aKirin->frames >= 30, shortPanel());
     const bool numericalC = current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr;
     targetBadge.setVisible (numericalC && ! blindSession);
@@ -216,7 +222,8 @@ void Component::setState (State next)
         for (auto* box : { &presetBox, &versionBox, &checkBox, &candidateBox, &cueBox, &checkSongBox }) box->setVisible (false);
         matchButton.setVisible (false);
     }
-    actionButton.setButtonText (current.actionText);
+    actionButton.setButtonText (current.comparisonSlot == 2 && current.action.kind == ActionKind::lowerAAndPlay
+        ? "LOWER A " + juce::String (-current.action.offer.db, 1) + " DB TO LISTEN" : current.actionText);
     actionButton.setAttention (false);
     actionButton.setTooltip ("Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
@@ -350,7 +357,7 @@ void Component::paint (juce::Graphics& g)
     }
     if (! rolePage())  // 300% の B・C・V では、ボタンの段の選択欄が見出しを兼ねる（同じ曲名を 2 度出さない）
     {
-        g.setColour (COL_FLORA.withAlpha (0.86f));
+        g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
         text_style::draw (g, "REFERENCE", header.removeFromTop (navigationHeight), presentationContext,
                           typography::TextRole::navigation, juce::Justification::centredLeft,

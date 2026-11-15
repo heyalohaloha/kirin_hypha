@@ -306,7 +306,7 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
     const bool ready = kirinComparable (state) && state.aKirin->frames >= minimumAFrames && std::isfinite (gain);
     const auto layout = bandLayout (area.getWidth(), context);
     help::note (area, state.song.shown ? help_text::songBands : help_text::cueBands);
-    g.setColour (COL_TEXT_TERTIARY);
+    g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
     text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (layout.heading), juce::Justification::centredLeft);
     for (size_t band = 0; band < layout.cells.size(); ++band)
@@ -320,11 +320,11 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
         const auto comparison = std::isfinite (c) && a > -200.0 ? compareBand ({ a, c }) : AComparison {};
         const auto phraseWidth = comparison.shown() ? std::ceil (aComparisonWidth (comparison, context)) : 16.0f;
         auto phrase = inner.removeFromRight (std::min (inner.getWidth(), juce::roundToInt (phraseWidth)));
-        g.setColour (COL_TEXT_TERTIARY);
+        g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
         text_style::drawEllipsized (g, bandNames[band], inner.withTrimmedRight (bandNameGap), juce::Justification::centredLeft);
         if (comparison.shown())
-            paintAComparison (g, comparison, phrase.toFloat(), juce::Justification::centredRight, context, COL_TEXT_SECONDARY,
+            paintAComparison (g, comparison, phrase.toFloat(), juce::Justification::centredRight, context, context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY,
                               COL_OBSERVATORY_VALUE);
         else
         {

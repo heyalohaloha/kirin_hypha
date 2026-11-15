@@ -2,10 +2,12 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
+#include "ReferencePreviewScenario.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 
 namespace
@@ -198,16 +200,16 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
     return state;
 }
 
-juce::Image render (hypha::reference_ui::State state, bool japanese)
+juce::Image render (hypha::reference_ui::State state, bool japanese, int width, int height, bool details)
 {
     // 要求の locale（Kirin OS の画面の言語）で描く。Hypha の画面の言語の設定は変えない。
     const hypha::i18n::ScopedLanguage language (japanese ? hypha::i18n::Language::japanese : hypha::i18n::Language::english);
     juce::Component surface;
     hypha::observatory::View shell { hypha::observatory::Role::post };
     hypha::reference_ui::Component reference;
-    surface.setSize (900, 600);
+    surface.setSize (width, height);
     reference.setPresentationContext (hypha::presentation::forOutput (
-        900, 600, hypha::presentation::OutputTarget::referencePreview));
+        width, height, hypha::presentation::OutputTarget::referencePreview));
     shell.setBounds (surface.getLocalBounds());
     shell.setDomain (hypha::observatory::Domain::reference);
     shell.setConnection ("KIRIN OS PREVIEW", hypha::COL_LED_BLUE,
@@ -222,6 +224,29 @@ juce::Image render (hypha::reference_ui::State state, bool japanese)
     screen.setScreen (hypha::reference_ui::versionBlindScreen (state));
     reference.setState (std::move (state));
     surface.addAndMakeVisible (reference);
+    if (details)
+    {
+        auto* button = dynamic_cast<juce::Button*> (reference.findChildWithID ("reference-check-details"));
+        if (button == nullptr || ! button->isVisible() || ! button->onClick) fail ("reference-preview-details-unavailable");
+        const auto before = reference.state();
+        int changes = 0;
+        reference.onMatch = [&changes] { ++changes; };
+        reference.onSetFollowA = [&changes] (bool) { ++changes; };
+        reference.onSetCheckSong = [&changes] (bool) { ++changes; };
+        reference.onSelectCheck = [&changes] (const juce::String&) { ++changes; };
+        for (const bool opened : { true, false, true })
+        {
+            button->onClick();
+            const auto& after = reference.state();
+            const bool sameGain = std::memcmp (&after.appliedGainDb, &before.appliedGainDb, sizeof (double)) == 0;
+            if (after.checkDetailsOpen != opened || changes != 0 || after.checkId != before.checkId
+                || after.cueId != before.cueId || after.followA != before.followA || after.song.chosen != before.song.chosen
+                || after.bSelected != before.bSelected || after.audibleComparisonSlot != before.audibleComparisonSlot || ! sameGain
+                || after.comparisonMode != before.comparisonMode || after.viewBindings != before.viewBindings)
+                fail ("reference-preview-details-changed-comparison");
+        }
+        reference.onMatch = {}; reference.onSetFollowA = {}; reference.onSetCheckSong = {}; reference.onSelectCheck = {};
+    }
     if (blind)
     {
         surface.addAndMakeVisible (screen);
@@ -256,7 +281,8 @@ int main (int argc, char** argv)
         juce::FileOutputStream stream { output };
         if (! stream.openedOk()
             || ! juce::PNGImageFormat().writeImageToStream (
-                render (stateFromRequest (object (request)), request["locale"] == juce::var ("ja")), stream))
+                render (previewScenario (stateFromRequest (object (request))), request["locale"] == juce::var ("ja"),
+                        previewWidth(), previewWidth() * 2 / 3, previewDetails()), stream))
             fail ("reference-preview-output-failed");
         std::cout << "{\"renderer_version\":\"1.0.0\"}\n";
         return EXIT_SUCCESS;

@@ -19,11 +19,12 @@ struct Context
     int logicalHeight = observatory::sizePresets[0].height;
     observatory::Density density = observatory::Density::compact;
     OutputTarget output = OutputTarget::editor;
+    bool referenceCheck = false;
 
     constexpr bool operator== (const Context& other) const noexcept
     {
         return logicalWidth == other.logicalWidth && logicalHeight == other.logicalHeight
-            && density == other.density && output == other.output;
+            && density == other.density && output == other.output && referenceCheck == other.referenceCheck;
     }
 
     constexpr bool operator!= (const Context& other) const noexcept

@@ -74,21 +74,21 @@ inline int referenceLegendHeight (const std::vector<ReferenceLegendCell>& cells)
     return height;
 }
 
-inline void paintReferenceLegend (juce::Graphics& g, const juce::String& detail, juce::Rectangle<int> area, int firstExtra = 0)
+inline void paintReferenceLegend (juce::Graphics& g, const juce::String& detail, juce::Rectangle<int> area, int firstExtra = 0, bool opaqueText = false)
 {
     const auto cells = referenceLegendCells (g.getCurrentFont(), referenceLegendParts (detail), area.getWidth(), firstExtra);
     for (size_t index = 0; index < cells.size(); ++index)
     {
         const auto& cell = cells[index];
-        g.setColour (index == 0 && cell.text.startsWith ("A") ? COL_FLORA_BR.withAlpha (0.92f)
-                    : index == 1 ? COL_SPECTRUM_DELTA_BR.withAlpha (0.92f) : COL_TEXT_TERTIARY);
+        g.setColour (index == 0 && cell.text.startsWith ("A") ? COL_FLORA_BR.withAlpha (opaqueText ? 1.0f : 0.92f)
+                    : index == 1 ? COL_SPECTRUM_DELTA_BR.withAlpha (opaqueText ? 1.0f : 0.92f) : (opaqueText ? COL_NORMAL : COL_TEXT_TERTIARY));
         auto target = cell.area.translated (area.getX(), area.getY());
         if (cell.text == targetRangeLegend)
         {
             const auto swatch = target.removeFromLeft (legendSwatchWidth).withTrimmedRight (legendSwatchWidth - 14);
             g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.30f));
             g.fillRect (swatch.toFloat().withSizeKeepingCentre (14.0f, 8.0f));
-            g.setColour (COL_TEXT_TERTIARY);
+            g.setColour (opaqueText ? COL_NORMAL : COL_TEXT_TERTIARY);
         }
         if (cell.wrapped) text_style::drawLines (g, cell.text, target, juce::Justification::centredLeft, 2);
         else text_style::drawEllipsized (g, cell.text, target, juce::Justification::centredLeft);
@@ -143,10 +143,10 @@ inline void paintReferenceHeader (juce::Graphics& g, juce::Rectangle<float>& bou
 {
     const auto layout = referenceHeaderLayout (bounds, heading, detail, context, firstExtra);
     bounds.removeFromTop (layout.height);
-    g.setColour (COL_NORMAL.withAlpha (0.92f)); g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
+    g.setColour (COL_NORMAL.withAlpha (context.referenceCheck ? 1.0f : 0.92f)); g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
     if (layout.titleWidth > layout.width) text_style::drawLines (g, heading, layout.title, juce::Justification::centredLeft, 2);
     else text_style::drawEllipsized (g, heading, layout.title, juce::Justification::centredLeft);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
-    paintReferenceLegend (g, detail, layout.legend, firstExtra);
+    paintReferenceLegend (g, detail, layout.legend, firstExtra, context.referenceCheck);
 }
 }

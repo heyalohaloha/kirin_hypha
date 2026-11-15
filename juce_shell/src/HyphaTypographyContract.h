@@ -178,6 +178,10 @@ constexpr TextStyle resolve (const presentation::Context& context,
         fontHeight = roleScale (TextRole::menu, Composition::shell).front();
     else if (context.output == presentation::OutputTarget::tooltip)
         fontHeight = roleScale (TextRole::tooltip, Composition::shell).front();
+    if (context.referenceCheck && context.output != presentation::OutputTarget::popup
+        && context.output != presentation::OutputTarget::tooltip)
+        fontHeight = fontHeight < (role == TextRole::body ? 14.0f : 12.0f)
+            ? (role == TextRole::body ? 14.0f : 12.0f) : fontHeight;
 
     const auto numeric = role == TextRole::primaryValue || role == TextRole::secondaryValue
                       || role == TextRole::readout || role == TextRole::axis;

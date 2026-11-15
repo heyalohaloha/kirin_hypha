@@ -100,6 +100,18 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         // ピークの上限で届かず、上限まで上げて鳴らしている（0.5 dB を超えれば A を下げるボタンが出る）。
         const auto under = ! rangeLimited && state.peakShortfallDb > 0.05
             ? "  /  " + juce::String (state.peakShortfallDb, 1) + " DB UNDER A (PEAK LIMIT)" : juce::String {};
+        if (state.comparisonSlot == 2 && state.audibleComparisonSlot == 2 && ! state.originalAudition
+            && state.tracking == Tracking::fixed && ! state.matchProvisional && state.heldAttenuationDb >= -0.05
+            && std::isfinite (state.appliedGainDb) && songLine (state).isEmpty()
+            && state.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+            && state.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE")
+        {
+            const auto gain = gainText (state.appliedGainDb);
+            if (state.peakShortfallDb > 0.05)
+                return { StatusKind::ready, (state.appliedGainDb > 0.05 ? "C raised to its " : state.appliedGainDb < -0.05 ? "C lowered to its " : "C set to its ") + gain + " dB limit. Still "
+                    + juce::String (state.peakShortfallDb, 1) + " dB below A" };
+            return { StatusKind::ready, "C matched to A at " + gain + " dB" };
+        }
         // 大事な順（入りきらなければ後ろから区切りごとに省く、HyphaReferenceStatusRow.cpp）：合わせ方、A との差、
         // 下げた A、PRE の Δ。A を下げるボタンの横では行が狭いので、ボタンが直す差だけを言う。
         if (state.action.kind == ActionKind::lowerAAndPlay && state.peakShortfallDb > 0.05)

@@ -53,7 +53,7 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
 void unavailable (juce::Graphics& g, juce::Rectangle<float> area,
                   presentation::Context presentation)
 {
-    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
+    g.setColour (presentation.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY.withAlpha (0.92f));
     g.setFont (labelFont (presentation, typography::TextRole::status,
                           typography::Composition::visualization));
     text_style::drawEllipsized (g, "NO DATA", area.toNearestInt(),
@@ -382,6 +382,26 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
     else if (binding == "transient") drawTransient (g, area, state, presentation, window);
     else drawTimeline (g, area, state, binding, presentation, window);
 }
+
+size_t visibleViews (const State& state)
+{
+    const auto count = std::min<size_t> (3, state.viewBindings.size());
+    return state.separateComparisons && state.comparisonSlot == 2 && ! state.checkDetailsOpen
+        ? std::min<size_t> (1, count) : count;
+}
+
+std::array<juce::Rectangle<float>, 3> visibleCells (juce::Rectangle<float> area, size_t count, const State& state)
+{
+    if (! state.separateComparisons || state.comparisonSlot != 2 || count < 2)
+        return referenceVisualCells (area, static_cast<int> (count), state.presentationLayout);
+    std::array<juce::Rectangle<float>, 3> cells {};
+    constexpr float gap = 6.0f;
+    cells[0] = area.removeFromTop ((area.getHeight() - gap) * 0.55f);
+    area.removeFromTop (gap);
+    if (count == 2) cells[1] = area;
+    else { cells[1] = area.removeFromLeft ((area.getWidth() - gap) * 0.5f); area.removeFromLeft (gap); cells[2] = area; }
+    return cells;
+}
 }
 
 std::array<juce::Rectangle<int>, 3> referenceAWindowAreas (juce::Rectangle<float> area, const State& state,
@@ -390,8 +410,8 @@ std::array<juce::Rectangle<int>, 3> referenceAWindowAreas (juce::Rectangle<float
     std::array<juce::Rectangle<int>, 3> areas {};
     if (! configuredReferenceViewsFit (area, state) || ! state.separateComparisons || state.comparisonSlot != 2 || ! state.cueKirin)
         return areas;
-    const auto count = std::min<size_t> (3, state.viewBindings.size());
-    const auto cells = referenceVisualCells (area, static_cast<int> (count), state.presentationLayout);
+    const auto count = visibleViews (state);
+    const auto cells = visibleCells (area, count, state);
     for (size_t index = 0; index < count; ++index)
     {
         const auto& binding = state.viewBindings[index];
@@ -413,8 +433,8 @@ bool paintConfiguredReferenceViews (juce::Graphics& g, juce::Rectangle<float> ar
 {
     if (! configuredReferenceViewsFit (area, state))
         return false;
-    const auto count = std::min<size_t> (3, state.viewBindings.size());
-    const auto cells = referenceVisualCells (area, static_cast<int> (count), state.presentationLayout);
+    const auto count = visibleViews (state);
+    const auto cells = visibleCells (area, count, state);
     {
         const juce::Graphics::ScopedSaveState saved (g);
         juce::Path gaps;

@@ -454,6 +454,7 @@ void KirinHyphaEditor::placeReferenceStatus()
     const auto footer = observatoryView.statusStripBounds();
     const bool feedbackShown = observatoryView.feedback().isNotEmpty();
     const bool footerMode = ! observatoryView.statusStripFolded() && ! footer.isEmpty()
+                         && ! (referenceView.state().separateComparisons && referenceView.state().comparisonSlot == 2)
                          && ! (feedbackShown && referenceView.statusRowHasControls());
     referenceView.setStatusInFooter (footerMode);
     if (footerMode)

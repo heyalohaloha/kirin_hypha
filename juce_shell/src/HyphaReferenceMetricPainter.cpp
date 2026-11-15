@@ -16,18 +16,18 @@ void paintValue (juce::Graphics& g, juce::Rectangle<float> area,
                  juce::Colour colour, float scale, presentation::Context presentation)
 {
     auto label = area.removeFromTop (14.0f * scale);
-    g.setColour (COL_TEXT_TERTIARY);
+    g.setColour (presentation.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::information));
     text_style::draw (g, heading, label.toNearestInt(), presentation,
                       typography::TextRole::metricLabel, juce::Justification::centred,
                       1, typography::Composition::information);
     auto unitArea = area.removeFromBottom (12.0f * scale);
-    g.setColour (COL_TEXT_TERTIARY);
+    g.setColour (presentation.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                           typography::Composition::information));
     text_style::drawText (g, unit, unitArea, juce::Justification::centred);
-    g.setColour (std::isfinite (value) ? colour : COL_MUTED);
+    g.setColour (std::isfinite (value) ? colour : presentation.referenceCheck ? COL_NORMAL : COL_MUTED);
     drawTabularText (g, monoFont (presentation, typography::TextRole::primaryValue,
                                   typography::Composition::information),
                      fmtVal (value), area, juce::Justification::centred);
@@ -86,7 +86,7 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
     paintComparisonRoots (g, area);
     const float scale = juce::jlimit (1.0f, 2.2f, area.getHeight() / 170.0f);
     auto header = area.removeFromTop (18.0f * scale);
-    g.setColour (COL_NORMAL.withAlpha (0.78f));
+    g.setColour (COL_NORMAL.withAlpha (presentation.referenceCheck ? 1.0f : 0.78f));
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::information));
     text_style::drawText (g, name, header.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
@@ -107,17 +107,27 @@ void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
 {
     paintPanel (g, area, 0.72f);
     const auto difference = differenceOf (pair, unit, words, side);
+    if (presentation.referenceCheck && area.getHeight() < 52.0f)
+    {
+        const auto delta = pair.aMinusOther();
+        const auto rounded = std::abs (delta) < 0.05 ? 0.0 : delta;
+        const auto value = std::isfinite (rounded) ? (rounded > 0.0 ? "+" : "") + juce::String (rounded, 1) + " " + unit : juce::String ("--");
+        g.setColour (COL_NORMAL);
+        g.setFont (labelFont (presentation, typography::TextRole::readout, typography::Composition::information));
+        text_style::drawEllipsized (g, name + "  A-C " + value, area.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft);
+        return;
+    }
     if (area.getHeight() < 52.0f)
     {
         area.reduce (4.0f, 0.0f);
-        g.setColour (COL_TEXT_TERTIARY);
+        g.setColour (presentation.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::information));
         const auto labelWidth = std::ceil (text_style::shownWidth (g.getCurrentFont(), name)) + 8.0f;
         text_style::drawText (g, name, area.removeFromLeft (labelWidth), juce::Justification::centredLeft);
         if (difference.comparison.shown())
             reference_ui::paintAComparison (g, difference.comparison, area, juce::Justification::centredRight, presentation,
-                                            COL_TEXT_SECONDARY, COL_SPECTRUM_DELTA_BR);
+                                            presentation.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY, COL_SPECTRUM_DELTA_BR);
         else
         {
             g.setColour (COL_MUTED);

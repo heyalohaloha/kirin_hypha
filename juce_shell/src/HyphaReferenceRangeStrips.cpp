@@ -189,6 +189,14 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
                 presentation::Context context)
 {
     if (prepared.empty()) return;
+    if (context.referenceCheck && area.getHeight() < 140.0f && prepared.size() == 2)
+    {
+        auto first = area.removeFromLeft ((area.getWidth() - 8.0f) * 0.5f);
+        area.removeFromLeft (8.0f);
+        paintRows (g, first, { prepared[0] }, sides, context);
+        paintRows (g, area, { prepared[1] }, sides, context);
+        return;
+    }
     const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
     const auto numberFont = monoFont (context, typography::TextRole::readout, typography::Composition::information);
     float numberWidth = std::max (text_style::shownWidth (unitFont, "MEDIAN"), text_style::shownWidth (unitFont, "P90-P10"));
@@ -214,7 +222,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         auto aLine = block.removeFromTop (lineHeight);
         auto otherLine = block.removeFromTop (lineHeight);
         auto axis = block.removeFromTop (std::min (15.0f, block.getHeight()));
-        g.setColour (COL_TEXT_TERTIARY);
+        g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
         text_style::drawEllipsized (g, item.row.fact == DynamicsFact::crest ? sides.crestName : item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
         text_style::drawEllipsized (g, item.row.spread ? "P90-P10" : "MEDIAN",
@@ -224,7 +232,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
             const auto x = barLeft + static_cast<float> ((value - item.minimum) / (item.maximum - item.minimum)) * (barRight - barLeft);
             g.setColour (COL_MUTED.withAlpha (0.12f));
             g.fillRect (juce::Rectangle<float> (x - 0.5f, aLine.getY(), 1.0f, otherLine.getBottom() - aLine.getY()));
-            g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
+            g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY.withAlpha (0.85f));
             text_style::drawText (g, tickText (item.row.unit, value), juce::Rectangle<float> (x - 24.0f, axis.getY(), 48.0f, axis.getHeight()),
                                   juce::Justification::centred, false);
         }
@@ -232,18 +240,18 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
              { std::tuple { aLine, item.aBar, juce::String ("A"), COL_FLORA_BR, COL_FLORA_BR, item.aText },
                std::tuple { otherLine, item.otherBar, juce::String (sides.letter), COL_SPECTRUM_DELTA, COL_SPECTRUM_DELTA_BR, item.otherText } })
         {
-            g.setColour (COL_TEXT_SECONDARY);
+            g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY);
             g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
             text_style::drawEllipsized (g, letter, line.withWidth (letterWidth).toNearestInt(), juce::Justification::centredLeft);
             paintBar (g, juce::Rectangle<float>::leftTopRightBottom (barLeft, line.getY(), barRight, line.getBottom()), bar, item.row,
                       item.minimum, item.maximum, colour);
             const auto number = juce::Rectangle<float>::leftTopRightBottom (barRight + gap, line.getY(), barRight + gap + numberWidth, line.getBottom());
             g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
-            g.setColour (bar.shown ? valueColour : COL_MUTED);
+            g.setColour (bar.shown ? valueColour : context.referenceCheck ? COL_NORMAL : COL_MUTED);
             text_style::drawEllipsized (g, text, number.toNearestInt(), juce::Justification::centredRight);
             if (letter == "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())  // 差は A の行に（A が主語）
             {
-                g.setColour (COL_TEXT_SECONDARY);
+                g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY);
                 g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
                 text_style::drawEllipsized (g, item.difference, juce::Rectangle<float>::leftTopRightBottom (number.getRight() + 10.0f, line.getY(),
                                                                                                     area.getRight(), line.getBottom()).toNearestInt(),
@@ -324,7 +332,11 @@ bool rangeStripBinding (const juce::String& binding) noexcept
 bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state, const juce::String& binding,
                           presentation::Context context, juce::Rectangle<float> frame)
 {
-    const auto rows = rowsFor (binding);
+    auto rows = rowsFor (binding);
+    if (state.checkDetailsOpen && ! state.viewBindings.empty() && binding != state.viewBindings.front()
+        && (binding == "dynamics" || binding == "loudness")
+        && (state.viewBindings.front() == "dynamics" || state.viewBindings.front() == "loudness"))
+        rows.erase (std::remove_if (rows.begin(), rows.end(), [] (const Row& row) { return row.spread; }), rows.end());
     if (rows.empty()) return false;
     // C：Cue（無ければ曲全体）に丸ごと入る区間。A：直近の C の窓の長さを、C の区間の長さにまとめ直す。C の値がまだ無い
     // （Kirin OS が測っていない・Kirin OS のプレビュー）ときも帯の形は描き、値は「—」（Hypha 本体と同じ見た目）。

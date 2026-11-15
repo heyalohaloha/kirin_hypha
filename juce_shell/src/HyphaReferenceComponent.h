@@ -108,7 +108,7 @@ enum class CueSubstitute { none, wholeSong, noSpectrum };
 
 struct State
 {
-    bool targetsEnabled = false, targetSelected = false;
+    bool targetsEnabled = false, targetSelected = false, checkDetailsOpen = false;
     reference_audition::TargetSnapshot targets;
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     bool separateComparisons = false, versionReady = false, checkReady = false;
@@ -410,7 +410,7 @@ private:
 
     TargetBar targetBar;
     TargetBadge targetBadge;
-    bool dragActive = false;
+    bool dragActive = false, detailsOpen = false;
     State current;
     bool guideShown = false;
     GuideFit lastGuideFit;
@@ -433,8 +433,8 @@ private:
     SongList songList; // B の画面の左の曲の一覧
     OverlaySwitch overlaySwitch; // B の Balance の ONE／ALL（HyphaReferenceRoles.cpp・HyphaReferenceOverlay.h）
     CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
-    SelectionControl checkSongBox; // いまの Check の曲
-    SideButton matchButton { "MATCH" };
+    SelectionControl checkSongBox, checkChooser;
+    SideButton matchButton { "MATCH" }, detailsButton { "DETAILS" };
     SongSwitch songSwitch; // C の比べる値 CUE／SONG（Cue の段の右。HyphaReferenceCheckPage.cpp）
     SideButton blindButton { "VERSION BLIND" };
     std::array<SideButton, 5> playbackButtons { SideButton ("LOOP"), SideButton ("FOLLOW A"), SideButton ("-"), SideButton ("0.00 S"), SideButton ("+") };

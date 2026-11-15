@@ -115,6 +115,13 @@ const Entry entries[] = {
     { "%1 %2 DB UNDER A (FOLLOW LIMIT)", u8"%1 Aより%2 dB小さい（追従上限）" },
     { "%1 %2 DB OVER A (FOLLOW LIMIT)", u8"%1 Aより%2 dB大きい（追従上限）" },
     // 区間を言う行（B・C）では役の名前を区間が言う。上の 2 つの値の形より後に置く（先に合うと役の名前が値に入る）。
+    { "C raised to its %1 dB limit. Still %2 dB below A", u8"Cを上限の%1 dBまで上げました。まだAより%2 dB小さい" },
+    { "C lowered to its %1 dB limit. Still %2 dB below A", u8"Cを上限の%1 dBまで下げました。まだAより%2 dB小さい" },
+    { "C set to its %1 dB limit. Still %2 dB below A", u8"Cを上限の%1 dBにしました。まだAより%2 dB小さい" },
+    { "C matched to A at %1 dB", u8"Cを%1 dBでAに合わせました" },
+    { "DETAILS", u8"詳しく" },
+    { "This Check does not use loudness MATCH.", u8"このCheckでは音量のMATCHを使いません。" },
+    { "LOWER A %1 DB TO LISTEN", u8"Aを%1 dB下げて聞く" },
     { "%1 DB UNDER A (FOLLOW LIMIT)", u8"Aより%1 dB小さい（追従上限）" },
     { "%1 DB OVER A (FOLLOW LIMIT)", u8"Aより%1 dB大きい（追従上限）" },
     { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（Peak上限）" },
