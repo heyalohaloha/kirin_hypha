@@ -170,7 +170,7 @@ const Entry entries[] = {
     { "Clearing the A/B tail, then C", u8"A/Bの残りの音が消えてからCを鳴らします" },
     { "Clearing the A/B tail, then B", u8"A/Bの残りの音が消えてからBを鳴らします" },
     { "Clearing the A/B tail, then Keep", u8"A/Bの残りの音が消えてからKeepを始めます" },
-    { "A/B tail not cleared: Keep not started", u8"A/Bの残りの音が消えず、Keepを始めませんでした" },
+    { "A/B tail not cleared: run A/B once, then Keep", u8"A/Bの残りの音が消えません。A/Bを1度通してからKeepしてください" },
     { "Waiting up to 10 s, then V", u8"最大10秒後にVを再生" },
     { "Waiting up to 10 s, then C", u8"最大10秒後にCを再生" },
     { "Waiting up to 10 s, then B", u8"最大10秒後にBを再生" },

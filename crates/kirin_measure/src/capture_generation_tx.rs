@@ -117,7 +117,7 @@ impl CaptureGenerationTransaction {
                 || {
                     io::Error::new(
                         io::ErrorKind::WouldBlock,
-                        "A/B tail not cleared: Keep not started",
+                        "A/B tail not cleared: run A/B once, then Keep",
                     )
                 },
             )?;
@@ -212,7 +212,7 @@ impl CaptureGenerationTransaction {
         if self.tail_leases.len() != self.generation.members.len() {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
-                "A/B tail not cleared: Keep not started",
+                "A/B tail not cleared: run A/B once, then Keep",
             )
             .into());
         }

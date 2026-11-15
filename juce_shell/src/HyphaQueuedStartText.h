@@ -30,7 +30,7 @@ enum class AfterTail : unsigned char { none, referenceV, referenceC, referenceB,
 
 // INV-AB6: a Keep that waited its two minutes while B never proved the ordinary path (playback kept
 // stopping or seeking): it ends and says why.
-inline constexpr const char* keepTailEndedNotice = "A/B tail not cleared: Keep not started";
+inline constexpr const char* keepTailEndedNotice = "A/B tail not cleared: run A/B once, then Keep";
 
 constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
 {
