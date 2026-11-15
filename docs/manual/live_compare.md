@@ -103,6 +103,9 @@ plug-in must report latency correctly and REAPER must compensate it. No clock-on
 an unreported delay. The REAPER results do not establish native Windows REAPER acceptance or coverage of every
 rate, buffer size, delay, and plug-in configuration. [Timing contract and regression coverage](../planning/hypha_reaper_listen_timing.md).
 
+Some DAWs, including Logic Pro, take letter keys first. Click the Hypha window before pressing a key;
+if it still does not work, use the on-screen buttons to do the same thing instead.
+
 1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
    300% and above) in the footer.
 2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms. The next LISTEN

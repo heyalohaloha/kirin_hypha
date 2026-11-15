@@ -27,8 +27,9 @@ the view by itself, the notice line says why, for example **2MIX has no DRUM; sh
 
 Click the Hypha window and its keys work there. Hover a control to see its key, or press **F**
 (**MENU > KEYS**) for the list of what works now. A key Hypha does not use goes back to the DAW, and so
-do Space, the numeric keypad and anything held with Cmd, Ctrl or Alt. A key the DAW takes first does not
-reach Hypha.
+do Space, the numeric keypad and anything held with Cmd, Ctrl or Alt. Some DAWs, including Logic Pro,
+take letter keys first. Click the Hypha window before pressing a key; if it still does not work, use
+the on-screen buttons to do the same thing instead.
 
 | Keys | Does |
 |---|---|

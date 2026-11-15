@@ -29,6 +29,7 @@ run node --test scripts/ci_build_structure.test.mjs scripts/check_native_shards.
 run node --test scripts/native_test_libraries.test.mjs
 run node --test scripts/analyze_chain_trace.test.mjs
 run node --test scripts/listen_text_inventory.test.mjs
+run node --test scripts/manual_shortcut_guidance.test.mjs
 run node --test scripts/hypha_workflow_discovery.test.mjs
 run node --test scripts/build_hypha.test.mjs scripts/macos_build_parallel.test.mjs
 run node --test scripts/ls_release/windows_promotion.test.mjs scripts/ls_release/windows_delivery_bind.test.mjs
