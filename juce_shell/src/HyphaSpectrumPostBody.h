@@ -5,6 +5,7 @@
 
 #include "HyphaMonotoneCurve.h"
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSpectrumPathWorkspace.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "kirin_hypha_ffi.h"
@@ -31,10 +32,13 @@ inline juce::ColourGradient gradient (juce::Rectangle<float> plot, float brightn
 }
 
 // The body under POST where the view had none (PRE / POST / delta). Kept light: delta stays primary.
-inline void fill (juce::Graphics& g, juce::Rectangle<float> plot, const Bins& x, const Bins& y, float brightness)
+inline void fill (juce::Graphics& g, juce::Rectangle<float> plot, const Bins& x, const Bins& y, float brightness,
+                  juce::Path* reusable = nullptr)
 {
-    juce::Path body;
-    body.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 12u));
+    juce::Path temporary;
+    auto& body = reusable != nullptr ? *reusable : temporary;
+    if (reusable == nullptr)
+        body.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 12u));
     body.startNewSubPath (x.front(), plot.getBottom());
     body.lineTo (x.front(), y.front());
     monotone_curve::append (body, x, y, 0, KIRIN_SPECTRUM_BAND_COUNT - 1, false, true);
@@ -47,7 +51,7 @@ inline void fill (juce::Graphics& g, juce::Rectangle<float> plot, const Bins& x,
 // The slow PEAK line while playback is stopped: the curve is not drawn then, the held line is.
 // `hold` is in dB with TILT applied; nothing is drawn before a value has been held.
 inline void stoppedPeak (juce::Graphics& g, juce::Rectangle<float> plot, const Bins& hold, float range,
-                         float visualScale, float brightness)
+                         float visualScale, float brightness, PathWorkspace* workspace = nullptr)
 {
     Bins x {}, y {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
@@ -56,7 +60,10 @@ inline void stoppedPeak (juce::Graphics& g, juce::Rectangle<float> plot, const B
         x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index), plot.getX(), plot.getRight());
         y[index] = yForMagnitude (hold[index], plot, range);
     }
-    juce::Path line;
+    juce::Path temporary;
+    if (workspace != nullptr) workspace->beginFrame();
+    auto& line = workspace != nullptr
+        ? workspace->path (0, static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 7u)) : temporary;
     monotone_curve::append (line, x, y, 0, KIRIN_SPECTRUM_BAND_COUNT - 1, true, true);
     g.setColour (COL_FLORA_BR.withMultipliedBrightness (brightness).withAlpha (ui_contract::spectrumHoldAlpha));
     g.strokePath (line, juce::PathStrokeType (0.85f * ui_contract::spectrumStrokeScale (visualScale),

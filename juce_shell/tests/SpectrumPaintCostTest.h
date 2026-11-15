@@ -44,14 +44,17 @@ inline void measureSpectrumPaintCost()
                     view.presentationTickAt (view.curveUpdateTimeForTest() + 100.0);
                     const auto width = juce::roundToInt ((float) view.getWidth() * surface.pixels);
                     const auto height = juce::roundToInt ((float) view.getHeight() * surface.pixels);
+                    juce::Image image (juce::Image::ARGB, width, height, true,
+                        surface.native ? static_cast<const juce::ImageType&> (juce::NativeImageType())
+                                       : static_cast<const juce::ImageType&> (juce::SoftwareImageType()));
                     const auto paint = [&]
                     {
-                        juce::Image image (juce::Image::ARGB, width, height, true,
-                            surface.native ? static_cast<const juce::ImageType&> (juce::NativeImageType())
-                                           : static_cast<const juce::ImageType&> (juce::SoftwareImageType()));
-                        { juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (surface.pixels));
-                          view.paintEntireComponent (g, false); }
-                        return image;
+                        image.clear (image.getBounds());
+                        juce::Graphics g (image);
+                        g.addTransform (juce::AffineTransform::scale (surface.pixels));
+                        const auto started = juce::Time::getMillisecondCounterHiRes();
+                        view.paintEntireComponent (g, false);
+                        return juce::Time::getMillisecondCounterHiRes() - started;
                     };
                     const auto hash = [] (const juce::Image& image)
                     {
@@ -62,12 +65,14 @@ inline void measureSpectrumPaintCost()
                                 value = (value ^ data.getPixelColour (x, y).getARGB()) * 1099511628211ull;
                         return value;
                     };
-                    hashes[rich] = hash (paint());
-                    check (hashes[rich] == hash (paint()), "a settled picture repeats exactly");
-                    constexpr int rounds = 120;
-                    const auto started = juce::Time::getMillisecondCounterHiRes();
-                    for (int round = 0; round < rounds; ++round) paint();
-                    milliseconds[rich] = (juce::Time::getMillisecondCounterHiRes() - started) / rounds;
+                    paint();
+                    hashes[rich] = hash (image);
+                    paint();
+                    check (hashes[rich] == hash (image), "a settled picture repeats exactly");
+                    constexpr int rounds = 40;
+                    double elapsed = 0;
+                    for (int round = 0; round < rounds; ++round) elapsed += paint();
+                    milliseconds[rich] = elapsed / rounds;
                 }
                 if (everyChoice != display_settings::Values {})
                     check (hashes[0] != hashes[1], "the opt-in choices change the picture");

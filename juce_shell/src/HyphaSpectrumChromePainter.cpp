@@ -369,7 +369,7 @@ void paint (juce::Graphics& g,
         // separately validated local observation, on the same magnitude axis as before.
         if (! state.absoluteObservation && state.postSnapshotValid
             && state.pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
-            spectrum_painter::paintPostCurve (g, plot, scale, post, range, brightness);
+            spectrum_painter::paintPostCurve (g, plot, scale, post, range, brightness, state.paths);
         // Stopped: the six seconds already measured stay, dimmed, under the status.
         if (state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR
             && state.absoluteObservation && ! state.midSideObservation && ! state.signalActive
@@ -378,7 +378,7 @@ void paint (juce::Graphics& g,
                 spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory, state.backdrop, state.settings, minimumHz, maximumHz); });
         // Stopped with PEAK SLOW: the held line stays in the picture (its clock stands still).
         if (state.absoluteObservation && ! state.midSideObservation && ! state.signalActive && state.haveSnapshot && state.settings.slowPeak())
-            spectrum_painter::post_body::stoppedPeak (g, plot, hold, range, scale, brightness);
+            spectrum_painter::post_body::stoppedPeak (g, plot, hold, range, scale, brightness, state.paths);
         const auto status = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
                             : ! state.signalActive ? juce::String ("INACTIVE")
@@ -408,17 +408,17 @@ void paint (juce::Graphics& g,
         guide_frequency::paint (g, plot, scale, state.guideOverlay,
                                 minimumHz, maximumHz);
     if (state.midSideObservation)
-        spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness);
+        spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness, state.paths);
     else if (state.absoluteObservation && state.absoluteHistory != nullptr)
         spectrum_painter::paintAbsolute (g, plot, scale, post,
                                          hold,
                                          *state.absoluteHistory, state.presentation,
-                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz);
+                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz, state.paths);
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.deltaValid,
                                        state.haveMark ? &state.mark : nullptr,
-                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill());
+                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill(), state.paths);
     if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
         paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range);
     if (! state.midSideObservation)

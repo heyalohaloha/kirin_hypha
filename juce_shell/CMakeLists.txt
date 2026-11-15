@@ -833,6 +833,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_vu_layer_parity COMMAND KirinUiRenderContractTests --vu-layer-only)
     add_test(NAME kirin_vu_frame_trace COMMAND KirinUiRenderContractTests --vu-frame-trace-only)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+    add_test(NAME kirin_spectrum_path_reuse COMMAND KirinUiRenderContractTests --freq-path-reuse-only)
     include(cmake/SnapshotContracts.cmake)
     add_test(NAME kirin_product_entry_contract
         COMMAND KirinUiRenderContractTests --product-entry-only)

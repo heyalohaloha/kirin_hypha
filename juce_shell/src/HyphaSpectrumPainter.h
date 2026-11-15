@@ -9,6 +9,7 @@
 #include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaSpectrumDisplay.h"
+#include "HyphaSpectrumPathWorkspace.h"
 
 namespace hypha::spectrum_painter
 {
@@ -21,7 +22,8 @@ namespace hypha::spectrum_painter
     void paintPostCurve (juce::Graphics& graphics,
                          juce::Rectangle<float> plot,
                          float visualScale,
-                         const SpectrumBins& post, float range = 96.0f, float brightness = 1.0f);
+                         const SpectrumBins& post, float range = 96.0f, float brightness = 1.0f,
+                         PathWorkspace* workspace = nullptr);
 
     void paintCurves (juce::Graphics& graphics,
                       juce::Rectangle<float> plot,
@@ -32,7 +34,7 @@ namespace hypha::spectrum_painter
                       const SpectrumValidity& deltaValid,
                       const SpectrumBins* mark,
                       const SpectrumValidity* markValid, float range = 96.0f, float brightness = 1.0f,
-                      bool richPost = false);
+                      bool richPost = false, PathWorkspace* workspace = nullptr);
 
     // Retained history presentation for MID and SIDE only; LR keeps its current and hold curves.
     void paintAbsoluteHistory (juce::Graphics& graphics,
@@ -49,11 +51,13 @@ namespace hypha::spectrum_painter
                         const absolute_spectrum::History& history,
                         presentation::Context,
                         bool showHistory = true, display_settings::Values settings = {},
-                        spectrum_display::Backdrop* cache = nullptr, float minimumHz = 10, float maximumHz = 22000);
+                        spectrum_display::Backdrop* cache = nullptr, float minimumHz = 10, float maximumHz = 22000,
+                        PathWorkspace* workspace = nullptr);
 
     void paintMidSide (juce::Graphics& graphics,
                        juce::Rectangle<float> plot,
                        float visualScale,
                        const SpectrumBins& mid,
-                       const SpectrumBins& side, float range = 96.0f, float brightness = 1.0f);
+                       const SpectrumBins& side, float range = 96.0f, float brightness = 1.0f,
+                       PathWorkspace* workspace = nullptr);
 }

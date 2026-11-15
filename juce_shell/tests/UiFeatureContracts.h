@@ -40,6 +40,7 @@
 #include "PolylineGeometryContractTest.h"
 #include "SpectrumPerformanceFixture.h"
 #include "SpectrumPaintCostTest.h"
+#include "SpectrumPathReuseTest.h"
 #include "FreqRichDisplayContract.h"
 #include "SpectrumResponsiveGeometryContractTest.h"
 #include "TypographyContractTest.h"
@@ -70,6 +71,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { verifyVuLayerParity(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-frame-trace-only")
     { verifyVuFrameTrace(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--freq-path-reuse-only")
+    { verifySpectrumPathReuse(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-paint-cost-only")
     { measureSpectrumPaintCost(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-rich-only")

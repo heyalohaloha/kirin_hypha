@@ -6,12 +6,13 @@
 #include "HyphaMonotoneCurve.h"
 
 #include <cmath>
+#include <optional>
 
 namespace hypha::spectrum_painter
 {
 namespace
 {
-juce::Path magnitudePath (const SpectrumBins& values, juce::Rectangle<float> plot, float range)
+void magnitudePath (juce::Path& path, const SpectrumBins& values, juce::Rectangle<float> plot, float range)
 {
     SpectrumBins xs, ys;
     for (size_t index = 0u; index < values.size(); ++index)
@@ -23,7 +24,14 @@ juce::Path magnitudePath (const SpectrumBins& values, juce::Rectangle<float> plo
                                     0.0f, -range, plot.getY(), plot.getBottom());
         xs[index] = x; ys[index] = y;
     }
-    return monotone_curve::make (xs, ys);
+    for (size_t first = 0; first < xs.size();)
+    {
+        if (! std::isfinite (ys[first])) { ++first; continue; }
+        auto last = first;
+        while (last + 1 < xs.size() && std::isfinite (ys[last + 1])) ++last;
+        monotone_curve::append (path, xs, ys, first, last);
+        first = last + 1;
+    }
 }
 }
 
@@ -31,12 +39,19 @@ void paintMidSide (juce::Graphics& g,
                    juce::Rectangle<float> plot,
                    float visualScale,
                    const SpectrumBins& mid,
-                   const SpectrumBins& side, float range, float brightness)
+                   const SpectrumBins& side, float range, float brightness,
+                   PathWorkspace* workspace)
 {
+    std::optional<PathWorkspace> localWorkspace;
+    if (workspace == nullptr) localWorkspace.emplace();
+    auto& paths = workspace != nullptr ? *workspace : *localWorkspace;
+    paths.beginFrame();
     const float width = ui_contract::spectrumMidSideStrokeWidth
                       * ui_contract::spectrumStrokeScale (visualScale);
-    const auto midPath = magnitudePath (mid, plot, range);
-    const auto sidePath = magnitudePath (side, plot, range);
+    constexpr int capacity = static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 7u);
+    auto& midPath = paths.path (0, capacity);
+    auto& sidePath = paths.path (1, capacity);
+    magnitudePath (midPath, mid, plot, range); magnitudePath (sidePath, side, plot, range);
     const juce::PathStrokeType stroke (width, juce::PathStrokeType::curved,
                                       juce::PathStrokeType::rounded);
 

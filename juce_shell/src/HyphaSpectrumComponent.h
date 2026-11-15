@@ -17,6 +17,7 @@
 #include "HyphaSpectrumPeakFall.h"
 #include "HyphaSpectrumAverage.h"
 #include "HyphaSpectrumDisplay.h"
+#include "HyphaSpectrumPathWorkspace.h"
 #include "HyphaSpectrumFrameDriver.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_display_ffi.h"
@@ -86,6 +87,7 @@ public:
     double peakLabelUpdateTimeForTest() const noexcept { return peakReadout.updated; }
     void setHistoryCacheEnabledForTest (bool enabled) { backdrop.enabled = enabled; backdrop.invalidate(); }
     unsigned backdropBuildsForTest() const noexcept { return backdrop.builds; }
+    uint64_t curvePathAllocationsForTest() const noexcept { return spectrumPaths.allocations(); }
     void setAnimationVisible (bool shown) { animationVisible = shown; frames.setEnabled (shown && signalActive); }
     bool frameDriverActiveForTest() const noexcept { return frames.active(); }
     double displayedPsbForTest (size_t band) const noexcept { return psbMotion.shown[band]; }
@@ -186,6 +188,7 @@ private:
     spectrum_display::PeakReadout peakReadout;
     spectrum_display::PsbMotion psbMotion;
     spectrum_display::Backdrop backdrop;
+    spectrum_painter::PathWorkspace spectrumPaths;
     spectrum_presentation::PeakFall<KIRIN_SPECTRUM_BAND_COUNT> peakFall;
     // Maxima are taken here, when a value is received, from the value as it will be drawn.
     void notePeak (double nowMs)

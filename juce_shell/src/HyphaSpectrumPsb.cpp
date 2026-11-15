@@ -134,7 +134,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             presentationContext, pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
                 ? pairingLoopBlock : live_compare::LoopPairingBlock::none,
             signalActive && currentPostSnapshotValid(), lowScope, average, displaySettings,
-            &peakReadout.peaks, &backdrop
+            &peakReadout.peaks, &backdrop, &spectrumPaths
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }
