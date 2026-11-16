@@ -112,7 +112,7 @@ public:
         for (size_t index = 0; index < drawing.size(); ++index)
         {
             drawing[index]->setToggleState (static_cast<Drawing> (index) == shown, juce::dontSendNotification);
-            drawing[index]->setVisible (showsAll);
+            drawing[index]->setVisible (showsAll && ! next.referenceCompact);
         }
         resized();
     }

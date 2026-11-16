@@ -6,6 +6,7 @@
 #include "ReferenceFollowViewContract.h"
 #include "ReferenceMeasuredTargetUiTest.h"
 #include "ReferenceOverlayRepairsTest.h"
+#include "ReferenceCompactBalanceFitTest.h"
 #include "ReferenceVersionCompactTest.h"
 #include "../src/reference_audition/ReferenceLiveWindowLoudness.cpp"
 #include "ValidationStorageSandbox.h"
@@ -26,6 +27,7 @@ int main (int argc, char** argv)
     if (mode == "--unused-overlay-roundtrip-only") { hypha::tests::reference_overlay::verifyUnusedOverlayRoundTrip(); return 0; }
     if (mode == "--listening-check-sizes-only") { hypha::tests::reference_a_window::verifyListeningAtSizes(); return 0; }
     if (mode == "--target-balance-sizes-only") { hypha::tests::reference_overlay::verifyTargetBalanceSizes(); return 0; }
+    if (mode == "--compact-balance-fit-only") { hypha::tests::reference_overlay::verifyCompactBalanceFit(); return 0; }
     if (mode == "--range-label-only") { hypha::tests::verifyRangeLabelSpacing(); return 0; }
     if (mode == "--reference-follow-only") { hypha::tests::reference_follow_view::verify(); return 0; }
     if (mode == "--reference-guide-only") { hypha::tests::verifyReferenceGuideContract(); return 0; }
@@ -55,6 +57,7 @@ int main (int argc, char** argv)
     hypha::tests::reference_a_window::verify();
     hypha::tests::reference_overlay::verify();
     hypha::tests::reference_overlay::verifyRepairs();
+    hypha::tests::reference_overlay::verifyCompactBalanceFit();
     hypha::tests::verifyReferenceAuditionComponentContract();
     std::cout << "Reference audition component contract tests passed\n";
     return 0;

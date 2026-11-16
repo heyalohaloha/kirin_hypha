@@ -394,12 +394,23 @@ void KirinHyphaEditor::updateFeedback (
     feedbackRead = true;
 
     feedbackStrip.setUnpairActionVisible (automaticPairNotice && now < toastUntil && text == toastText);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const auto slot = referenceView.state().comparisonSlot;
+    const bool compactReference = isPost && referenceView.isVisible()
+        && logicalPresentationContext().logicalWidth == 300 && referenceView.state().separateComparisons
+        && (slot == 1 || slot == 2 || slot == 3);
+    observatoryView.setCompactReferenceNotices (compactReference);
+   #endif
     observatoryView.setFeedback (text);
     // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows,
     // and then the chain timing the user turned on (POST only; empty otherwise).
     const auto footerStatus = observatoryView.footerStatus();
-    feedbackStrip.setFeedback (text.isNotEmpty() ? text
-                               : footerStatus.isNotEmpty() ? footerStatus : chainFooterText);
+    auto displayText = observatoryView.feedback();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! compactReference)
+   #endif
+        if (displayText.isEmpty()) displayText = footerStatus.isNotEmpty() ? footerStatus : chainFooterText;
+    feedbackStrip.setFeedback (displayText);
     layoutBodyAndFeedback();
 }
 

@@ -135,7 +135,7 @@ Component::Component()
     configureAWindowControls();
     targetBar.onRequest = [this] (const auto& request) { if (onTargetRequest) onTargetRequest (request); };
     addChildComponent (targetBar);
-    targetBar.onLayoutChange = [this] { resized(); repaint(); };
+    targetBar.onLayoutChange = [this] { setState (State (current)); };
 }
 
 void Component::mouseMove (const juce::MouseEvent& event)
@@ -162,6 +162,8 @@ void Component::setState (State next)
     current = std::move (next);
     current.checkDetailsOpen = detailsOpen;
     presentationContext.referenceCheck = current.separateComparisons && current.comparisonSlot == 2;
+    presentationContext.referenceCompact = presentationContext.logicalWidth == 300 && current.separateComparisons
+        && current.comparisonSlot >= 1 && current.comparisonSlot <= 3;
     selectorLookAndFeel.setPresentationContext (presentationContext);
     passPresentationContext (*this, presentationContext);
     passPresentationContext (statusStrip, presentationContext);
@@ -173,7 +175,7 @@ void Component::setState (State next)
     connectionStatus.setTitle (connectionStatus.getTooltip());
     connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_LED_BLUE : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
-    connectionStatus.setVisible (! blindSession);
+    connectionStatus.setVisible (! blindSession && ! presentationContext.referenceCompact);
     aButton.setToggleState (! current.bSelected && current.switchingSlot == 0, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected && (! current.separateComparisons
         || current.audibleComparisonSlot == 1), juce::dontSendNotification);
@@ -284,7 +286,11 @@ void Component::paint (juce::Graphics& g)
             text_style::drawEllipsized (g, text, bounds, juce::Justification::centredLeft);
         };
         const bool referenceView = current.comparisonSlot == 3;
-        if (referenceView) { label (songSetBox, detailedLayout() ? "REFERENCE SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        if (referenceView)
+        {
+            if (! presentationContext.referenceCompact)
+            { label (songSetBox, detailedLayout() ? "REFERENCE SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        }
         else { label (versionBox, detailedLayout() ? "V / VERSION" : "V"); label (checkBox, detailedLayout() ? "C / CHECK" : "C"); }
         if (detailedLayout() && ! guideShown && ! referenceView) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
@@ -342,7 +348,7 @@ void Component::paint (juce::Graphics& g)
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
-    if (! rolePage() && ! (versionPage() && detailedLayout()))  // 小さい C も見出しを残し、Cue は曲の隣に置く
+    if (! presentationContext.referenceCompact && ! rolePage() && ! (versionPage() && detailedLayout()))
     {
         g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
@@ -368,10 +374,13 @@ void Component::paint (juce::Graphics& g)
     }
     area.removeFromTop (panelGap());
     // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
-    const bool rowInPanel = ! statusInFooter();
+    const bool rowInPanel = keepPanelStatus (area);
     auto statusArea = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
-    g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
-    g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
+    if (connectionStatus.isVisible())
+    {
+        g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
+        g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
+    }
     const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
     const bool statusShown = statusLineShown();
     if (guideShown)
@@ -383,7 +392,11 @@ void Component::paint (juce::Graphics& g)
     }
 
     if (! songList.isVisible() && ! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 3)
-        paintCompactBalance (g, area, current, presentationContext);
+    {
+        if (presentationContext.referenceCompact && targetBar.isExpanded() && playbackButtons[1].isVisible())
+            area.setRight (juce::jmax (area.getX(), playbackButtons[0].getX() - 3));
+        paintCompactBalance (g, area, current, presentationContext, targetBar.isExpanded());
+    }
     else if (! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 2 && listeningCheck())
         paintListeningPanel (g, paintCheckFooter (g, area));
     else if (detailedLayout())

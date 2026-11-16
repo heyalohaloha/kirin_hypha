@@ -160,7 +160,7 @@ void Component::syncRoles (bool blindSession)
     // 曲が無くても、ドロップした目標があれば一覧と Balance を出す。
     const bool targetsListed = current.targetsEnabled && (! current.targets.collection.items.empty() || current.targets.measuring);
     songList.setVisible (referenceView && rolePage() && (! current.songs.empty() || targetsListed));
-    overlaySwitch.setVisible (songList.isVisible());
+    overlaySwitch.setVisible (songList.isVisible() || (referenceView && current.targetsEnabled && presentationContext.referenceCompact && ! targetBar.isExpanded()));
     overlaySwitch.setChoice (current.overlay.all, current.overlay.drawing, presentationContext);
     std::vector<SongList::Row> rows;
     for (const auto& item : overlayItems (current))
@@ -247,15 +247,16 @@ void Component::syncPlayback (bool blindSession)
     const bool referencePage = current.separateComparisons && current.comparisonSlot == 3 && ! current.songs.empty();
     const bool checkRow = (checkPage() || (presentationContext.referenceCheck && ! detailedLayout()))
         && ! current.checks.empty();
-    const bool shown = ! blindSession && (referencePage || checkRow);
-    const bool both = shown && (rolePage() || (checkRow && ! detailedLayout()));
+    const bool compactB = presentationContext.logicalWidth == 300 && referencePage;
+    const bool shown = ! blindSession && (referencePage || checkRow) && (! compactB || targetBar.isExpanded());
+    const bool both = shown && (compactB || rolePage() || (checkRow && ! detailedLayout()));
     playbackButtons[0].setToggleState (! current.followA, juce::dontSendNotification);
     playbackButtons[1].setToggleState (current.followA, juce::dontSendNotification);
     playbackButtons[3].setButtonText (followOffsetText (current.followOffsetSeconds));
     playbackButtons[0].setVisible (both);
     playbackButtons[1].setVisible (shown);
     for (const size_t index : { size_t { 2 }, size_t { 3 }, size_t { 4 } })
-        playbackButtons[index].setVisible (both && current.followA && (! presentationContext.referenceCheck || (checkPage() && detailsOpen)));
+        playbackButtons[index].setVisible (both && ! compactB && current.followA && (! presentationContext.referenceCheck || (checkPage() && detailsOpen)));
 }
 
 // 見えているボタンを左から並べる（幅は文字に合わせ、今の量は桁が変わっても動かない幅）。

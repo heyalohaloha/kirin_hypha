@@ -144,6 +144,7 @@ public:
     void setAnalysisPage (analysis_navigation::Page);
     void setAttackPaired (bool);
     void setFeedback (juce::String text);
+    void setCompactReferenceNotices (bool enabled);
     int timeControlsHeight() const noexcept;
     // 100% is view-only: the history range and the loudness scale are chosen at 125% and above.
     bool timeControlsShown() const noexcept
@@ -400,7 +401,8 @@ private:
     analysis_navigation::Page analysisPage = analysis_navigation::Page::meters;
     bool attackPaired = false;
     bool deltaTargetEnabled = true;
-    juce::String feedbackText;
+    juce::String feedbackText, rawFeedbackText;
+    bool compactReferenceNotices = false;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
     LiveCompareFooter liveCompareState;

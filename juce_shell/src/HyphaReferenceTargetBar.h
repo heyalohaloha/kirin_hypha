@@ -46,6 +46,7 @@ public:
     void update (reference_audition::TargetSnapshot next, presentation::Context context, bool canMake, bool compact)
     {
         juce::ignoreUnused (compact);
+        compactView = context.referenceCompact;
         state = std::move (next); currentContext = context;
         make.context = remove.context = details.context = context;
         make.setButtonText (state.measuring ? "CANCEL" : "MAKE TARGET");
@@ -71,15 +72,16 @@ public:
         syncExpanded();
         resized(); repaint();
     }
-    int rowHeight() const noexcept { return expanded ? 52 : 26; }
+    int rowHeight() const noexcept { return expanded ? (compactView ? 40 : 52) : 26; }
+    bool isExpanded() const noexcept { return expanded; }
     void resized() override
     {
         auto area = getLocalBounds();
-        auto top = area.removeFromTop (24);
+        auto top = area.removeFromTop (compactView && expanded ? 18 : 24);
         details.setBounds (top.removeFromRight (juce::jmin (76, top.getWidth() / 3)));
         if (expanded)
         {
-            auto row = area.removeFromTop (24);
+            auto row = area.removeFromTop (compactView ? 18 : 24);
             make.setBounds (row.removeFromLeft (juce::jmin (104, row.getWidth() / 2))); row.removeFromLeft (4);
             remove.setBounds (row.removeFromRight (24)); row.removeFromRight (4);
             select.setBounds (row);
@@ -88,16 +90,20 @@ public:
     void paint (juce::Graphics& g) override
     {
         const key_light::Scope light (*this);
+        if (compactView && ! expanded) return;
         surface_material::paintPanel (g, getLocalBounds().toFloat(), 0.8f);
         g.setColour (COL_NORMAL);
         g.setFont (labelFont (currentContext, typography::TextRole::unit, typography::Composition::information));
-        const auto label = "DROP AUDIO  /  TARGETS " + juce::String (static_cast<int> (state.collection.items.size())) + " / 16";
-        text_style::drawEllipsized (g, label, getLocalBounds().removeFromTop (24).withTrimmedLeft (6).withRight (details.getX() - 4), juce::Justification::centredLeft);
+        const auto count = juce::String (static_cast<int> (state.collection.items.size()));
+        const auto label = compactView ? "DROP AUDIO / TARGETS " + count + "/16"
+                                       : "DROP AUDIO  /  TARGETS " + count + " / 16";
+        const auto line = getLocalBounds().removeFromTop (compactView && expanded ? 18 : 24).withTrimmedLeft (6).withRight (details.getX() - 4);
+        text_style::drawEllipsized (g, label, line, juce::Justification::centredLeft);
     }
 private:
     reference_audition::TargetSnapshot state;
     presentation::Context currentContext = presentation::defaultContext();
-    bool expanded = false;
+    bool expanded = false, compactView = false;
     Button make { "MAKE TARGET" }, remove { "-" }, details { "DETAILS" };
     SelectionControl select;
     void syncExpanded()

@@ -131,7 +131,7 @@ int View::statusStripHeight() const
 {
     const auto context = presentationContext();
     const int minimum = juce::roundToInt (monoFont (context, typography::TextRole::status).getHeight()) + 5;
-    return feedbackText.isEmpty() ? minimum : juce::jmax (minimum,
+    return feedbackText.isEmpty() || compactReferenceNotices ? minimum : juce::jmax (minimum,
         footer_notice_font::wrappedHeight (context, feedbackText, bodyArea.getWidth() - 12) + 6);
 }
 

@@ -100,6 +100,7 @@ inline void verifyReferenceAbcvRoles()
         panel.setPresentationContext (presentation::forEditor (size.width, size.height));
         panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
         auto state = named ("ready");
+        state.targetsEnabled = true;
         state.songSets = { { "set-1", "Mastering refs   1 / 2" }, { "set-2", "Loud   2 / 2" } };
         state.songSetId = "set-1";
         state.songs = { { "e1/e1/song-1", "Song 1" }, { "e2/e2/song-2", "Song 2   PREPARING" } };
@@ -171,16 +172,18 @@ inline void verifyReferenceAbcvRoles()
                      && panel.getLocalBounds().contains (set->getBounds()) && panel.getLocalBounds().contains (song->getBounds())
                      && ! set->getBounds().intersects (song->getBounds()),
                  "the B page shows the Reference set and its songs at every size, " + juce::String (size.width));
-        // B・C の流し方（2026-11-11）：B の画面はどの大きさでも FOLLOW A を切り替えられる（曲の欄と重ならず、字が切れない）。
-        // 300% は LOOP と並び、FOLLOW A のときだけ手のずらし。
+        // B の流し方は100%ではDETAILSにあり、300%では手のずらしも使える。
         {
             const bool large = presentation::forEditor (size.width, size.height).density == observatory::Density::inspection;
+            auto* bar = panel.findChildWithID ("reference-targets");
+            auto* details = dynamic_cast<juce::Button*> (bar->findChildWithID ("reference-target-details"));
+            if (size.width == 300) { require (details != nullptr, "compact B details exists"); details->onClick(); }
             auto* loop = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-loop"));
             auto* follow = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-follow-a"));
             auto* offset = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-offset"));
             const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::action,
                                          typography::Composition::information);
-            require (loop && follow && offset && follow->isVisible() && loop->isVisible() == large && ! offset->isVisible()
+            require (loop && follow && offset && follow->isVisible() && loop->isVisible() == (large || size.width == 300) && ! offset->isVisible()
                          && ! follow->getToggleState() && panel.getLocalBounds().contains (follow->getBounds())
                          && ! follow->getBounds().intersects (song->getBounds()) && ! follow->getBounds().intersects (set->getBounds())
                          && text_style::shownWidth (font, "FOLLOW A") <= static_cast<float> (follow->getWidth()),
@@ -192,6 +195,7 @@ inline void verifyReferenceAbcvRoles()
                          && (! large || (panel.getLocalBounds().contains (offset->getBounds()) && offset->getButtonText() == "0.00 S")),
                      "FOLLOW A shows the song's offset on the large B page: " + juce::String (size.width));
             panel.setState (state);
+            if (size.width == 300) details->onClick();
         }
         {
             juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);

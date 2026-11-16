@@ -224,6 +224,8 @@ const Entry entries[] = {
     { "NO SONGS IN THIS SET", u8"セットに曲がありません" },
     { "CHOOSE A TARGET", u8"目標を選んでください" },
     { "CLOSE DETAILS TO SEE BALANCE", u8"図を見るには詳しくを閉じる" },
+    { "CLOSE DETAILS FOR CHART", u8"詳しくを閉じると図" },
+    { "ENLARGE WINDOW TO SEE BALANCE", u8"図を見るには画面を広げる" },
     { "Show or hide details without changing the sound or comparison.", u8"音や比較を変えずに詳しい表示を開閉します。" },
     { "ALL SHAPE uses every line. Choose SHAPE to pick lines.", u8"ALL SHAPEは全部の線を使います。選ぶにはSHAPEを押します。" },
     // ALL SHAPE の数を先に（「MEAN OF %1」が「ALL 20」を値に取らないように）。

@@ -136,6 +136,17 @@ Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> st
         else if (! current.targets.measuring) line.text = notice + " / " + line.text;
         else line.text += " / " + notice;
     }
+    // In the smallest B view the playback mode belongs in DETAILS. Keep warnings and
+    // attenuation intact; only shorten the ordinary playing description.
+    if (presentationContext.referenceCompact && current.comparisonSlot == 3 && ! targetBar.isExpanded()
+        && current.bSelected && current.audibleComparisonSlot == 3 && current.audibleHeard
+        && line.kind == StatusKind::ready && current.action.kind == ActionKind::none
+        && current.heldAttenuationDb >= -0.05 && current.peakShortfallDb <= 0.05
+        && std::abs (current.rangeShortfallDb) <= 0.5 && current.publicationIssue.isEmpty()
+        && current.targets.issue.isEmpty() && ! current.targets.measuring && current.preparationOverdue.isEmpty()
+        && current.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+        && current.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE")
+        line.text = "B PLAYING";
     layout.line = line;
     auto available = statusArea;  // REF の中では 1・2・REVEAL を置いた残り（レイアウトが入れ物の大きさで決める）
     // 承認・VERSION BLIND のボタンの手前まで（ボタンの幅は文字に合わせて決まる、layoutStatusRow）。
@@ -187,7 +198,7 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
     {
         paintStatusDot (g, presentationContext.referenceCheck && actionButton.isVisible() && statusRowHeight() > 24
                           ? layout.primary.withHeight (18) : layout.primary, kind);
-        g.setColour (presentationContext.referenceCheck ? COL_NORMAL : statusColour.withAlpha (0.92f));
+        g.setColour (presentationContext.referenceCheck || presentationContext.referenceCompact ? COL_NORMAL : statusColour.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information));
         const auto full = text_style::shownText (layout.line.text);
         const auto split = full.indexOfChar (juce::juce_wchar (0x3002));

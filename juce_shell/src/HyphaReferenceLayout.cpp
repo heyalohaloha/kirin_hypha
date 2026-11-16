@@ -2,12 +2,30 @@
 
 #include "HyphaMainFrame.h"
 #include "HyphaReferenceBalance.h"
+#include "HyphaReferenceCompactBalance.h"
 #include "HyphaReferenceVisuals.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 
 namespace hypha::reference_ui
 {
+bool Component::keepPanelStatus (juce::Rectangle<int> area) const
+{
+    if (statusInFooter()) return false;
+    if (presentationContext.logicalWidth > 300 && presentationContext.logicalWidth < 450
+        && current.separateComparisons && current.comparisonSlot == 3 && ! guideShown
+        && area.getHeight() - statusRowHeight() < compactBalanceMinimumHeight && ! statusRowHasControls()
+        && (referenceStatusLine (current, false).kind == StatusKind::ready
+            || (current.referenceStep == SourceStep::playDaw && current.preparationOverdue.isEmpty()
+                && current.publicationReturn == 0 && ! current.kirinOsRequest
+                && current.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::none))
+        && ! current.targets.measuring && current.targets.issue.isEmpty() && current.publicationIssue.isEmpty()
+        && current.peakShortfallDb <= 0.05 && std::abs (current.rangeShortfallDb) <= 0.5
+        && current.heldAttenuationDb >= -0.05 && current.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+        && current.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE") return false;
+    return true;
+}
+
 bool Component::showCheckPurpose() const noexcept
 {
     if (! presentationContext.referenceCheck) return false;
@@ -72,13 +90,14 @@ void Component::resized()
         }
         else
         {
-            b.removeFromLeft (14); row.removeFromLeft (14);
+            if (! (presentationContext.referenceCompact && current.comparisonSlot == 3))
+            { b.removeFromLeft (14); row.removeFromLeft (14); }
             versionBox.setBounds (b); checkBox.setBounds (row);
             if (presentationContext.referenceCheck) checkBox.setBounds (b.getUnion (row));
         }
         songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに
         songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
-        if (current.comparisonSlot == 3 && playbackButtons[1].isVisible())  // 300% 未満の B：曲の欄の右に FOLLOW A の切り替え
+        if (current.comparisonSlot == 3 && playbackButtons[1].isVisible() && ! presentationContext.referenceCompact)  // 300% 未満の B：曲の欄の右に FOLLOW A の切り替え
         {
             auto picker = songBox.getBounds();
             const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
@@ -133,6 +152,14 @@ void Component::resized()
             candidateBox.setBounds (selector);
         }
     }
+    if (presentationContext.referenceCompact && current.comparisonSlot == 3 && playbackButtons[1].isVisible())
+    {
+        const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
+        const auto width = juce::roundToInt (std::ceil (text_style::shownWidth (font, "LOOP")))
+            + juce::roundToInt (std::ceil (text_style::shownWidth (font, "FOLLOW A"))) + 35;
+        auto row = area.withTrimmedTop (panelGap()).removeFromTop (panelPickerHeight()).removeFromRight (width);
+        layoutPlayback (row);
+    }
     if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession)
     {
         auto row = area.removeFromTop (panelPickerHeight());
@@ -146,7 +173,7 @@ void Component::resized()
     }
     if (! blindSession && showCheckPurpose()) area.removeFromTop (16);
     area.removeFromTop (panelGap());
-    const bool rowInPanel = ! statusInFooter();
+    const bool rowInPanel = keepPanelStatus (area);
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
     // The page's main window, in the frame the page draws around it (paint). B の一覧と BALANCE は枠の外の広さのまま。
@@ -155,8 +182,14 @@ void Component::resized()
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
     balanceBounds = area.withTrimmedTop (panelGap()).withTrimmedLeft (songList.getWidth() + 6);
     const auto switchWidth = OverlaySwitch::widthFor (current.overlay.all, presentationContext);  // 描き方は ALL の時だけ
-    overlaySwitch.setBounds (juce::Rectangle<int> (switchWidth, OverlaySwitch::height)
-                                 .withPosition (balanceBounds.getRight() - 9 - switchWidth, balanceBounds.getY() + 3));
+    if (presentationContext.referenceCompact && current.comparisonSlot == 3)
+    {
+        overlaySwitch.setBounds (targetBar.getBounds().removeFromTop (24).removeFromLeft (OverlaySwitch::width));
+        if (overlaySwitch.isVisible()) overlaySwitch.toFront (false);
+    }
+    else
+        overlaySwitch.setBounds (juce::Rectangle<int> (switchWidth, OverlaySwitch::height)
+                                     .withPosition (balanceBounds.getRight() - 9 - switchWidth, balanceBounds.getY() + 3));
     layoutAWindowControls();
     // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
     if (statusStrip.getParentComponent() == this)

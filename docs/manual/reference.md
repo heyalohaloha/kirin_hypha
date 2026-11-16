@@ -66,7 +66,7 @@ way never starts a role. V always follows A's position by its content, and Blind
 **Measured targets.** On B, drop a file onto the Reference page to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
-seconds. B always shows the drop hint and target count; open DETAILS for MAKE TARGET, the target selector and removal. In B's list, select a target to compare its median spectrum with A in ONE. It has no audio: pressing B explains this and leaves A playing. After import or MAKE TARGET, B switches to ALL and immediately shows the new targets without changing the sound. A target being measured appears as a pending row. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+seconds. Open DETAILS for MAKE TARGET, the target selector and removal. At 100%, DETAILS also shows the target count and playback controls; drop audio anywhere on the B page. At larger sizes B shows the drop hint and count. In B's list, select a target to compare its median spectrum with A in ONE. It has no audio: pressing B explains this and leaves A playing. After import or MAKE TARGET, B switches to ALL and immediately shows the new targets without changing the sound. A target being measured appears as a pending row. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
 four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
 drop holds more files than there are free places, they are measured in the order dropped until the
 places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
@@ -174,8 +174,8 @@ role still plays by itself once it is ready.
 **Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C is drawn dimmed; pressing
 it opens 300% without changing the sound (press again to listen). V works at the selected size, including
 100%: choose a Version and press V to listen. Starting Version Blind opens its full-window screen. At every size,
-the B page chooses the Reference set and the song, also while A plays, and switches FOLLOW A beside the song.
-At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
+the B page chooses the Reference set and the song, also while A plays. At 100%, open DETAILS for LOOP and FOLLOW A;
+at 125–200%, FOLLOW A sits beside the song. At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
@@ -207,7 +207,7 @@ At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, op
   item's line thinly over the shape. The list scrolls when its rows do not fit, and moves to the chosen
   song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
   Hypha ignore them). Below 300 %, a compact Balance shows the current ONE or ALL selection,
-  with the same line colours and numbered legend. At 100 %, close DETAILS to restore the chart.
+  with the same line colours and numbered legend. At 100 %, ONE / ALL and the chart stay visible with DETAILS closed; open DETAILS for the playback and target controls, then close it to restore the chart.
 - **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. C's status line stays at the bottom of its own page. The first view in the Check definition fills the main area; DETAILS opens its other views, the FOLLOW A offset and the timeline without changing sound or comparison. At 100–150%, the one-line description is omitted for a spectrum or while a compact guide is shown; the guide explains the next step. At 200%, when an approval notice needs extra lines, the description is temporarily hidden to keep the chart legible. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),

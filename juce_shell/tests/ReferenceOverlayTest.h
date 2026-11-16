@@ -231,8 +231,8 @@ inline void verifyFullSet()
         panel.setState (state);
         reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), reference_ui::overlayEmptyText);
     }
-    // Every editor size, walked down from 300% and back as the editor resizes: below 300% there is no Balance,
-    // so no switch and no boxes stay behind, and what shows is reachable at every display scale.
+    // Every editor size, walked down from 300% and back. The compact chart at 100% has its own
+    // ONE / ALL switch; list number boxes belong only to the full-sized Balance.
     constexpr std::array<std::pair<int, int>, 8> sizes {{
         { 900, 600 }, { 897, 598 }, { 750, 500 }, { 600, 400 }, { 450, 300 }, { 375, 250 }, { 300, 200 }, { 900, 600 } }};
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -256,10 +256,10 @@ inline void verifyFullSet()
             panel.setPresentationContext (presentation::forEditor (width, height));
             panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
             const bool large = state.blindLargeScreen && presentation::forEditor (width, height).density == observatory::Density::inspection;
-            require (panel.findChildWithID ("reference-overlay")->isVisible() == large
+            require (panel.findChildWithID ("reference-overlay")->isVisible() == (large || width == 300)
                      && (large || boxesOf (*dynamic_cast<reference_ui::SongList*> (panel.findChildWithID ("reference-song-list"))).empty()
                          || ! panel.findChildWithID ("reference-song-list")->isVisible()),
-                     "ONE / ALL and the number boxes show exactly where Balance does (" + juce::String (width) + ")");
+                     "the switch and list controls follow their Balance views (" + juce::String (width) + ")");
             editor_reachability::checkAtDisplayScales (panel, [&] (float scale, const juce::String& problem)
             {
                 std::cerr << "REF B ALL " << width << "x" << height << " @" << scale << ": " << problem << '\n';

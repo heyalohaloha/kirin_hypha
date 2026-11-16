@@ -5,18 +5,21 @@
 
 namespace hypha::reference_ui
 {
+inline constexpr int compactBalanceMinimumHeight = 32; // 14 px title, 14 px plot, 2 px margins
 // The compact B view keeps the same data and line colours as the full Balance view.
 inline void paintCompactBalance (juce::Graphics& g, juce::Rectangle<int> bounds, const State& state,
-                                 presentation::Context context)
+                                 presentation::Context context, bool detailsOpen)
 {
     surface_material::paintPanel (g, bounds.toFloat(), 0.72f);
     auto chart = bounds.reduced (5, 2);
     auto title = chart.removeFromTop (14);
     g.setColour (COL_NORMAL);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-    if (chart.getHeight() < 14)
+    if (bounds.getHeight() < compactBalanceMinimumHeight)
     {
-        text_style::drawEllipsized (g, "CLOSE DETAILS TO SEE BALANCE", title, juce::Justification::centredLeft);
+        const auto message = ! detailsOpen ? "ENLARGE WINDOW TO SEE BALANCE"
+            : context.referenceCompact ? "CLOSE DETAILS FOR CHART" : "CLOSE DETAILS TO SEE BALANCE";
+        text_style::drawEllipsized (g, message, title, juce::Justification::centredLeft);
         return;
     }
     using Drawing = reference_audition::BalanceOverlay::Drawing;
