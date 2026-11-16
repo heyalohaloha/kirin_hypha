@@ -136,13 +136,15 @@ This SPACE example uses synthetic stereo samples rendered by the current editor.
 <img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: LEVEL Δ after MATCH, with PRE selected and END in the footer">
 <br><b>Louder, or better?</b> · LISTEN<br>
 Hear the signal before or after your processing at a matched level, without stopping playback.
-Unverified timing keeps POST audible; the same comparison resumes after fresh proof.
+Moments the clock cannot confirm play POST, and PRE returns by itself. When the delay through your
+chain cannot be measured, PRE plays at its clock position and Hypha says so.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
 <br><b>Decide with the names hidden</b> · BLIND<br>
 Two anonymous sources at a fixed matched level. Switch while the DAW plays, then <b>REVEAL</b>
-which one was PRE and which was POST.
+which one was PRE and which was POST. Turn on GUESS in MENU to answer which one is POST first;
+<b>SAVE IMAGE</b> saves the result as a picture.
 </td>
 </tr>
 <tr>
@@ -234,9 +236,11 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 <a id="optional-update-information"></a>
 ## Update information in 1.1.57
 
-This version improves comparison controls and messages, remembers the folder used for saved images,
-and clarifies when a saved measurement is waiting for its audio file. The
-[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57) list the changes. To update, download the installer for your platform above, close your
+PRE now lines up with POST for comparison even through an EQ or a limiter, or across a few seconds of
+delay the DAW does not compensate. With GUESS in BLIND, you answer which one is POST before REVEAL,
+and you can save the result as an image. On the Reference page, B compares A with your targets and C
+with songs chosen in Kirin OS. The
+[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57) list all changes. To update, download the installer for your platform above, close your
 DAW, run the installer and reopen the DAW.
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or
