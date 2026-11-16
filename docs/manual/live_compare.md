@@ -19,7 +19,9 @@ by itself as soon as it can confirm it again. Short checks are quiet and the sel
 stays selected. Measurement and Records are never changed.
 
 LISTEN, level matching and BLIND are available in macOS AU, VST3 and AAX, and Windows VST3
-and AAX. Logic AU supports continuous and cycle playback. REAPER VST3 uses its processing
+and AAX. A host that reports neither a continuous audio clock nor its output latency gives Hypha
+nothing to line PRE up with: Hypha then says **This DAW has no verified audio clock; PRE is
+unavailable (POST)** and you keep hearing POST (Ableton Live 10 Lite's VST3 is one). Logic AU supports continuous and cycle playback. REAPER VST3 uses its processing
 counter, calibrated against compensated project positions; its measurement clocks keep their
 own rules. [REAPER loop conditions](#reaper-listen-timing) are described below.
 
