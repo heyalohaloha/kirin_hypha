@@ -286,10 +286,10 @@ jobs:
     # Measured local cold build at 4 CPUs: 33.2 min; serial tests: 16.3 min.
     # Estimate 34 build + 17 tests + 9 verification/packaging + 15 setup/runner/cache margin
     # = 75 min; the last measured hosted run took 64 min. The pre-build installer check and
-    # the previous-release upgrade phase add about 8 min, so the budget is 90 min. Hosted
-    # runtime must be checked on the next authorized run; no deadline or matrix coverage is
-    # relaxed by this job budget.
-    timeout-minutes: 90
+    # the previous-release upgrade phase add about 8 min, so the budget was 90 min. The hosted
+    # run took 73 min on 2026-11-15 and the product tests grew since, so the budget is 110 min.
+    # No deadline or matrix coverage is relaxed by this job budget.
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

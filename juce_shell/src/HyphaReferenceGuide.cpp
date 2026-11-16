@@ -310,10 +310,19 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
         for (int index = first; index < first + count; ++index) needed += heightFor (index);
         if (needed <= content.getHeight()) break;
     }
+    const auto first = count == 4 ? 0 : 1;
+    // At the compact sizes a row is its letter and step only. A step wider than the row (a long
+    // Japanese step with the platform's font) leaves the rows out: the heading and reason stay.
+    const auto stepFits = [&] (int index)
+    {
+        if (observatory::isFullDensity (context.density)) return true;
+        return text_style::shownWidth (bodyFont, rows[index].state) <= static_cast<float> (content.getWidth() - 34);
+    };
     if (count < 2)
         return fit;
+    for (auto index = first; index < first + count; ++index)
+        if (! stepFits (index)) return fit;
     fit.rowCount = count;
-    const auto first = count == 4 ? 0 : 1;
     for (auto index = first; index < first + count; ++index)
         fit.rows = paintRow (g, content.removeFromTop (heightFor (index)), rows[index], context) && fit.rows;
 
