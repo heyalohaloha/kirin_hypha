@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include "TestProcessorStorage.h"
 #include "../src/HyphaKeepPreWait.h"
+#include "../src/HyphaRecordBindingNotice.h"
+#include "../src/HyphaReferenceAccessPanel.h"
 namespace hypha::tests::editor_product
 {
 struct AutoNoticePage { using Type = analysis_navigation::Page KirinHyphaEditor::*; friend Type privateMember (AutoNoticePage); };
@@ -371,6 +373,55 @@ inline void verifyHiddenAutoStops()
     owner.reset();
     processor.releaseResources();
     verifyWaitingRequests();
+}
+
+// Exercise the real editor boundary with an isolated processor: the ongoing Record notice is
+// suppressed only on compact B/C/V, while a user-action toast and the other surfaces keep working.
+inline void verifyCompactReferenceNotices()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+    std::unique_ptr<juce::AudioProcessorEditor> owner (processor.createEditorIfNeeded());
+    auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
+    require (editor != nullptr, "compact notice editor exists");
+    editor->setSize (300, 200);
+    auto* view = component<observatory::View> (*editor);
+    auto* panel = component<reference_ui::Component> (*editor);
+    auto* access = component<reference_ui::AccessPanel> (*editor);
+    auto* strip = component<FeedbackStrip> (*editor);
+    require (view && panel && strip, "compact notice surfaces exist");
+    view->setDomain (observatory::Domain::reference);
+    if (access) access->setVisible (false);
+    panel->setVisible (true);
+    const auto update = privateMember (AutoNoticeFeedback {});
+    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    for (const int slot : { 3, 2, 1 })
+    {
+        auto state = panel->state(); state.separateComparisons = true; state.comparisonSlot = slot;
+        panel->setState (state);
+        editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+        (editor->*update) (now, false, record_ui::wavWaiting);
+        require (view->feedback().isEmpty() && ! strip->isVisible(), "Record waiting notice is hidden on compact B, C and V");
+        require (view->analysisBodyBounds().getBottom() > view->statusStripBounds().getY(),
+                 "hidden notice releases its folded footer space");
+        (editor->*privateMember (ShowToast {})) ("Capture saved");
+        (editor->*update) (now, false, record_ui::wavWaiting);
+        require (view->feedback() == "Capture saved" && strip->isVisible()
+                     && view->statusStripBounds().getHeight() < 25,
+                 "a direct action still produces one visible line");
+    }
+    editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+    auto state = panel->state(); state.comparisonSlot = 0; panel->setState (state);
+    (editor->*update) (now, false, record_ui::wavWaiting);
+    require (view->feedback() == record_ui::wavWaiting, "the A page keeps the Record notice");
+    editor->setSize (450, 300); state.comparisonSlot = 3; panel->setState (state); panel->setVisible (true);
+    (editor->*update) (now, false, record_ui::wavWaiting);
+    require (view->feedback() == record_ui::wavWaiting, "150% keeps the Record notice");
+    panel->setVisible (false); view->setDomain (observatory::Domain::level); editor->setSize (300, 200);
+    (editor->*update) (now, false, record_ui::wavWaiting);
+    require (view->feedback() == record_ui::wavWaiting, "other surfaces keep the Record notice");
+    processor.editorBeingDeleted (owner.get()); owner.reset(); processor.releaseResources();
 }
 
 }

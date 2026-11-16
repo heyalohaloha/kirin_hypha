@@ -118,6 +118,7 @@ const Entry entries[] = {
     { "C raised to its %1 dB limit. Still %2 dB below A", u8"Cを上限の%1 dBまで上げました。まだAより%2 dB小さい" },
     { "C lowered to its %1 dB limit. Still %2 dB below A", u8"Cを上限の%1 dBまで下げました。まだAより%2 dB小さい" },
     { "C set to its %1 dB limit. Still %2 dB below A", u8"Cを上限の%1 dBにしました。まだAより%2 dB小さい" },
+    { "C LIMIT %1 DB / %2 DB BELOW A", u8"C上限%1 dB ／ Aより%2 dB小さい" },
     { "C matched to A at %1 dB", u8"Cを%1 dBでAに合わせました" },
     { "DETAILS", u8"詳しく" },
     { "This Check does not use loudness MATCH.", u8"このCheckでは音量のMATCHを使いません。" },

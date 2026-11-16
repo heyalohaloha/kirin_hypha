@@ -359,7 +359,7 @@ inline void verifyReferenceAbcvRoles()
         require (! set->isVisible() && ! song->isVisible() && version->isVisible(),
                  "the V page keeps its own selectors");
 
-        // 小さい C は広げるだけ。V はどの大きさでも試聴する。
+        // C は100%ではそのまま試聴し、125–200%では広げる。V はどの大きさでも試聴する。
         auto sized = state;
         sized.blindLargeScreen = size.width >= 900;
         sized.versionReady = sized.checkReady = true;  // 鳴らせる C と V
@@ -375,13 +375,14 @@ inline void verifyReferenceAbcvRoles()
         const auto openedC = opened, visualC = visual;
         opened = visual = 0;
         v->onClick();
-        if (sized.blindLargeScreen)
-            require (opened == 0 && openedC == 0 && heardC && heardV && v->getTooltip() != "Open V at 300%",
-                     "at 300% pressing C and V plays them");
+        if (sized.blindLargeScreen || size.width == 300)
+            require (opened == 0 && openedC == 0 && heardC && heardV && c->getTooltip() != "Open C at 300%"
+                         && v->getTooltip() != "Open V at 300%",
+                     "at 100% and 300% pressing C and V plays them");
         else
             require (openedC == 2 && visualC == 2 && opened == 0 && ! heardC && heardV
                          && c->getTooltip() == "Open C at 300%" && v->getTooltip() != "Open V at 300%",
-                     "below 300% C opens its page and V plays at the selected size");
+                     "at 125–200% C opens its page and V plays at the selected size");
         if (sized.blindLargeScreen)
         {
             sized.transportPlaying = true; sized.versionReady = sized.versionArmable = false;

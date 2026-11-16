@@ -1,6 +1,7 @@
 #include "HyphaReferenceComponent.h"
 
 #include "HyphaReferenceStatusModel.h"
+#include "HyphaReferenceGainText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -41,6 +42,7 @@ int Component::statusRowHeight() const noexcept
 {
     if (! presentationContext.referenceCheck || ! actionButton.isVisible())
         return detailedLayout() ? 24 : 18;
+    if (presentationContext.referenceCompact) return 36;
     if (! shortPanel() && ! detailedLayout()) return 36;
     const auto font = labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information);
     const auto actionFont = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
@@ -136,6 +138,11 @@ Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> st
         else if (! current.targets.measuring) line.text = notice + " / " + line.text;
         else line.text += " / " + notice;
     }
+    if (presentationContext.referenceCompact && current.comparisonSlot == 2
+        && (line.text.startsWith ("C raised to its ") || line.text.startsWith ("C lowered to its ")
+            || line.text.startsWith ("C set to its ")) && current.peakShortfallDb > 0.05)
+        line.text = "C LIMIT " + gainText (current.appliedGainDb) + " DB / "
+                  + juce::String (current.peakShortfallDb, 1) + " DB BELOW A";
     // In the smallest B view the playback mode belongs in DETAILS. Keep warnings and
     // attenuation intact; only shorten the ordinary playing description.
     if (presentationContext.referenceCompact && current.comparisonSlot == 3 && ! targetBar.isExpanded()
@@ -177,6 +184,9 @@ juce::String Component::statusLineWhole() const
 {
     if (statusRowConcealed() || ! statusLineShown() || ! statusStrip.isVisible()) return {};
     const auto layout = statusTextLayout (statusStrip.getLocalBounds());
+    const auto full = referenceStatusLine (current, statusInFooter() && current.heldAttenuationDb < -0.05).text;
+    if (presentationContext.referenceCompact && current.comparisonSlot == 2
+        && layout.line.text.startsWith ("C LIMIT ") && full != layout.line.text) return full;
     return layout.cut ? layout.line.text : juce::String {};
 }
 
@@ -203,7 +213,9 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
         const auto full = text_style::shownText (layout.line.text);
         const auto split = full.indexOfChar (juce::juce_wchar (0x3002));
         const auto englishSplit = full.indexOf (". ");
-        if (presentationContext.referenceCheck && actionButton.isVisible() && statusRowHeight() > 24 && (split >= 0 || englishSplit >= 0))
+        if (presentationContext.referenceCompact && presentationContext.referenceCheck && actionButton.isVisible())
+            text_style::drawEllipsized (g, full, statusArea.removeFromTop (18).withTrimmedLeft (16), juce::Justification::centredLeft);
+        else if (presentationContext.referenceCheck && actionButton.isVisible() && statusRowHeight() > 24 && (split >= 0 || englishSplit >= 0))
         {
             const auto end = split >= 0 ? split + 1 : englishSplit + 1;
             auto first = statusArea.removeFromTop (18).withTrimmedLeft (16);

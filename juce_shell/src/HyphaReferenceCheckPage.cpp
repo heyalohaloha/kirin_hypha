@@ -9,7 +9,7 @@
 #include <algorithm>
 
 // C（CHECK）は Check を一つ選び、主の比較と再生方法を出す。詳しい比較と時間軸は表示だけを開閉する。
-// V の選択は V の画面にだけ出す。小さな表示で C を押すと 300% の画面が開く。
+// V の選択は V の画面にだけ出す。C は100%でもそのまま使い、途中の大きさでは300%を開く。
 namespace hypha::reference_ui
 {
 bool Component::versionPage() const noexcept
@@ -112,6 +112,7 @@ void Component::syncCheckPage (bool blindSession)
     const bool page = checkPage();
     const bool compact = presentationContext.referenceCheck && ! detailedLayout() && ! blindSession;
     const bool vPage = versionPage();
+    const bool compactCheck = presentationContext.referenceCompact && presentationContext.referenceCheck && ! blindSession;
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
     // V の項目は C の CHECK SET と切り離す。C は CHECK セットの順。
@@ -132,7 +133,7 @@ void Component::syncCheckPage (bool blindSession)
     syncSelectionControl (checkChooser, choices, vPage ? versionTab : group != nullptr ? group->checkId : juce::String {});
     unavailable::set (checkChooser, ! choices.empty(), "Nothing to choose yet");
     checkChooser.setVisible ((page && ! groups.empty()) || (vPage && versionDetailsOpen));
-    detailsButton.setVisible (page || vPage);
+    detailsButton.setVisible (page || vPage || compactCheck);
     detailsButton.setToggleState (vPage ? versionDetailsOpen : detailsOpen, juce::dontSendNotification);
     // V を鳴らしていなくても、WHOLE と同じ位置合わせの gain（同じ区間の音量差）で合わせて比べる（鳴らしていれば実際の
     // gain）。2026-10-04 まで V を鳴らさないと「音量未調整」で 4 帯域が「—」だった。
@@ -155,7 +156,9 @@ void Component::syncCheckPage (bool blindSession)
     const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
     songSwitch.setChoice (current.song.chosen, songAvailable,
                           compact ? juce::String ("CUE") : SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
-    songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr && ! listeningCheck());
+    songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr && ! listeningCheck()
+                           && (! compactCheck || detailsOpen));
+    if (compactCheck) cueBox.setVisible (detailsOpen && current.cues.size() > 1);
     if (page)
     {
         // C の画面では V の選択と、Check と曲を 1 つにした選択欄を出さない（V の画面とタブ・曲で選ぶ）。

@@ -185,8 +185,8 @@ void Component::syncSourceButtons()
     cButton.setButtonText ("C");
     bButton.setAttention ((waiting && current.pendingAudition.slot == 1) || current.switchingSlot == 1);
     cButton.setAttention ((waiting && current.pendingAudition.slot == 2) || current.switchingSlot == 2);
-    // 300% 未満の C は押すと広げる。V は今の大きさで使う。
-    const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen;
+    // 100%より大きく300%未満の C は押すと広げる。100% と V は今の大きさで使う。
+    const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen && presentationContext.logicalWidth != 300;
     unavailable::set (bButton, current.separateComparisons || versionAudible, unavailableText (current, true));
     bButton.setReady (! current.separateComparisons || versionAudible || bQueue);
     bButton.setTooltip (bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."

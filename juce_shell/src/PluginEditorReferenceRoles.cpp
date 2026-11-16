@@ -95,7 +95,7 @@ bool KirinHyphaEditor::ensureReferenceRoom()
 
 void KirinHyphaEditor::openReferenceLarge (int slot)
 {
-    // 300% 未満で C を押したら 300% に広げる。鳴らすのはもう一度押したとき。
+    // 100%より大きく300%未満で C を押したら広げる。鳴らすのはもう一度押したとき。
     // まだ鳴らせない（準備中・選んでいない）ときは「押せば鳴る」と言わない（理由は開いた画面の状態の行）。
     if (slot != 2) return;  // V uses the selected size.
     const auto& state = referenceView.state();

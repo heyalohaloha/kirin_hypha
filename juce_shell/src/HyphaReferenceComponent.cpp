@@ -190,7 +190,8 @@ void Component::setState (State next)
     blindButton.setVisible (! blindSession
         && (!current.separateComparisons || current.comparisonSlot == 1)
         && (versionChosen || canStartBlind (current))
-        && (! current.separateComparisons || current.blindLargeScreen || versionDetailsOpen));
+        && (! current.separateComparisons || current.blindLargeScreen || versionDetailsOpen)
+        && (! presentationContext.referenceCompact || versionDetailsOpen));
     unavailable::set (blindButton, (! current.separateComparisons && ! current.blindLargeScreen) || canStartBlind (current),
                       current.blindLowerAApprovalRequired ? juce::String ("Press LOWER A & START to begin")
                                                           : unavailableText (current, true));
@@ -363,8 +364,11 @@ void Component::paint (juce::Graphics& g)
         if (! shortPanel() && ! versionPage()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
     }
 
-    if (presentationContext.referenceCheck && ! detailedLayout())
+    if (presentationContext.referenceCheck && ! detailedLayout()
+        && (! presentationContext.referenceCompact || detailsOpen))
+    {
         area.removeFromTop (panelPickerHeight());
+    }
     if (showCheckPurpose())
     {
         g.setColour (COL_NORMAL);
@@ -424,7 +428,7 @@ void Component::paint (juce::Graphics& g)
     }
     else if (!comparisonView.isVisible())
     {
-        if (presentationContext.referenceCheck && ! current.viewBindings.empty()
+        if (presentationContext.referenceCheck && ! presentationContext.referenceCompact && ! current.viewBindings.empty()
             && current.viewBindings.front().startsWith ("spectrum_"))
             paintBandSummary (g, area.removeFromBottom (18), current, presentationContext);
         const int gap = 4;

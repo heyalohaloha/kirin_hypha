@@ -28,7 +28,7 @@ bool Component::keepPanelStatus (juce::Rectangle<int> area) const
 
 bool Component::showCheckPurpose() const noexcept
 {
-    if (! presentationContext.referenceCheck) return false;
+    if (! presentationContext.referenceCheck || presentationContext.referenceCompact) return false;
     if (guideShown && ! detailedLayout()) return false;
     if (detailedLayout() && ! rolePage() && actionButton.isVisible() && statusRowHeight() > 24) return false;
     return detailedLayout() || current.viewBindings.empty() || ! current.viewBindings.front().startsWith ("spectrum_");
@@ -53,6 +53,11 @@ void Component::resized()
     place (bButton, comparisonWidth);
     if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
     place (aButton, comparisonWidth);
+    if (presentationContext.referenceCompact && presentationContext.referenceCheck && ! blindSession)
+    {
+        matchButton.setBounds (header.removeFromLeft (52).reduced (0, 1)); header.removeFromLeft (4);
+        detailsButton.setBounds (header.removeFromLeft (60).reduced (0, 1));
+    }
     if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
     // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
     auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
@@ -72,10 +77,19 @@ void Component::resized()
     {
         area.removeFromTop (panelGap());
         auto row = area.removeFromTop (panelPickerHeight());
-        const auto width = (row.getWidth() - 8) * 30 / 100;
-        presetBox.setBounds (row.removeFromLeft (width)); row.removeFromLeft (4);
-        cueBox.setBounds (row.removeFromRight ((row.getWidth() - 4) * 35 / 100)); row.removeFromRight (4);
-        checkBox.setBounds (row);
+        if (presentationContext.referenceCompact)
+        {
+            const auto width = (row.getWidth() - 4) * 40 / 100;
+            presetBox.setBounds (row.removeFromLeft (width)); row.removeFromLeft (4);
+            checkBox.setBounds (row);
+        }
+        else
+        {
+            const auto width = (row.getWidth() - 8) * 30 / 100;
+            presetBox.setBounds (row.removeFromLeft (width)); row.removeFromLeft (4);
+            cueBox.setBounds (row.removeFromRight ((row.getWidth() - 4) * 35 / 100)); row.removeFromRight (4);
+            checkBox.setBounds (row);
+        }
     }
     else if (current.separateComparisons && ! blindSession)
     {
@@ -160,15 +174,19 @@ void Component::resized()
         auto row = area.withTrimmedTop (panelGap()).removeFromTop (panelPickerHeight()).removeFromRight (width);
         layoutPlayback (row);
     }
-    if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession)
+    if (presentationContext.referenceCheck && ! detailedLayout() && ! blindSession
+        && (! presentationContext.referenceCompact || detailsOpen))
     {
         auto row = area.removeFromTop (panelPickerHeight());
-        if (matchButton.isVisible()) { matchButton.setBounds (row.removeFromRight (50)); row.removeFromRight (3); }
+        if (! presentationContext.referenceCompact && matchButton.isVisible())
+        { matchButton.setBounds (row.removeFromRight (50)); row.removeFromRight (3); }
         if (songSwitch.isVisible())
         {
             const auto width = SongSwitch::widthFor ("CUE", presentationContext);
             songSwitch.setBounds (row.removeFromRight (width)); row.removeFromRight (3);
         }
+        if (presentationContext.referenceCompact && cueBox.isVisible())
+        { cueBox.setBounds (row.removeFromRight (70)); row.removeFromRight (3); }
         layoutPlayback (row);
     }
     if (! blindSession && showCheckPurpose()) area.removeFromTop (16);

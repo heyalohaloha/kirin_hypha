@@ -189,6 +189,9 @@ inline void verifyReferenceCheckPage()
         reference_ui::Component compact;
         compact.setVisible (true); compact.setPresentationContext (presentation::forEditor (300, 200));
         compact.setSize (288, 136); compact.setState (state);
+        auto* compactDetails = dynamic_cast<juce::Button*> (compact.findChildWithID ("reference-check-details"));
+        require (compactDetails && compactDetails->isVisible(), "100% C offers details");
+        compactDetails->onClick();
         for (const auto* id : { "reference-loop", "reference-follow-a", "reference-compare", "reference-match" })
         {
             auto* control = compact.findChildWithID (id);
@@ -199,7 +202,8 @@ inline void verifyReferenceCheckPage()
         auto* compare = compact.findChildWithID ("reference-compare");
         auto* cue = compare->findChildWithID ("reference-compare-cue");
         auto* whole = compare->findChildWithID ("reference-compare-song");
-        require (cue && whole && cue->isVisible() && whole->isVisible(), "100% shows both CUE and SONG");
+        require (cue && whole && cue->isVisible() && whole->isVisible(), "100% details shows both CUE and SONG");
+        compactDetails->onClick();
         auto original = state; original.comparisonMode = "original"; compact.setState (original);
         auto* unavailableMatch = compact.findChildWithID ("reference-match");
         require (unavailableMatch->isVisible() && ! unavailableMatch->isEnabled()

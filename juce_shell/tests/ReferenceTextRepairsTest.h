@@ -176,9 +176,16 @@ inline void verifyCLimitNoticeFits()
             const auto split = full.indexOfChar (juce::juce_wchar (0x3002));
             const auto englishSplit = full.indexOf (". ");
             const int end = split >= 0 ? split + 1 : englishSplit + 1;
-            require (log.contains (full) || (end > 0 && log.contains (full.substring (0, end))
-                && log.contains (full.substring (end).trimStart())),
-                "C's limit and shortfall are shown whole at " + juce::String (size.width) + ": " + log.joinIntoString (" | "));
+            if (size.width == 300)
+            {
+                const auto brief = text_style::shownText ("C LIMIT +3.3 DB / 5.8 DB BELOW A");
+                require (log.contains (brief) && panel.statusLineWhole().isNotEmpty(),
+                         "100% shows the limit and shortfall in one line with the full explanation on hover");
+            }
+            else
+                require (log.contains (full) || (end > 0 && log.contains (full.substring (0, end))
+                    && log.contains (full.substring (end).trimStart())),
+                    "C's limit and shortfall are shown whole at " + juce::String (size.width) + ": " + log.joinIntoString (" | "));
             requireWhole (log, "LOWER A 9.1 DB TO LISTEN");
             if (size.width == 600)
             {

@@ -147,12 +147,15 @@ and fixed, or original level), waiting (gold: what it waits for and how it proce
 unavailable (grey: the reason and its one fix, such as ranking a Reference set in Kirin OS). Its parts are in
 order of importance — how the role plays, how far it is under A, then the rest — and where the line is
 narrower than all of them it shows the parts that fit whole instead of cutting one; pointing at a
-shortened line shows it whole across the footer row. At 150% and
-above it sits at the bottom left of the footer on every Reference page, where the other pages show
-LIVE or HOLD, so the charts keep that row; at 100% and 125% it is the bottom row of the page. A
-notice in the footer takes its place while it shows; when the line carries an approval or VERSION
-BLIND, the line moves back to the bottom of the page instead, so neither is hidden. A role that
-cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
+shortened line shows it whole across the footer row. At 150% and above, B can use the bottom left of
+the footer, where the other pages show LIVE or HOLD; C and V keep their status inside the page.
+At 100% and 125% the line is at the bottom of each Reference page. At 100% on B, C and V,
+the continuing “measurements saved; waiting for Kirin OS audio” notice is hidden; short feedback for a
+pressed action is shown on one line. The OS connection badge is hidden at 100%; the status line reports
+when Kirin OS is needed, and the badge is visible again at larger sizes. A notice in the footer takes
+its place while it shows; when the line carries an approval or VERSION BLIND, the line moves back to
+the bottom of the page instead, so neither is hidden. A role that cannot be heard yet stays clickable
+and explains itself. A wait never runs on
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
 alignment, 30 s of play; A's level for MATCH, 10 s of play) it turns unavailable with its reason and
 fix, shown even under the start guide, and returns to ready once the source is. C's MATCH does not give
@@ -171,11 +174,11 @@ instead. Ten seconds after the press the line says **A PLAYS UNTIL READY / PRESS
 (準備できるまでAを鳴らします / Aで待つのをやめる): A plays meanwhile, pressing A stops the wait, and the
 role still plays by itself once it is ready.
 
-**Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C is drawn dimmed; pressing
-it opens 300% without changing the sound (press again to listen). V works at the selected size, including
-100%: choose a Version and press V to listen. Starting Version Blind opens its full-window screen. At every size,
+**Pages.** Each role has its page at 300% (900×600) and above. At 100%, C works in the current window:
+choose its Check and press C or MATCH to listen. Above 100% and below 300%, pressing C opens 300% without changing the
+sound (press again to listen). V works at the selected size, including 100%: choose a Version and press V to listen. Starting Version Blind opens its full-window screen. At every size,
 the B page chooses the Reference set and the song, also while A plays. At 100%, open DETAILS for LOOP and FOLLOW A;
-at 125–200%, FOLLOW A sits beside the song. At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
+above 100% and below 300%, FOLLOW A sits beside the song. At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
@@ -208,7 +211,11 @@ at 125–200%, FOLLOW A sits beside the song. At 300% LOOP and FOLLOW A sit abov
   song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
   Hypha ignore them). Below 300 %, a compact Balance shows the current ONE or ALL selection,
   with the same line colours and numbered legend. At 100 %, ONE / ALL and the chart stay visible with DETAILS closed; open DETAILS for the playback and target controls, then close it to restore the chart.
-- **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. C's status line stays at the bottom of its own page. The first view in the Check definition fills the main area; DETAILS opens its other views, the FOLLOW A offset and the timeline without changing sound or comparison. At 100–150%, the one-line description is omitted for a spectrum or while a compact guide is shown; the guide explains the next step. At 200%, when an approval notice needs extra lines, the description is temporarily hidden to keep the chart legible. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
+- **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. At 100%, the CHECK SET and Check
+  selectors, MATCH, LUFS-I, MAX TP and one status line remain on the page. Open DETAILS for LOOP, FOLLOW A,
+  Cue selection and CUE / SONG; close it to return to the simpler view. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. C's status line stays at the bottom of its own page. At 300%, the first view in the Check definition
+  fills the main area; DETAILS opens its other views, the FOLLOW A offset and the timeline without
+  changing sound or comparison. At 100% the one-line description and Cue caption are omitted; at 125–150%, the description is omitted for a spectrum or while a compact guide is shown; the guide explains the next step. At 200%, when an approval notice needs extra lines, the description is temporarily hidden to keep the chart legible. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
@@ -250,7 +257,7 @@ at 125–200%, FOLLOW A sits beside the song. At 300% LOOP and FOLLOW A sit abov
 - **V**: choose the Version and see the main same-section TONE comparison. DETAILS is closed at first;
   open it to choose WHOLE, TONE, DYNAMICS, STEREO or LOW END (全体・音色・ダイナミクス・ステレオ・低域).
   The separate MOVEMENT, ATTACK, ONSET and CORRELATION choices keep those facts available on compact screens,
-  where VERSION BLIND is also in DETAILS below 300%. V's items are fixed and separate from C's CHECK SET, whose
+  where VERSION BLIND is also in DETAILS below 300%. At 100%, the main page keeps the Version selector, TONE comparison and one status line. V's items are fixed and separate from C's CHECK SET, whose
   Checks each come with their own reference songs (comparing Versions of the same song needs no
   CHECK SET). WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
