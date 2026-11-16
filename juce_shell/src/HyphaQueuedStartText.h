@@ -55,6 +55,9 @@ template <class Processor> ReturnBlock returnBlock (Processor& processor, bool t
     if (! (tailPending || processor.candidateReturning() || processor.liveCompareStatus().finishing))
         return ReturnBlock::none;
     if (processor.isNonRealtime()) return ReturnBlock::offline;
+    // A host that switches the insert off by deactivating it (Cakewalk, Studio One) stops calling it
+    // without touching the bypass parameter: that is a bypass too.
+    if (! processor.hostComponentIsActive()) return ReturnBlock::bypass;
     const auto* bypass = processor.getBypassParameter();
     return bypass != nullptr && bypass->getValue() >= 0.5f ? ReturnBlock::bypass : ReturnBlock::none;
 }
@@ -88,6 +91,14 @@ template <class Processor> const char* heldTailNotice (Processor& processor)
     if (! processor.candidateTailPending()) return "";
     const auto block = returnBlock (processor, true);
     return block == ReturnBlock::offline ? tailOfflineNotice : block == ReturnBlock::bypass ? tailBypassNotice : "";
+}
+// Keep's two-minute wait ends with what still holds it: a bypass or an offline render is for the user to
+// end before pressing again; only an unproven tail asks for one A/B pass.
+template <class Processor> const char* keepWaitEndedNotice (Processor& processor)
+{
+    const auto block = returnBlock (processor, processor.candidateTailPending());
+    return block == ReturnBlock::offline ? offlineHoldsReturnNotice
+         : block == ReturnBlock::bypass ? bypassHoldsReturnNotice : keepTailEndedNotice;
 }
 
 constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noexcept

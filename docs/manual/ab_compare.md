@@ -40,7 +40,7 @@ and a POST whose tail the host holds says **Bypass is on: the A/B tail clears af
 starts by itself once B has cleared and four seconds of playback have settled. If the original PRE
 has been removed or its connection has expired, a supported host can confirm the clearing from its
 current delay limit; changing the pair alone does not clear it. After two minutes
-without that (playback kept stopping or seeking) it ends with **A/B tail not cleared: run A/B once, then Keep** (starting A/B again replaces the tail with its own return). A LISTEN or BLIND started in that time does not measure PRE's alignment from that audio:
+without that (playback kept stopping or seeking) it ends with **A/B tail not cleared: run A/B once, then Keep** (starting A/B again replaces the tail with its own return); if bypass or an offline render still holds it then, it ends with **Bypass is on: turn it off, then press again** or **Rendering offline: press again after it finishes**. A host that switches POST off instead of bypassing it (Cakewalk, Studio One) counts as bypass here. A LISTEN or BLIND started in that time does not measure PRE's alignment from that audio:
 PRE plays at its clock position (or with the amount confirmed before) and the status line says
 **Delay unmeasured** (or **Delay not re-measured**) until B has played it out.
 

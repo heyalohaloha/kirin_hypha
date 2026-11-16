@@ -181,8 +181,9 @@ template<class Require> void verifyAfterTailBlockedReturn (Require require)
                          "a blocked Keep says what blocks it and that it still starts by itself");
                 waiting.since = now - 121.0;
                 (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
-                require (waiting.action == AfterTail::none && candidateToast (*editor) == keepTailEndedNotice,
-                         "a blocked Keep still ends at its two-minute deadline with the reason");
+                require (waiting.action == AfterTail::none
+                             && candidateToast (*editor) == (offline ? offlineHoldsReturnNotice : bypassHoldsReturnNotice),
+                         "a blocked Keep still ends at its two-minute deadline, saying what still holds it");
                 continue;
             }
             const auto* expected = offline ? offlineHoldsReturnNotice : bypassHoldsReturnNotice;

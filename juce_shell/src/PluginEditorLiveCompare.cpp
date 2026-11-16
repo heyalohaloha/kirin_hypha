@@ -370,13 +370,12 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
     // Past the press's deadline, explain the hold and end the press; the RETURN itself continues.
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
     {
-        const auto* bypass = processorRef.getBypassParameter();
-        const bool bypassed = bypass != nullptr && bypass->getValue() >= 0.5f;
-        const bool offline = processorRef.isNonRealtime();
-        if (nowSecs() < liveCompareStartAfterReturnUntil || (! bypassed && ! offline)) return;
+        const auto block = hypha::live_compare_ui::returnBlock (processorRef);
+        if (nowSecs() < liveCompareStartAfterReturnUntil || block == hypha::live_compare_ui::ReturnBlock::none) return;
         liveCompareStartAfterReturnUntil = 0.0;
         liveCompareStartAfterReturnCandidate.clear();
-        showToast (offline ? hypha::live_compare_ui::offlineHoldsReturnNotice : hypha::live_compare_ui::bypassHoldsReturnNotice);
+        showToast (block == hypha::live_compare_ui::ReturnBlock::offline ? hypha::live_compare_ui::offlineHoldsReturnNotice
+                                                                          : hypha::live_compare_ui::bypassHoldsReturnNotice);
         return;
     }
     if (next != StartAfterReturn::start)
@@ -466,7 +465,7 @@ void KirinHyphaEditor::serviceAfterTailPress()
         return;
     }
     if (!reference && nowSecs() - afterTail.since >= hypha::keep_ui::preWaitSeconds)
-    { afterTail = {}; showToast (hypha::live_compare_ui::keepTailEndedNotice); return; }
+    { afterTail = {}; showToast (hypha::live_compare_ui::keepWaitEndedNotice (processorRef)); return; }
     if (restoringGroup) return;
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
     {

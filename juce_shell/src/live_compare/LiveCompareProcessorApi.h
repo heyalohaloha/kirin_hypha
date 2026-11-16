@@ -76,6 +76,8 @@ bool candidateCompareActive() const noexcept { return liveCompare.candidate.toke
 int candidateMatchSecondsRemaining() const noexcept { return liveCompare.renderer.matchSecondsRemaining(); }
 bool candidateBypassed() const noexcept;
 bool candidateHostInactive() const noexcept;
+// VST3 setActive: false while the host has switched this insert off (it is then not called at all).
+bool hostComponentIsActive() const noexcept { return liveCompare.candidate.hostActive.load (std::memory_order_acquire); }
 bool candidateMeasurementIsolated() const noexcept { return liveCompare.candidate.isolated.load (std::memory_order_acquire); }
 // INV-AB6: the return ended at its deadline alone and B may still carry the comparison's audio.
 // LISTEN, BLIND and measurement go on; Record and Keep accept nothing until the ordinary path is proven.

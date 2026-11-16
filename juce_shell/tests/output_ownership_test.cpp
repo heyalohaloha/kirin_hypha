@@ -164,8 +164,9 @@ void decisionsCombineStates()
                      "a stopped Keep waits for playback: only ordinary audio through B clears the tail");
         struct FakeBypass { float v = 0.0f; float getValue() const { return v; } };
         struct FakeStatus { bool finishing = false; };
-        struct FakeHost { bool returning = false, offline = false, ownTail = false, otherTail = false; FakeBypass bypass;
+        struct FakeHost { bool returning = false, offline = false, ownTail = false, otherTail = false, active = true; FakeBypass bypass;
             bool candidateReturning() const { return returning; } FakeStatus liveCompareStatus() const { return {}; }
+            bool hostComponentIsActive() const { return active; }
             bool isNonRealtime() const { return offline; } const FakeBypass* getBypassParameter() const { return &bypass; }
             bool candidateTailPending() const { return ownTail; } bool allKeepTailPending() const { return ownTail || otherTail; }
             bool isPlaying() const { return true; } };
@@ -189,6 +190,16 @@ void decisionsCombineStates()
         require (std::string (heldTailNotice (holding)) == tailBypassNotice, "a held tail names the bypass in its own window");
         holding.offline = true;
         require (std::string (heldTailNotice (holding)) == tailOfflineNotice, "a held tail names the offline render");
+        FakeHost off; off.active = false; off.ownTail = true; // the host switched the insert off; the bypass parameter is untouched
+        require (returnBlock (off) == ReturnBlock::none && returnBlock (off, true) == ReturnBlock::bypass
+                     && std::string (afterTailWaitNotice (AfterTail::keepPair, off)) == keepBypassWaitNotice
+                     && std::string (heldTailNotice (off)) == tailBypassNotice
+                     && std::string (keepWaitEndedNotice (off)) == bypassHoldsReturnNotice,
+                 "a host that switches the insert off is named as a bypass, and Keep's end says to turn it on again");
+        off.active = true;
+        require (std::string (keepWaitEndedNotice (off)) == keepTailEndedNotice
+                     && std::string (keepWaitEndedNotice (holding)) == offlineHoldsReturnNotice,
+                 "only an unproven tail asks for one A/B pass; an offline render says so");
         std::set<std::string> afterTail;
         for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
             for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));
