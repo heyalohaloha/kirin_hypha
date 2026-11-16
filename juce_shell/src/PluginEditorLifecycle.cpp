@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaLocalBlindUiContract.h"
 
 KirinHyphaEditor::~KirinHyphaEditor()
 {
@@ -96,6 +97,9 @@ void KirinHyphaEditor::timerCallback()
     else        updatePre();
     refreshObservatory();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // A host may prepare stereo only after the editor opened (Cakewalk): the BLIND entry follows it.
+    if (isPost) observatoryView.setLocalBlindEntryEnabled (processorRef.localBlindProductSupported()
+                    && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType));
     const bool liveFault = isPost && refreshLiveCompare();
     if (isPost) { serviceLiveCompareStartAfterReturn(); serviceAfterTailPress(); serviceReferenceRematch(); requestKeepPair (true); }
    #endif
