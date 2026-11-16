@@ -82,9 +82,13 @@ public:
             if (! make->isEnabled()) return false;
             make->onClick();
             const auto targets = processor.referenceTargetSnapshot();
-            require (targets.collection.items.size() == 1 && targets.collection.selected.isNotEmpty(),
-                     "the real MAKE TARGET button stores and selects A's window");
-            selected = targets.collection.selected;
+            require (targets.collection.items.size() == 1, "the real MAKE TARGET button stores A's window");
+            // MAKE shows the new target in B's chart at once and leaves what plays unchanged (B-1955);
+            // comparing it alone in ONE is the user's next press.
+            selected = targets.collection.items.front().id;
+            require (processor.changeReferenceTarget ({ hypha::reference_audition::TargetRequest::Action::select, {},
+                                                        selected, targets.restoreEpoch }),
+                     "the made target can be chosen for ONE");
             openedEpoch = targets.restoreEpoch;
             require (! processor.selectReferenceC(), "no unavailable C source starts audio");
             processor.getStateInformation (saved);
@@ -208,6 +212,10 @@ public:
                      "imported target immediately appears in B's drawable data");
             require (! panel->state().targetSelected, "the B target does not replace C");
             auto withoutTarget = panel->state(); withoutTarget.targets.collection.selected.clear();
+            // An import turns ALL on (B-1955), so the target is drawn as an overlay line as well as in ONE.
+            auto& overlayLines = withoutTarget.overlay.lines;
+            overlayLines.erase (std::remove_if (overlayLines.begin(), overlayLines.end(),
+                                                [&] (const auto& line) { return line.id == selected; }), overlayLines.end());
             juce::Image chart (juce::Image::ARGB, 400, 240, true), emptyChart (juce::Image::ARGB, 400, 240, true);
             juce::Graphics chartGraphics (chart), emptyGraphics (emptyChart);
             const auto context = hypha::presentation::forEditor (900, 600);
