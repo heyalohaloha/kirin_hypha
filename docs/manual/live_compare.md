@@ -123,7 +123,7 @@ if it still does not work, use the on-screen buttons to do the same thing instea
      and Hypha reports the gain a full match would need.
 
    Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
-   press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
+   after changing the chain use **MATCH again** in MENU. Each session starts PRE at unity gain. If a raised PRE
    would still peak above the ceiling later in the song, that block plays POST. PRE returns
    automatically when it is safe at the approved gain. BLIND does not play POST there: it matches
    on the quieter side for the rest of the trial ([BLIND](blind.md)). A new gain while PRE plays glides over 50 ms instead of jumping.
