@@ -9,7 +9,7 @@ namespace
 {
 const Entry entries[] = {
     { "Measurements saved; waiting for Kirin OS audio (auto link)", u8"計測保存済み。Kirin OSの音源待ち（自動確定）" },
-    { "Cannot write to folder. Check access.", u8"保存先に書き込めません。アクセスを確認してください" },
+    { "Cannot write to folder. Check access.", u8"保存先に書き込めません。権限を確認してください" },
     // Why a control or key did nothing, or why the view changed by itself (2026-11-11).
     { "Copied", u8"コピーしました" },
     { "Delta has no M/S; showing one channel", u8"DeltaにM/Sは無いため、1chで表示します" },
@@ -162,7 +162,7 @@ const Entry entries[] = {
     { "Rendering offline: press again after it finishes", u8"書き出し中です。終わってから押してください" },
     { "Bypass is on: Keep starts after it is off", u8"バイパス中です。解除するとKeepが始まります" },
     { "Rendering offline: Keep starts after it ends", u8"書き出し中です。終わるとKeepが始まります" },
-    { "Clearing another POST's A/B tail, then Keep", u8"他のPOSTのA/Bの残りの音が消えてからKeepを始めます" },
+    { "Clearing another POST's A/B tail, then Keep", u8"他のPOSTの残りの音が消えてからKeepを始めます" },
     { "Bypass is on: the A/B tail clears after it is off", u8"バイパス中です。解除するとA/Bの残りの音が抜けます" },
     { "Rendering offline: the A/B tail clears after it ends", u8"書き出し中です。終わるとA/Bの残りの音が抜けます" },
     // V, C, B or Keep pressed while the A/B tail clears (PluginEditorAfterTail.cpp).
@@ -170,13 +170,13 @@ const Entry entries[] = {
     { "Clearing the A/B tail, then C", u8"A/Bの残りの音が消えてからCを鳴らします" },
     { "Clearing the A/B tail, then B", u8"A/Bの残りの音が消えてからBを鳴らします" },
     { "Clearing the A/B tail, then Keep", u8"A/Bの残りの音が消えてからKeepを始めます" },
-    { "A/B tail not cleared: run A/B once, then Keep", u8"A/Bの残りの音が消えません。A/Bを1度通してからKeepしてください" },
+    { "A/B tail not cleared: run A/B once, then Keep", u8"残りの音が消えません。A/Bを1度通してください" },
     { "Waiting up to 10 s, then V", u8"最大10秒後にVを再生" },
     { "Waiting up to 10 s, then C", u8"最大10秒後にCを再生" },
     { "Waiting up to 10 s, then B", u8"最大10秒後にBを再生" },
     { "Play to continue, then Keep", u8"再生すると続き、そのあとKeepを始めます" },
     { "MATCH waits until A has played the Cue length (up to 30 s).", u8"Aがたまり次第MATCHします（最長30秒）" },
-    { "Before realtime bounce, press END and wait for normal level", u8"リアルタイム書き出し前にENDを押し、音量が戻るのを待つ" },
+    { "Before realtime bounce, press END and wait for normal level", u8"リアルタイム書き出し前にEND。音量が戻るまで待つ" },
     // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
     { "LISTEN is restoring; try again in a moment", u8"LISTENを戻しています。少し待ってください" },
     { "End Blind Compare first", u8"先にBlind Compareを終えてください" },
