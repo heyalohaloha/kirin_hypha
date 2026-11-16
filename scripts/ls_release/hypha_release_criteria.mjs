@@ -1,11 +1,21 @@
 // Release-specific rows and owner decisions; frozen expectations remain unchanged.
 import fs from 'node:fs';
+import path from 'node:path';
 import { HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, readJson, fileFact, checkFacts, digest, Checkpoint } from './hypha_release_contract.mjs';
 import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
 
 export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v2';
 export const OWNER_DECISION_SCHEMA = 'hypha-owner-acceptance-decision-v1';
 export const OWNER_DEFERRED = 'OWNER_DEFERRED';
+// A host row may demand kinds of retained evidence; its result needs each kind with a path and sha256.
+export const EVIDENCE_KINDS = ['audio', 'screen', 'binary'];
+// One host row per release walks every Pro Tools transition, changed or not; it names no promise.
+export const FULL_TRANSITIONS = 'full-transitions';
+export const REQUIRED_DAWS = ['Studio One', 'Logic Pro', 'REAPER', 'Pro Tools', 'Cubase', 'Ableton Live', 'Cakewalk'];
+const dawKey = value => value.toLowerCase().replace(/\s+/g, '');
+const dawAliases = new Map([['logic', 'Logic Pro'], ['live', 'Ableton Live'],
+  ['cakewalkbybandlab', 'Cakewalk'], ['cakewalksonar', 'Cakewalk'], ['sonar', 'Cakewalk']]);
+const canonicalDaw = value => dawAliases.get(dawKey(value)) || REQUIRED_DAWS.find(daw => dawKey(daw) === dawKey(value));
 const shippingStep = 'Test shipping source contract';
 export const CI_ORACLES = {
   'pair-recovery-parity': { checks: [
@@ -47,7 +57,33 @@ export function notePromises(file) {
   return promises;
 }
 
-// Every promise needs a row that proves it, and every row names the promise it proves. A host
+// platformSensitive entries are the promise itself or { promise, reason }.
+function sensitivePromises(spec, promises) {
+  const list = Object.hasOwn(spec, 'platformSensitive') ? spec.platformSensitive : [];
+  const names = Array.isArray(list) ? list.map(entry => (typeof entry === 'string' ? entry
+    : entry && Object.keys(entry).sort().join() === 'promise,reason' && text(entry.reason) ? entry.promise : null)) : [null];
+  if (names.some(promise => !text(promise) || !promises.includes(promise)) || new Set(names).size !== names.length) {
+    throw new Error('platformSensitive must list distinct promises from the release notes');
+  }
+  return names;
+}
+
+// The checklist is a JSON file { "items": [...] } beside the fix rows; its hash and item count are bound.
+function checkFullTransitions(row, daw, file) {
+  const list = row.checklist, count = row.expected.itemsWithResult;
+  if (daw !== 'Pro Tools' || Object.hasOwn(row, 'promise') || Object.hasOwn(row, 'promises')
+      || !text(list?.path) || !/^[0-9a-f]{64}$/.test(list.sha256 || '') || !Number.isInteger(count) || count < 1) {
+    throw new Error(`Fix row ${row.id}: full transitions need Pro Tools, no promise, a checklist path and sha256, and expected.itemsWithResult`);
+  }
+  const fact = fileFact(path.resolve(path.dirname(file), list.path));
+  let items; try { items = readJson(fact.path).items; } catch {}
+  if (fact.sha256 !== list.sha256 || !Array.isArray(items) || items.some(item => !text(item))
+      || new Set(items).size !== items.length || items.length !== count) {
+    throw new Error(`Fix row ${row.id}: checklist hash or item count differs`);
+  }
+}
+
+// Every promise needs a host row for each required DAW. A host
 // row names the DAW, the format(s) and the chain it runs. Checked at --init and on every stage.
 export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const spec = readJson(file);
@@ -56,7 +92,10 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   }
   const promises = notePromises(notes);
   if (!promises) throw new Error('Fix rows need the release notes whose promises they prove');
+  const sensitive = sensitivePromises(spec, promises);
+  let fullTransitions = 0;
   const seen = new Set([...HOST_TESTS, ...CONDITIONAL_HOST_TESTS, ...DISTRIBUTION_TESTS, ...POST_TESTS, ...reserved]);
+  const coverage = new Map();
   for (const row of spec.rows) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,95}$/.test(row.id || '') || seen.has(row.id)
         || !['host', 'ci'].includes(row.kind) || row.depth !== 'deep'
@@ -67,11 +106,60 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
         || Object.keys(row.expected).length === 0) {
       throw new Error('Fix row needs a unique id, kind, hosts, DAW and chain (host), deep oracle and expected values');
     }
-    if (!promises.includes(row.promise)) throw new Error(`Fix row ${row.id} names no promise of the release notes`);
+    const full = row.kind === 'host' && row.scope === FULL_TRANSITIONS;
+    if ((Object.hasOwn(row, 'scope') && !full) || (row.kind === 'host' && row.expected.newIssues !== 0)
+        || (Object.hasOwn(row, 'evidence') && (row.kind !== 'host' || !Array.isArray(row.evidence) || !row.evidence.length
+          || row.evidence.some(kind => !EVIDENCE_KINDS.includes(kind)) || new Set(row.evidence).size !== row.evidence.length))) {
+      throw new Error(`Fix row ${row.id}: host rows expect newIssues 0; scope and evidence kinds must be known`);
+    }
+    const names = full ? [] : row.kind === 'host' && Object.hasOwn(row, 'promises') ? row.promises : [row.promise];
+    if (full) fullTransitions += 1;
+    else if ((Object.hasOwn(row, 'promises') && (row.kind !== 'host' || Object.hasOwn(row, 'promise')))
+        || !Array.isArray(names) || !names.length || names.some(name => !text(name))
+        || new Set(names).size !== names.length || names.some(name => !promises.includes(name))) {
+      throw new Error(`Fix row ${row.id} names no promise of the release notes`);
+    }
+    if (row.kind === 'host') {
+      const daw = canonicalDaw(row.daw);
+      if (!daw) throw new Error(`Fix row ${row.id} names an unknown DAW: ${row.daw}`);
+      if (!['macos', 'windows'].includes(row.os)) throw new Error(`Fix row ${row.id} needs os macos or windows`);
+      if (row.hosts.some(host => host.split('/')[0].toLowerCase() !== row.os)) {
+        throw new Error(`Fix row ${row.id} hosts OS must match ${row.os}`);
+      }
+      if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
+      if (daw === 'Cakewalk' && row.os !== 'windows') throw new Error(`Fix row ${row.id}: Cakewalk requires windows`);
+      if (full) checkFullTransitions(row, daw, file);
+      for (const promise of names) {
+        if (!coverage.has(promise)) coverage.set(promise, new Map());
+        const daws = coverage.get(promise);
+        if (!daws.has(daw)) daws.set(daw, new Set());
+        const systems = daws.get(daw);
+        if (systems.has(row.os) || (systems.size && !sensitive.includes(promise))) {
+          throw new Error(`Promise ${promise} is already verified in ${daw}`);
+        }
+        systems.add(row.os);
+      }
+    }
     seen.add(row.id);
   }
-  const unproved = promises.find(promise => !spec.rows.some(row => row.promise === promise));
+  const namesPromise = (row, promise) => row.promise === promise || row.promises?.includes(promise);
+  const unproved = promises.find(promise => !spec.rows.some(row => namesPromise(row, promise)));
   if (unproved) throw new Error(`Release-note promise has no acceptance row: ${unproved}`);
+  const missingHost = promises.find(promise => !spec.rows.some(row => row.kind === 'host' && namesPromise(row, promise)));
+  if (missingHost) throw new Error(`Release-note promise has no real-host acceptance row: ${missingHost}`);
+  for (const promise of promises) {
+    for (const daw of REQUIRED_DAWS) {
+      if (!coverage.get(promise)?.has(daw)) throw new Error(`Release-note promise is not verified in ${daw}: ${promise}`);
+    }
+    if (sensitive.includes(promise)) {
+      for (const os of ['macos', 'windows']) {
+        if (![...coverage.get(promise).values()].some(systems => systems.has(os))) {
+          throw new Error(`Release-note promise may differ by OS and is not verified on ${os}: ${promise}`);
+        }
+      }
+    }
+  }
+  if (fullTransitions !== 1) throw new Error('Fix rows need exactly one Pro Tools full-transitions row');
   return { rows: spec.rows, decision: fileFact(file) };
 }
 
@@ -139,6 +227,13 @@ export function deferredRow(state, id) {
   checkOwnerDecisions(state);
   const decision = state.ownerDecisions?.find(bound => bound.rows.some(row => row.id === id));
   return decision ? { ...decision.rows.find(row => row.id === id), decision: decision.decision } : null;
+}
+
+// The evidence kind a host row demands and its result lacks (each needs a path and sha256), or undefined.
+export function missingEvidenceKind(state, id, evidence) {
+  const row = state.fixRows?.rows.find(row => row.id === id);
+  return (row?.evidence || []).find(kind => !evidence.some(item => item?.kind === kind
+    && text(item.path) && /^[0-9a-f]{64}$/.test(item.sha256 || '')));
 }
 
 export function ciFixRows(state) {

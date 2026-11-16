@@ -48,6 +48,10 @@ inline void verifyListenFromKeys()
     r.advance (0.2);
     for (int n = 0; n < 20 && ! r.post->liveCompareStatus().matched; ++n) r.advance (0.1);
     require (r.post->liveCompareStatus().matched, "G matches");
+    const auto matchedGain = r.post->liveCompareStatus().gain;  // MATCH on/off (INV-LC13) on the same key
+    require (press ('G') && r.post->liveCompareStatus().matchOff && r.post->liveCompareStatus().gain == 1.0f, "G again turns MATCH off");
+    require (press ('G') && ! r.post->liveCompareStatus().matchOff && r.post->liveCompareStatus().gain == matchedGain,
+             "G once more turns the same MATCH on");
     require (press ('G', shift) && juce::Component::getNumCurrentlyModalComponents() > 0, "Shift+G opens MATCH / AUTO");
     juce::PopupMenu::dismissAllActiveMenus();
     for (int n = 0; n < 40 && juce::Component::getNumCurrentlyModalComponents() > 0; ++n)

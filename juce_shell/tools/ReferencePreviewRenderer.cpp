@@ -1,11 +1,16 @@
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaHelpLineBar.h"
+#include "../src/HyphaHelpLineText.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
+#include "ReferencePreviewScenario.h"
+#include "ReferencePreviewRound2Check.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 
 namespace
@@ -198,19 +203,26 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
     return state;
 }
 
-juce::Image render (hypha::reference_ui::State state, bool japanese)
+juce::Image render (hypha::reference_ui::State state, bool japanese, int width, int height, bool details)
 {
     // 要求の locale（Kirin OS の画面の言語）で描く。Hypha の画面の言語の設定は変えない。
     const hypha::i18n::ScopedLanguage language (japanese ? hypha::i18n::Language::japanese : hypha::i18n::Language::english);
     juce::Component surface;
     hypha::observatory::View shell { hypha::observatory::Role::post };
     hypha::reference_ui::Component reference;
-    surface.setSize (900, 600);
+    surface.setSize (width, height);
     reference.setPresentationContext (hypha::presentation::forOutput (
-        900, 600, hypha::presentation::OutputTarget::referencePreview));
+        width, height, hypha::presentation::OutputTarget::referencePreview));
     shell.setBounds (surface.getLocalBounds());
     shell.setDomain (hypha::observatory::Domain::reference);
-    shell.setConnection ("KIRIN OS PREVIEW", hypha::COL_LED_BLUE,
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_LIVE_BLIND", {}) == "1")
+    {
+        hypha::observatory::LiveCompareFooter live;
+        live.active = live.matched = live.blindAvailable = true;
+        shell.setLocalBlindEntryEnabled (true);
+        shell.setLiveCompareFooter (live);
+    }
+    shell.setConnection ("KIRIN OS", hypha::COL_LED_BLUE,
                          hypha::observatory::ConnectionState::paired);
     surface.addAndMakeVisible (shell);
     reference.setBounds (shell.bodyBounds());
@@ -222,6 +234,70 @@ juce::Image render (hypha::reference_ui::State state, bool japanese)
     screen.setScreen (hypha::reference_ui::versionBlindScreen (state));
     reference.setState (std::move (state));
     surface.addAndMakeVisible (reference);
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_CHECK_CHANGED", {}) == "1")
+    {
+        const auto bounds = reference.getBounds();
+        reference.setPresentationContext (hypha::presentation::forOutput (900, 600, hypha::presentation::OutputTarget::referencePreview));
+        reference.setSize (888, 470);
+        auto* chooser = dynamic_cast<juce::ComboBox*> (reference.findChildWithID ("reference-check-choice"));
+        if (chooser == nullptr || chooser->getNumItems() < 2) fail ("reference-preview-check-unavailable");
+        juce::String selected;
+        reference.onSelectCheck = [&selected] (const juce::String& id) { selected = id; };
+        chooser->setSelectedId (1, juce::sendNotificationSync);
+        if (selected.isEmpty()) fail ("reference-preview-check-unavailable");
+        auto next = reference.state(); next.checkId = selected; next.viewBindings = { "spectrum_full" };
+        reference.setState (std::move (next)); reference.onSelectCheck = {};
+        reference.setPresentationContext (hypha::presentation::forOutput (width, height, hypha::presentation::OutputTarget::referencePreview));
+        reference.setBounds (bounds);
+        if (! reference.statusTextLayout (reference.footerStatusStrip().getLocalBounds()).line.text.contains ("SONG CHANGED"))
+            fail ("reference-preview-change-reason-missing");
+    }
+    if (details)
+    {
+        if (reference.state().comparisonSlot == 3)
+        {
+            auto* bar = reference.findChildWithID ("reference-targets");
+            auto* targetDetails = bar != nullptr ? dynamic_cast<juce::Button*> (bar->findChildWithID ("reference-target-details")) : nullptr;
+            if (targetDetails == nullptr || ! targetDetails->isVisible() || ! targetDetails->onClick)
+                fail ("reference-preview-details-unavailable");
+            targetDetails->onClick();
+        }
+        else
+        {
+        auto* button = dynamic_cast<juce::Button*> (reference.findChildWithID ("reference-check-details"));
+        if (button == nullptr || ! button->isVisible() || ! button->onClick) fail ("reference-preview-details-unavailable");
+        const auto before = reference.state();
+        int changes = 0;
+        reference.onMatch = [&changes] { ++changes; };
+        reference.onSetFollowA = [&changes] (bool) { ++changes; };
+        reference.onSetCheckSong = [&changes] (bool) { ++changes; };
+        reference.onSelectCheck = [&changes] (const juce::String&) { ++changes; };
+        for (const bool opened : { true, false, true })
+        {
+            button->onClick();
+            const auto& after = reference.state();
+            const bool sameGain = std::memcmp (&after.appliedGainDb, &before.appliedGainDb, sizeof (double)) == 0;
+            if ((after.comparisonSlot == 2 && after.checkDetailsOpen != opened) || button->getToggleState() != opened
+                || changes != 0 || after.checkId != before.checkId
+                || after.cueId != before.cueId || after.followA != before.followA || after.song.chosen != before.song.chosen
+                || after.bSelected != before.bSelected || after.audibleComparisonSlot != before.audibleComparisonSlot || ! sameGain
+                || after.comparisonMode != before.comparisonMode || after.viewBindings != before.viewBindings)
+                fail ("reference-preview-details-changed-comparison");
+        }
+        reference.onMatch = {}; reference.onSetFollowA = {}; reference.onSetCheckSong = {}; reference.onSelectCheck = {};
+        if (reference.state().comparisonSlot == 1)
+        {
+            const auto view = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_V_VIEW", {});
+            auto* choice = dynamic_cast<juce::ComboBox*> (reference.findChildWithID ("reference-check-choice"));
+            if (choice != nullptr && view == "whole") choice->setSelectedId (1, juce::sendNotificationSync);
+            if (choice != nullptr && view == "dynamics") choice->setSelectedId (3, juce::sendNotificationSync);
+            if (choice != nullptr && view == "movement") choice->setSelectedId (6, juce::sendNotificationSync);
+            if (choice != nullptr && view == "attack") choice->setSelectedId (7, juce::sendNotificationSync);
+            if (choice != nullptr && view == "onset") choice->setSelectedId (8, juce::sendNotificationSync);
+            if (choice != nullptr && view == "correlation") choice->setSelectedId (9, juce::sendNotificationSync);
+        }
+        }
+    }
     if (blind)
     {
         surface.addAndMakeVisible (screen);
@@ -233,6 +309,23 @@ juce::Image render (hypha::reference_ui::State state, bool japanese)
     juce::Image image (juce::Image::ARGB, surface.getWidth(), surface.getHeight(), true);
     juce::Graphics graphics (image);
     surface.paintEntireComponent (graphics, true);
+    const auto helpPreview = juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_DETAILS_HELP", {});
+    if (helpPreview.isNotEmpty())
+    {
+        const auto* button = reference.findChildWithID ("reference-check-details");
+        if (button == nullptr || ! button->isVisible()) fail ("reference-preview-help-unavailable");
+        const auto help = reference.helpAt (button->getBounds().getCentre());
+        if (help.isEmpty()) fail ("reference-preview-help-unavailable");
+        hypha::HelpLineBar bar;
+        const auto footer = shell.footerBounds();
+        bar.show (hypha::help_line::forLine (help, true), footer, footer, hypha::presentation::forEditor (width, height));
+        const auto before = japanese && helpPreview == "before";
+        const hypha::i18n::ScopedLanguage shown (before ? hypha::i18n::Language::english
+                                                         : japanese ? hypha::i18n::Language::japanese : hypha::i18n::Language::english);
+        const juce::Graphics::ScopedSaveState saved (graphics);
+        graphics.reduceClipRegion (footer);
+        graphics.setOrigin (bar.getX(), bar.getY()); bar.paint (graphics);
+    }
     return image;
 }
 }
@@ -254,9 +347,15 @@ int main (int argc, char** argv)
         if (output.existsAsFile() && ! output.deleteFile())
             fail ("reference-preview-output-failed");
         juce::FileOutputStream stream { output };
+        auto state = previewScenario (stateFromRequest (object (request)));
+        if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_V", {}).isNotEmpty())
+            state.blindLargeScreen = previewWidth() >= 900;
+        if (juce::SystemStats::getEnvironmentVariable ("KIRIN_PREVIEW_VERIFY", {}) == "1" && ! verifyPreviewRound2 (state))
+            fail ("reference-preview-round2-check-failed");
         if (! stream.openedOk()
             || ! juce::PNGImageFormat().writeImageToStream (
-                render (stateFromRequest (object (request)), request["locale"] == juce::var ("ja")), stream))
+                render (state, request["locale"] == juce::var ("ja"),
+                        previewWidth(), previewWidth() * 2 / 3, previewDetails()), stream))
             fail ("reference-preview-output-failed");
         std::cout << "{\"renderer_version\":\"1.0.0\"}\n";
         return EXIT_SUCCESS;

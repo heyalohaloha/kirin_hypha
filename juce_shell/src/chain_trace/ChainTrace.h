@@ -1,6 +1,7 @@
 #pragma once
 #include "../HostProcessClock.h"
 #include "../live_compare/LiveCompareSession.h"
+#include "../live_compare/CallbackWallClock.h"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -16,11 +17,13 @@ constexpr std::size_t queueBlocks = 272;
 struct Row
 {
     std::uint64_t serial = 0, localFrames = 0, entryNanos = 0, exitNanos = 0, reset = 0;
+    std::uint64_t selectionCommand = 0, selectionReadNanos = 0, selectionAcceptedNanos = 0;
     double rate = 0;
     int role = 0, wrapper = 0, frames = 0, channels = 0, precisionBits = 32;
     bool bypassed = false, offline = false, wallGap = false, outputTaken = false;
     bool blockSeen = false, timingSeen = false, renderSeen = false, feed = false;
     bool active = false, selected = false, blind = false, contentHeld = false;
+    bool selectionSeen = false, selectionAccepted = false;
     float preGain = 1, postGain = 1;
     int fixtureDelay = -1, fixtureReported = -1;
     std::uint64_t fixtureGeneration = 0;
@@ -33,6 +36,20 @@ struct Row
     // Planar input L/R, then actual output L/R. Unused channels are never written to disk.
     std::array<std::array<float, maximumFrames>, 4> pcm {}; // Non-RT construction touches every page.
 };
+
+// The high command bits identify the explicit selection. Reading and accepting are separate
+// observations: output availability and the current ring are checked between them.
+inline void observeNamedSelection (Row& row, std::uint64_t command) noexcept
+{
+    row.selectionSeen = true;
+    row.selectionCommand = command;
+    row.selectionReadNanos = live_compare::callbackWallNanos();
+}
+inline void acceptNamedSelection (Row& row, bool eligible) noexcept
+{
+    row.selectionAccepted = eligible && (row.selectionCommand & 2u) == 0 && (row.selectionCommand >> 32) != 0;
+    row.selectionAcceptedNanos = row.selectionAccepted ? live_compare::callbackWallNanos() : 0;
+}
 
 // One serialised host callback producer, one private IO worker. Host callbacks may migrate
 // threads but must not overlap for an instance (the processor itself has the same contract).

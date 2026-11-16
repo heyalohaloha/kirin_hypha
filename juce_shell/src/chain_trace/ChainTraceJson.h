@@ -42,6 +42,9 @@ inline void rowJson (std::ostream& out, const Row& r, std::uint64_t offset)
         << ",\"feed\":" << r.feed << ",\"active\":" << r.active << ",\"selected\":" << r.selected
         << ",\"blind\":" << r.blind << ",\"contentHeld\":" << r.contentHeld << ",\"preGain\":";
     number (out, r.preGain); out << ",\"postGain\":"; number (out, r.postGain);
+    out << ",\"selectionSeen\":" << r.selectionSeen << ",\"selectionAccepted\":" << r.selectionAccepted
+        << ",\"selectionCommand\":\"" << r.selectionCommand << "\",\"selectionReadNanos\":\"" << r.selectionReadNanos
+        << "\",\"selectionAcceptedNanos\":\"" << r.selectionAcceptedNanos << '"';
     out << ",\"host\":{\"project\":" << r.host.positionSamples
         << ",\"projectValid\":" << r.host.hasPosition << ",\"clockSource\":" << int (r.host.clockSource)
         << ",\"auxiliary\":" << r.host.auxiliary.samples << ",\"auxiliaryValid\":" << r.host.auxiliary.valid

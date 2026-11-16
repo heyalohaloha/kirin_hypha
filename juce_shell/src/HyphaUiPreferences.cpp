@@ -1,6 +1,7 @@
 #include "HyphaUiPreferences.h"
 #include "HyphaPreferenceFileLock.h"
 #include "AtomicFile.h"
+#include "KirinTestStorage.h"
 #include <utility>
 
 namespace hypha::ui_preferences
@@ -25,6 +26,10 @@ juce::StringArray settingLines (const juce::File& file)
 
 juce::File defaultFile()
 {
+    // A test that sets its own storage root keeps the screen settings there too (as the BLIND image's
+    // settings do), so a test never reads or writes the user's language, hover help or footer choice.
+    if (const auto test = storage::testPluginDataRoot())
+        return test->getParentDirectory().getParentDirectory().getChildFile ("Kirin/Kirin Hypha/ui-preferences.txt");
     auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
    #if JUCE_MAC
     root = root.getChildFile ("Application Support");

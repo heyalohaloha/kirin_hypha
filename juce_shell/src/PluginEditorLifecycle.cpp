@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaLocalBlindUiContract.h"
 
 KirinHyphaEditor::~KirinHyphaEditor()
 {
@@ -15,6 +16,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     if (isPost)
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
+        matchChoicePopup.close();
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
         // LISTEN and live BLIND belong to the processor; closing its window is not END. AUTO rests
         // with the processor and a window of the same LISTEN continues it (INV-LC16). The rest is
@@ -55,6 +57,7 @@ void KirinHyphaEditor::timerCallback()
         processorRef.vuLive().setEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         // AUTO rests while hidden: nothing below runs, so it neither measures nor moves (INV-LC16).
+        matchChoicePopup.close();
         // A Keep, LISTEN or MATCH press that has not started yet is dropped, never run later.
         dropWaitingRequests();
         syncAnalysisDemand();
@@ -94,6 +97,9 @@ void KirinHyphaEditor::timerCallback()
     else        updatePre();
     refreshObservatory();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // A host may prepare stereo only after the editor opened (Cakewalk): the BLIND entry follows it.
+    if (isPost) observatoryView.setLocalBlindEntryEnabled (processorRef.localBlindProductSupported()
+                    && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType));
     const bool liveFault = isPost && refreshLiveCompare();
     if (isPost) { serviceLiveCompareStartAfterReturn(); serviceAfterTailPress(); serviceReferenceRematch(); requestKeepPair (true); }
    #endif

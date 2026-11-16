@@ -4,8 +4,7 @@
 // 重ね比べの直し：曲が無くても目標があれば出す。
 namespace hypha::tests::reference_overlay
 {
-// No song in the set but dropped targets: the list, ONE / ALL and Balance still show; ONE's chart says why it has
-// nothing to draw, ALL compares the targets with A. Nothing at all: no list and no switch, as before.
+// No song in the set but dropped targets: ONE lets the user select one and ALL shows both.
 inline void verifyTargetsWithoutSongs()
 {
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -15,15 +14,14 @@ inline void verifyTargetsWithoutSongs()
         auto state = page (0, 2);
         panel.setState (state);
         auto& list = listOf (panel);
-        require (list.rows().empty() && panel.findChildWithID ("reference-overlay")->isVisible(),
+        require (list.rows().size() == 2 && list.rows()[0].target && panel.findChildWithID ("reference-overlay")->isVisible(),
                  "targets without songs keep the list and ONE / ALL");
         auto drawn = a_direction::drawnTexts (panel);
         reference_text_repairs::requireWhole (drawn, "NO SONGS IN THIS SET");
-        reference_text_repairs::requireWhole (drawn, "ALL SHOWS TARGETS");
+        reference_text_repairs::requireWhole (drawn, "CHOOSE A TARGET");
         reference_text_repairs::requireWhole (drawn, reference_ui::aWindowLegend (state.aKirin->frames));
         switchHalf (panel, "reference-overlay-all").onClick();
         require (list.rows().size() == 2 && list.rows()[0].target && boxesOf (list).size() == 2, "ALL lists the targets");
-        boxesOf (list)[0]->onClick();
         drawn = a_direction::drawnTexts (panel);
         reference_text_repairs::requireWhole (drawn, "1 Drop 1");
         require (! drawn.contains (text_style::shownText (reference_ui::overlayEmptyText)), "a shown target is drawn with A");
@@ -34,6 +32,42 @@ inline void verifyTargetsWithoutSongs()
     empty.setState (page (0, 0));
     require (! empty.findChildWithID ("reference-song-list")->isVisible() && ! empty.findChildWithID ("reference-overlay")->isVisible(),
              "with nothing to draw there is no list and no switch (the B step says why)");
+}
+
+// The selected target's actual spectrum must change the Balance drawing at every editor size.
+inline void verifyTargetBalanceSizes()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const int width : { 600, 300, 450, 900 })
+            for (const bool all : { false, true })
+                for (const int count : { 1, 16 })
+                {
+                    const i18n::ScopedLanguage scoped (language);
+                    const int height = width * 2 / 3;
+                    observatory::View shell (observatory::Role::post);
+                    shell.setSize (width, height); shell.setDomain (observatory::Domain::reference);
+                    shell.setExternalAnalysisBodyActive (true);
+                    reference_ui::Component panel; panel.setVisible (true);
+                    panel.setPresentationContext (presentation::forEditor (width, height));
+                    panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+                    auto state = page (1, count); state.blindLargeScreen = width >= 900;
+                    state.targets.collection.selected = state.targets.collection.items[0].id;
+                    state.overlay.all = all;
+                    state.overlay.lines = { { state.targets.collection.items[0].id, 0 } };
+                    panel.setState (state);
+                    if (width < 900)
+                        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), all ? "BALANCE / ALL" : "BALANCE / ONE");
+                    const auto before = panel.createComponentSnapshot (panel.getLocalBounds());
+                    for (auto& level : state.targets.collection.items[0].spectrum.medianDb) level -= 20.0f;
+                    panel.setState (state);
+                    const auto after = panel.createComponentSnapshot (panel.getLocalBounds());
+                    int changed = 0;
+                    for (int y = 0; y < before.getHeight(); ++y)
+                        for (int x = 0; x < before.getWidth(); ++x)
+                            if (before.getPixelAt (x, y) != after.getPixelAt (x, y)) ++changed;
+                    require (changed > 4, "the selected target spectrum is drawn at " + juce::String (width)
+                             + (all ? " ALL" : " ONE"));
+                }
 }
 
 // Only the very first ALL turns every song on. A selection the user emptied stays empty, also after ONE and
@@ -59,6 +93,32 @@ inline void verifyFirstUseOnly()
     again.setState (reopened);
     switchHalf (again, "reference-overlay-all").onClick();
     require (again.state().overlay.lines.empty(), "a saved, emptied selection stays empty after reopening");
+}
+
+inline void verifyUnusedOverlayRoundTrip()
+{
+    juce::XmlElement defaultProject ("ReferenceChoices");
+    ref::BalanceOverlay {}.write (defaultProject);
+    const auto* defaultOverlay = defaultProject.getChildByName ("Overlay");
+    require (defaultOverlay != nullptr && defaultOverlay->hasAttribute ("used")
+                 && ! defaultOverlay->getBoolAttribute ("used"), "a new default state explicitly saves unused");
+    auto state = page (4, 1);
+    state.overlay.lines = { { state.targets.collection.items.front().id, 0 } };
+    require (! state.overlay.used && ! state.overlay.all, "a target can be registered before ALL is used");
+    juce::XmlElement project ("ReferenceChoices"); state.overlay.write (project);
+    auto reopened = state; reopened.overlay = ref::BalanceOverlay::read (project);
+    require (reopened.overlay == state.overlay, "an unused overlay survives saving and reopening");
+    reference_ui::Component original, restored;
+    reference_text_repairs::sizePanel (original, 900, 600); reference_text_repairs::sizePanel (restored, 900, 600);
+    original.setState (state); restored.setState (reopened);
+    switchHalf (original, "reference-overlay-all").onClick();
+    switchHalf (restored, "reference-overlay-all").onClick();
+    require (original.state().overlay == restored.state().overlay && original.state().overlay.lines.size() == 5,
+             "the first ALL after reopening shows the same songs and target");
+    auto* old = project.getChildByName ("Overlay"); old->removeAttribute ("used");
+    require (ref::BalanceOverlay::read (project).used, "an older unmarked overlay with a line is still treated as used");
+    old->deleteAllChildElements();
+    require (! ref::BalanceOverlay::read (project).used, "an older empty unmarked overlay remains unused");
 }
 
 // Every number box state (shown or not, ALL SHAPE's dimmed, pointed, held) reads at 4.5:1 over its own fill on
@@ -91,8 +151,8 @@ inline void verifyMeanReading()
         const i18n::ScopedLanguage scoped (language);
         const bool japanese = language == i18n::Language::japanese;
         require (text_style::shownText ("MEAN -30.0") == (japanese ? juce::String::fromUTF8 (u8"平均 -30.0") : juce::String ("MEAN -30.0"))
-                 && text_style::shownText ("MEAN OF 3") == (japanese ? juce::String::fromUTF8 (u8"3曲の平均") : juce::String ("MEAN OF 3"))
-                 && text_style::shownText ("MEAN OF ALL 6") == (japanese ? juce::String::fromUTF8 (u8"全6曲の平均") : juce::String ("MEAN OF ALL 6")),
+                 && text_style::shownText ("MEAN OF 3") == (japanese ? juce::String::fromUTF8 (u8"3件の平均") : juce::String ("MEAN OF 3"))
+                 && text_style::shownText ("MEAN OF ALL 6") == (japanese ? juce::String::fromUTF8 (u8"全6件の平均") : juce::String ("MEAN OF ALL 6")),
                  "the mean reading and the legend's counts read in the screen's language");
         reference_ui::Component panel; reference_text_repairs::sizePanel (panel, 900, 600);
         panel.setState (page (4, 0));
@@ -111,10 +171,12 @@ inline void verifyMeanReading()
 
 inline void verifyRepairs()
 {
+    verifyTargetBalanceSizes();
     verifyMeanReading();
     verifyNumberContrast();
     verifyTargetsWithoutSongs();
     verifyFirstUseOnly();
+    verifyUnusedOverlayRoundTrip();
     std::cout << "Reference Balance overlay repairs: PASS\n";
 }
 }

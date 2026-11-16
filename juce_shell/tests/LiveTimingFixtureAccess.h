@@ -48,6 +48,8 @@ public:
     { processor.enableWritesNow(); }
     static void serviceTiming (KirinHyphaProcessorBase& processor)
     { processor.serviceLiveCompare(); }
+    static void serviceCandidate (KirinHyphaProcessorBase& processor)
+    { processor.serviceCandidateCompare(); }
     static void serviceContentTiming (KirinHyphaProcessorBase& processor)
     { processor.serviceLiveContentTiming(); }
     static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
@@ -68,6 +70,13 @@ public:
     }
     static void fadePending (KirinHyphaProcessorBase& processor, bool pending)
     { processor.liveCompare.preAudible.store (pending); }
+    static void callbackTime (KirinHyphaProcessorBase& processor, std::uint64_t nanos)
+    { processor.liveCompare.lastCallbackNanos.store (nanos); }
+    static std::uint64_t gainReceipt (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.gainReceipt.load (std::memory_order_acquire); }
+    // What MATCH off kept for MATCH on.
+    static hypha::live_compare::ProcessorState::MatchMemory& matchMemory (KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.matchMemory; }
     static void traceForTest (KirinHyphaProcessorBase& processor, std::unique_ptr<hypha::chain_trace::Recorder> trace)
     { processor.liveCompare.trace = std::move (trace); }
     static const hypha::live_compare::SharedRingMapping* publishedRing (const KirinHyphaProcessorBase& processor)
@@ -128,6 +137,9 @@ public:
     { processor.liveCompare.compensationOff.store (disabled); }
     static hypha::live_compare::OffsetEstimate jumpFacts (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.contentJumpFacts; }
+    // Each new clock mapping (or a block that fails its sample check) opens a new content check.
+    static std::uint64_t alignRevision (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.renderer.alignRevision(); }
     static void clearContent (KirinHyphaProcessorBase& processor)
     { processor.liveCompare.contentHold.clear (processor.liveCompare.contentHold.generation()); }
     // Simulate invalidation immediately after the publisher's final context check. The real RT
@@ -148,6 +160,22 @@ public:
     }
     static void assignBlind (KirinHyphaProcessorBase& processor, bool firstPre)
     { processor.liveCompare.blind.start (firstPre); }
+    static bool confirmAlignmentForTest (KirinHyphaProcessorBase& processor, std::int64_t frames)
+    {
+        using namespace hypha::live_compare;
+        OffsetEstimate estimate;
+        estimate.determined = true; estimate.sampleRate = 48000; estimate.peak = 0.8; estimate.dominance = 20;
+        estimate.alignContext = processor.liveCompare.alignContext();
+        estimate.alignRevision = processor.liveCompare.renderer.alignRevision();
+        estimate.stopGeneration = processor.liveCompare.contentHold.generation();
+        estimate.timelineGeneration = processor.liveCompare.timelineGeneration.load();
+        OffsetMonitor::Step step; step.settled = true; step.sampleRate = 48000; step.lagFrames = -frames;
+        return processor.alignLiveCompare (step, estimate);
+    }
+    static void deferContentMonitorForTest (KirinHyphaProcessorBase& processor)
+    { processor.liveCompare.contentMonitorNext = std::numeric_limits<std::uint64_t>::max(); }
+    static bool awaitingAlignmentListener (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.preAlign.awaitsListener(); }
     static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.renderer.historyView().kValid; }
     static void heldGains (KirinHyphaProcessorBase& processor)
@@ -184,6 +212,19 @@ public:
     static bool candidateHistoryValid (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.renderer.historyView().kValid; }
     static const auto& candidateStateForTest (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.candidate; }
+    static bool candidateTailLeaseAvailable (KirinHyphaProcessorBase& processor)
+    {
+        const juce::ScopedLock guard (processor.handleLock);
+        std::uint64_t scope = 0;
+        if (!kirin_hypha_begin_local_blind (processor.hyphaHandle, &scope)) return false;
+        auto* hold = kirin_hypha_candidate_tail_begin (processor.hyphaHandle);
+        const bool acquired = hold != nullptr;
+        if (hold) kirin_hypha_candidate_tail_end (hold);
+        const bool released = kirin_hypha_end_local_blind (processor.hyphaHandle, scope);
+        return acquired && released;
+    }
+    static auto& mutableCandidateStateForTest (KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.candidate; }
     static void failBlindPreparation (KirinHyphaProcessorBase& processor, hypha::live_compare::RecoveryReason reason)
     {
@@ -246,6 +287,9 @@ public:
     }
     static std::atomic<std::uint64_t>& gainRevision (KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.gainRevision; }
+    // Whether a block during a gain writer still outputs the last whole tuple (INV-LC26, B-1772).
+    static bool lastWholeGainsUsable (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.lastGains.coherent && ! processor.liveCompare.blindLevel.pending(); }
     struct TimingAdmission { std::uint64_t request, receipt, authority; };
     static TimingAdmission timingAdmission (const KirinHyphaProcessorBase& processor) noexcept
     {

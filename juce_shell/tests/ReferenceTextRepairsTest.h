@@ -107,8 +107,13 @@ inline void verifyLegends (bool check)
             if (check)
             {
                 verifyHeaderLayouts (panel, state);
-                requireWhole (drawn, "LOW FREQUENCY");
+                requireWhole (drawn, "SPECTRUM");
+                require (! drawn.contains (text_style::shownText ("LOW FREQUENCY")), "the second view starts closed");
                 for (const auto& text : {"A LAST 30 S", "C CHORUS", "LEVEL NOT MATCHED"}) requireWhole (drawn, text);
+                auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+                require (details && details->isVisible(), "C details opens its additional view");
+                details->onClick();
+                requireWhole (a_direction::drawnTexts (panel), "LOW FREQUENCY");
             }
             else
             {
@@ -136,7 +141,59 @@ inline void verifyCMatchFit()
             state.cueLoudness = -22; state.aWindowLoudness = -16.3;
             state.aWindowBlocks = state.aWindowNeededBlocks = 300;
             panel.setState (state);
-            requireWhole (a_direction::drawnTexts (panel), reference_ui::matchReadout (state));
+            const auto drawn = a_direction::drawnTexts (panel);
+            auto* match = panel.findChildWithID ("reference-match");
+            require (match && match->isVisible() && ! drawn.contains (text_style::shownText (reference_ui::matchReadout (state))),
+                     "C keeps MATCH reachable without duplicating its gain beside the status line");
+        }
+    }
+}
+
+inline void verifyCLimitNoticeFits()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const auto size : observatory::sizePresets)
+        {
+            observatory::View shell (observatory::Role::post);
+            shell.setSize (size.width, size.height); shell.setDomain (observatory::Domain::reference);
+            shell.setExternalAnalysisBodyActive (true);
+            reference_ui::Component panel;
+            panel.setVisible (true); panel.setPresentationContext (presentation::forEditor (size.width, size.height));
+            panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+            auto state = a_direction::checkState();
+            state.viewBindings = { "dynamics" };
+            state.blindLargeScreen = size.density == observatory::Density::inspection;
+            state.bSelected = true; state.audibleComparisonSlot = state.comparisonSlot = 2;
+            state.tracking = reference_audition::TrackingState::fixed;
+            state.appliedGainDb = 3.3; state.peakShortfallDb = 5.8;
+            state.action = { reference_ui::ActionKind::lowerAAndPlay, { 2, -9.1, "source", 1, 1 } };
+            state.actionText = "LOWER A 9.1 DB";
+            panel.setState (state);
+            const auto log = a_direction::drawnTexts (panel);
+            const auto full = text_style::shownText (reference_ui::referenceStatusLine (state).text);
+            const auto split = full.indexOfChar (juce::juce_wchar (0x3002));
+            const auto englishSplit = full.indexOf (". ");
+            const int end = split >= 0 ? split + 1 : englishSplit + 1;
+            if (size.width == 300)
+            {
+                const auto brief = text_style::shownText ("C LIMIT +3.3 DB / 5.8 DB BELOW A");
+                require (log.contains (brief) && panel.statusLineWhole().isNotEmpty(),
+                         "100% shows the limit and shortfall in one line with the full explanation on hover");
+            }
+            else
+                require (log.contains (full) || (end > 0 && log.contains (full.substring (0, end))
+                    && log.contains (full.substring (end).trimStart())),
+                    "C's limit and shortfall are shown whole at " + juce::String (size.width) + ": " + log.joinIntoString (" | "));
+            requireWhole (log, "LOWER A 9.1 DB TO LISTEN");
+            if (size.width == 600)
+            {
+                const auto chartWithNotice = panel.observationWindowBounds().getHeight();
+                state.action = {}; state.actionText.clear(); panel.setState (state);
+                require (chartWithNotice > 0 && chartWithNotice >= panel.observationWindowBounds().getHeight(),
+                         "C's extra notice keeps enough room for its chart at 200%");
+            }
         }
     }
 }

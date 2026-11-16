@@ -41,6 +41,7 @@
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
  #include "HyphaLiveBlindComponent.h"
+ #include "HyphaMatchChoicePopup.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -311,6 +312,7 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
     void showAutomaticNotice (const juce::String& text, bool showing = true); // a change Hypha made by itself
+    bool automaticNoticeMayShow() const;
     // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
     // live 比較が断りの元なら、先に live 比較を読み直す（新しい中断の知らせを断りの文で隠さない：INV-LC21）。
     bool outputRefused (hypha::output_owner::Activity activity)
@@ -359,6 +361,7 @@ private:
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
+    hypha::live_compare_ui::MatchChoicePopup matchChoicePopup;
     hypha::HyphaTextButton    spectrumToggle { "" };        // POST: meters / Analysis page
     hypha::TimePageNavigation timePageNavigation;            // Compact cycle / Observatory tabs
     hypha::HyphaTextButton    spectrumSizeToggle { "" };    // POST Analysis: 100/125/150/200/300 percent
@@ -463,6 +466,7 @@ private:
        #endif
     }
     juce::String toastText;
+    juce::StringArray pendingAutomaticNotices;
     juce::String shownNotice; bool feedbackRead = false; // what the notice line shows now; read once yet
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
@@ -479,11 +483,12 @@ private:
     juce::String waitingPairKey() const;
     void dropWaitingRequests();    // 隠す・Stop・組み／state の変更・別の試聴で、まだ始めていない要求を捨てる
     void requestKeepPair (bool retry, std::optional<std::uint64_t> ticket = {});
-    void requestKeepAll (std::optional<std::uint64_t> ticket);
+    void requestKeepAll (std::optional<std::uint64_t> ticket, bool resume = false, double since = 0.0);
     uint8_t comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
+    bool recordWavBindingWaiting = false;
     std::uint64_t observedHostProcessHeartbeat = 0;
     double observedHostProcessHeartbeatAt = 0.0;
     hypha::appearance::Snapshot appearanceSnapshot;

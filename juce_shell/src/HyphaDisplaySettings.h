@@ -8,18 +8,24 @@
 // absent and unknown attributes restore it, just as FREQ AVG does.
 namespace hypha::display_settings
 {
-enum Field { range, tilt, smooth, light, peak, rate, fieldCount };
+// New fields are appended: the menu action numbers and the stored keys of the older ones stay.
+enum Field { range, tilt, smooth, light, peak, rate, fall, fill, fieldCount };
 inline constexpr std::array<const char*, fieldCount> keys {
-    "freq_range", "freq_tilt", "freq_smooth", "freq_light", "freq_peak", "level_rate" };
+    "freq_range", "freq_tilt", "freq_smooth", "freq_light", "freq_peak", "level_rate", "freq_fall", "freq_fill" };
 inline constexpr std::array<const char*, fieldCount> titles {
-    "RANGE", "TILT", "SMOOTH", "LIGHT", "PEAK", "NUM RATE" };
-inline constexpr std::array<std::array<const char*, 5>, fieldCount> labels {{
-    { "96 dB", "60 dB", "90 dB", "120 dB", nullptr },
-    { "0 dB/oct", "3 dB/oct", "4.5 dB/oct", "6 dB/oct", nullptr },
-    { "STD", "OFF", "1/24 oct", "1/12 oct", "1/6 oct" },
-    { "1", "0.7", "1.3", nullptr, nullptr },
-    { "ON", "OFF", nullptr, nullptr, nullptr },
-    { "LIVE", "0.2 S", "0.5 S", "1 S", nullptr }
+    "RANGE", "TILT", "SMOOTH", "LIGHT", "PEAK", "NUM RATE", "FALL", "FILL" };
+// Three bits per field: at most eight choices. SMOOTH 5..7 widen from the low width to the high
+// width (HyphaSpectrumPresentation.h); PEAK SLOW holds and then falls (HyphaSpectrumPeakFall.h).
+inline constexpr int choiceLimit = 8;
+inline constexpr std::array<std::array<const char*, choiceLimit>, fieldCount> labels {{
+    { "96 dB", "60 dB", "90 dB", "120 dB" },
+    { "0 dB/oct", "3 dB/oct", "4.5 dB/oct", "6 dB/oct" },
+    { "STD", "OFF", "1/24 oct", "1/12 oct", "1/6 oct", "1/24-1/6 oct", "1/12-1/3 oct", "1/6-1/2 oct" },
+    { "1", "0.7", "1.3" },
+    { "ON", "OFF", "SLOW" },
+    { "LIVE", "0.2 S", "0.5 S", "1 S" },
+    { "40 dB/s", "20 dB/s", "12 dB/s", "6 dB/s" },
+    { "STD", "RICH" }
 }};
 struct Values
 {
@@ -30,11 +36,14 @@ struct Values
     float rangeDb() const noexcept { return std::array<float, 4> { 96, 60, 90, 120 }[(size_t) (*this)[range]]; }
     float tiltDb() const noexcept { return std::array<float, 4> { 0, 3, 4.5f, 6 }[(size_t) (*this)[tilt]]; }
     float brightness() const noexcept { return std::array<float, 3> { 1, 0.7f, 1.3f }[(size_t) (*this)[light]]; }
+    float fallDbPerSecond() const noexcept { return std::array<float, 4> { 40, 20, 12, 6 }[(size_t) (*this)[fall]]; }
+    bool slowPeak() const noexcept { return (*this)[peak] == 2; }
+    bool richFill() const noexcept { return (*this)[fill] == 1; }
     double numericMs() const noexcept { return std::array<double, 4> { 0, 200, 500, 1000 }[(size_t) (*this)[rate]]; }
 };
 inline bool valid (int field, int choice) noexcept
 {
-    return field >= 0 && field < fieldCount && choice >= 0 && choice < 5
+    return field >= 0 && field < fieldCount && choice >= 0 && choice < choiceLimit
         && labels[(size_t) field][(size_t) choice] != nullptr;
 }
 class Preference final
@@ -76,6 +85,10 @@ private:
     std::atomic<unsigned> packed { 0 };
 };
 inline constexpr int firstAction = 4000;
+static_assert (fieldCount * 3 <= 32, "three bits per field fit one word");
+// Choosing the PEAK choice that is already selected starts its line again from the current sound.
+inline bool reselectsPeak (Values value, int action) noexcept
+{ return action == firstAction + peak * 10 + value[peak]; }
 inline bool choose (Values& value, int action) noexcept
 {
     const auto field = (action - firstAction) / 10, choice = (action - firstAction) % 10;
@@ -86,8 +99,9 @@ inline bool choose (Values& value, int action) noexcept
 inline void addMenu (juce::PopupMenu& menu, Values value, bool frequency)
 {
     juce::PopupMenu freq;
-    for (int field = frequency ? 0 : rate; field < fieldCount; ++field)
+    for (int field = 0; field < fieldCount; ++field)
     {
+        if (! frequency && field != rate) continue;
         juce::PopupMenu options;
         for (int choice = 0; valid (field, choice); ++choice)
             options.addItem (firstAction + field * 10 + choice, labels[(size_t) field][(size_t) choice],

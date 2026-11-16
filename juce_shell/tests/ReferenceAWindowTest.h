@@ -90,7 +90,7 @@ inline void verifyShownWhereTheChartIs()
                 const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::legend,
                                              typography::Composition::visualization);
                 const auto textWidth = text_style::shownWidth (font, "A LAST 10:00");
-                for (int chart = 0; chart < (page == 2 ? 2 : 1); ++chart)
+                for (int chart = 0; chart < 1; ++chart)  // C shows the first view until DETAILS opens.
                 {
                     auto* control = controlOf (panel, chart);
                     require (control != nullptr && control->isVisible() && panel.getLocalBounds().contains (control->getBounds()),
@@ -326,7 +326,7 @@ inline void verifyReading()
             const auto label = controlOf (panel)->getBounds().toFloat();
             requireReading (panel, 'B', label.withY (label.getY() - 120.0f).withHeight (100.0f).withWidth (360.0f), "B 300%");
         }
-        // C は図の数と並びごと（2 つ・3 つの図は狭い）。図が出る大きさすべてで。
+        // C は詳しくを閉じて最初の図を全幅で出す。図が出る大きさすべてで。
         for (const auto& size : observatory::sizePresets)
         {
             if (! observatory::isFullDensity (size.density)) continue;
@@ -349,11 +349,8 @@ inline void verifyReading()
                     panel.setState (state);
                     const auto area = panel.observationWindowBounds().toFloat();
                     require (! area.isEmpty(), "the C page shows its charts");
-                    const auto cells = reference_ui::referenceVisualCells (area, static_cast<int> (bindings.size()), layout);
-                    for (size_t index = 0; index < bindings.size(); ++index)
-                        requireReading (panel, 'C', cells[index].reduced (10.0f, 8.0f),
-                                        juce::String (size.label) + " " + layout + " chart " + juce::String (static_cast<int> (index))
-                                            + " of " + juce::String (static_cast<int> (bindings.size())));
+                    requireReading (panel, 'C', area.reduced (10.0f, 8.0f),
+                                    juce::String (size.label) + " " + layout + " main chart");
                 }
         }
     }
@@ -405,8 +402,44 @@ inline void verifyHelpFits()
     }
 }
 
+inline void verifyListeningAtSizes()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const int width : { 600, 300, 450, 900 })
+          for (const bool hasBinding : { false, true })
+        {
+            const i18n::ScopedLanguage scoped (language);
+            observatory::View shell (observatory::Role::post);
+            shell.setSize (width, width * 2 / 3); shell.setDomain (observatory::Domain::reference);
+            shell.setExternalAnalysisBodyActive (true);
+            reference_ui::Component panel; panel.setVisible (true);
+            panel.setPresentationContext (presentation::forEditor (width, width * 2 / 3));
+            panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+            auto state = cPage(); state.blindLargeScreen = width >= 900;
+            state.listeningChecks = { "chk-low" };
+            state.viewBindings = hasBinding ? std::vector<juce::String> { "spectrum_full" } : std::vector<juce::String> {};
+            panel.setState (state);
+            const text_style::ShownTextLog log;
+            juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
+            juce::Graphics graphics (image); panel.paintEntireComponent (graphics, true);
+            const auto texts = log.texts();
+            const auto guide = reference_ui::listeningGuide ('C');
+            requireWhole (texts, guide);
+            const auto index = texts.indexOf (text_style::shownText (guide));
+            const auto bounds = log.areas()[static_cast<size_t> (index)];
+            const auto font = labelFont (presentation::forEditor (width, width * 2 / 3), typography::TextRole::status,
+                                         typography::Composition::visualization);
+            require (bounds.getHeight() >= text_style::shownWrappedHeight (guide, font, static_cast<int> (bounds.getWidth()))
+                     && panel.getLocalBounds().toFloat().contains (bounds), "the listening guide fits inside the page");
+            for (const auto* text : { "INTEGRATED LOUDNESS", "MAXIMUM TRUE PEAK", "LUFS-I", "MAX TP" })
+                require (! texts.contains (text_style::shownText (text)), "a listening Check has no numeric comparison");
+            require (! controlOf (panel)->isVisible(), "a listening Check has no A chart control");
+        }
+}
+
 inline void verify()
 {
+    verifyListeningAtSizes();
     verifyShownWhereTheChartIs();
     verifyMenu();
     verifyHidden();

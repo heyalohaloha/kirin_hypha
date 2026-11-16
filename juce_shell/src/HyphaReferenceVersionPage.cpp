@@ -11,6 +11,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaLanguage.h"
 
 #include <algorithm>
 #include <cmath>
@@ -65,8 +66,23 @@ const std::vector<VersionTab>& versionTabs()
         { "v-dynamics", "DYNAMICS", { "dynamics", "transient" } },  // クレストと音量の動き・アタックと立ち上がり
         { "v-stereo", "STEREO", { "stereo" } },
         { "v-low", "LOW END", { "spectrum_low" } },
+        { "v-movement", "MOVEMENT", { "version_movement" } },
+        { "v-attack", "ATTACK", { "version_attack" } },
+        { "v-onset", "ONSET", { "version_onset" } },
+        { "v-correlation", "CORRELATION", { "version_correlation" } },
     };
-    return tabs;
+    static const std::vector<VersionTab> japanese {
+        { "whole", juce::String::fromUTF8 (u8"全体"), {} },
+        { "v-tone", juce::String::fromUTF8 (u8"音色"), { "spectrum_full" } },
+        { "v-dynamics", juce::String::fromUTF8 (u8"ダイナミクス"), { "dynamics", "transient" } },
+        { "v-stereo", juce::String::fromUTF8 (u8"ステレオ"), { "stereo" } },
+        { "v-low", juce::String::fromUTF8 (u8"低域"), { "spectrum_low" } },
+        { "v-movement", juce::String::fromUTF8 (u8"音量の動き"), { "version_movement" } },
+        { "v-attack", juce::String::fromUTF8 (u8"アタック"), { "version_attack" } },
+        { "v-onset", juce::String::fromUTF8 (u8"立ち上がり"), { "version_onset" } },
+        { "v-correlation", juce::String::fromUTF8 (u8"相関"), { "version_correlation" } },
+    };
+    return i18n::current() == i18n::Language::japanese ? japanese : tabs;
 }
 
 const VersionTab* findVersionTab (const juce::String& id)
@@ -91,7 +107,7 @@ juce::String listeningGuide (char role)
 
 void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, const reference_audition::VisualTimeline* timeline,
                               const juce::String& checkLabel, double gainDb, const std::vector<juce::String>& views,
-                              bool listening, presentation::Context context, juce::Point<float> pointer)
+                              bool listening, presentation::Context context, juce::Point<float> pointer, bool primaryOnly)
 {
     // 耳で聴き比べる Check（Kirin OS の audition_only）は図を出さず案内（Tone と同じ図を出していた）。表示の分からない
     // Check（古い Kirin OS が表示を送らない）は今までどおり全帯域のスペクトル。
@@ -101,14 +117,59 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     std::vector<juce::String> stripViews;
     if (! listening && ! spectral)
         for (const auto& view : views)
-            if (rangeStripBinding (view) && stripViews.size() < 2) stripViews.push_back (view);
+            if ((rangeStripBinding (view) || view == "version_movement" || view == "version_attack"
+                 || view == "version_onset" || view == "version_correlation") && stripViews.size() < 2)
+                stripViews.push_back (view);
     const bool strips = ! stripViews.empty();
     const double maximumHz = lowOnly ? 250.0 : 20'000.0;
     const bool ready = sameSectionReady (timeline);
     const auto shift = std::isfinite (gainDb) ? gainDb : 0.0;
+    if (area.getWidth() < 380 || area.getHeight() < 130)
+    {
+        surface_material::paintObservationWell (g, area.toFloat(), false);
+        window_material::paintInterior (g, area.toFloat(), area.toFloat());
+        auto content = area.reduced (6, 3);
+        g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
+        g.setColour (COL_NORMAL);
+        if (! ready)
+        {
+            const juce::String message = "PLAY A WITH V ALIGNED";
+            if (text_style::shownWidth (g.getCurrentFont(), message) <= content.getWidth())
+                text_style::drawText (g, message, content, juce::Justification::centred);
+            return;
+        }
+        if (content.getHeight() >= 38)
+        {
+            auto heading = content.removeFromTop (16);
+            g.setColour (COL_FLORA_BR);
+            text_style::drawText (g, "A", heading.removeFromLeft (14), juce::Justification::centredLeft);
+            g.setColour (COL_SPECTRUM_DELTA);
+            text_style::drawText (g, "V", heading.removeFromLeft (14), juce::Justification::centredLeft);
+            g.setColour (COL_NORMAL);
+            const auto summary = strips ? juce::String() : ! std::isfinite (gainDb) ? juce::String ("LEVEL NOT MATCHED") : checkLabel;
+            if (text_style::shownWidth (g.getCurrentFont(), summary) <= heading.getWidth())
+                text_style::drawText (g, summary, heading, juce::Justification::centredRight);
+        }
+        if (spectral && content.getHeight() >= 8)
+        {
+            const auto chart = content.toFloat();
+            g.setColour (COL_FLORA_BR);
+            g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (2.0f));
+            g.setColour (COL_SPECTRUM_DELTA);
+            g.strokePath (medianPath (*timeline->vPairKirin, shift, chart, maximumHz), juce::PathStrokeType (1.2f));
+        }
+        else if (strips && ! paintVersionRangeStrips (g, content.toFloat(), timeline, stripViews.front(), gainDb, context))
+        {
+            g.setColour (COL_TEXT_SECONDARY);
+            const juce::String message = "PLAY A WITH V ALIGNED";
+            if (text_style::shownWidth (g.getCurrentFont(), message) <= content.getWidth())
+                text_style::drawText (g, message, content, juce::Justification::centred);
+        }
+        return;
+    }
     const auto frame = area.toFloat();  // V の画面は REF の主役の窓：塗った面の上に枠の内側の影を戻す
-    auto bands = area.removeFromBottom (40);
-    area.removeFromBottom (6);
+    auto bands = primaryOnly ? juce::Rectangle<int>() : area.removeFromBottom (40);
+    if (! primaryOnly) area.removeFromBottom (6);
     surface_material::paintPanel (g, area.toFloat(), 0.72f);
     window_material::paintInterior (g, frame, area.toFloat());
     auto header = area.removeFromTop (28).reduced (9, 1);
@@ -182,6 +243,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
                                             chart.toNearestInt(), juce::Justification::centred);
         }
     }
+    if (bands.isEmpty()) return;
     // 4 帯域の差を、見出し「VよりA（dB）」を主語に言葉で（「3.7少ない」。C の帯の行と同じ。良し悪しの色は付けない）。
     static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };
     help::note (bands, help_text::versionBands);

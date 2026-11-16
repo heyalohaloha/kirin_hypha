@@ -22,15 +22,52 @@ void verifyAllListenText (Require require)
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
+        require (text_style::shownText ("Rendering offline: press again after it finishes")
+                     == (language == i18n::Language::japanese
+                         ? juce::String::fromUTF8 (u8"書き出し中です。終わってから押してください")
+                         : juce::String ("Rendering offline: press again after it finishes")),
+                 "offline return notice has the intended wording in each language");
+        if (language == i18n::Language::japanese)
+            require (i18n::tr ("Cannot write to folder. Check access.") != "Cannot write to folder. Check access.",
+                     "storage failure guidance is translated");
+        if (language == i18n::Language::japanese)
+            require (i18n::tr ("2MIX has no DRUM; showing TIME / HISTORY") != "2MIX has no DRUM; showing TIME / HISTORY",
+                     "page-change guidance is translated");
+        if (language == i18n::Language::japanese)
+            require (i18n::tr ("Measurements saved; waiting for Kirin OS audio (auto link)") != "Measurements saved; waiting for Kirin OS audio (auto link)",
+                     "audio-binding guidance is translated");
+        if (language == i18n::Language::japanese)
+            require (i18n::tr ("No new PRE processing; DAW may pause it (POST)") != "No new PRE processing; DAW may pause it (POST)",
+                     "PRE processing guidance is translated");
+        if (language == i18n::Language::japanese)
+            for (const auto& item : notices)
+                if (item.text.startsWith ("Waiting up to 10 s, then "))
+                    require (i18n::tr (item.text) != item.text, "automatic wait guidance is translated");
+        if (language == i18n::Language::japanese)
+            for (const auto* text : { "Before realtime bounce, press END and wait for normal level",
+                                      "Press END to finish the current comparison, then try again" })
+                require (i18n::tr (text) != text, "comparison instructions are translated");
         for (const auto& item : notices)
             inventory += juce::String (static_cast<int> (language)) + "\t" + item.text + "\t"
                 + text_style::shownText (item.text) + "\n";
-        for (int width : { 300, 375, 450 })
+        for (int width : { 300, 375, 450, 600, 750, 900 })
         {
             for (bool chain : { false, true })
             for (int session : { 0, 1, 2 }) // listening, entry refusal / END, held POST attenuation
             for (const auto& item : notices)
             {
+                if (width > 450 && item.text != "Rendering offline: press again after it finishes"
+                    && item.text != live_compare_ui::bypassHoldsReturnNotice
+                    && item.text != live_compare_ui::keepBypassWaitNotice && item.text != live_compare_ui::keepOfflineWaitNotice
+                    && item.text != live_compare_ui::keepOtherTailNotice
+                    && item.text != live_compare_ui::tailBypassNotice && item.text != live_compare_ui::tailOfflineNotice
+                    && item.text != "Cannot write to folder. Check access."
+                    && item.text != "2MIX has no DRUM; showing TIME / HISTORY"
+                    && item.text != "Measurements saved; waiting for Kirin OS audio (auto link)"
+                    && item.text != "No new PRE processing; DAW may pause it (POST)"
+                    && ! item.text.startsWith ("Waiting up to 10 s, then ")
+                    && item.text != "Before realtime bounce, press END and wait for normal level"
+                    && item.text != "Press END to finish the current comparison, then try again") continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
                 named.setChainReadout (chain ? "CHAIN LOAD 100% / 100%" : "", true);
@@ -52,8 +89,14 @@ void verifyAllListenText (Require require)
                 const auto pixels = painted.createComponentSnapshot (painted.getLocalBounds());
                 const auto room = painted.getLocalBounds().reduced (named.statusStripFolded() ? 6 : 3,
                                                                     named.statusStripFolded() ? 0 : 1);
-                const auto font = monoFont (named.presentationContext(), footer_notice_font::roleForText (
-                    named.presentationContext(), item.text, room.getWidth()));
+                const auto font = footer_notice_font::fontForText (named.presentationContext(), item.text, room.getWidth());
+                if (item.text == "Cannot write to folder. Check access." || item.text == "2MIX has no DRUM; showing TIME / HISTORY"
+                    || item.text == "Measurements saved; waiting for Kirin OS audio (auto link)"
+                    || item.text == "No new PRE processing; DAW may pause it (POST)"
+                    || item.text.startsWith ("Waiting up to 10 s, then ")
+                    || item.text == "Before realtime bounce, press END and wait for normal level"
+                    || item.text == "Press END to finish the current comparison, then try again")
+                    require (font.getHeight() >= 14.0f, "storage guidance is readable at every size");
                 const bool complete = pixels.isValid()
                     && withoutWhitespace (actual.texts().joinIntoString ("")) == withoutWhitespace (text_style::shownText (item.text))
                     && text_style::shownWrappedHeight (item.text, font, room.getWidth()) <= room.getHeight() + 0.5f;
@@ -84,6 +127,8 @@ void verifyAllListenText (Require require)
             }
             for (const auto& item : blindCases)
             {
+                if (width > 450 && ! (item.state.stage == live_compare::BlindStage::failed
+                    && item.state.waiting == live_compare::MatchFailure::notProven && item.state.prolongedWait)) continue;
                 blind.setSize (width, width * 2 / 3); blind.setState (item.state, item.playing, item.post);
                 const auto pixels = blind.createComponentSnapshot (blind.getLocalBounds());
                 require (pixels.isValid(), "BLIND screen rendered");
@@ -128,7 +173,7 @@ void verifyAllListenText (Require require)
     for (const auto& failure : failures) std::cerr << "Clipped " << failure << '\n';
     std::cout << "All LISTEN text: " << notices.size() << " notices / " << namedCount << " cases; BLIND: "
               << blindCases.size() << " screens / " << blindCount << " cases; " << clipped << " clipped\n";
-    require (clipped == 0, "all LISTEN / BLIND instructions must paint completely at 100/125/150 percent");
+    require (clipped == 0, "all LISTEN / BLIND instructions must paint completely at the tested sizes");
 }
 
 template <typename Require>

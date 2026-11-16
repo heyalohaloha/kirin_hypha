@@ -3,6 +3,7 @@
 #include "../../src/live_compare/LiveCompareMatch.h"
 #include "../../src/live_compare/LiveCompareOffset.h"
 #include "AaxChunkChain.h"
+#include "../ChainMusic.h"
 
 #include <chrono>
 #include <algorithm>
@@ -87,11 +88,121 @@ static void chunkedPostKeepsItsWindows()
     }
 }
 
+// A chain delay the host does not compensate, beyond the +/-170 ms fine search: a linear-phase EQ
+// at high oversampling, PRE early or late by up to two seconds. The wide search proposes a center
+// from the history both sides hold; the fine search there finds the delay to the sample. Before
+// enough history exists it proposes nothing, and it never reads outside PRE's run or ring.
+static void wideDelaysAreFound()
+{
+    using namespace aax_chunk_test;
+    for (const std::int64_t delay : { std::int64_t (4096), std::int64_t (16384), std::int64_t (32768), std::int64_t (96000) })
+        for (const bool early : { true, false })
+        {
+            Options options;
+            options.k = 512; options.postCarriesPre = true;
+            options.contentK = early ? 512 + delay : 512 - delay;
+            Chain chain (options);
+            chain.run (40);
+            require (! searchWideOffset (chain.sharedRing(), chain.postRenderer()).found, "too little history proposes nothing");
+            chain.run (200);
+            const auto lag = early ? -delay : delay;
+            const auto fine = measureOffset (chain.sharedRing(), chain.postRenderer());
+            require (delay < offsetSearchFrames ? offsetCanVote (fine) && fine.lagFrames == lag : ! offsetCanVote (fine),
+                     "the fine search alone reaches only +/-170 ms");
+            const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+            std::printf ("wide delay %s %lld: center %lld (peak %.3f, dominance %.1f)\n", early ? "early" : "late",
+                         static_cast<long long> (delay), static_cast<long long> (wide.lagFrames), wide.peak, wide.dominance);
+            require (wide.found && std::llabs (wide.lagFrames - lag) <= 32, "the wide search proposes the delay");
+            auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+            there.sampleRate = 48000;
+            require (offsetCanVote (there) && there.lagFrames == lag && there.window.center == wide.lagFrames,
+                     "the fine search at that center finds it to the sample");
+        }
+    // Exchanged channels (independent stereo through an L/R swap) have no peak channel by channel:
+    // each POST channel against PRE's other one finds a two-second delay either way. Channels delayed
+    // differently by comparable, independent material contradict each other: no center, never one
+    // channel's delay for both, also while the history reaches only the nearer one.
+    for (const bool early : { true, false })
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true; options.swapChannels = true;
+        options.contentK = early ? 512 + 96000 : 512 - 96000;
+        Chain chain (options);
+        chain.run (240);
+        const auto started = std::chrono::steady_clock::now();
+        const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+        const auto elapsed = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - started).count();
+        const auto lag = early ? -96000 : 96000;
+        std::printf ("wide swapped %s: center %lld (peak %.3f, dominance %.1f) in %.1f ms\n", early ? "early" : "late",
+                     static_cast<long long> (wide.lagFrames), wide.peak, wide.dominance, elapsed);
+        require (wide.found && std::llabs (wide.lagFrames - lag) <= 32, "the crossed pairs find exchanged channels");
+        auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+        there.sampleRate = 48000;
+        require (offsetCanVote (there) && there.lagFrames == lag, "the fine search there finds them to the sample");
+    }
+    for (const std::int64_t first : { std::int64_t (32768), std::int64_t (96000) })
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true;
+        options.contentK = 512 + first;
+        options.rightContentShift = 128768 - 2 * first; // the other channel at 96000 or 32768
+        Chain chain (options);
+        for (const int chunks : { 110, 130, 170 }) // about 2.3 s of history, 5.1 s, then past the full 8 s reach
+        {
+            chain.run (chunks);
+            const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+            std::printf ("wide contradictory channels %lld/%lld after %d chunks: found %d (center %lld)\n",
+                         static_cast<long long> (first), static_cast<long long> (128768 - first), chunks,
+                         wide.found ? 1 : 0, static_cast<long long> (wide.lagFrames));
+            require (! wide.found, "channels delayed differently propose no center");
+        }
+    }
+    // Correlated stereo (PRE's right is its left 128 samples later, a spaced pair): the straight pairs
+    // agree on two seconds; the crossed pairs and the sum peak about 128 away, explained by PRE's own
+    // channels, never a contradiction.
+    for (const bool early : { true, false })
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true; options.preRightFromLeft = 128;
+        options.contentK = early ? 512 + 96000 : 512 - 96000;
+        Chain chain (options);
+        chain.run (240);
+        const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+        const auto lag = early ? -96000 : 96000;
+        std::printf ("wide correlated stereo %s: found %d center %lld\n", early ? "early" : "late", wide.found ? 1 : 0,
+                     static_cast<long long> (wide.lagFrames));
+        require (wide.found && std::llabs (wide.lagFrames - lag) <= 32, "correlated stereo finds its delay");
+        auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+        there.sampleRate = 48000;
+        require (offsetCanVote (there) && there.lagFrames == lag, "the fine search there finds it to the sample");
+    }
+    // PRE's right is silent and POST's right carries an offset: that channel never informs. It holds
+    // the proposal back only while the history is shorter than the full reach (its delay might not be
+    // reachable yet); then the left channel's two seconds are proposed.
+    {
+        Options options;
+        options.k = 512; options.postCarriesPre = true; options.preRightSilent = true; options.postRightDc = 0.01f;
+        options.contentK = 512 + 96000;
+        Chain chain (options);
+        chain.run (240); // about 5.1 s
+        require (! searchWideOffset (chain.sharedRing(), chain.postRenderer()).found,
+                 "an uninformative channel waits while the history is short of the full reach");
+        chain.run (170); // about 8.7 s
+        const auto wide = searchWideOffset (chain.sharedRing(), chain.postRenderer());
+        std::printf ("wide uninformative right: found %d center %lld\n", wide.found ? 1 : 0, static_cast<long long> (wide.lagFrames));
+        require (wide.found && std::llabs (wide.lagFrames + 96000) <= 32, "at the full reach the informative channel proposes");
+        auto there = measureOffset (chain.sharedRing(), chain.postRenderer(), wide.lagFrames);
+        there.sampleRate = 48000;
+        require (offsetCanVote (there) && there.lagFrames == -96000, "the fine search there finds it to the sample");
+    }
+}
+
 namespace hypha::tests
 {
 void verifyLiveCompareOffset()
 {
     chunkedPostKeepsItsWindows();
+    wideDelaysAreFound();
     const auto broadband = [] (std::int64_t n) { return noise (n); };
     for (const std::int64_t d : { std::int64_t (0), std::int64_t (240), std::int64_t (-700), std::int64_t (900) })
     {
@@ -206,8 +317,8 @@ void verifyLiveCompareOffset()
     require (full.determined && full.lagFrames == -4096, "the product window finds 85 ms at 48 kHz");
 
     // EQ, a saturating limiter and -100 dBFS dither between PRE and POST (Pro Tools EQ and Maxim,
-    // or outboard): music leaves most bins nearly empty and the chain's noise fills them, so no
-    // window votes. INV-LC28 bounds the wait for this instead of holding POST.
+    // or outboard): a held chord leaves most bins nearly empty and the chain's noise fills them, so
+    // no window votes. INV-LC28 bounds the wait for this instead of holding POST.
     const auto chord = [] (std::int64_t n) {
         const double t = static_cast<double> (n) / 48000.0, pi = 3.14159265358979323846;
         double sum = 0.0; int partial = 0;
@@ -232,6 +343,42 @@ void verifyLiveCompareOffset()
                      "a limiter chain confirms no position; the same music unprocessed is found");
             require (e.narrow == limited, "the chord after the chain is a narrow window, not ambiguity");
         }
+
+    // Bass-heavy music through a seven-band EQ (6 and 12 dB) and a brickwall limiter (7 to 11 dB of
+    // gain reduction, with and without lookahead). Unprocessed, these windows are narrow: their
+    // position comes from the full-window sample check (agreement 1). After the chain none is a
+    // scaled copy, yet the strong peak of the rest of the spectrum finds the position, also with PRE
+    // 10 ms early or late. Unrelated music in the same chain never votes.
+    using hypha::tests::chain_music::Chain;
+    const std::int64_t from = 1068544;
+    const auto window = [&] (const std::vector<float>& x, std::int64_t at, std::int64_t frames)
+    {
+        std::vector<float> mono (static_cast<std::size_t> (frames));
+        for (std::int64_t n = 0; n < frames; ++n)
+            mono[static_cast<std::size_t> (n)] = x[static_cast<std::size_t> ((at - from + n) * 2)];
+        return mono;
+    };
+    for (const Chain chain : { Chain { 0.0, 0.0, 0 }, Chain { 6.0, 12.0, 240 }, Chain { 12.0, 12.0, 240 }, Chain { -12.0, 14.0, 0 } })
+    {
+        const auto music = hypha::tests::chain_music::render (from, 6 * 48000, chain);
+        for (std::int64_t start = from + 48000; start < from + 4 * 48000; start += 48000)
+        {
+            const auto post = window (music.post, start, offsetWindowFrames);
+            const auto pre = [&] (std::int64_t d)
+            { return window (music.pre, start - offsetSearchFrames + d, offsetWindowFrames + 2 * offsetSearchFrames); };
+            for (const std::int64_t d : { std::int64_t (0), std::int64_t (480), std::int64_t (-480) })
+            {
+                auto e = estimateOffset (post, pre (d), offsetSearchFrames);
+                e.sampleRate = 48000;
+                require (offsetCanVote (e) && e.lagFrames == -d && ! e.verifySamples, "the chain keeps the position to the sample");
+                require (chain.eqDb == 0.0 ? e.peak >= 1.0 : e.peak < 1.0,
+                         "unprocessed it is a narrow window's sample match; after the chain, a spectral peak");
+            }
+            auto unrelated = estimateOffset (post, pre (101111), offsetSearchFrames);
+            unrelated.sampleRate = 48000;
+            require (! offsetCanVote (unrelated), "unrelated music never votes");
+        }
+    }
     std::printf ("live compare offset: all checks passed\n");
 }
 }

@@ -18,7 +18,20 @@ SourceStep alignmentPhase (SourceStep step) noexcept
 }
 
 juce::String PreparationWatch::observe (int slot, SourceStep rawStep, bool measuringA, bool kirinOsOnline, bool playing,
-                                        double nowSeconds)
+                                        double nowSeconds, bool pressWaits)
+{
+    // 押した役の自動の待ち（確認・読み込み・音量）は、押してから 10 秒の全体の上限を持つ。段階が替わっても数え直さない。
+    // 超えたら、A が鳴り続けることと、待ちをやめる方法を言う（押しは捨てず、準備でき次第そのまま鳴らす）。
+    if (! pressWaits) pressSlot = 0;
+    else if (pressSlot != slot) { pressSlot = slot; pressSince = nowSeconds; }
+    const bool pressOverdue = pressWaits && nowSeconds - pressSince >= PreparationBudget::pressSeconds;
+    const auto line = stageLine (slot, rawStep, measuringA, kirinOsOnline, playing, nowSeconds);
+    // 段階の上限の文が理由と直し方を言うならそれを、ただの「確認中」なら全体の上限の文を出す。
+    return pressOverdue && (line.isEmpty() || line == "CHECKING") ? juce::String (pressOverdueLine) : line;
+}
+
+juce::String PreparationWatch::stageLine (int slot, SourceStep rawStep, bool measuringA, bool kirinOsOnline, bool playing,
+                                          double nowSeconds)
 {
     const auto step = alignmentPhase (rawStep);
     if (slot != watchedSlot || step != watchedStep || measuringA != watchedA || kirinOsOnline != watchedOnline)

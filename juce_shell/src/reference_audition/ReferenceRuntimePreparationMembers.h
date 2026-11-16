@@ -56,7 +56,6 @@
             std::shared_ptr<const RuntimeACaptureAudio> capture;
             std::shared_ptr<const RuntimeContentAlignment> match;
             std::future<RuntimeContentAlignment> search;
-            int misses = 0;
         };
         // 鳴っている間の定期の位置の確かめ。これも別の thread で探し、終わるまで今の写像のまま鳴らす。
         struct PositionSearch
@@ -120,7 +119,6 @@
         void clearPreparedWorkspace();
         bool servicePreparedWorkspace (const Configuration&);
         bool stagedVersionReady (WorkspaceSelection&, AudioPages&);
-        void serviceVersionHold();
         std::future<RuntimeContentAlignment> searchAlignment (std::shared_ptr<const RuntimeACaptureAudio>, std::shared_ptr<const RuntimeSource>,
                                                               std::shared_ptr<const RuntimeDetailedMeasurement>, std::optional<std::int64_t>);
         void retireVersionSearch (std::future<RuntimeContentAlignment>&);

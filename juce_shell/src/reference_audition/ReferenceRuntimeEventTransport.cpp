@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <regex>
+#include "ReferenceValidation.h"
 #include <vector>
 
 #if ! JUCE_WINDOWS
@@ -20,21 +20,17 @@ namespace hypha::reference_audition
 
         bool uuidV4Value (const juce::String& value)
         {
-            static const std::regex pattern (
-                R"(^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::uuid (value, validation::Uuid::v4Lower);
         }
 
         bool runtimeIdValue (const juce::String& value)
         {
-            static const std::regex pattern (R"(^[A-Za-z0-9._:-]{1,160}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::id (value);
         }
 
         bool sha256Value (const juce::String& value)
         {
-            static const std::regex pattern (R"(^[a-f0-9]{64}$)");
-            return std::regex_match (value.toStdString(), pattern);
+            return validation::sha256 (value);
         }
 
         bool fsyncDirectory (const juce::File& directory)

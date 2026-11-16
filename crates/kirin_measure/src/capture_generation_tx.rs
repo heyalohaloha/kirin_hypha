@@ -40,6 +40,7 @@ pub struct CaptureGenerationTransaction {
     lock: File,
     staged: bool,
     committed: bool,
+    tail_leases: Vec<crate::candidate_tail::TailLease>,
     previous_project_generations: BTreeMap<String, Option<CaptureGeneration>>,
 }
 
@@ -96,6 +97,7 @@ impl CaptureGenerationTransaction {
             lock,
             staged: false,
             committed: false,
+            tail_leases: Vec::new(),
             previous_project_generations: BTreeMap::new(),
         })
     }
@@ -110,6 +112,15 @@ impl CaptureGenerationTransaction {
                 "capture generation was already staged",
             )));
         }
+        self.tail_leases =
+            crate::candidate_tail::lock_generation(&self.base_dir, &self.generation)?.ok_or_else(
+                || {
+                    io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "A/B tail not cleared: run A/B once, then Keep",
+                    )
+                },
+            )?;
         // Own cleanup before the first filesystem mutation. If any later write fails, Drop can
         // remove the exact partial roster instead of leaving a misleading project pointer.
         self.staged = true;
@@ -198,6 +209,13 @@ impl CaptureGenerationTransaction {
     /// Private final pointer promotion. The only production entry is
     /// [`Self::commit_when_ready`], so no caller can bypass writer readiness.
     fn commit(&mut self) -> Result<(), CaptureGenerationError> {
+        if self.tail_leases.len() != self.generation.members.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "A/B tail not cleared: run A/B once, then Keep",
+            )
+            .into());
+        }
         self.commit_observing_active(|| {})
     }
 

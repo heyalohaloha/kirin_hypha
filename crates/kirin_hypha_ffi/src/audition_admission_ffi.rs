@@ -1,6 +1,8 @@
 //! Non-RT admission shared by Reference and local PRE/POST Blind audition.
 
 use super::*;
+#[path = "candidate_tail_ffi.rs"]
+pub(crate) mod candidate_tail;
 #[path = "audition_hold_ffi.rs"]
 mod hold;
 #[path = "reference_analysis_ffi.rs"]
@@ -27,6 +29,7 @@ pub(crate) static ADMISSION_TEST: Mutex<()> = Mutex::new(());
 pub(crate) const AUDITION_NONE: u8 = 0;
 pub(crate) const AUDITION_REFERENCE: u8 = 1;
 const AUDITION_LOCAL_BLIND: u8 = 2;
+pub(crate) type SharedKeepRoster = Arc<Mutex<Option<Vec<(String, String, String)>>>>;
 
 pub(crate) struct AuditionState {
     active: Arc<AtomicBool>,
@@ -34,6 +37,8 @@ pub(crate) struct AuditionState {
     kind: Arc<AtomicU8>,
     epoch: AtomicU64,
     version_blind: Mutex<Option<kirin_measure::reference_gain::visual::BlindCaptureExclusion>>,
+    pub(crate) tail_pending: Arc<AtomicBool>,
+    pub(crate) tail_group: SharedKeepRoster,
     reference_owner: kirin_measure::reference_gain::visual::ReferenceAnalysisOwner,
 }
 
@@ -46,6 +51,8 @@ impl AuditionState {
             epoch: AtomicU64::new(0),
             reference_owner: Default::default(),
             version_blind: Mutex::new(None),
+            tail_pending: Arc::new(AtomicBool::new(false)),
+            tail_group: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -87,6 +94,15 @@ impl KirinHyphaEngine {
     }
 
     pub(crate) fn begin_audition(&self, kind: u8, owner: &str) -> Option<u64> {
+        self.begin_audition_with_storage_error(kind, owner, &mut false)
+    }
+
+    fn begin_audition_with_storage_error(
+        &self,
+        kind: u8,
+        owner: &str,
+        storage_error: &mut bool,
+    ) -> Option<u64> {
         if !matches!(kind, AUDITION_REFERENCE | AUDITION_LOCAL_BLIND) {
             return None;
         }
@@ -104,7 +120,13 @@ impl KirinHyphaEngine {
         if current != AUDITION_NONE || admission.is_some() {
             return None;
         }
-        let plugin_data_dir = admission_storage_paths()?.plugin_data_dir();
+        let plugin_data_dir = match admission_storage_paths() {
+            Some(paths) => paths.plugin_data_dir(),
+            None => {
+                *storage_error = true;
+                return None;
+            }
+        };
         let mut candidate =
             kirin_measure::AuditionAdmission::for_current_project(&plugin_data_dir, &project_hash);
         let accepted = if kind == AUDITION_LOCAL_BLIND {
@@ -112,8 +134,13 @@ impl KirinHyphaEngine {
         } else {
             candidate.try_acquire_shared(&self.audition.reference_owner, owner)
         };
-        if !accepted.ok()? {
-            return None;
+        match accepted {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(_) => {
+                *storage_error = true;
+                return None;
+            }
         }
         if self.record_sm.is_recording()
             || self.keep_phase.load(Ordering::Acquire) != KIRIN_KEEP_PHASE_IDLE
@@ -233,10 +260,23 @@ pub unsafe extern "C" fn kirin_hypha_begin_local_blind(
     out_scope_epoch: *mut u64,
 ) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out_scope_epoch.is_null() {
+        if out_scope_epoch.is_null() {
             return false;
         }
-        let Some(epoch) = (unsafe { (*handle).begin_local_blind() }) else {
+        unsafe { *out_scope_epoch = 0 };
+        if handle.is_null() {
+            return false;
+        }
+        let mut storage_error = false;
+        let epoch = unsafe {
+            (*handle).begin_audition_with_storage_error(
+                AUDITION_LOCAL_BLIND,
+                "PRE POST Blind",
+                &mut storage_error,
+            )
+        };
+        let Some(epoch) = epoch else {
+            unsafe { *out_scope_epoch = u64::from(storage_error) };
             return false;
         };
         unsafe { *out_scope_epoch = epoch };
@@ -309,6 +349,39 @@ mod tests {
     }
 
     #[test]
+    fn local_blind_reports_storage_failure_separately_from_busy() {
+        let _serial = ADMISSION_TEST.lock().unwrap();
+        let storage = test_storage::paths();
+        std::fs::create_dir_all(storage.plugin_data_dir().parent().unwrap()).unwrap();
+        std::fs::write(storage.plugin_data_dir(), b"not a directory").unwrap();
+        let post = post_engine(&format!("ffi-audition-{}", Uuid::new_v4()));
+        let mut reason = 0;
+        assert!(!unsafe {
+            kirin_hypha_begin_local_blind(&post as *const _ as *mut _, &mut reason)
+        });
+        assert_eq!(
+            reason, 1,
+            "storage failure must not be presented as a competing comparison"
+        );
+    }
+
+    #[test]
+    fn local_blind_reports_busy_without_a_storage_failure() {
+        let _serial = ADMISSION_TEST.lock().unwrap();
+        let project = format!("ffi-audition-{}", Uuid::new_v4());
+        let first = post_engine(&project);
+        let second = post_engine(&project);
+        let mut epoch = 0;
+        assert!(unsafe { kirin_hypha_begin_local_blind(&first as *const _ as *mut _, &mut epoch) });
+        let mut reason = 99;
+        assert!(!unsafe {
+            kirin_hypha_begin_local_blind(&second as *const _ as *mut _, &mut reason)
+        });
+        assert_eq!(reason, 0);
+        assert!(first.end_local_blind(epoch));
+    }
+
+    #[test]
     fn version_blind_and_local_blind_exclude_each_other_across_the_project() {
         let _serial = ADMISSION_TEST.lock().unwrap();
         let project = format!("ffi-blind-exclusion-{}", Uuid::new_v4());
@@ -371,8 +444,9 @@ mod tests {
     }
     #[test]
     fn null_local_blind_ffi_fails_closed() {
-        let mut epoch = 0;
+        let mut epoch = 99;
         assert!(!unsafe { kirin_hypha_begin_local_blind(std::ptr::null_mut(), &mut epoch) });
+        assert_eq!(epoch, 0);
         assert!(!unsafe { kirin_hypha_end_local_blind(std::ptr::null_mut(), 1) });
     }
 }

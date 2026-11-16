@@ -68,8 +68,37 @@ void testNameEdgesAndOpenOutcome()
 }
 }
 
+// Kirin OS may add correction notes to a Version (change_notes_artifact): the Version is still offered.
+static void testVersionWithChangeNotes (const juce::File& sandbox)
+{
+    const auto versions = [] (const juce::File& root)
+    {
+        ref::RuntimeV2Repository repository (root);
+        const auto loaded = repository.refreshLibrary();
+        require (loaded.usable(), "the library copy is usable");
+        return std::count_if (loaded.workspace->presets.begin(), loaded.workspace->presets.end(),
+                              [] (const auto& item) { return item.versionEntry; });
+    };
+    const auto root = libraryCopy (sandbox, "library-change-notes");
+    const auto before = versions (root);
+    require (before > 0, "the fixture offers a Version");
+    const auto manifestFile = root.getChildFile ("library/manifest.json");
+    auto manifest = readJsonFile (manifestFile);
+    auto& receipt = manifest["versions"].getArray()->getReference (0);
+    auto version = readJsonFile (root.getChildFile ("library/versions/" + receipt["sha256"].toString() + ".json"));
+    auto* notes = new juce::DynamicObject();
+    notes->setProperty ("relative_path", "plugin_data/reference/v2/notes/" + juce::String::repeatedString ("e", 64) + ".json");
+    notes->setProperty ("sha256", juce::String::repeatedString ("e", 64));
+    notes->setProperty ("bytes", 100);
+    version.getDynamicObject()->setProperty ("change_notes_artifact", juce::var (notes));
+    rewriteArtifact (root, receipt, "versions", version);
+    require (writeJson (manifestFile, manifest), "the copy's manifest points at the Version with notes");
+    require (versions (root) == before, "a Version that carries correction notes is still offered");
+}
+
 void testReferenceLibrarySkipped (const juce::File& sandbox)
 {
+    testVersionWithChangeNotes (sandbox);
     testNameEdgesAndOpenOutcome();
     testLibraryReceived (sandbox);
     const auto root = libraryCopy (sandbox, "library-skipped");

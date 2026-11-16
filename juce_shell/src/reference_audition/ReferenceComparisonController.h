@@ -39,6 +39,7 @@ public:
     ReferenceComparisonSettings savedSettings();
     TargetService& targetService() noexcept { return targets; }
     bool chooseTarget (const juce::String&, std::uint64_t restoreEpoch = 0);
+    bool removeTarget (const juce::String&);
     bool makeTarget();
    #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     void setBeforeMakePublishForTest (std::function<void()> probe) { beforeMakePublish = std::move (probe); }
@@ -157,6 +158,7 @@ private:
     void releaseVersionBlindGuard();
     void refreshObservation();
     RuntimeV2Controller& viewed() noexcept;
+    void showNewTargets (const juce::StringArray&, const TargetSnapshot&);
     bool aWindowTargetCurrent (AWindowTarget) const;  // selectionLock を持って呼ぶ
     void advanceAWindowEpoch();                       // gateLock の外で呼ぶ
     bool trialActive() const;
@@ -173,7 +175,7 @@ private:
     bool closing = false;
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
-    juce::CriticalSection targetChoiceLock; // Non-RT: restore and C/target selection commit as whole transactions.
+    juce::CriticalSection targetChoiceLock; // Non-RT: restore and B/target selection commit as whole transactions.
    #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     std::function<void()> beforeMakePublish;
     std::function<void()> beforeCheckCommit;

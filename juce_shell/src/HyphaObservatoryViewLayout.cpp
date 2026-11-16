@@ -238,8 +238,17 @@ void View::resized()
         }
         else
         {
-            const int minimum = footerButtonWidth ("RETURN +24.0 dB")
-                              + footerButtonWidth ("POST") + footerButtonWidth ("MENU");
+            int minimum = footerButtonWidth ("RETURN +24.0 dB")
+                        + footerButtonWidth ("POST") + footerButtonWidth ("MENU");
+            if (reference && liveCompareState.active && liveCompareState.blindAvailable)
+            {
+                // The longer label must not push the live Blind entry out of the Reference rail.
+                const int comparison = footerButtonWidth ("PRE WAIT") + footerButtonWidth ("POST -24.0 dB")
+                    + footerButtonWidth ("MATCH") + footerButtonWidth ("LIVE BLIND")
+                    + footerButtonWidth ("END +24.0 dB") + footerButtonWidth ("MENU");
+                const int available = footerActions.getRight() - footerArea.getX() - 48;
+                minimum = juce::jmax (minimum, juce::jmin (comparison, available));
+            }
             footerActions.setLeft (std::min (footerActions.getX(), footerActions.getRight() - minimum));
             sessionArea.setRight (footerActions.getX() - 4);
         }
@@ -249,7 +258,14 @@ void View::resized()
     // Keep all action slots, and reserve a full-width row only when the rail cannot fit it.
     if (!captureFrame && !folded && feedbackText.isNotEmpty())
     {
-        const auto font = monoFont (context, typography::TextRole::legend);
+        const auto font = feedbackText == "Cannot write to folder. Check access."
+                       || feedbackText == "2MIX has no DRUM; showing TIME / HISTORY"
+                       || feedbackText == record_ui::wavWaiting
+                       || feedbackText == live_compare_ui::preProcessingNotice
+                       || feedbackText.startsWith ("Waiting up to 10 s, then ")
+                       || feedbackText == comparison_ui::beforeRealtimeBounce || feedbackText == comparison_ui::endThenRetry
+            ? footer_notice_font::fontForText (context, feedbackText, sessionArea.getWidth())
+            : monoFont (context, typography::TextRole::legend);
         const int reservedChain = chainReadoutText.isEmpty() ? 0 : juce::roundToInt (text_style::shownWidth (
             monoFont (context, typography::TextRole::action), "LOAD 100%/100%")) + 12;
         if (text_style::shownWidth (font, feedbackText) > sessionArea.getWidth() - reservedChain - 8)

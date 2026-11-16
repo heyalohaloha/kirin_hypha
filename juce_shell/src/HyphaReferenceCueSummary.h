@@ -32,6 +32,7 @@ void applySongComparison (State&, const reference_audition::ASongSummary* a,
 // その Check では SONG を押せず（理由を言う）、どこも CUE のまま（覚えた SONG は SONG で比べられる Check で戻る）。
 bool songSupported (const State&) noexcept;
 inline constexpr const char* songUnsupportedText = "SONG works on Spectrum Checks. This Check compares its Cue.";
+inline constexpr const char* songUnsupportedNotice = "SONG unavailable; using CUE";
 // 「A FROM START 2:41」。`slots` は値のある 100 ms の区切りの数。
 juce::String songALegend (int slots);
 // A と C の値が同じ帯域の並びで揃っているか（64 帯域、中心が 0.1% 以内）。

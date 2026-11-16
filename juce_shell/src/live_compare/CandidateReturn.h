@@ -13,6 +13,8 @@ namespace hypha::live_compare
 struct CandidateReturnObserver
 {
     SharedRingMapping source;
+    // Keep the exact comparison receiver's withdrawal receipt across pair and format changes.
+    std::shared_ptr<SharedRingMapping> withdrawal;
     TimingObserver timing;
     std::uint64_t generation = 0, reports = 0;
     std::int64_t marker = 0;
@@ -28,11 +30,33 @@ struct CandidateReturnObserver
         demanded = true;
         return true;
     }
+    bool unavailable (const BlockClock& block) const noexcept
+    {
+        const auto* ring = source.ring();
+        if (ring->header.ownerClosed.load (std::memory_order_acquire) != 0) return true;
+        TimingSnapshot fresh;
+        return readTiming (ring->header.timing, fresh) && fresh.block.wallNanos != 0
+            && block.wallNanos >= fresh.block.wallNanos
+            && block.wallNanos - fresh.block.wallNanos > CandidateTransfer::leaseNanos;
+    }
+    bool withdrawn (std::uint64_t token) const noexcept
+    {
+        const auto* ring = withdrawal ? withdrawal->ring() : nullptr;
+        return ring && (ring->header.ownerClosed.load (std::memory_order_acquire) != 0
+            || ring->header.candidate.withdrawn (token));
+    }
     bool reached (const CandidateTransfer& transfer, std::uint64_t token,
                   const BlockClock& block, std::uint32_t rate) noexcept
     {
+        if (transfer.withdrawn (token)) return reached (block, rate);
+        proofAvailable = seen = marked = false; timing.reset(); return false;
+    }
+    // Without PRE2's receipt: after the return's overall deadline its lease has long ended, so every
+    // marker PRE1 publishes from then on is ordinary input (the deadline's tail, INV-AB6).
+    bool reached (const BlockClock& block, std::uint32_t rate) noexcept
+    {
         proofAvailable = false;
-        if (!transfer.withdrawn (token) || !source.ring()->matches (source.key(), rate))
+        if (!source.ring()->matches (source.key(), rate))
         { seen = marked = false; timing.reset(); return false; }
         TimingSnapshot fresh;
         if (!readTiming (source.ring()->header.timing, fresh) || !fresh.active
@@ -54,6 +78,10 @@ struct CandidateReturnObserver
         std::int64_t address = 0;
         return checkedClockSubtract (block.clock, proof.k, address) && address >= marker;
     }
+    // After reached(): the block as this observer's clock proof corroborated it. The settling count
+    // reads these coordinates, so a wrap the proof accepts (a delayed insert's position before the
+    // loop start) is no break for the count either. A seek is never corroborated and still restarts it.
+    BlockClock coordinates (const BlockClock& block) const noexcept { return timing.corroboratedCoordinates (block); }
 };
 // Retired positions remain useful through an uninterrupted POST projection only. A seek,
 // missing clock or changed clock authority cannot turn an old return marker into new evidence.

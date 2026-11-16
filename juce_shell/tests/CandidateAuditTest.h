@@ -12,9 +12,12 @@
 #include "CandidateRecoveryTest.h"
 #include "CandidateCompensationTest.h"
 #include "CandidateLifetimeTest.h"
+#include "CandidateTailOwnershipTest.h"
 #include "CandidateBlindScopeRaceTest.h"
 #include "CandidateAdmissionTest.h"
 #include "CandidateRecoveryPriorityTest.h"
+#include "LiveMatchDeadlineTest.h"
+#include "LiveBlindSeekBackTest.h"
 
 namespace hypha::tests
 {
@@ -35,15 +38,37 @@ template<class Require> void verifyCandidateAudit (Require require)
     std::cout << "Candidate product: host return\n" << std::flush;
     verifyCandidateRecoveryAudit (require);
     verifyCandidateLongReturn (require);
+    verifyTailSurvivesPairChange (require);
+    verifyAllKeepWaitsForOtherTail (require);
+    verifyCandidateTailOwnership (require);
+    verifyCandidateReturnDeadline (require);
+    verifyCandidateDeadlineTail (require);
+    verifyCandidateShortLoopTail (require);
+    verifyLiveMatchDeadline (require);
+    verifyLiveBlindSeekBack (require);
+    verifyLiveBlindPreparationDeadline (require);
+    verifyLiveBlindPreparationPlayedTime (require);
+    verifyLiveBlindSettlingDeadline (require);
+    verifyLiveBlindDeadlineReturnsPost (require);
+    verifyCandidateTailWithdrawalReceipt (require, false);
+    verifyCandidateTailWithdrawalReceipt (require, true);
+    verifyCandidateExpiredSourceTail (require, false);
+    verifyCandidateExpiredSourceTail (require, true);
+    verifyCandidateTailAfterBusyStart (require);
     verifyCandidatePostOnlyReturn (require);
     verifyCandidateActivationGuidance (require);
     verifyCandidateHelpText (require);
     verifyCandidateLoopBoundary (require);
     std::cout << "Candidate product: queued return\n" << std::flush;
     verifyCandidateReturnEntry (require);
+    verifyCandidateBypassedReturnEntry (require);
+    verifyCandidateOfflineReturnEntry (require);
+    verifyAfterTailBlockedReturn (require);
     std::cout << "Candidate product: alignment\n" << std::flush;
     verifyCandidateAlignment (require);
     verifyCandidateAlignmentEpoch (require);
+    verifyCandidateKeptCorrection (require);
+    verifyCandidateHoldNotice (require);
     verifyCandidateContentConfirmation (require);
     verifyLiveCompareRestartAlignment (require);
     ProductTestClock wall;

@@ -348,11 +348,13 @@ private:
             const auto at = blocks.load();
             if (at == oddStart.load())
             { oddWriter.emplace (LiveTimingFixtureAccess::gainRevision (*post)); require (static_cast<bool> (*oddWriter), "fixture opens one bounded odd writer"); }
+            const auto receiptBefore = LiveTimingFixtureAccess::gainReceipt (*post);
             beginReferenceRtProbe(); post->processBlock (buffer, midi); heap.fetch_add (endReferenceRtProbe());
             const auto after = LiveTimingFixtureAccess::audioView (*post);
             if (oddWriter)
             {
-                require (! after.preAudible && ! after.matchReady, "odd approval holds POST actual and publishes no receipt");
+                require (! after.matchReady && LiveTimingFixtureAccess::gainReceipt (*post) == receiptBefore,
+                         "odd approval publishes no gain receipt even when the last coherent tuple remains audible");
                 if (mode == "proof-odd" && after.verdict == Verdict::accepted) oddProofSeen.store (true);
                 if ((mode != "proof-odd" && at >= oddStart.load() + 2) || oddProofSeen.load()) oddWriter.reset();
             }

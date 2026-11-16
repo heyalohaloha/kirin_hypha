@@ -1,4 +1,6 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonNotices.h"
+#include "HyphaBlindResultImage.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
 #include "HyphaLiveStartAfterReturn.h"
@@ -9,6 +11,7 @@ using hypha::live_compare::StartResult;
 
 void KirinHyphaEditor::configureLiveBlind()
 {
+    liveBlindView.setGuessing (hypha::blind_image::guessPreferred (liveBlindView.preferenceFile()));
     observatoryView.onLocalBlind = [this] { openLiveBlind(); };
     scaleRoot.addChildComponent (liveBlindView);
     liveBlindView.onSelect = [this] (int source)
@@ -67,9 +70,10 @@ void KirinHyphaEditor::openLiveBlind (std::optional<std::uint64_t> waitedTicket)
             if (result == StartResult::preUnavailable) showToast (hypha::live_compare_ui::preUnavailableNotice());
             showCandidateMenu();
         }
-        else showToast (result == StartResult::returnPending ? "Ended; normal level returns with audio"
+        else showToast (processorRef.liveBlindStorageFailed() ? "Cannot write to folder. Check access."
+                      : result == StartResult::returnPending ? "Ended; POST back to normal within 0.5 s"
                       : result == StartResult::returnRequired ? "Press RETURN first"
-                      : result == StartResult::comparisonBusy ? "End the current comparison first"
+                      : result == StartResult::comparisonBusy ? hypha::comparison_ui::endThenRetry
                                                             : "BLIND COMPARE COULD NOT START");
         return;
     }
@@ -136,7 +140,17 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
                                      reasonFor (liveCompareEntryRefusal (false)));
     else
     {
-        menu.addItem (41, "MATCH", ! live.finishing);
+        // MATCH on/off (INV-LC13): ticked while on; MATCH again and AUTO sit beside it.
+        const bool matchOn = live.matched || live.matchHeld;
+        menu.addItem (41, "MATCH", ! live.finishing, matchOn);
+        if (matchOn || live.matchOff)
+        {
+            menu.addItem (46, "MATCH again", ! live.finishing);
+            if (liveCompareAuto.on) menu.addItem (47, "Stop AUTO", ! live.finishing);
+            else hypha::unavailable::addItem (menu, 47, processorRef.candidateCompareActive() ? "AUTO: follow B within 0.5 dB"
+                : "AUTO: follow POST within 0.5 dB", ! live.finishing && matchOn && ! live.matchLimited,
+                live.matchOff ? "AUTO needs MATCH on" : live.matchLimited ? "AUTO needs a MATCH without TP LIMIT" : "");
+        }
         menu.addItem (42, processorRef.candidateCompareActive() ? "A" : "PRE", ! live.finishing);
         menu.addItem (43, processorRef.candidateCompareActive() ? "B" : "POST", ! live.finishing);
     }
@@ -144,6 +158,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         hypha::unavailable::addItem (menu, 23, "BLIND",
             ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)),
             reasonFor (keepActive ? "Finish Keep / Record before PRE / POST Blind" : liveCompareEntryRefusal (true)));
+    if (observatoryView.localBlindEntryAvailable()) menu.addItem (48, "GUESS", true, liveBlindView.guessing());
     menu.addItem (44, processorRef.candidateCompareActive() ? "Align A automatically" : "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 
@@ -151,6 +166,15 @@ bool KirinHyphaEditor::handleLiveCompareMenu (int result)
 {
     // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
     if (result == 45) { showCandidateCompareMenu(); return true; }
+    if (result == 46 || result == 47) { handleLiveCompareFollowChoice (result == 46 ? 1 : liveCompareAuto.on ? 2 : 3); return true; }
+    if (result == 48)
+    {
+        // GUESS holds for this editor even when the setting file cannot be written.
+        liveBlindView.setGuessing (! liveBlindView.guessing());
+        if (! hypha::blind_image::preferGuess (liveBlindView.preferenceFile(), liveBlindView.guessing()))
+            showToast ("GUESS setting could not be saved");
+        return true;
+    }
     if (result < 40 || result > 44) return false;
     if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
     if (result == 40) requestListenStart();

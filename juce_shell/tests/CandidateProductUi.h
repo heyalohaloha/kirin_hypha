@@ -31,12 +31,46 @@ inline void expireCandidateEntryDeadline (juce::AudioProcessorEditor& editor)
 { dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorDeadline {}) = 1.0; }
 inline bool candidateEntryPending (juce::AudioProcessorEditor& editor)
 { return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorDeadline {}) > 0.0; }
+inline double& candidateEntryDeadline (juce::AudioProcessorEditor& editor)
+{ return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorDeadline {}); }
 struct CandidateEditorWarning
 {
     using Type = juce::String KirinHyphaEditor::*;
     friend Type candidateEditorTick (CandidateEditorWarning);
 };
 template struct CandidateEditorAccess<CandidateEditorWarning, &KirinHyphaEditor::liveCompareWarning>;
+struct CandidateEditorToast
+{
+    using Type = juce::String KirinHyphaEditor::*;
+    friend Type candidateEditorTick (CandidateEditorToast);
+};
+template struct CandidateEditorAccess<CandidateEditorToast, &KirinHyphaEditor::toastText>;
+struct CandidateEditorWaitTail
+{
+    using Type = bool (KirinHyphaEditor::*) (hypha::output_owner::Activity, hypha::live_compare_ui::AfterTail);
+    friend Type candidateEditorTick (CandidateEditorWaitTail);
+};
+template struct CandidateEditorAccess<CandidateEditorWaitTail, &KirinHyphaEditor::waitsForAbTail>;
+struct CandidateEditorServiceTail
+{
+    using Type = void (KirinHyphaEditor::*)();
+    friend Type candidateEditorTick (CandidateEditorServiceTail);
+};
+template struct CandidateEditorAccess<CandidateEditorServiceTail, &KirinHyphaEditor::serviceAfterTailPress>;
+struct CandidateEditorTailState
+{
+    using Type = hypha::live_compare_ui::AfterTailWait KirinHyphaEditor::*;
+    friend Type candidateEditorTick (CandidateEditorTailState);
+};
+template struct CandidateEditorAccess<CandidateEditorTailState, &KirinHyphaEditor::afterTail>;
+struct CandidateEditorDomain
+{
+    using Type = hypha::observatory::Domain KirinHyphaEditor::*;
+    friend Type candidateEditorTick (CandidateEditorDomain);
+};
+template struct CandidateEditorAccess<CandidateEditorDomain, &KirinHyphaEditor::observatoryDomain>;
+inline juce::String candidateToast (juce::AudioProcessorEditor& editor)
+{ return dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorToast {}); }
 inline void candidateTick (juce::AudioProcessorEditor& editor)
 { (dynamic_cast<KirinHyphaEditor&> (editor).*candidateEditorTick (CandidateEditorTick {}))(); }
 
@@ -203,6 +237,7 @@ template<class Require> void enterCandidateThroughEditor (KirinHyphaProcessorBas
         std::cerr << "candidate start diagnostic: returning=" << post.candidateReturning()
             << " isolated=" << post.candidateMeasurementIsolated() << " finishing=" << post.liveCompareStatus().finishing
             << " admission=" << int (post.liveCompareAdmission (false)) << " blind=" << int (post.liveBlindStatus().stage)
+            << " recording=" << post.isRecording() << " keep=" << post.keepPhase()
             << " source=" << post.liveComparePreInstance() << '\n';
         if (const auto* view = candidateView (*editor))
             std::cerr << "candidate final feedback: " << view->feedback() << '\n';

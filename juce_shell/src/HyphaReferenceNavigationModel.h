@@ -40,7 +40,9 @@ inline std::vector<CheckGroup> checkGroups (const std::vector<SelectionOption>& 
             groups.push_back ({ checkId, label, {} });
             group = std::prev (groups.end());
         }
-        group->songs.push_back ({ target.id, song });
+        auto choice = target;
+        choice.label = song;
+        group->songs.push_back (std::move (choice));
     }
     return groups;
 }

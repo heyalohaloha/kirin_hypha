@@ -27,6 +27,12 @@ struct Screen
     juce::String approveText { "LOWER POST" }, approveTitle, approveDescription;
     bool endEnabled = true;
     juce::String endTitle;
+    // GUESS (optional, MENU): above REVEAL the question and the two answers, the same for both
+    // assignments; after REVEAL the chosen answer stays lit beside its outcome.
+    bool guessShown = false, guessOpen = false, guessRight = false;
+    int guessAnswer = 0;
+    juce::String guessQuestion, guessOutcome;
+    bool saveImageShown = false;  // SAVE IMAGE on the RESULT, where REVEAL stood
 
     bool operator== (const Screen&) const noexcept;
     bool operator!= (const Screen& other) const noexcept { return ! (*this == other); }
@@ -39,7 +45,8 @@ public:
     explicit ScreenComponent (const juce::String& idPrefix);
     ~ScreenComponent() override;
     std::function<void(int)> onSelect;
-    std::function<void()> onReveal, onEnd, onApprove, onAlignOff;
+    std::function<void()> onReveal, onEnd, onApprove, onAlignOff, onSaveImage;
+    std::function<void(int)> onGuess;
     bool requestSource (int);
     bool requestReveal();
     bool requestEnd();
@@ -48,6 +55,8 @@ public:
     void setActionNotice (const juce::String&);
     const juce::String& actionNoticeShown() const noexcept { return actionNotice; }
     void setScreen (const Screen&);
+    // A sheet over the whole screen (SAVE IMAGE) hides the screen's own text and controls meanwhile.
+    void setCovered (bool);
     const Screen& screen() const noexcept { return shown; }
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -56,16 +65,19 @@ private:
     void timerCallback() override;
     void apply();
     juce::String actionNotice;
+    bool covered = false;
     TextLookAndFeel look;
     presentation::Context context = presentation::defaultContext();
     Screen shown;
     unsigned languageRevision = 0;
-    juce::Label title, status, detail, cause, recovery;
+    juce::Label title, status, detail, cause, recovery, question, outcome;
     HyphaTextButton one { "SOURCE 1" }, two { "SOURCE 2" };
     // REVEAL と END はどちらの言語でもこの綴りのまま（説明の文は訳す）。
     HyphaTextButton reveal { "REVEAL", true, text_style::LabelPolicy::fixed };
     HyphaTextButton alignOff { "ALIGN OFF", true, text_style::LabelPolicy::fixed };
     HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST" };
+    HyphaTextButton guessOne { "1", true, text_style::LabelPolicy::fixed }, guessTwo { "2", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton saveImage { "SAVE IMAGE" };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)
 };
 }

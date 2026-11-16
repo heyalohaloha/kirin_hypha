@@ -1,5 +1,6 @@
 #pragma once
 #include "AaxAnalysisProductFixture.h"
+#include "ChainMusic.h"
 #include <string_view>
 
 // LISTEN and BLIND through the real processors with an I/O insert between PRE and POST, in the
@@ -133,6 +134,7 @@ public:
     bool requireContentPosition = false, tonal = false, oppositePolarity = false;
     bool chord = false, limited = false; // music-like PRE; POST through EQ, a limiter and dither
     bool bass = false; // a strong bass line under swelling noise: two thirds of the windows are narrow
+    const hypha::tests::chain_music::Tracks* music = nullptr; // PRE music; POST through its EQ and limiter
     // Content changes by content clock, so PRE's one chunk written ahead already holds them.
     std::int64_t quietUntil = std::numeric_limits<std::int64_t>::min();
     std::int64_t chordFrom = std::numeric_limits<std::int64_t>::max(), chordUntil = std::numeric_limits<std::int64_t>::max();
@@ -140,8 +142,11 @@ public:
     bool swappedChannels = false;
     bool unrelatedPost = false;
     int silentChannel = -1;
+    std::int64_t haasFrames = 0; // PRE's right is its left this many samples later (a spaced pair)
+    float postRightDc = 0.0f;    // POST's right adds this offset (an outboard's DC)
     std::int64_t rightContentShift = 0;
     std::int64_t wrongFrames = 0;
+    float wholeGain = 1.0f;      // PRE gain of the last block read whole; a gain writer keeps it (INV-LC26)
     // The frame oracle models unity POST; a BLIND trial that moved to the quieter side lowers POST, so
     // that stretch is checked by its product state instead (the renderer test checks its samples).
     bool auditOutput = true;
@@ -161,6 +166,8 @@ private:
     float signal (std::int64_t clock, int channel) const
     {
         if (clock < quietUntil || channel == silentChannel) return 0.0f;
+        if (haasFrames != 0 && channel == 1) return signal (clock - haasFrames, 0);
+        if (music != nullptr) return music->preAt (clock, channel);
         if (oppositePolarity) return channel == 0 ? noise (clock, 0) : -noise (clock, 0);
         if (tonal) return static_cast<float> (0.1 * std::sin (static_cast<double> (clock % 48) * (2.0 * 3.14159265358979323846 / 48.0) + channel));
         if (bass)
@@ -186,7 +193,8 @@ private:
     {
         const auto at = clock - contentK + (unrelatedPost ? 123457 : 0) - (channel == 1 ? rightContentShift : 0);
         const int from = swappedChannels ? 1 - channel : channel;
-        if (! limited) return postScale * signal (at, from);
+        if (music != nullptr) return at < quietUntil ? 0.0f : music->postAt (at, from);
+        if (! limited) return postScale * signal (at, from) + (channel == 1 ? postRightDc : 0.0f);
         // A gentle high cut, a saturating limiter's gain reduction and -100 dBFS dither: the noise
         // fills the empty part of the spectrum, so the content check finds no position.
         const double eq = 0.6 * signal (at, from) + 0.4 * signal (at - 1, from);
@@ -221,7 +229,9 @@ private:
         previousActive = status.active;
         const auto asPost = [&] (int i, int ch) { return input (clock + i, ch); };
         const auto read = requireContentPosition ? clock - contentK : clock - k - post->liveCompareAlignFrames();
-        const auto asPre = [&] (int i, int ch) { return source (read + i, ch) * status.gain; };
+        const bool writing = (LiveTimingFixtureAccess::gainRevision (*post).load() & 1u) != 0;
+        if (! writing) wholeGain = status.gain;  // while a writer holds the revision the status shows no whole gain
+        const auto asPre = [&] (int i, int ch) { return source (read + i, ch) * wholeGain; };
         const bool idle = ! status.active && ! status.finishing && weight <= 0.0f;
         // A block without proof is POST from its first frame, and so is an idle one.
         if (idle || (! status.active && status.reason != hypha::live_compare::RecoveryReason::none)
@@ -229,7 +239,7 @@ private:
             || status.observation == hypha::live_compare::RecoveryReason::ceiling
             || (status.observation == hypha::live_compare::RecoveryReason::calibrating
                 || status.observation == hypha::live_compare::RecoveryReason::contentAmbiguous)
-            || (LiveTimingFixtureAccess::gainRevision (*post).load() & 1u) != 0)
+            || (writing && ! LiveTimingFixtureAccess::lastWholeGainsUsable (*post)))  // a writer without a last whole tuple
         {
             compare (out, asPost);
             if (status.active) ++withheld;

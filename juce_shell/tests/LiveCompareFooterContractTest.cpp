@@ -8,7 +8,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
-
 // The live PRE / POST compare in the Observatory footer (INV-LC4, plan section 9): the entry beside
 // Blind at the large POST sizes, a running session's POST and END at every size, a PRE control that
 // retains PRE and its MATCH gain in text, and slots that a boundary never moves.
@@ -37,6 +36,7 @@ bool readable (observatory::View& view, const juce::Button& button)
     return text_style::shownWidth (font, button.getButtonText()) + 6.0f <= static_cast<float> (button.getWidth());
 }
 
+#include "ReferenceLiveBlindFooterTest.h"
 std::vector<juce::Rectangle<int>> boundsOf (const std::vector<juce::Component*>& controls)
 {
     std::vector<juce::Rectangle<int>> bounds;
@@ -172,7 +172,7 @@ void verifyLiveCompareFooterContract()
     auto* end = control (post, "observatory-live-end");
     auto* blind = control (post, "observatory-local-blind");
     auto* menu = &post.operationsMenuAnchor();
-
+    verifyReferenceLiveBlindFooter (post, *blind);
     observatory::LiveCompareFooter state;
     for (const auto preset : observatory::sizePresets)
     {

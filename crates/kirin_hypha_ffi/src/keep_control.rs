@@ -22,6 +22,9 @@ impl KirinHyphaEngine {
         if self.reject_unsupported_record_action(generation.is_none()) {
             return false;
         }
+        if self.audition.tail_pending.load(Ordering::Acquire) {
+            return false;
+        }
         let (project_hash, post_iid, daw) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,

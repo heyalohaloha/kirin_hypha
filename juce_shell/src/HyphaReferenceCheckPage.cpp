@@ -8,23 +8,13 @@
 
 #include <algorithm>
 
-// C（CHECK）の画面（300%。300% 未満の C は押すと 300% に広がる）。上から CHECK SET（順位つき）と曲、Check のタブ
-// （CHECK セットの順）、Cue と MATCH（右上に 1 つ）、見比べの窓（Cue 対 A の同じ長さの直近。SONG は C の曲全体対 A の
-// DAW の頭から）、4 帯域の要約、Cue の時間軸と右の端の CUE／SONG。V の選択は V の画面にだけ出す。
+// C（CHECK）は Check を一つ選び、主の比較と再生方法を出す。詳しい比較と時間軸は表示だけを開閉する。
+// V の選択は V の画面にだけ出す。C は100%でもそのまま使い、途中の大きさでは300%を開く。
 namespace hypha::reference_ui
 {
-namespace
-{
-int matchReadoutWidth (const State& state, presentation::Context context)
-{
-    const auto font = monoFont (context, typography::TextRole::unit, typography::Composition::information);
-    return juce::roundToInt (std::ceil (text_style::shownWidth (font, matchReadout (state)))) + 4;
-}
-}
-
 bool Component::versionPage() const noexcept
 {
-    return rolePage() && current.comparisonSlot == 1;
+    return current.separateComparisons && current.comparisonSlot == 1 && ! isBlindSession (current.blindPhase);
 }
 
 bool Component::checkPage() const noexcept
@@ -36,17 +26,27 @@ void Component::chooseTab (const juce::String& checkId)
 {
     // 役を押した直後で、描いている画面が古い（今の画面と違う）ときのタブは捨てる（その間に画面は描き直される）。
     if (pageCurrent && ! pageCurrent (current.comparisonSlot)) return;
-    // V の画面のタブは見るものだけを替える（音も C の選択も変えない）。
-    if (versionPage()) { versionTab = checkId; setState (current); return; }
+    // V の項目は見るものだけを替える（音も C の選択も変えない）。
+    if (versionPage()) { versionDetailsOpen = true; versionTab = checkId; setState (current); return; }
     // 同じ曲のまま Check を替える（その Check に同じ曲が無ければ最初の曲）。
     const auto song = current.checkId.fromFirstOccurrenceOf ("/", false, false);
+    juce::String source;
+    for (const auto& option : current.checks)
+        if (option.id == current.checkId) { source = option.sourceIdentityKey; break; }
     for (const auto& group : checkGroups (current.checks))
         if (group.checkId == checkId && ! group.songs.empty())
         {
             auto chosen = group.songs.front().id;
+            bool found = false;
             for (const auto& option : group.songs)
-                if (option.id.fromFirstOccurrenceOf ("/", false, false) == song) chosen = option.id;
+                if ((source.isNotEmpty() && source == option.sourceIdentityKey)
+                    || (source.isEmpty() && option.sourceIdentityKey.isEmpty() && song.isNotEmpty()
+                        && option.id.fromFirstOccurrenceOf ("/", false, false) == song))
+                { chosen = option.id; found = true; break; }
+            checkChangeNotice = ! found && song.isNotEmpty() ? "SONG CHANGED: NOT IN THIS CHECK" : juce::String();
+            checkChangeTarget = checkChangeNotice.isNotEmpty() ? chosen : juce::String();
             if (onSelectCheck) onSelectCheck (chosen);
+            repaint();
         }
 }
 
@@ -54,6 +54,30 @@ void Component::configureCheckPage()
 {
     checkTabs.onChoose = [this] (const juce::String& checkId) { chooseTab (checkId); };
     addChildComponent (checkTabs);
+    checkChooser.setLookAndFeel (&selectorLookAndFeel);
+    checkChooser.setComponentID ("reference-check-choice");
+    checkChooser.setTitle ("Check");
+    checkChooser.setTooltip (help_text::checkTabs);
+    checkChooser.setColour (juce::ComboBox::textColourId, COL_NORMAL);
+    checkChooser.setColour (juce::ComboBox::arrowColourId, COL_FLORA);
+    checkChooser.onChange = [this]
+    {
+        const auto groups = checkGroups (current.checks);
+        const auto index = checkChooser.getSelectedId() - 1;
+        if (versionPage())
+        {
+            const auto& tabs = versionTabs();
+            if (index >= 0 && index < static_cast<int> (tabs.size())) chooseTab (tabs[static_cast<size_t> (index)].id);
+            return;
+        }
+        if (index >= 0 && index < static_cast<int> (groups.size())) chooseTab (groups[static_cast<size_t> (index)].checkId);
+    };
+    addChildComponent (checkChooser);
+    detailsButton.setComponentID ("reference-check-details");
+    detailsButton.setTitle ("Details");
+    detailsButton.setTooltip ("Show or hide details without changing the sound or comparison.");
+    detailsButton.onClick = [this] { if (versionPage()) versionDetailsOpen = ! versionDetailsOpen; else detailsOpen = ! detailsOpen; setState (State (current)); };
+    addChildComponent (detailsButton);
     checkSongBox.setLookAndFeel (&selectorLookAndFeel);
     checkSongBox.setComponentID ("reference-check-song");
     checkSongBox.setTitle ("C Song");
@@ -69,6 +93,7 @@ void Component::configureCheckPage()
         const auto* group = currentGroup (groups, current.checkId);
         if (group == nullptr) return;
         const auto id = selectedOptionId (checkSongBox, group->songs);
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         if (id.isNotEmpty() && onSelectCheck) onSelectCheck (id);
     };
     addChildComponent (checkSongBox);
@@ -85,20 +110,31 @@ void Component::configureCheckPage()
 void Component::syncCheckPage (bool blindSession)
 {
     const bool page = checkPage();
+    const bool compact = presentationContext.referenceCheck && ! detailedLayout() && ! blindSession;
     const bool vPage = versionPage();
+    const bool compactCheck = presentationContext.referenceCompact && presentationContext.referenceCheck && ! blindSession;
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
-    // V のタブは C の CHECK SET と切り離した決まった項目（versionTabs、2026-10-04）。C のタブは CHECK セットの順。
+    // V の項目は C の CHECK SET と切り離す。C は CHECK セットの順。
     std::vector<CheckTabs::Tab> tabs;
     if (vPage)
         for (const auto& tab : versionTabs()) tabs.push_back ({ tab.id, tab.label });
     else
         for (const auto& item : groups) tabs.push_back ({ item.checkId, item.label });
-    if (vPage && findVersionTab (versionTab) == nullptr) versionTab = "whole";
-    const auto* versionChoice = vPage ? findVersionTab (versionTab) : nullptr;
+    if (vPage && findVersionTab (versionTab) == nullptr) versionTab = "v-tone";
+    checkChooser.setTooltip (vPage ? help_text::versionTabs : help_text::checkTabs);
+    const auto* versionChoice = vPage ? findVersionTab (versionDetailsOpen ? versionTab : "v-tone") : nullptr;
     const auto sameSection = versionChoice != nullptr && versionChoice->id != "whole" ? versionChoice->label : juce::String {};
     checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
-    checkTabs.setVisible (! current.targetSelected && (vPage || (page && ! groups.empty())));
+    checkTabs.setVisible (false);
+    std::vector<SelectionOption> choices;
+    if (vPage) for (const auto& tab : versionTabs()) choices.push_back ({ tab.id, tab.label });
+    else for (const auto& item : groups) choices.push_back ({ item.checkId, item.label });
+    syncSelectionControl (checkChooser, choices, vPage ? versionTab : group != nullptr ? group->checkId : juce::String {});
+    unavailable::set (checkChooser, ! choices.empty(), "Nothing to choose yet");
+    checkChooser.setVisible ((page && ! groups.empty()) || (vPage && versionDetailsOpen));
+    detailsButton.setVisible (page || vPage || compactCheck);
+    detailsButton.setToggleState (vPage ? versionDetailsOpen : detailsOpen, juce::dontSendNotification);
     // V を鳴らしていなくても、WHOLE と同じ位置合わせの gain（同じ区間の音量差）で合わせて比べる（鳴らしていれば実際の
     // gain）。2026-10-04 まで V を鳴らさないと「音量未調整」で 4 帯域が「—」だった。
     const auto* timeline = current.visualTimeline.get();
@@ -106,27 +142,31 @@ void Component::syncCheckPage (bool blindSession)
         : timeline != nullptr && timeline->binding.aligned && timeline->binding.matched ? timeline->binding.gainDb
         : std::numeric_limits<double>::quiet_NaN();
     comparisonView.setSameSection (sameSection, sameSectionGain,
-                                   versionChoice != nullptr ? versionChoice->views : std::vector<juce::String> {}, false);
+                                   versionChoice != nullptr ? versionChoice->views : std::vector<juce::String> {}, false,
+                                   vPage && ! versionDetailsOpen);
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
-    checkSongBox.setVisible (page && group != nullptr && ! current.targetSelected);
+    checkSongBox.setVisible (page && group != nullptr);
     const bool matching = current.comparisonMode == "loudness_match";
-    matchButton.setVisible (page && matching && ! blindSession);
-    matchButton.setReady (current.bSelected ? current.audibleComparisonSlot == 2 : canHearCheck (current));
-    matchButton.setTooltip (current.bSelected && current.audibleComparisonSlot == 2
+    matchButton.setVisible ((page || compact) && ! blindSession);
+    unavailable::set (matchButton, matching, "This Check does not use loudness MATCH.");
+    matchButton.setReady (matching && (current.bSelected ? current.audibleComparisonSlot == 2 : canHearCheck (current)));
+    matchButton.setTooltip (! matching ? "This Check does not use loudness MATCH." : current.bSelected && current.audibleComparisonSlot == 2
         ? "Match C to the latest A over the Cue's length again, and keep it fixed."
         : "Play C matched to the latest A over the Cue's length.");
     const bool songAvailable = songSupported (current);  // 範囲の帯の Check は CUE のまま（押すと理由）
-    songSwitch.setChoice (current.song.chosen && songAvailable, songAvailable,
-                          SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
-    songSwitch.setVisible (page && ! blindSession && ! current.targetSelected && group != nullptr && ! listeningCheck()
-                           && (std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox)));
+    songSwitch.setChoice (current.song.chosen, songAvailable,
+                          compact ? juce::String ("CUE") : SongSwitch::cueText (current.cueStartSeconds, current.cueEndSeconds, current.followA), presentationContext);
+    songSwitch.setVisible ((page || compact) && ! blindSession && group != nullptr && ! listeningCheck()
+                           && (! compactCheck || detailsOpen));
+    if (compactCheck) cueBox.setVisible (detailsOpen && current.cues.size() > 1);
     if (page)
     {
         // C の画面では V の選択と、Check と曲を 1 つにした選択欄を出さない（V の画面とタブ・曲で選ぶ）。
         versionBox.setVisible (false);
         checkBox.setVisible (false);
     }
-    if (current.targetSelected) { presetBox.setVisible (false); checkBox.setVisible (false); cueBox.setVisible (false); }
+    else if (current.separateComparisons && current.comparisonSlot == 2 && ! detailedLayout())
+        versionBox.setVisible (false);
     if (vPage)
     {
         // V の画面では C の CHECK SET・曲・Cue を出さない（C の画面で選ぶ。V の項目は決まっている）。
@@ -146,25 +186,52 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     auto row = area.removeFromTop (checkTabsHeight());
     if (versionPage())
     {
-        versionBox.setBounds (first.getUnion (second));  // 長い版の名前と AUTO の印が切れないよう全幅
-        if (blindButton.isVisible())  // VERSION BLIND は V の見比べの操作なので、V のタブの段の右に置く
+        if (! detailedLayout())
         {
-            if (blindButton.getParentComponent() != this) addChildComponent (blindButton);
-            blindButton.setBounds (row.removeFromRight (120).withSizeKeepingCentre (120, 24));
-            row.removeFromRight (8);
+            // At compact sizes the selector occupies its own row, below the role buttons.
+            row = area.removeFromTop (panelPickerHeight());
+            detailsButton.setBounds (row.removeFromRight (78));
+            row.removeFromRight (4);
+            versionBox.setBounds (row);
+            if (versionDetailsOpen)
+            {
+                auto detailRow = area.removeFromTop (panelPickerHeight());
+                if (blindButton.isVisible())
+                {
+                    if (blindButton.getParentComponent() != this) addChildComponent (blindButton);
+                    blindButton.setBounds (detailRow.removeFromRight (105));
+                    detailRow.removeFromRight (4);
+                }
+                checkChooser.setBounds (detailRow);
+            }
         }
-        checkTabs.setBounds (row);
+        else
+        {
+            versionBox.setBounds (first.getUnion (second));
+            if (blindButton.isVisible())
+            {
+                if (blindButton.getParentComponent() != this) addChildComponent (blindButton);
+                blindButton.setBounds (row.removeFromRight (120).withSizeKeepingCentre (120, 24));
+                row.removeFromRight (8);
+            }
+            detailsButton.setBounds (row.removeFromRight (110).withSizeKeepingCentre (110, 25));
+            row.removeFromRight (8);
+            if (versionDetailsOpen) checkChooser.setBounds (row.removeFromLeft (juce::jmin (300, row.getWidth())));
+        }
         return;
     }
     presetBox.setBounds (first);
     checkSongBox.setBounds (second);
-    // タブの段の右に、今の合わせ方の読み（paintCheckPageLabels）と MATCH。
+    // Check を選ぶ欄と、表示だけを開閉する「詳しく」。MATCH は同じ段の右端に置く。
     if (matchButton.isVisible())
     {
         matchButton.setBounds (row.removeFromRight (80).withSizeKeepingCentre (80, 24));
-        row.removeFromRight (matchReadoutWidth (current, presentationContext) + 6);
+        row.removeFromRight (6);
     }
-    checkTabs.setBounds (row);
+    detailsButton.setBounds (row.removeFromRight (110).withSizeKeepingCentre (110, 25));
+    row.removeFromRight (8);
+    const auto choiceWidth = juce::jmin (300, row.getWidth());
+    checkChooser.setBounds (row.removeFromLeft (choiceWidth).withSizeKeepingCentre (choiceWidth, 25));
     cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
     auto cueRow = cueRowBounds();  // その右に流し方とずらし、右の端に CUE／SONG、残りが時間軸
     if (selectionVisible (cueBox) || cueBox.isVisible()) cueRow.removeFromLeft (188);
@@ -177,14 +244,12 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     layoutPlayback (cueRow);
 }
 
-// 2026-10-05：C の Check のタブが MATCH の読みとボタンの左に 1 段で
-// 入りきらなければ、タブの段を 2 段ぶんにする（名前を切らない）。V のタブは決まった 5 つで 1 段。
+// C と広い V の操作はそれぞれ一段。
 int Component::checkTabsHeight() const
 {
-    if (current.targetSelected) return 0;
+    if (versionPage() && ! detailedLayout()) return 0;
     if (! checkPage()) return versionPageRows;
-    const auto width = panelArea().getWidth() - (matchButton.isVisible() ? 80 + matchReadoutWidth (current, presentationContext) + 6 : 0);
-    return checkPageRows * checkTabs.rowsFor (width);
+    return checkPageRows;
 }
 
 // C の画面の一番下の段（CUE の選択と Cue の時間軸）。状態の行は 300% では足元の段にある。
@@ -205,18 +270,21 @@ bool Component::listeningCheck() const
 void Component::paintListeningPanel (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     surface_material::paintPanel (g, area.toFloat(), 0.72f);
-    auto inner = area.reduced (12, 8);
-    g.setColour (COL_NORMAL.withAlpha (0.92f));
-    g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel, typography::Composition::visualization));
-    text_style::drawEllipsized (g, current.checkLabel, inner.removeFromTop (22), juce::Justification::centredLeft);
-    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
+    auto inner = area.reduced (detailedLayout() ? 12 : 3, detailedLayout() ? 8 : 1);
+    g.setColour (COL_NORMAL);
+    if (detailedLayout() && inner.getHeight() >= 48)
+    {
+        g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel, typography::Composition::visualization));
+        text_style::drawEllipsized (g, current.checkLabel, inner.removeFromTop (22), juce::Justification::centredLeft);
+    }
     g.setFont (labelFont (presentationContext, typography::TextRole::status, typography::Composition::visualization));
-    text_style::drawLines (g, listeningGuide ('C'), inner.reduced (24, 0), juce::Justification::centred, 3);
+    text_style::drawLines (g, listeningGuide ('C'), inner.reduced (detailedLayout() ? 24 : 0, 0), juce::Justification::centred, 3);
 }
 
 void Component::paintCheckPageLabels (juce::Graphics& g) const
 {
-    g.setColour (COL_TEXT_TERTIARY);
+    if (versionPage() && ! detailedLayout()) return;
+    g.setColour (checkPage() ? COL_NORMAL : COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
     // 選択肢が 1 つの欄は読むだけの表示に替わる（selectionVisible）。そのときも見出しは出す。
     const auto above = [this, &g] (const juce::ComboBox& item, const juce::String& text)
@@ -230,39 +298,28 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
         help::note (presetBox.getBounds().withY (presetBox.getY() - 17).withHeight (15), help_text::checkPurpose);
     if (versionPage()) above (versionBox, "V / VERSION");
     above (checkSongBox, "C / SONG");
-    // MATCH の左に、今の合わせ方（鳴っていればその gain と固定、鳴っていなければ鳴らすときの gain）。
-    if (matchButton.isVisible())
-    {
-        const auto readout = matchReadout (current);
-        const auto width = matchReadoutWidth (current, presentationContext);
-        const auto space = matchButton.getBounds().withX (matchButton.getX() - width - 6).withWidth (width);
-        help::note (space, help_text::match);
-        g.setColour (current.bSelected && current.audibleComparisonSlot == 2 ? COL_SPECTRUM_DELTA_BR : COL_TEXT_SECONDARY);
-        g.setFont (monoFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, readout, space, juce::Justification::centredRight);
-    }
 }
 
 int Component::checkFooterHeight() const noexcept
 {
-    const bool cueRow = std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox);
-    const bool bands = current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size();
+    const bool cueRow = ! current.checks.empty();
+    const bool bands = ! listeningCheck() && ! current.viewBindings.empty() && current.viewBindings.front().startsWith ("spectrum_");
     return (cueRow ? checkFooterRow : 0) + (bands ? checkFooterRow + 4 : 0);
 }
 
 juce::Rectangle<int> Component::paintCheckFooter (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     if (! checkPage()) return area;
-    if (std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox))
+    if (! current.checks.empty())
     {
         auto row = area.removeFromBottom (checkFooterRow);
         if (selectionVisible (cueBox) || cueBox.isVisible()) row.removeFromLeft (cueBox.getWidth() + 8);  // CUE の選択
         for (const auto& button : playbackButtons)  // 流し方とずらし
             if (button.isVisible()) row.setLeft (juce::jmax (row.getX(), button.getRight() + 8));
         if (songSwitch.isVisible()) row.setRight (juce::jmin (row.getRight(), songSwitch.getX() - 8));  // CUE／SONG
-        if (std::isfinite (current.sourceDurationSeconds)) paintCueBar (g, row, current, presentationContext);
+        if (detailsOpen && std::isfinite (current.sourceDurationSeconds)) paintCueBar (g, row, current, presentationContext);
     }
-    if (current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size())
+    if (checkFooterHeight() > checkFooterRow)
     {
         area.removeFromBottom (4);
         paintBandSummary (g, area.removeFromBottom (checkFooterRow), current, presentationContext);

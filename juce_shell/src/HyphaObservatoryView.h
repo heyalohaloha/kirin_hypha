@@ -97,6 +97,12 @@ public:
         const auto state = footerStatusText();
         return state == "LIVE" || state == "HOLD" ? juce::String() : state;
     }
+    // A state the user must act on; it stays visible where the strip is otherwise kept quiet (100% Reference).
+    bool footerStatusNeedsAction() const
+    {
+        const auto state = footerStatusText();
+        return state == "BYPASSED" || state == "FORMAT HELD / STOP KEEP" || state == "Final measurement unavailable";
+    }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();
@@ -144,6 +150,7 @@ public:
     void setAnalysisPage (analysis_navigation::Page);
     void setAttackPaired (bool);
     void setFeedback (juce::String text);
+    void setCompactReferenceNotices (bool enabled);
     int timeControlsHeight() const noexcept;
     // 100% is view-only: the history range and the loudness scale are chosen at 125% and above.
     bool timeControlsShown() const noexcept
@@ -400,7 +407,8 @@ private:
     analysis_navigation::Page analysisPage = analysis_navigation::Page::meters;
     bool attackPaired = false;
     bool deltaTargetEnabled = true;
-    juce::String feedbackText;
+    juce::String feedbackText, rawFeedbackText;
+    bool compactReferenceNotices = false;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
     LiveCompareFooter liveCompareState;

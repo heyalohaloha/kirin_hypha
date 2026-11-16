@@ -295,7 +295,10 @@ fn candidate_comparison_isolates_normal_input_and_has_bounded_rt_receipts() {
     }
     assert!(drain.contains("transfer.readReturn (token, boundary, origin, generation)"));
     assert!(drain.contains("if (block.loop.active || !continuous) return false;"));
-    assert!(drain.contains("!transfer.withdrawn (token)"));
+    let transfer_gate = function_body(drain, "bool reached (const CandidateTransfer&");
+    assert!(transfer_gate.contains("if (transfer.withdrawn (token)) return reached (block, rate);"));
+    assert!(transfer_gate
+        .contains("proofAvailable = seen = marked = false; timing.reset(); return false;"));
     assert!(drain
         .contains("timing.observe (fresh, block, rate, std::numeric_limits<std::int64_t>::max())"));
     assert!(renderer.contains("consumer.process (ring, pairKey, sampleRate, block"));
@@ -308,7 +311,7 @@ fn candidate_comparison_isolates_normal_input_and_has_bounded_rt_receipts() {
     let control = include_str!("../../juce_shell/src/live_compare/CandidateProcessorControl.h");
     assert!(control.contains("if (!state.receiver.withdraw()) return;"));
     assert!(control.contains("current->token, current->lastOutput, current->lastGeneration"));
-    let observation = function_body(drain, "bool reached (");
+    let observation = function_body(drain, "bool reached (const BlockClock&");
     assert!(observation.contains("proofAvailable = false;"));
     assert!(observation.contains("proofAvailable = proof.valid;"));
     assert!(observation

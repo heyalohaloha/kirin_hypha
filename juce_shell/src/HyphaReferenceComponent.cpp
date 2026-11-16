@@ -1,4 +1,5 @@
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceCompactBalance.h"
 #include "HyphaReferenceWindowMaterial.h"
 
 #include "HyphaMainFrame.h"
@@ -79,11 +80,13 @@ Component::Component()
     actionButton.setTooltip ("Continue with the safe next action.");
     presetBox.onChange = [this]
     {
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         const auto id = selectedOptionId (presetBox, current.presets);
         if (id.isNotEmpty() && onSelectPreset) onSelectPreset (id);
     };
     checkBox.onChange = [this]
     {
+        checkChangeNotice.clear(); checkChangeTarget.clear();
         const auto id = selectedOptionId (checkBox, current.checks);
         if (id.isNotEmpty() && onSelectCheck) onSelectCheck (id);
     };
@@ -132,11 +135,7 @@ Component::Component()
     configureAWindowControls();
     targetBar.onRequest = [this] (const auto& request) { if (onTargetRequest) onTargetRequest (request); };
     addChildComponent (targetBar);
-    targetBadge.setComponentID ("reference-target-data");
-    targetBadge.setTitle ("C / DATA ONLY");
-    targetBadge.onClick = [this] { if (! openLarge (2) && onSelectVisualSlot) onSelectVisualSlot (2); };
-    targetBadge.setTooltip ("DATA ONLY");
-    addChildComponent (targetBadge);
+    targetBar.onLayoutChange = [this] { setState (State (current)); };
 }
 
 void Component::mouseMove (const juce::MouseEvent& event)
@@ -161,6 +160,13 @@ void Component::setState (State next)
     next.chartPointer = current.chartPointer;
     next.overlayPointed = current.overlayPointed;
     current = std::move (next);
+    current.checkDetailsOpen = detailsOpen;
+    presentationContext.referenceCheck = current.separateComparisons && current.comparisonSlot == 2;
+    presentationContext.referenceCompact = presentationContext.logicalWidth == 300 && current.separateComparisons
+        && current.comparisonSlot >= 1 && current.comparisonSlot <= 3;
+    selectorLookAndFeel.setPresentationContext (presentationContext);
+    passPresentationContext (*this, presentationContext);
+    passPresentationContext (statusStrip, presentationContext);
     prepareDisplayNames (current);
     setTitle (current.title);
     connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
@@ -169,7 +175,7 @@ void Component::setState (State next)
     connectionStatus.setTitle (connectionStatus.getTooltip());
     connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_LED_BLUE : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
-    connectionStatus.setVisible (! blindSession);
+    connectionStatus.setVisible (! blindSession && ! presentationContext.referenceCompact);
     aButton.setToggleState (! current.bSelected && current.switchingSlot == 0, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected && (! current.separateComparisons
         || current.audibleComparisonSlot == 1), juce::dontSendNotification);
@@ -183,12 +189,14 @@ void Component::setState (State next)
         && current.libraryReceived && current.osAccess != os_access::State::unowned;
     blindButton.setVisible (! blindSession
         && (!current.separateComparisons || current.comparisonSlot == 1)
-        && (versionChosen || canStartBlind (current)));
-    unavailable::set (blindButton, !current.blindLargeScreen || canStartBlind (current),
+        && (versionChosen || canStartBlind (current))
+        && (! current.separateComparisons || current.blindLargeScreen || versionDetailsOpen)
+        && (! presentationContext.referenceCompact || versionDetailsOpen));
+    unavailable::set (blindButton, (! current.separateComparisons && ! current.blindLargeScreen) || canStartBlind (current),
                       current.blindLowerAApprovalRequired ? juce::String ("Press LOWER A & START to begin")
                                                           : unavailableText (current, true));
-    blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
-    blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
+    blindButton.setButtonText (current.separateComparisons || current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
+    blindButton.setTitle (current.separateComparisons || current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
     syncSelectionControl (presetBox, current.presets, current.presetId);
     syncSelectionControl (versionBox, current.versions, current.versionId);
     syncSelectionControl (checkBox, current.checks, current.checkId);
@@ -204,19 +212,15 @@ void Component::setState (State next)
     syncRoles (blindSession);
     syncCheckPage (blindSession);
     syncPlayback (blindSession);
-    targetBar.setVisible (current.targetsEnabled && current.comparisonSlot == 2 && ! blindSession);
+    targetBar.setVisible (current.targetsEnabled && current.separateComparisons && current.comparisonSlot == 3 && ! blindSession);
     targetBar.update (current.targets, presentationContext, current.aKirin && current.aKirin->frames >= 30, shortPanel());
-    const bool numericalC = current.targetsEnabled && current.targets.collection.find (current.targets.collection.selected) != nullptr;
-    targetBadge.setVisible (numericalC && ! blindSession);
-    targetBadge.context = presentationContext;
-    targetBadge.setButtonText (detailedLayout() ? "C / DATA" : "DATA");
-    if (numericalC) cButton.setVisible (false);
-    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived))
+    if (guideShown && targetBar.isVisible() && ! current.libraryReceived)
     {
         for (auto* box : { &presetBox, &versionBox, &checkBox, &candidateBox, &cueBox, &checkSongBox }) box->setVisible (false);
         matchButton.setVisible (false);
     }
-    actionButton.setButtonText (current.actionText);
+    actionButton.setButtonText (current.comparisonSlot == 2 && current.action.kind == ActionKind::lowerAAndPlay
+        ? "LOWER A " + juce::String (-current.action.offer.db, 1) + " DB TO LISTEN" : current.actionText);
     actionButton.setAttention (false);
     actionButton.setTooltip ("Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
@@ -254,7 +258,7 @@ void Component::paint (juce::Graphics& g)
     // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
     // （HyphaVersionBlindScreen.h）。その間 REF は何も描かない（曲名・図・状態の文は手がかりになる。R-28）。
     if (isBlindSession (current.blindPhase)) return;
-    if (current.targetSelected || (guideShown && targetBar.isVisible() && ! current.libraryReceived)) {} // Leave the initial guide clear.
+    if (guideShown && targetBar.isVisible() && ! current.libraryReceived) {} // Leave the initial guide clear.
     else if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + checkTabsHeight()); paintCheckPageLabels (g); }
     else if (rolePage() && current.comparisonSlot == 3)
     {
@@ -265,6 +269,8 @@ void Component::paint (juce::Graphics& g)
             if (box->isVisible() || selectionVisible (*box))
                 text_style::drawEllipsized (g, text, box->getBounds().withY (box->getY() - 17).withHeight (15), juce::Justification::centredLeft);
     }
+    else if (presentationContext.referenceCheck && ! detailedLayout())
+        area.removeFromTop (panelGap() + panelPickerHeight());
     else if (current.separateComparisons)
     {
         area.removeFromTop ((selectionVisible (presetBox) || selectionVisible (cueBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
@@ -281,7 +287,11 @@ void Component::paint (juce::Graphics& g)
             text_style::drawEllipsized (g, text, bounds, juce::Justification::centredLeft);
         };
         const bool referenceView = current.comparisonSlot == 3;
-        if (referenceView) { label (songSetBox, detailedLayout() ? "REFERENCE SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        if (referenceView)
+        {
+            if (! presentationContext.referenceCompact)
+            { label (songSetBox, detailedLayout() ? "REFERENCE SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        }
         else { label (versionBox, detailedLayout() ? "V / VERSION" : "V"); label (checkBox, detailedLayout() ? "C / CHECK" : "C"); }
         if (detailedLayout() && ! guideShown && ! referenceView) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
@@ -339,18 +349,9 @@ void Component::paint (juce::Graphics& g)
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
-    if (rolePage() && current.targetSelected)
+    if (! presentationContext.referenceCompact && ! rolePage() && ! (versionPage() && detailedLayout()))
     {
-        g.setColour (COL_TEXT_SECONDARY);
-        g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawText (g, "TARGET / DATA ONLY", header.removeFromTop (16), juce::Justification::centredLeft);
-        g.setColour (COL_NORMAL);
-        g.setFont (displayTextFont (current.title, presentationContext, typography::TextRole::body, typography::Composition::information));
-        text_style::drawEllipsized (g, current.title, header, juce::Justification::centredLeft);
-    }
-    if (! rolePage())  // 300% の B・C・V では、ボタンの段の選択欄が見出しを兼ねる（同じ曲名を 2 度出さない）
-    {
-        g.setColour (COL_FLORA.withAlpha (0.86f));
+        g.setColour (presentationContext.referenceCheck ? COL_NORMAL : COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
         text_style::draw (g, "REFERENCE", header.removeFromTop (navigationHeight), presentationContext,
                           typography::TextRole::navigation, juce::Justification::centredLeft,
@@ -360,15 +361,30 @@ void Component::paint (juce::Graphics& g)
             : current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
             : current.checkLabel;
         g.setFont (displayTextFont (title, presentationContext, typography::TextRole::body, typography::Composition::information));
-        if (! shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
+        if (! shortPanel() && ! versionPage()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
     }
 
+    if (presentationContext.referenceCheck && ! detailedLayout()
+        && (! presentationContext.referenceCompact || detailsOpen))
+    {
+        area.removeFromTop (panelPickerHeight());
+    }
+    if (showCheckPurpose())
+    {
+        g.setColour (COL_NORMAL);
+        g.setFont (labelFont (presentationContext, detailedLayout() ? typography::TextRole::body : typography::TextRole::readout,
+                              typography::Composition::information));
+        text_style::drawEllipsized (g, "C: A vs Kirin OS song and cue", area.removeFromTop (16), juce::Justification::centredLeft);
+    }
     area.removeFromTop (panelGap());
     // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
-    const bool rowInPanel = ! statusInFooter();
+    const bool rowInPanel = keepPanelStatus (area);
     auto statusArea = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
-    g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
-    g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
+    if (connectionStatus.isVisible())
+    {
+        g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
+        g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
+    }
     const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
     const bool statusShown = statusLineShown();
     if (guideShown)
@@ -379,12 +395,18 @@ void Component::paint (juce::Graphics& g)
         return;
     }
 
-    if (detailedLayout())
+    if (! songList.isVisible() && ! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 3)
+    {
+        if (presentationContext.referenceCompact && targetBar.isExpanded() && playbackButtons[1].isVisible())
+            area.setRight (juce::jmax (area.getX(), playbackButtons[0].getX() - 3));
+        paintCompactBalance (g, area, current, presentationContext, targetBar.isExpanded());
+    }
+    else if (! comparisonView.isVisible() && current.separateComparisons && current.comparisonSlot == 2 && listeningCheck())
+        paintListeningPanel (g, paintCheckFooter (g, area));
+    else if (detailedLayout())
     {
         area = paintCheckFooter (g, area);  // C の画面の 4 帯域と Cue の時間軸
         if (songList.isVisible()) paintReferenceBalance (g, balanceBounds.toFloat(), current, presentationContext);
-        else if (!comparisonView.isVisible() && checkPage() && listeningCheck())
-            paintListeningPanel (g, area);  // 耳で聴き比べる Check（C−A がいつも 0.0 の箱を出していた）
         else if (!comparisonView.isVisible()
             && !paintConfiguredReferenceViews (g, observationArea.toFloat(), current, presentationContext))
         {
@@ -406,8 +428,12 @@ void Component::paint (juce::Graphics& g)
     }
     else if (!comparisonView.isVisible())
     {
+        if (presentationContext.referenceCheck && ! presentationContext.referenceCompact && ! current.viewBindings.empty()
+            && current.viewBindings.front().startsWith ("spectrum_"))
+            paintBandSummary (g, area.removeFromBottom (18), current, presentationContext);
         const int gap = 4;
-        auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);
+        const auto width = presentationContext.referenceCheck ? (area.getWidth() - gap) * 56 / 100 : (area.getWidth() - gap) / 2;
+        auto left = area.removeFromLeft (width);
         area.removeFromLeft (gap);
         reference_metric_painter::paintCompactDelta (
             g, left.toFloat(), "LUFS-I", { current.aIntegratedLoudness, current.adjustedBIntegratedLoudness }, "LU", AWords::loudness,

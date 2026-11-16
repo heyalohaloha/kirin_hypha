@@ -31,6 +31,10 @@ After Stop, the final Record display remains visible until the next playback pro
 newly computed Watch result; that result returns the grid to Watch without showing stale Watch data
 in between. Multiple pairs record independently.
 
+When both measurements are saved but their audio has not yet been linked, POST shows that it is
+waiting for Kirin OS audio. You can continue working; the saved measurements remain available for
+automatic linking when Kirin OS supplies the audio.
+
 If measurement samples are ever dropped during a recording (for example, on a buffer overflow), the dropped-sample count and an integrity flag are written into the session data. Incomplete measurement is recorded as incomplete, never presented as complete.
 
 ## Kirin OS ecosystem

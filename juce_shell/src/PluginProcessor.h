@@ -75,12 +75,14 @@ public:
 #include "PrecisionProcessorApi.h"
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
+    bool liveBlindStorageFailed() const noexcept { return blindStorageFailed.load (std::memory_order_acquire); }
     hypha::update::ServiceOwner& updateServicesForEditor() noexcept { return updateServiceOwner; }
     juce::AudioProcessorParameter* getBypassParameter() const override;
     // Editor (message thread) reads the latest RT result. Null handle / lock contention -> false.
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
     bool pollRecordDisplay (KirinRecordDisplay& out) const; bool pollMeterSession (KirinMeterSession& out) const;
+    bool pollRecordWavBindingWaiting (bool& waiting) const;
     bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
     bool pollLevelSnapshot (KirinLevelSnapshot& out,
                             std::vector<KirinMeterHistoryEntry>& history,
@@ -129,6 +131,8 @@ public:
     void clearPairCandidate();
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
+    struct PairWaitSnapshot { juce::String key; std::uint64_t ticket = 0; bool paired = false, stable = false; };
+    PairWaitSnapshot pairWaitSnapshot() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
     #include "live_compare/LiveCompareProcessorApi.h"
@@ -308,7 +312,8 @@ public:
         juce::String pairedPreInstanceId;
         bool hasPairedPreInstanceId = false;
     };
-    bool keepAll (std::optional<std::uint64_t> ticket = {}); // FFI kirin_hypha_keep_all; a stale ticket starts nothing
+    bool keepAll (std::optional<std::uint64_t> ticket = {}, bool resume = false); // a stale ticket starts nothing
+    bool allKeepTailPending() const;
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
     hypha::pair_preview::Ticket createPairPreview() const;
     bool pairPreviewMatches (const KirinPairPreview*) const;
@@ -389,6 +394,7 @@ private:
     hypha::local_blind::LocalBlindProductSession localBlindProductSession;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
     hypha::live_compare::ProcessorState liveCompare;
+    std::atomic<bool> blindStorageFailed { false };
     std::atomic<std::uint64_t> localBlindProductSerial { 0 };
 #if JUCE_DEBUG
     std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };

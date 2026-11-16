@@ -43,8 +43,7 @@ inline bool boundedPaint (juce::Component& component, const juce::String& full,
 {
     const auto localized = text_style::shownText (full);
     const auto room = component.getLocalBounds().reduced (horizontalInset, verticalInset);
-    const auto contracted = monoFont (context,
-        footer_notice_font::roleForText (context, full, room.getWidth()));
+    const auto contracted = footer_notice_font::fontForText (context, full, room.getWidth());
     const auto font = requiresJapaneseGlyphs (localized) ? nativeTextFontLike (contracted) : contracted;
     const auto expected = text_style::ellipsizedText (localized, font, static_cast<float> (room.getWidth()));
     text_style::ShownTextLog shown;

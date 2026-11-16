@@ -57,6 +57,7 @@ namespace hypha::spectrum_chrome
         display_settings::Values settings;
         const spectrum_peaks::Peaks* peaks = nullptr;
         spectrum_display::Backdrop* backdrop = nullptr;
+        spectrum_painter::PathWorkspace* paths = nullptr;
     };
 
     void paint (juce::Graphics& graphics,

@@ -401,7 +401,8 @@ mod tests {
             !all_keep_body.contains("recordExclusionConflict()"),
             "All Keep must not pre-check the 12-cap before the engine has resolved same-pair reservations"
         );
-        assert!(all_keep_body.contains("processorRef.keepAll (ticket)"));
+        assert!(all_keep_body.contains("processorRef.pairWaitSnapshot()"));
+        assert!(all_keep_body.contains("processorRef.keepAll (pair.ticket, resume)"));
         assert!(
             all_keep_body.contains("processorRef.recordErrorMessage()"),
             "All Keep cap failure must use the FFI record_error_message"

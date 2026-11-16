@@ -67,6 +67,7 @@ juce::Path curve (const std::vector<double>& centers, const std::vector<float>& 
 struct BalanceSources
 {
     const SongFact* chosen = nullptr;
+    const reference_audition::MeasuredTarget* target = nullptr;
     std::vector<const SongFact*> comparable;  // 同じ帯域の並びの曲
     std::vector<double> centers;
     bool aShown = false;
@@ -79,15 +80,17 @@ struct BalanceSources
 BalanceSources balanceSources (const State& state)
 {
     BalanceSources sources;
+    if (state.targetsEnabled) sources.target = state.targets.collection.find (state.targets.collection.selected);
     std::vector<const SongFact*> set;
     for (size_t index = 0; index < state.songFacts.size() && index < state.songs.size(); ++index)
     {
         const auto& fact = state.songFacts[index];
         if (fact.medianDb.empty()) continue;
-        if (state.songs[index].id == state.songId) sources.chosen = &fact;
+        if (sources.target == nullptr && state.songs[index].id == state.songId) sources.chosen = &fact;
         set.push_back (&fact);
     }
-    if (sources.chosen != nullptr) sources.centers = sources.chosen->centersHz;
+    if (sources.target != nullptr) sources.centers = sources.target->spectrum.centersHz;
+    else if (sources.chosen != nullptr) sources.centers = sources.chosen->centersHz;
     else if (! set.empty()) sources.centers = set.front()->centersHz;
     for (const auto* fact : set) if (fact->centersHz == sources.centers) sources.comparable.push_back (fact);
     // 曲が無い時は目標の帯域の並びで A を描く（目標だけでも A と比べられる）。
@@ -140,7 +143,8 @@ std::vector<LegendEntry> legendEntries (const BalanceSources& sources, const Sta
         return entries;
     }
     const auto* chosen = sources.chosen;
-    entries.push_back ({ chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true)
+    entries.push_back ({ sources.target != nullptr ? sources.target->name
+                         : chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true)
                                            : juce::String ("B"), COL_SPECTRUM_DELTA, 1.6f });
     if (sources.rangeShown (state)) entries.push_back ({ targetRangeLegend, COL_NORMAL.withAlpha (0.28f), 8.0f });  // 帯が無いときは言わない
     return entries;
@@ -425,6 +429,17 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.4f));
         readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, chosen->centersHz, shifted, 0.0, minimumHz, maximumHz));
     }
+    if (sources.target != nullptr && ! state.overlay.all)
+    {
+        const auto gain = targetOverlayGainDb (state, *sources.target);
+        unmatched = unmatched || ! std::isfinite (gain);
+        const auto offset = static_cast<float> (std::isfinite (gain) ? gain : 0.0);
+        auto values = sources.target->spectrum.medianDb;
+        for (auto& value : values) value += offset;
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
+        g.strokePath (curve (sources.target->spectrum.centersHz, values, chart), juce::PathStrokeType (1.4f));
+        readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, sources.target->spectrum.centersHz, values, 0.0, minimumHz, maximumHz));
+    }
     // 指した所の値（C の図と同じ読み）。図を描いた値をそのまま読む。
     if (! readings.empty() || sources.rangeShown (state))
     {
@@ -444,7 +459,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     const bool headerFits = text_style::shownWidth (legendFont, rangeText) <= static_cast<float> (header.getWidth());
     text_style::drawEllipsized (g, rangeText, headerFits ? header : chart.toNearestInt().removeFromTop (16).reduced (4, 0),
                                 juce::Justification::centredRight);
-    if (chosen == nullptr && comparable.empty() && ! state.overlay.all)
+    if (chosen == nullptr && sources.target == nullptr && comparable.empty() && ! state.overlay.all)
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));

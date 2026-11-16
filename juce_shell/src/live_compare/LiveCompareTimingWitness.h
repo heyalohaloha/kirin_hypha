@@ -260,6 +260,7 @@ public:
         const auto postCycle = cycle.known ? cycle.samples : post.chunkCycleSamples;
         const auto movement = timeline.observe (corroborated ? verified : post, rate,
                                                 coherent ? (age > 0 && age < capacity ? age : 0) : lastAge);
+        wrapCorroborated = corroborated; wrapProject = verified.project; wrapPpq = verified.loop.ppq;
         if (! active || sourceChanged || postProofChanged || movement.broken || cycle.changed)
             invalidate();
         // A named position inside an AAX chunk is not an observation; only host reports calibrate.
@@ -348,6 +349,14 @@ public:
     // must still agree. This preserves K through a writer overlap, never through a seek/stop.
     TimingEvidence unavailable (const BlockClock& post, double rate, std::int64_t capacity) noexcept
     { return observe (previous, post, rate, capacity, false); }
+    // The coordinates the latest observation's loop proof corroborated for this very block (a host's
+    // wrap shape, named as the lap it continues). Another watch of the same callback consumes the
+    // SAME coordinates; an uncorroborated block, a seek included, stays as the host reported it.
+    BlockClock corroboratedCoordinates (BlockClock block) const noexcept
+    {
+        if (wrapCorroborated) { block.project = wrapProject; block.loop.ppq = wrapPpq; }
+        return block;
+    }
     void reset() noexcept { *this = TimingObserver (profile); }
 private:
     void invalidate() noexcept
@@ -357,6 +366,9 @@ private:
     }
     LoopTimeline timeline;
     LoopCycleMeter postCycles;
+    bool wrapCorroborated = false;
+    std::int64_t wrapProject = 0;
+    double wrapPpq = 0.0;
     ReaperPairContinuity reaperContinuity;
     CalibrationProfile profile;
     TimingSnapshot previous;

@@ -174,6 +174,11 @@ inline void verify()
         state.versions = { { "v4", "Mix v4" } }; state.checks.clear(); state.cues.clear();
         state.visualTimeline = data; state.visualPositionSeconds = 30;
         panel.setState (state);
+        auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+        auto* choice = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+        layout::expect (details && choice, "V details and time comparison choice exist");
+        details->onClick();
+        choice->setSelectedId (1, juce::sendNotificationSync);
         auto* view = dynamic_cast<View*> (panel.findChildWithID ("reference-comparison-view"));
         layout::expect (view && view->isVisible(), "FOLLOW comparison is visible at every editor size");
         for (const bool crest : { false, true })

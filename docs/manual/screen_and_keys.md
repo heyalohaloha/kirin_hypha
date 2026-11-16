@@ -21,14 +21,15 @@ Kirin OS, and every measurement stay the same.
 A control that cannot be used now is greyed. Clicking it, or pressing its key, shows why on the
 notice line and what makes it usable, for example **Choose the PRE first** or **Finish Keep / Record
 before PRE / POST Blind**. A greyed menu item has its reason on the line under it. When Hypha changes
-the view by itself, the notice line says why, for example **2MIX has no DRUM; showing METERS**.
+the view by itself, the notice line says why, for example **2MIX has no DRUM; showing TIME / HISTORY**.
 
 ## Keys
 
 Click the Hypha window and its keys work there. Hover a control to see its key, or press **F**
 (**MENU > KEYS**) for the list of what works now. A key Hypha does not use goes back to the DAW, and so
-do Space, the numeric keypad and anything held with Cmd, Ctrl or Alt. A key the DAW takes first does not
-reach Hypha.
+do Space, the numeric keypad and anything held with Cmd, Ctrl or Alt. Some DAWs, including Logic Pro,
+take letter keys first. Click the Hypha window before pressing a key; if it still does not work, use
+the on-screen buttons to do the same thing instead.
 
 | Keys | Does |
 |---|---|

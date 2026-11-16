@@ -36,7 +36,8 @@ namespace hypha::reference_audition
                         for (const auto& candidate : check.candidates)
                             snapshot.checkTargets.push_back ({ check.checkId + "/" + candidate.candidateId,
                                 check.label + "  /  " + candidate.displayName,
-                                {}, ! candidate.prepared, check.label, candidate.displayName });
+                                {}, ! candidate.prepared, check.label, candidate.displayName, {}, {},
+                                candidate.sourceKind + ":" + candidate.sourceIdentityKey });
                     }
         std::set<juce::String> versions;
         if (workspace.library)

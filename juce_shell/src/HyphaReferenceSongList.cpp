@@ -123,7 +123,8 @@ void SongList::placeToggles()
     {
         auto& toggle = *toggles[slot];
         const auto index = firstRow + static_cast<int> (slot);
-        const bool used = overlayAll && static_cast<int> (slot) < shown.visible && index < static_cast<int> (items.size());
+        const bool used = overlayAll && static_cast<int> (slot) < shown.visible && index < static_cast<int> (items.size())
+            && items[static_cast<size_t> (index)].id.isNotEmpty();
         toggle.setVisible (used);
         if (! used) continue;
         const auto& row = items[static_cast<size_t> (index)];

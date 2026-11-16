@@ -49,6 +49,8 @@ public:
         auto& r = *current;
         r.serial = serial; r.localFrames = start; r.frames = frames; r.channels = channels;
         r.entryNanos = live_compare::callbackWallNanos();
+        r.selectionCommand = r.selectionReadNanos = r.selectionAcceptedNanos = 0;
+        r.selectionSeen = r.selectionAccepted = false;
         r.blockSeen = r.timingSeen = r.renderSeen = r.feed = r.outputTaken = r.wallGap = false;
         r.block = {}; r.peer = {}; r.timing = {}; r.decision = {}; r.render = {};
         for (int c = 0; c < channels; ++c)

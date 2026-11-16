@@ -123,7 +123,8 @@ inline void verifyReferenceFollowAPages()
     auto* back = button ("reference-offset-back");
     auto* offset = button ("reference-offset");
     auto* ahead = button ("reference-offset-ahead");
-    require (loop && follow && back && offset && ahead, "the playback controls exist");
+    auto* details = button ("reference-check-details");
+    require (loop && follow && back && offset && ahead && details, "the playback controls exist");
     require (loop->isVisible() && follow->isVisible() && loop->getToggleState() && ! follow->getToggleState()
                  && ! back->isVisible() && ! offset->isVisible() && ! ahead->isVisible()
                  && panel.getLocalBounds().contains (follow->getBounds()) && loop->getRight() < follow->getX()
@@ -139,6 +140,7 @@ inline void verifyReferenceFollowAPages()
         page.paintEntireComponent (graphics, true);
         return log.texts();
     };
+    details->onClick();
     require (shownTexts (panel, i18n::Language::english).contains ("CUE 1:02-1:32 / LOOP / 4:55")
                  && helpTextsOf (panel).count (reference_ui::help_text::cueBar) == 1,
              "in LOOP the Cue bar names the Cue and its loop");

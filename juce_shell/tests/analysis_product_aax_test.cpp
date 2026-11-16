@@ -1,5 +1,8 @@
 #include "AaxAnalysisProductFixture.h"
 #include "AaxChunkProductTest.h"
+#include "AlignChainProductTest.h"
+#include "AlignBlindAppliedTest.h"
+#include "AlignOutboardProductTest.h"
 
 using namespace aax_analysis_product;
 
@@ -174,10 +177,13 @@ try
     require (argc == 3, "channel layout and scenario must be explicit");
     const juce::String layout (argv[1]), scenario (argv[2]);
     require (layout == "mono" || layout == "stereo", "supported channel layout");
-    if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery")
+    if (scenario == "alignment_restart" || scenario == "alignment_publication" || scenario == "alignment_recovery"
+        || scenario == "alignment_chain" || scenario == "alignment_outboard" || scenario == "alignment_blind_repeat" || scenario == "alignment_blind_fallback" || scenario == "alignment_blind_bypass")
     {
         ReferenceValidationStorageSandbox sandbox;
         hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
+        if (scenario == "alignment_blind_repeat") blindRepeatedCorrectionRestartsHearing (layout == "mono" ? 1 : 2);
+        if (scenario == "alignment_blind_fallback" || scenario == "alignment_blind_bypass") blindFallbackDoesNotCountAsHeard (layout == "mono" ? 1 : 2, scenario == "alignment_blind_bypass");
         if (scenario == "alignment_restart") restartingConfirmsNewContent (layout == "mono" ? 1 : 2);
         if (scenario == "alignment_publication")
         {
@@ -192,6 +198,24 @@ try
             waitingBlindResumesAtItsClock (layout == "mono" ? 1 : 2);
             heardSourcesCanRevealDuringRecheck (layout == "mono" ? 1 : 2);
             unconfirmableChainPlaysPreAtItsClock (layout == "mono" ? 1 : 2);
+        }
+        if (scenario == "alignment_chain")
+        {
+            chainConfirmsPosition (layout == "mono" ? 1 : 2);
+            chainAlignsEarlyPre (layout == "mono" ? 1 : 2);
+            chainFindsLongDelays (layout == "mono" ? 1 : 2);
+            chainFindsDelayAddedWhilePlaying (layout == "mono" ? 1 : 2);
+            shortCorrectionHoldIsBounded (layout == "mono" ? 1 : 2);
+            blindHoldTellsBothSourcesAlike (layout == "mono" ? 1 : 2);
+            blindTellsAddedDelayUntilApplied (layout == "mono" ? 1 : 2);
+            wideSearchReadsEachChannel (layout == "mono" ? 1 : 2);
+            wideSearchWeighsEveryCandidate (layout == "mono" ? 1 : 2);
+            wideSearchFollowsHypotheses (layout == "mono" ? 1 : 2);
+        }
+        if (scenario == "alignment_outboard")
+        {
+            outboardKeepsTheConfirmedCorrection (layout == "mono" ? 1 : 2);
+            periodicMatchIsNotKept (layout == "mono" ? 1 : 2);
         }
         std::cout << "Alignment session: PASS (" << layout << ", " << scenario << ")\n";
         return 0;

@@ -72,8 +72,9 @@ inline int checkEveryCell (KirinHyphaEditor& editor, const juce::String& who, co
     window.setVisible (true);
     window.addAndMakeVisible (editor);
     int cells = 0;
-    for (const auto& [width, height] : entrySizes)
+    for (const auto& size : entrySizes)
     {
+        const auto width = size.first, height = size.second;
         editor.setSize (width, height);
         for (const auto page : pages)
         {

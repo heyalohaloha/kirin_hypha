@@ -223,6 +223,40 @@ fn stopped_or_partially_bound_drop_still_recovers() {
 }
 
 #[test]
+fn saved_host_clock_pair_waits_until_a_real_drop_publishes_it() {
+    let mut pair = PendingPair::with_bound_clock(false);
+    for writer in [&mut pair.pre, &mut pair.post] {
+        writer.data.expected_wav = None;
+        writer.data.bounce_take.as_mut().unwrap().source = BOUNCE_SOURCE_RENDER_CLOCK.into();
+        writer.data.trace_time_axis = Some(crate::trace_alignment::TRACE_HOST_TIME_AXIS.into());
+        writer.data.trace_wav_reference = None;
+        writer.data.trace_pair_wav_start_basis = None;
+        refresh_record_quality(&mut writer.data);
+        assert!(
+            writer.data.record_quality.as_ref().unwrap().complete,
+            "the saved measurement fixture must be complete: {:?}",
+            normal_publish_failure_reasons(&writer.data)
+        );
+        let paths = self_paths_for(&writer.paths, &writer.data);
+        writer.write_atomic(paths.pair_pending_path).unwrap();
+    }
+    assert!(crate::io_thread_post::saved_pair_waits_for_audio(
+        &pair.base,
+        "project_hash_test",
+        "iid-post-once",
+        "session-pair-atomic"
+    ));
+    assert_eq!(pair.recover(), 2);
+    pair.published_files();
+    assert!(!crate::io_thread_post::saved_pair_waits_for_audio(
+        &pair.base,
+        "project_hash_test",
+        "iid-post-once",
+        "session-pair-atomic"
+    ));
+}
+
+#[test]
 fn startup_finishes_bound_pending_pair_without_live_writers() {
     let pair = PendingPair::new();
     assert_eq!(pair.recover(), 0);

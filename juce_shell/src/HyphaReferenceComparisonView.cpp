@@ -213,11 +213,11 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
     return juce::String (endpoint, 1) + "s  A " + value (a) + "   V " + value (b)
         + (both ? " / " + difference : juce::String());
 }
-void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views, bool listening)
+void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views, bool listening, bool primaryOnly)
 {
     const bool sameGain = (std::isnan (sameSectionGain) && std::isnan (gainDb)) || std::abs (sameSectionGain - gainDb) < 1.0e-9;
-    if (sameSection == checkLabel && sameGain && sameSectionViews == views && sameSectionListening == listening) return;
-    sameSection = checkLabel; sameSectionGain = gainDb; sameSectionViews = std::move (views); sameSectionListening = listening;
+    if (sameSection == checkLabel && sameGain && sameSectionViews == views && sameSectionListening == listening && sameSectionPrimary == primaryOnly) return;
+    sameSection = checkLabel; sameSectionGain = gainDb; sameSectionViews = std::move (views); sameSectionListening = listening; sameSectionPrimary = primaryOnly;
     resized(); repaint();
 }
 juce::String ComparisonView::helpAt (juce::Point<int> local) const
@@ -232,7 +232,7 @@ void ComparisonView::paint (juce::Graphics& g)
     if (hidden) return;
     const key_light::Scope light (*this);
     if (sameSection.isNotEmpty())
-    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context, pointer); return; }
+    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context, pointer, sameSectionPrimary); return; }
     surface_material::paintObservationWell (g, getLocalBounds().toFloat(), false); // framed by the page
     window_material::paintInterior (g, getLocalBounds().toFloat(), getLocalBounds().toFloat());
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));

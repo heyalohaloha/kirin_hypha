@@ -190,7 +190,30 @@ private:
             case 7:
                 if (std::chrono::steady_clock::now() - endRequestedAt < std::chrono::milliseconds (250)) break;
                 require (! post->liveCompareStatus().active && post->liveCompareStatus().finishing,
-                         "message ticks without callbacks cannot manufacture an END receipt");
+                         "a callback quiet under half a second keeps END pending");
+                stage = 11;
+                break;
+            case 11:
+                if (std::chrono::steady_clock::now() - endRequestedAt < std::chrono::milliseconds (500)) break;
+                require (suspendAudio.load() && suspended.load(), "callbacks remain stopped through the quiet wait");
+                // INV-LC14: half a second with no callback is a stopped DAW; nothing sounds, so END finishes.
+                hypha::live_compare::testCallbackNanos.fetch_add (600'000'000);
+                stage = 9;
+                break;
+            case 9:
+                if (post->liveCompareStatus().finishing) break;
+                require (suspendAudio.load() && suspended.load(), "callbacks remain stopped through the next LISTEN");
+                require (! post->liveCompareStatus().active && post->liveCompareStatus().postActual == 1.0f
+                    && ! post->liveCompareStatus().preAudible, "a stopped DAW finishes END without callbacks");
+                // Nothing is left to fade: a new LISTEN starts at once, still without callbacks, and ends the same way.
+                require (post->startLiveCompare() == hypha::live_compare::StartResult::started,
+                         "a new LISTEN starts after a quiet END without waiting for playback");
+                post->finishLiveCompare();
+                stage = 10;
+                break;
+            case 10:
+                if (post->liveCompareStatus().finishing) break;
+                verifyReturn.store (true); // the first block after the quiet is exact POST
                 suspendAudio.store (false);
                 stage = 4;
                 break;

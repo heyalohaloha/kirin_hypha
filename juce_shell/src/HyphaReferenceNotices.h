@@ -45,16 +45,16 @@ inline juce::String librarySkipped (const std::vector<reference_audition::Runtim
                  : name + " and " + more + " more were not read. Prepare them again in Kirin OS.";
 }
 
-// 300% 未満で C・V を押して、その役の画面を開いた。
+// 300% 未満で C を押して、その画面を開いた。
 inline juce::String pageOpened (int slot, bool playable)
 {
     const juce::String letter (roleLetter (slot));
     return playable ? letter + " opened at 300%. Press " + letter + " to listen." : letter + " opened at 300%.";
 }
 
-// C・V を押して広げた窓が、押す前の大きさに戻っていた（host が戻した・利用者が戻した）。原因は言わず、今の事実と次の手。
+// C を押して広げた窓が元に戻ったときは、今の事実と次の手を言う。
 inline juce::String roomRequired()
 {
-    return "C and V open at 300%. Choose 300% from the size menu.";
+    return "C opens at 300%. Choose 300% from the size menu.";
 }
 }

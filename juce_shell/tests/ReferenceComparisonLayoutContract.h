@@ -159,6 +159,11 @@ inline void verify()
         state.checks = { { "low/ref-a", "Dynamics" } }; state.cues.clear();
         state.visualTimeline = data; state.visualPositionSeconds = 8;
         panel.setState (state);
+        auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+        auto* choice = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+        expect (details && choice && details->onClick, "V details can open the time comparison");
+        details->onClick();
+        choice->setSelectedId (1, juce::sendNotificationSync);  // WHOLE
         auto* view = dynamic_cast<reference_ui::ComparisonView*> (panel.findChildWithID ("reference-comparison-view"));
         expect (view && view->isVisible(), "actual comparison is shown at every size");
         const auto range = view->selectedRange();

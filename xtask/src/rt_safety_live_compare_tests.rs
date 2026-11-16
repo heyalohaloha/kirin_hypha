@@ -1,5 +1,4 @@
 // Live compare: the Audio Thread allocates, locks and blocks nowhere (AGENTS R-12, INV-LC1 to 3).
-
 const RING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareRing.h");
 const CORRESPONDENCE_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareCorrespondence.h");
@@ -31,7 +30,6 @@ const PROCESSOR_PIN_CPP: &str =
 const PIN_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveComparePin.cpp");
 const EDITOR_AUTO_CPP: &str = include_str!("../../juce_shell/src/PluginEditorLiveCompareAuto.cpp");
 const MATCH_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareMatch.cpp");
-
 #[path = "rt_safety_content_timing_tests.rs"]
 mod content_timing_tests;
 #[path = "rt_safety_live_blind_tests.rs"]
@@ -40,7 +38,6 @@ mod live_blind_tests;
 mod live_compare_reentry_tests;
 #[path = "rt_safety_live_compare_timing_tests.rs"]
 mod live_compare_timing_tests;
-
 // The body of the first function whose definition starts with signature (brace matched).
 fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
     let start = source.find(signature).expect("the function exists");
@@ -60,7 +57,6 @@ fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
     }
     panic!("unbalanced body for {signature}");
 }
-
 fn without_line_comments(source: &str) -> String {
     source
         .lines()
@@ -68,7 +64,6 @@ fn without_line_comments(source: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
 #[test]
 fn live_compare_audio_thread_code_avoids_blocking_work() {
     for (name, source) in [
@@ -160,6 +155,8 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
     assert!(CLOCK_H.contains("ClockBasis::pluginFrames"));
 }
 
+#[path = "rt_wait_guard_tests.rs"]
+mod rt_wait_guard_tests;
 #[test]
 fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_thread() {
     // INV-LC4: PRE only in proven blocks; a lost proof switches at the block start.
@@ -181,7 +178,11 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
     let render = function_body(SESSION_H, "RenderReport renderBlock (");
     let feed = function_body(SESSION_H, "bool feed (");
     for body in [render, feed].map(without_line_comments) {
-        for forbidden in ["make_unique", "new ", "mutex", "sleep", "wait"] {
+        assert!(
+            !rt_wait_guard_tests::has_wait_operation(&body),
+            "RT body must not use a wait operation"
+        );
+        for forbidden in ["make_unique", "new ", "mutex", "sleep"] {
             assert!(
                 !body.contains(forbidden),
                 "RT body must not contain {forbidden}"

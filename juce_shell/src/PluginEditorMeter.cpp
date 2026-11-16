@@ -2,6 +2,7 @@
 #include "HyphaKeepPreWait.h"
 #include "HyphaChainTimingPreference.h"
 #include "HyphaChainTimingText.h"
+#include "HyphaRecordBindingNotice.h"
 
 void KirinHyphaEditor::refreshWatchSnapshot()
 {
@@ -119,6 +120,9 @@ void KirinHyphaEditor::updatePost()
     observatoryView.setChainReadout (chain.text, chain.caution);
 
     const auto recordError = processorRef.recordErrorMessage();
+    const auto liveWarning = liveCompareWarningText();
+    if (keepActive) recordWavBindingWaiting = false;
+    else processorRef.pollRecordWavBindingWaiting (recordWavBindingWaiting);
     const juce::String status = anomalyActive ? pathAnomalyText
                               : recordError.isNotEmpty() ? recordError
                               : recordPhase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
@@ -127,7 +131,9 @@ void KirinHyphaEditor::updatePost()
                               : armed ? juce::String ("Ready to bounce")
                               : keepPreWaitSince > 0.0
                                   ? juce::String (hypha::keep_ui::waitingLine.data(), hypha::keep_ui::waitingLine.size())
-                              : liveCompareWarningText();
+                              : liveWarning.isNotEmpty() ? liveWarning
+                              : recordWavBindingWaiting ? juce::String (hypha::record_ui::wavWaiting)
+                              : juce::String();
     updateFeedback (now, now < bannerUntil, status);
 
     refreshWatchSnapshot();
@@ -146,11 +152,28 @@ void KirinHyphaEditor::updatePost()
 
 // Keep（2026-10-31）：組んだ PRE がまだ応答しない（project を開いた直後・PRE の準備中）だけなら、押した Keep を
 // 待たせて 0.5 秒ごとに確かめ、応答したら始める。上限まで応答しない時だけ「選び直して」と言う。retry は timer から。
-void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket)
+void KirinHyphaEditor::requestKeepAll (std::optional<std::uint64_t> ticket, bool resume, double since)
 {
-    if (processorRef.keepAll (ticket)) return;
-    if (ticket && *ticket != processorRef.restoreOrPairTicket()) return;  // restored or re-paired: dropped, not refused
+    const auto pair = processorRef.pairWaitSnapshot();
+    if (! pair.stable || (ticket && *ticket != pair.ticket))
+    { showToast ("All Keep targets changed or unavailable. Try again."); return; }
+    if (processorRef.keepAll (pair.ticket, resume)) return;
+    const auto current = processorRef.pairWaitSnapshot();
+    if (! current.stable || pair.ticket != current.ticket)
+    { showToast ("All Keep targets changed or unavailable. Try again."); return; }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (resume && (! current.paired || processorRef.candidateTailPending() || processorRef.candidateReturning()))
+    { afterTail = { hypha::live_compare_ui::AfterTail::keepAll, pair.key, pair.ticket, since, 0.0, true }; return; }
+   #endif
     const juce::String notice = processorRef.drainKeepActionNotice();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (notice == "A/B tail pending")
+    {
+        afterTail = { hypha::live_compare_ui::AfterTail::keepAll, pair.key, pair.ticket,
+                      since > 0.0 ? since : nowSecs(), 0.0, true };
+        return;
+    }
+   #endif
     if (notice.isNotEmpty()) { showToast (notice); return; }
     const juce::String err = processorRef.recordErrorMessage();
     if (err.isNotEmpty()) { showToast (err); return; }

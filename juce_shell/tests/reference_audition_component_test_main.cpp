@@ -6,6 +6,9 @@
 #include "ReferenceFollowViewContract.h"
 #include "ReferenceMeasuredTargetUiTest.h"
 #include "ReferenceOverlayRepairsTest.h"
+#include "ReferenceCompactBalanceFitTest.h"
+#include "ReferenceCompactCheckFitTest.h"
+#include "ReferenceVersionCompactTest.h"
 #include "../src/reference_audition/ReferenceLiveWindowLoudness.cpp"
 #include "ValidationStorageSandbox.h"
 
@@ -22,6 +25,12 @@ int main (int argc, char** argv)
     if (argc == 3 && juce::String (argv[1]) == "--reference-text-snapshots")
     { hypha::tests::reference_text_repairs::exportSnapshots (juce::File (argv[2])); return 0; }
     const juce::String mode (argc == 2 ? argv[1] : "");
+    if (mode == "--unused-overlay-roundtrip-only") { hypha::tests::reference_overlay::verifyUnusedOverlayRoundTrip(); return 0; }
+    if (mode == "--listening-check-sizes-only") { hypha::tests::reference_a_window::verifyListeningAtSizes(); return 0; }
+    if (mode == "--target-balance-sizes-only") { hypha::tests::reference_overlay::verifyTargetBalanceSizes(); return 0; }
+    if (mode == "--compact-balance-fit-only") { hypha::tests::reference_overlay::verifyCompactBalanceFit(); return 0; }
+    if (mode == "--compact-check-fit-only") { hypha::tests::reference_compact_check::verify(); return 0; }
+    if (mode == "--range-label-only") { hypha::tests::verifyRangeLabelSpacing(); return 0; }
     if (mode == "--reference-follow-only") { hypha::tests::reference_follow_view::verify(); return 0; }
     if (mode == "--reference-guide-only") { hypha::tests::verifyReferenceGuideContract(); return 0; }
     if (mode == "--missing-check-navigation-only") { hypha::tests::verifyMissingCheckNavigation(); return 0; }
@@ -46,9 +55,12 @@ int main (int argc, char** argv)
     repairs::verifyVersionStopText();
     repairs::verifyApprovalPreview(); repairs::verifyLegends (true); repairs::verifyLegends (false);
     repairs::verifyCMatchFit(); repairs::verifyOnsetMeaning(); repairs::verifyCueLabels();
+    repairs::verifyCLimitNoticeFits();
     hypha::tests::reference_a_window::verify();
     hypha::tests::reference_overlay::verify();
     hypha::tests::reference_overlay::verifyRepairs();
+    hypha::tests::reference_overlay::verifyCompactBalanceFit();
+    hypha::tests::reference_compact_check::verify();
     hypha::tests::verifyReferenceAuditionComponentContract();
     std::cout << "Reference audition component contract tests passed\n";
     return 0;

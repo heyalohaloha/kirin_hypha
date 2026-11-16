@@ -1038,7 +1038,8 @@ PREとPOSTの位置はLOOPの頭へ移る一方、独立時計は進み続ける
    旧選択を封鎖してPOSTを出し、最初の原因と実在するPRE再選択の動線を示す。
    現在の一般的なLOOP待機案内で、保持した中断理由や次の操作を覆わない。
 3. 一時的なmetadata／gain writerの競合は出力の準備不足であって、既知変更の復帰権限の消失ではない。
-   競合中はPOSTを出す。coherentな原因と承認tupleを確認した後だけ復帰の権限を消費する。
+   競合中はPOSTを出す（2026-11-14 B-1772以降のgain writerの競合は、Audio Threadが前に丸ごと読んだ組で出力を続ける。
+   POSTは前の組が無い時とBLINDの静かな側の水準の保留中だけ。現行はINV-LC26）。coherentな原因と承認tupleを確認した後だけ復帰の権限を消費する。
    PCM runだけが変わった場合に、前の時計世代のstop原因を流用しない。
 4. PAIR選択／解除はmessage timerを待たず、操作時に旧RT authorityを失効する。
    停止中にpairを変更して直ちに再生しても、古いmappingとMATCHからPREやBlindを復活させない。

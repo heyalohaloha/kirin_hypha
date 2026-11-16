@@ -52,7 +52,7 @@ void ReferenceComparisonController::appendPendingAudition (
 
 bool ReferenceComparisonController::requestAuditionOnce (int slot, double loudness, double peak)
 {
-    if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
+    if (slot == 3 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     if ((slot != 1 && slot != 2 && slot != 3) || outputDecision (output_owner::Activity::audition).refused()) return false;
     if (slot == 2 && preparingCheck()) return selectC (loudness, peak);
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
@@ -82,7 +82,7 @@ bool ReferenceComparisonController::requestAuditionOnce (int slot, double loudne
 bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety, double loudness, double peak)
 {
     const juce::ScopedLock transaction (targetChoiceLock);
-    if (slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
+    if (slot == 3 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     const auto state = snapshot();
     if (trialActive()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
@@ -151,7 +151,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot, double loudnes
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive, double nowSeconds)
 {
     const juce::ScopedLock transaction (targetChoiceLock);
-    if (pendingSlot() == 2 && targets.snapshot().collection.selected.isNotEmpty()) { selectA(); return; }
+    if (pendingSlot() == 3 && targets.snapshot().collection.selected.isNotEmpty()) { selectA(); return; }
     if (callbackLive && preparingCheck() && check.awaitingPreparedLevel()) check.supplyPreparedLevel (loudness, peak);
     if (callbackLive && preparingReference() && reference.awaitingPreparedLevel()) reference.supplyPreparedLevel (loudness, peak);
     reconcileVersionBlindSession();

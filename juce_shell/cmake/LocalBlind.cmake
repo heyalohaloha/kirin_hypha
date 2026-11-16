@@ -145,8 +145,8 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_compile_definitions(KirinLiveRecoveryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
     target_include_directories(KirinLiveRecoveryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinLiveRecoveryProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
-    # One part per item; each budget is about three times the measured local run (2 s, 38 s, 11 s).
-    foreach(part_budget IN ITEMS presentation:30 notices:120 host:45)
+    # One part per item, with time for the fixture and slower native hosts.
+    foreach(part_budget IN ITEMS presentation:30 notices:120 host:45 choice:60 trace:60)
         string(REPLACE ":" ";" part_budget "${part_budget}")
         list(GET part_budget 0 part)
         list(GET part_budget 1 budget)
@@ -181,11 +181,21 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_link_libraries(KirinLiveBlindProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
     add_test(NAME kirin_live_blind_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
+    add_test(NAME kirin_candidate_tail_all_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --candidate-tail-all-only)
+    set_tests_properties(kirin_candidate_tail_all_product PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_candidate_tail_pair_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --candidate-tail-pair-only)
+    set_tests_properties(kirin_candidate_tail_pair_product PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_candidate_tail_loop_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --candidate-tail-loop-only)
+    set_tests_properties(kirin_candidate_tail_loop_product PROPERTIES TIMEOUT 90)
     add_test(NAME kirin_live_blind_reuse_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --reuse)
     set_tests_properties(kirin_live_blind_reuse_product PROPERTIES TIMEOUT 170)
     # The full run also walks thirty REAPER loops sample by sample through every wrap.
-    set_tests_properties(kirin_live_blind_product PROPERTIES TIMEOUT 420)
+    # The hosted Windows runner (two cores) needs more than the 420 s a desktop needs.
+    set_tests_properties(kirin_live_blind_product PROPERTIES TIMEOUT 900)
     add_test(NAME kirin_live_blind_loop_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --loop)
     # 100 real-time named PRE laps + 100 real-time Blind laps, plus setup/END assertions.
@@ -309,6 +319,8 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_link_libraries(KirinEditorSurfaceProductTests PRIVATE KirinHyphaPOST
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_editor_surface_product COMMAND KirinEditorSurfaceProductTests)
+    add_test(NAME kirin_editor_keep_tail_timeout_product COMMAND KirinEditorSurfaceProductTests --keep-tail-timeout-only)
+    set_tests_properties(kirin_editor_keep_tail_timeout_product PROPERTIES TIMEOUT 90)
     set_tests_properties(kirin_editor_surface_product PROPERTIES TIMEOUT 240)
 endif()
 

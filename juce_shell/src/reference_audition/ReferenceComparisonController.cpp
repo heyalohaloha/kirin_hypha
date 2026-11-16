@@ -10,11 +10,19 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
       version (root, [this] (bool active) { return admit (1, active); }, true, {}, selectionReady),
       check (root, [this] (bool active) { return admit (2, active); }, false, {}, selectionReady),
       reference (root, [this] (bool active) { return admit (3, active); }, false, {}, selectionReady),
-      targets (stateChanged, [this] (bool selected) { check.setDataOnlySelection (selected); }),
+      targets (stateChanged, [this] (bool selected) { reference.setDataOnlySelection (selected); },
+               juce::Time::getMillisecondCounterHiRes,
+               [this] (const juce::StringArray& ids, std::uint64_t epoch) {
+                   const juce::ScopedLock transaction (targetChoiceLock);
+                   const auto current = targets.snapshot();
+                   if (current.restoreEpoch != epoch) return;
+                   juce::StringArray present;
+                   for (const auto& id : ids) if (current.collection.find (id)) present.add (id);
+                   showNewTargets (present, current);
+               }),
       visual ([this] {
           const auto slot = viewedSlot.load (std::memory_order_acquire);
           auto binding = slotController (slot).visualBinding();
-          if (slot == 2) if (const auto blocks = targets.cueBlocks(); blocks > 0) binding.cueLengthBlocks = blocks;
           if (slot != 1)  // V の図は A の窓を使わない
               binding.aDisplayWindowBlocks = visualPreferences->aWindows().blocksOf (slot, binding.cueLengthBlocks);
           binding.songWanted = slot == 2 && visualPreferences->checkSong();
@@ -48,7 +56,7 @@ bool ReferenceComparisonController::admit (int slot, bool active)
     const auto outside = active ? external() : 0;
     const juce::ScopedLock lock (gateLock);
     if (closing) return !active;
-    if (active && slot == 2 && targets.snapshot().collection.selected.isNotEmpty()) return false;
+    if (active && slot == 3 && targets.snapshot().collection.selected.isNotEmpty()) return false;
     const int bit = 1 << slot;
     if (active)
     {
@@ -264,7 +272,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.versionReady = versionId.isNotEmpty() && b.sourceKind == "work_version"
         && result.selectedVersionId == b.presetId + "/" + b.checkId + "/" + b.candidateId
         && b.state == RuntimeState::ready && b.auditionBuffered;
-    result.checkReady = targets.snapshot().collection.selected.isEmpty() && c.state == RuntimeState::ready && c.auditionBuffered;
+    result.checkReady = c.state == RuntimeState::ready && c.auditionBuffered;
     // B（REF）。選んだ曲が公開され、音の準備ができていれば押してすぐ鳴る。
     result.referenceSelection = std::make_shared<const Snapshot> (r);
     result.songSets = r.songSets;
@@ -324,7 +332,6 @@ bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>
    #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     if (beforeCheckCommit) beforeCheckCommit();
    #endif
-    targets.select ({});
     if (viewedSlot.load (std::memory_order_acquire) != 1) viewedSlot.store (2, std::memory_order_release);
     // 同じ選択（世代が進まない）は鳴らしたまま。Kirin OS の準備を待つ CHECK SET は C を止めて手放す。
     const auto after = check.requestedGeneration();
@@ -341,6 +348,19 @@ bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCandidate (id); }); }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCue (id); }); }
+void ReferenceComparisonController::showNewTargets (const juce::StringArray& ids, const TargetSnapshot& current)
+{
+    if (ids.isEmpty()) return;
+    const auto source = reference.snapshot();
+    juce::String selectedSet;
+    { const juce::ScopedLock lock (selectionLock); selectedSet = songSetId; }
+    const auto found = std::find_if (source.songSets.begin(), source.songSets.end(), [&selectedSet] (const auto& set) { return set.id == selectedSet; });
+    const auto chosen = found != source.songSets.end() ? found : source.songSets.begin();
+    juce::StringArray initial;
+    if (chosen != source.songSets.end()) for (const auto& song : chosen->songs) initial.add (song.id);
+    for (const auto& target : current.collection.items) initial.add (target.id);
+    visualPreferences->showNewTargets (ids, initial);
+}
 bool ReferenceComparisonController::makeTarget()
 {
     if (trialActive()) return false;
@@ -355,21 +375,29 @@ bool ReferenceComparisonController::makeTarget()
     const juce::ScopedLock transaction (targetChoiceLock);
     if (trialActive()) return false;
     if (! targets.add (std::move (target), epoch)) return false;
-    return chooseTarget (id, epoch);
+    showNewTargets ({ id }, targets.snapshot());
+    return selectVisualSlot (3);
 }
 bool ReferenceComparisonController::chooseTarget (const juce::String& id, std::uint64_t restoreEpoch)
 {
     const juce::ScopedLock transaction (targetChoiceLock);
     if (trialActive() || ! targets.select (id, restoreEpoch)) return false;
-    check.invalidateMatchOffer();
-    check.selectA(); // Also invalidate a prepared start and a deferred return to the old C.
-    if (normalOutputSlot.load (std::memory_order_acquire) == 2 || pendingSlot() == 2) selectA();
+    reference.invalidateMatchOffer();
+    reference.selectA(); // A target has no audio; stop a B audition or pending B start.
+    if (normalOutputSlot.load (std::memory_order_acquire) == 3 || pendingSlot() == 3) selectA();
     {
         const juce::ScopedLock lock (selectionLock);
-        if (pendingAudition.view.slot == 2) clearPendingAudition(); // Include a finished C failure; preserve B and V intents.
+        if (pendingAudition.view.slot == 3) clearPendingAudition();
     }
-    selectVisualSlot (2);
+    selectVisualSlot (3);
     if (stateChanged) stateChanged();
+    return true;
+}
+bool ReferenceComparisonController::removeTarget (const juce::String& id)
+{
+    const juce::ScopedLock transaction (targetChoiceLock);
+    if (trialActive() || ! targets.remove (id)) return false;
+    visualPreferences->forgetTarget (id);
     return true;
 }
 bool ReferenceComparisonController::selectVisualSlot (int slot)

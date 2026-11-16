@@ -89,6 +89,9 @@ void SpectrumComponent::setSignalActive (bool active)
     signalActive = active;
     frames.setEnabled (active && animationVisible);
     if (! active) { curveDirty = false; resumeCurve = true; }
+    // Stopped: the slow PEAK line keeps its values and its clock stands still until sound returns.
+    if (active) peakFall.resume (juce::Time::getMillisecondCounterHiRes());
+    else peakFall.pause (displayedPost, juce::Time::getMillisecondCounterHiRes());
     repaint();
 }
 
@@ -123,7 +126,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             readoutPre, readoutPost, readoutDelta, readoutDeltaValid,
             markedDelta, markedDeltaValid,
             focusTrail.get(), modeActionNotice, comparisonStatus, analysisOwnerNames, guideOverlay,
-            &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
+            &absoluteHistory, displaySettings.slowPeak() ? peakFall.values() : absoluteHistory.peakHold(), absoluteObservation,
             midSideObservation, shapeObservation,
             haveSnapshot, signalActive && currentSnapshotValid()
                 && (absoluteObservation || pairingLoopBlock != live_compare::LoopPairingBlock::auCycle),
@@ -131,7 +134,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             presentationContext, pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
                 ? pairingLoopBlock : live_compare::LoopPairingBlock::none,
             signalActive && currentPostSnapshotValid(), lowScope, average, displaySettings,
-            &peakReadout.peaks, &backdrop
+            &peakReadout.peaks, &backdrop, &spectrumPaths
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }

@@ -27,7 +27,6 @@ static void require (bool ok, const char* message)
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
-
 // One-pass Blind end to end (disposable fixture): real PRE/POST processors, Rust C ABI, pair
 // discovery, shared live ring and product editor. Default POST is phase-inverted at -6.02 dB;
 // the approval mode clips a boosted input, so BLIND lowers POST at once (nothing to approve). Direct and reused MATCH entries use one playback,
@@ -385,10 +384,10 @@ private:
                 ++stage;
                 break;
             case 10:
-                // No callbacks: audio time is frozen. Observe END across real message-thread ticks.
+                // No callbacks and a frozen callback clock: less than half a second of quiet (INV-LC14).
                 if (std::chrono::steady_clock::now() - pendingAt < std::chrono::milliseconds (250)) break;
                 require (post->liveCompareStatus().finishing && std::abs (post->liveCompareStatus().postActual - held) <= 0.0f,
-                         "without callbacks END stays pending and never claims unity");
+                         "a quiet under half a second keeps END pending and never claims unity");
                 offline.store (true);
                 suspendAudio.store (false);
                 observedBlock = audioBlocks.load();
@@ -427,7 +426,6 @@ private:
 
    #include "LiveBlindAudioFixture.h"
    #include "LiveBlindLoopStallStep.h"
-
     // Retain the 8192-frame host block; the synthetic clock defines callback cadence.
     static constexpr int blockFrames = 8192;
     Clock clock, postClock;
@@ -459,7 +457,6 @@ private:
     bool demanded = false;
 };
 }
-
 int main (int argc, char** argv)
 {
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
@@ -473,12 +470,15 @@ int main (int argc, char** argv)
     hypha::i18n::holdLanguage (true);
     if (argc == 3 && std::string (argv[2]) == "--cubase-cycle-only") { hypha::tests::verifyCubaseCycleProduct (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-stopped-return-only") { hypha::tests::verifyCandidateStoppedSourceReturn (require); return 0; }
-    if (argc == 3 && std::string (argv[2]) == "--candidate-return-only")
-    { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
-    if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only")
-    { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
-    if (argc == 3 && std::string (argv[2]) == "--candidate-only")
-    { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-return-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateGenericLoopReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--return-entry-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateReturnEntry (require); hypha::tests::verifyCandidateBypassedReturnEntry (require); hypha::tests::verifyCandidateOfflineReturnEntry (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--after-tail-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyAfterTailBlockedReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-blind-start-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateBlindStart (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-tail-loop-only") { hypha::tests::verifyCandidateShortLoopTail (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-tail-pair-only") { hypha::tests::verifyCandidateTailAfterBusyStart (require); hypha::tests::verifyCandidateTailWithdrawalReceipt (require, false); hypha::tests::verifyCandidateTailWithdrawalReceipt (require, true); hypha::tests::verifyCandidateExpiredSourceTail (require, false); hypha::tests::verifyCandidateExpiredSourceTail (require, true); hypha::tests::verifyTailSurvivesPairChange (require); hypha::tests::verifyCandidatePostOnlyReturn (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-tail-all-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateTailOwnership (require); hypha::tests::verifyAllKeepWaitsForOtherTail (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--blind-deadline-only") { hypha::tests::verifyLiveBlindPreparationDeadline (require); hypha::tests::verifyLiveBlindDeadlineReturnsPost (require); return 0; }
+    if (argc == 3 && std::string (argv[2]) == "--candidate-only") { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
     using Reason = hypha::live_compare::RecoveryReason;
     const auto mode = argc == 3 ? std::string (argv[2]) : std::string();
     if (mode.empty())

@@ -6,6 +6,7 @@
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaTextStyle.h"
 #include "HyphaFooterNoticeFont.h"
+#include "HyphaFooterActionFont.h"
 #include "HyphaQueuedStartText.h"
 
 #include <cmath>
@@ -71,7 +72,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     captureButton.setVisible (false); // Image Capture has one entry in MENU.
     localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
     unavailable::set (localBlindButton, ! keepActive, "Finish Keep / Record before PRE / POST Blind");
-    localBlindButton.setButtonText ("BLIND");
+    localBlindButton.setButtonText (reference ? "LIVE BLIND" : "BLIND");
     localBlindButton.setTooltip (keepActive ? juce::String ("Finish Keep / Record before PRE / POST Blind")
         : localBlindButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     // A POST that offers comparison keeps LISTEN and A/B; greyed, a click says why (INV-LC9).
@@ -104,7 +105,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
 
 int View::footerButtonWidth (const juce::String& text) const
 {
-    const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
+    const auto actionFont = footer_action_font::forText (presentationContext(), text);
     return juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, text) + 12.0f));
 }
 
@@ -130,7 +131,7 @@ int View::statusStripHeight() const
 {
     const auto context = presentationContext();
     const int minimum = juce::roundToInt (monoFont (context, typography::TextRole::status).getHeight()) + 5;
-    return feedbackText.isEmpty() ? minimum : juce::jmax (minimum,
+    return feedbackText.isEmpty() || compactReferenceNotices ? minimum : juce::jmax (minimum,
         footer_notice_font::wrappedHeight (context, feedbackText, bodyArea.getWidth() - 12) + 6);
 }
 

@@ -23,6 +23,40 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceStatusLine();
     verifyReferenceStatusFits();
     verifyReferenceCheckPage();
+    {
+        auto state = named ("ready");
+        state.separateComparisons = true; state.comparisonSlot = 2; state.blindLargeScreen = true;
+        state.checks = { { "one/a", "One  /  Song A" }, { "one/b", "One  /  Song B" },
+                         { "two/c", "Two  /  Song A" }, { "two/d", "Two  /  Song B" },
+                         { "three/e", "Three  /  Song A" } };
+        state.checks[0].sourceIdentityKey = state.checks[2].sourceIdentityKey = state.checks[4].sourceIdentityKey = "source-a";
+        state.checks[1].sourceIdentityKey = state.checks[3].sourceIdentityKey = "source-b";
+        state.checkId = "one/b"; state.song.chosen = true;
+        reference_ui::Component panel; panel.setVisible (true);
+        panel.setPresentationContext (presentation::forEditor (900, 600)); panel.setSize (888, 470); panel.setState (state);
+        auto* chooser = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+        require (chooser != nullptr, "Check selector exists");
+        juce::String chosen; panel.onSelectCheck = [&] (const juce::String& id) { chosen = id; };
+        chooser->setSelectedId (2, juce::sendNotificationSync);
+        require (chosen == "two/d" && panel.state().song.chosen, "Check changes preserve source identity and SONG");
+        state.checkId = chosen; panel.setState (state);
+        chooser->setSelectedId (3, juce::sendNotificationSync);
+        state.checkId = chosen; panel.setState (state);
+        const auto notice = panel.statusTextLayout (juce::Rectangle<int> (0, 0, 800, 24)).line.text;
+        require (chosen == "three/e" && notice == "SONG CHANGED: NOT IN THIS CHECK"
+                     && i18n::translate (notice, i18n::Language::japanese) != notice,
+                 "missing source picks an available song and explains the change");
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const int width : { 300, 375, 450, 600, 900 })
+        {
+            const i18n::ScopedLanguage scoped (language);
+            panel.setPresentationContext (presentation::forEditor (width, width * 2 / 3));
+            panel.setSize (width - 12, width * 2 / 3 - 64);
+            const auto text = panel.statusTextLayout (panel.footerStatusStrip().getLocalBounds());
+            require (text.line.text.startsWith ("SONG CHANGED: NOT IN THIS CHECK") && ! text.cut,
+                     "song change reason remains visible and fits at every size in both languages");
+        }
+    }
     verifyReferenceBlauertReadout();
     verifyReferenceAComparison();
     verifyReferenceADirection();
@@ -66,6 +100,7 @@ inline void verifyReferenceAbcvRoles()
         panel.setPresentationContext (presentation::forEditor (size.width, size.height));
         panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
         auto state = named ("ready");
+        state.targetsEnabled = true;
         state.songSets = { { "set-1", "Mastering refs   1 / 2" }, { "set-2", "Loud   2 / 2" } };
         state.songSetId = "set-1";
         state.songs = { { "e1/e1/song-1", "Song 1" }, { "e2/e2/song-2", "Song 2   PREPARING" } };
@@ -106,7 +141,7 @@ inline void verifyReferenceAbcvRoles()
             };
             visit (panel);
             visit (panel.footerStatusStrip());
-            require (buttons.size() == 12, "the twelve REF buttons (A B C V, MATCH, VERSION BLIND, action, LOOP, FOLLOW A and "
+            require (buttons.size() == 13, "the thirteen REF buttons (A B C V, DETAILS, MATCH, VERSION BLIND, action, LOOP, FOLLOW A and "
                                                "the song offset's three) are all visited (" + juce::String (static_cast<int> (buttons.size())) + ")");
         }
         auto* a = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-a"));
@@ -137,16 +172,18 @@ inline void verifyReferenceAbcvRoles()
                      && panel.getLocalBounds().contains (set->getBounds()) && panel.getLocalBounds().contains (song->getBounds())
                      && ! set->getBounds().intersects (song->getBounds()),
                  "the B page shows the Reference set and its songs at every size, " + juce::String (size.width));
-        // B・C の流し方（2026-11-11）：B の画面はどの大きさでも FOLLOW A を切り替えられる（曲の欄と重ならず、字が切れない）。
-        // 300% は LOOP と並び、FOLLOW A のときだけ手のずらし。
+        // B の流し方は100%ではDETAILSにあり、300%では手のずらしも使える。
         {
             const bool large = presentation::forEditor (size.width, size.height).density == observatory::Density::inspection;
+            auto* bar = panel.findChildWithID ("reference-targets");
+            auto* details = dynamic_cast<juce::Button*> (bar->findChildWithID ("reference-target-details"));
+            if (size.width == 300) { require (details != nullptr, "compact B details exists"); details->onClick(); }
             auto* loop = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-loop"));
             auto* follow = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-follow-a"));
             auto* offset = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-offset"));
             const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::action,
                                          typography::Composition::information);
-            require (loop && follow && offset && follow->isVisible() && loop->isVisible() == large && ! offset->isVisible()
+            require (loop && follow && offset && follow->isVisible() && loop->isVisible() == (large || size.width == 300) && ! offset->isVisible()
                          && ! follow->getToggleState() && panel.getLocalBounds().contains (follow->getBounds())
                          && ! follow->getBounds().intersects (song->getBounds()) && ! follow->getBounds().intersects (set->getBounds())
                          && text_style::shownWidth (font, "FOLLOW A") <= static_cast<float> (follow->getWidth()),
@@ -158,6 +195,7 @@ inline void verifyReferenceAbcvRoles()
                          && (! large || (panel.getLocalBounds().contains (offset->getBounds()) && offset->getButtonText() == "0.00 S")),
                      "FOLLOW A shows the song's offset on the large B page: " + juce::String (size.width));
             panel.setState (state);
+            if (size.width == 300) details->onClick();
         }
         {
             juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
@@ -279,12 +317,23 @@ inline void verifyReferenceAbcvRoles()
         set->setSelectedId (2, juce::sendNotificationSync);
         require (auditions == 1 && chosenSong == "e2/e2/song-2" && chosenSet == "set-2" && explained.isEmpty(),
                  "B plays, and a song or a set is chosen on the B page");
+        const auto readyImage = b->createComponentSnapshot (b->getLocalBounds());
 
         auto empty = state;
         empty.songSets.clear(); empty.songs.clear(); empty.songId.clear(); empty.songSetId.clear();
         empty.referenceReady = empty.referenceArmable = false;
         empty.referenceStep = reference_ui::SourceStep::rankSet;  // editor が Kirin OS の届き方と B セットから決める
         panel.setState (empty);
+        const auto unavailableImage = b->createComponentSnapshot (b->getLocalBounds());
+        long readyInk = 0, unavailableInk = 0;
+        for (int y = 3; y < readyImage.getHeight() - 3; ++y)
+            for (int x = 3; x < readyImage.getWidth() - 3; ++x)
+            {
+                const auto readyPixel = readyImage.getPixelAt (x, y), unavailablePixel = unavailableImage.getPixelAt (x, y);
+                readyInk += readyPixel.getRed() + readyPixel.getGreen() + readyPixel.getBlue();
+                unavailableInk += unavailablePixel.getRed() + unavailablePixel.getGreen() + unavailablePixel.getBlue();
+            }
+        require (unavailableInk < readyInk, "an unavailable B is visibly quieter than a ready B");
         b->onClick();
         require (auditions == 1 && explained == "B: Rank a Reference set for Hypha in Kirin OS",
                  "a B that cannot play says why instead of doing nothing");
@@ -310,11 +359,10 @@ inline void verifyReferenceAbcvRoles()
         require (! set->isVisible() && ! song->isVisible() && version->isVisible(),
                  "the V page keeps its own selectors");
 
-        // 300% 未満の C と V は薄く（理由の代わりに「300% で開く」）、押すと 300% に広げてその役の画面を
-        // 開くだけで、音は変えない。300% では今までどおり鳴らす。
+        // C は100%ではそのまま試聴し、125–200%では広げる。V はどの大きさでも試聴する。
         auto sized = state;
         sized.blindLargeScreen = size.width >= 900;
-        sized.versionReady = sized.checkReady = true;  // 鳴らせる C と V（300% では押せば鳴る）
+        sized.versionReady = sized.checkReady = true;  // 鳴らせる C と V
         sized.versionStep = sized.checkStep = reference_ui::SourceStep::ready;
         panel.setState (sized);
         int opened = 0, visual = 0;
@@ -327,13 +375,14 @@ inline void verifyReferenceAbcvRoles()
         const auto openedC = opened, visualC = visual;
         opened = visual = 0;
         v->onClick();
-        if (sized.blindLargeScreen)
-            require (opened == 0 && openedC == 0 && heardC && heardV && v->getTooltip() != "Open V at 300%",
-                     "at 300% pressing C and V plays them");
+        if (sized.blindLargeScreen || size.width == 300)
+            require (opened == 0 && openedC == 0 && heardC && heardV && c->getTooltip() != "Open C at 300%"
+                         && v->getTooltip() != "Open V at 300%",
+                     "at 100% and 300% pressing C and V plays them");
         else
-            require (openedC == 2 && visualC == 2 && opened == 1 && visual == 1 && ! heardC && ! heardV
-                         && c->getTooltip() == "Open C at 300%" && v->getTooltip() == "Open V at 300%",
-                     "below 300% V and C open their page at 300% without changing the sound");
+            require (openedC == 2 && visualC == 2 && opened == 0 && ! heardC && heardV
+                         && c->getTooltip() == "Open C at 300%" && v->getTooltip() != "Open V at 300%",
+                     "at 125-200% C opens its page and V plays at the selected size");
         if (sized.blindLargeScreen)
         {
             sized.transportPlaying = true; sized.versionReady = sized.versionArmable = false;

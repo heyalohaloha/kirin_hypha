@@ -1,6 +1,7 @@
 // 出力の持ち主の表（OutputOwnership.h）を、決まりの元（R-12・README・INV-S33・INV-S47・INV-LC4・INV-LC14）から
 // 状態ごとに書いた期待と突き合わせる。活動・状態の種類を足すと、ここの列を書き足すまで通らない。
 #include "../src/OutputOwnership.h"
+#include "../src/HyphaOutputOwnershipText.h"
 #include "../src/live_compare/LiveCompareAuthority.h"
 #include "../src/HyphaLiveStartAfterReturn.h"
 #include "../src/HyphaQueuedStartText.h"
@@ -131,6 +132,11 @@ void decisionsCombineStates()
     {
         // A waiting press names what it waits for: stopped first, then the return, then the A/B tail.
         using namespace hypha::live_compare_ui;
+        require (std::string (realtimeBounceNotice) == "Before realtime bounce, press END and wait for normal level",
+                 "bounce guidance says what END must precede and when the level is ready");
+        require (std::string (hypha::output_owner::refusalText (Reason::liveComparison))
+                     == "Press END to finish the current comparison, then try again",
+                 "the comparison refusal names the action and the next attempt");
         require (queuedWait (false, true, true) == QueuedWait::stopped
                      && queuedWait (true, true, true) == QueuedWait::returning
                      && queuedWait (true, false, true) == QueuedWait::tail
@@ -141,6 +147,59 @@ void decisionsCombineStates()
             for (auto wait : { QueuedWait::returning, QueuedWait::tail, QueuedWait::stopped, QueuedWait::other })
                 texts.insert (queuedStartNotice (start, wait));
         require (texts.size() == 12, "every start and wait has its own sentence");
+        for (const auto start : { QueuedStart::listen, QueuedStart::blind, QueuedStart::candidate })
+        {
+            const std::string stopped = queuedStartNotice (start, QueuedWait::stopped);
+            require (stopped.find ("up to 10 s") != std::string::npos && stopped.find ("Play to continue") == std::string::npos,
+                     "a stopped start waits automatically rather than requiring playback");
+        }
+        for (const auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB })
+        {
+            const std::string stopped = afterTailNotice (action, false);
+            require (stopped.find ("up to 10 s") != std::string::npos && stopped.find ("Play to continue") == std::string::npos,
+                     "a stopped tail also has a bounded automatic wait");
+        }
+        for (const auto action : { AfterTail::keepPair, AfterTail::keepAll })
+            require (std::string (afterTailNotice (action, false)) == "Play to continue, then Keep",
+                     "a stopped Keep waits for playback: only ordinary audio through B clears the tail");
+        struct FakeBypass { float v = 0.0f; float getValue() const { return v; } };
+        struct FakeStatus { bool finishing = false; };
+        struct FakeHost { bool returning = false, offline = false, ownTail = false, otherTail = false, active = true; FakeBypass bypass;
+            bool candidateReturning() const { return returning; } FakeStatus liveCompareStatus() const { return {}; }
+            bool hostComponentIsActive() const { return active; }
+            bool isNonRealtime() const { return offline; } const FakeBypass* getBypassParameter() const { return &bypass; }
+            bool candidateTailPending() const { return ownTail; } bool allKeepTailPending() const { return ownTail || otherTail; }
+            bool isPlaying() const { return true; } };
+        FakeHost host; host.bypass.v = 1.0f; // the return finished; only the tail is still unproven
+        require (returnBlock (host) == ReturnBlock::none && returnBlock (host, true) == ReturnBlock::bypass,
+                 "a tail still pending under bypass is blocked for Keep, not for V/C/B's ten-second end");
+        host.offline = true;
+        require (returnBlock (host, true) == ReturnBlock::offline
+                     && std::string (afterTailNotice (AfterTail::keepAll, true, returnBlock (host, true))) == keepOfflineWaitNotice,
+                 "a Keep waiting for the tail during an offline render says so");
+        FakeHost other; other.bypass.v = 1.0f; other.otherTail = true; // this POST is clear; another POST's tail is pending
+        require (std::string (afterTailWaitNotice (AfterTail::keepAll, other)) == keepOtherTailNotice
+                     && std::string (afterTailWaitNotice (AfterTail::keepPair, other)) == "Clearing the A/B tail, then Keep",
+                 "All Keep waiting for another POST says so and does not blame this POST's bypass");
+        other.ownTail = true;
+        require (std::string (afterTailWaitNotice (AfterTail::keepAll, other)) == keepBypassWaitNotice,
+                 "this POST's own tail under bypass names the bypass");
+        FakeHost holding; holding.bypass.v = 1.0f; // no press waits here; an All Keep on another POST waits for this tail
+        require (std::string (heldTailNotice (holding)).empty(), "no tail pending says nothing");
+        holding.ownTail = true;
+        require (std::string (heldTailNotice (holding)) == tailBypassNotice, "a held tail names the bypass in its own window");
+        holding.offline = true;
+        require (std::string (heldTailNotice (holding)) == tailOfflineNotice, "a held tail names the offline render");
+        FakeHost off; off.active = false; off.ownTail = true; // the host switched the insert off; the bypass parameter is untouched
+        require (returnBlock (off) == ReturnBlock::none && returnBlock (off, true) == ReturnBlock::bypass
+                     && std::string (afterTailWaitNotice (AfterTail::keepPair, off)) == keepBypassWaitNotice
+                     && std::string (heldTailNotice (off)) == tailBypassNotice
+                     && std::string (keepWaitEndedNotice (off)) == bypassHoldsReturnNotice,
+                 "a host that switches the insert off is named as a bypass, and Keep's end says to turn it on again");
+        off.active = true;
+        require (std::string (keepWaitEndedNotice (off)) == keepTailEndedNotice
+                     && std::string (keepWaitEndedNotice (holding)) == offlineHoldsReturnNotice,
+                 "only an unproven tail asks for one A/B pass; an offline render says so");
         std::set<std::string> afterTail;
         for (auto action : { AfterTail::referenceV, AfterTail::referenceC, AfterTail::referenceB, AfterTail::keepPair })
             for (bool playing : { true, false }) afterTail.insert (afterTailNotice (action, playing));

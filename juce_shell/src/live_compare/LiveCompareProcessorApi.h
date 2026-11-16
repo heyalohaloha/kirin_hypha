@@ -1,7 +1,9 @@
 // Class-scope declarations included by PluginProcessor.h; not a standalone header.
 // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
 // A press that waited passes the restore and pair ticket of its press; a new press takes the latest one.
-hypha::live_compare::StartResult startLiveCompare (std::optional<std::uint64_t> pressedTicket = std::nullopt);
+// lastSide: the LISTEN press starts on the side LISTEN last chose (INV-LC4); BLIND and A/B start on POST.
+hypha::live_compare::StartResult startLiveCompare (std::optional<std::uint64_t> pressedTicket = std::nullopt,
+                                                   bool lastSide = false);
 // LISTEN（reuseSession なら LIVE BLIND）を始めてよいか。出力の持ち主の表（outputDecision）の答え。
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 // INV-LC16：窓を閉じた間の AUTO（message thread だけ）。開き直した窓が同じ session なら続ける。
@@ -23,16 +25,22 @@ void serviceLiveCompareMatch();
 bool takeLiveCompareMatch (hypha::live_compare::MatchPlan&, bool& applied);
 hypha::live_compare::MatchApplication applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
 bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
+// MATCH on/off in a LISTEN (INV-LC13): off keeps the match for on; not turned when there is nothing to turn.
+// On caps a kept boost at the approved ceiling for PRE's true peak now; without AUTO (following) that reads TP LIMIT.
+hypha::live_compare::MatchToggle setLiveCompareMatchOn (bool on, bool following = false);
 void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
 void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC9, AAX only
 void returnLiveComparePostToNormal() noexcept;
 bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
+hypha::live_compare::WideOffset searchLiveCompareWideOffset (bool recentFirst = false);
 void serviceLiveContentTiming();
 bool alignLiveCompare (const hypha::live_compare::OffsetMonitor::Step&, const hypha::live_compare::OffsetEstimate&) noexcept;
 bool liveCompareAlignPending() const noexcept;
-bool alignConfirmationExpired (const hypha::live_compare::Status&, std::uint64_t now) noexcept;
+hypha::live_compare::PreAlignInput preAlignInput (hypha::live_compare::PreAlignEvent) const noexcept;
+void preAlignEvent (hypha::live_compare::PreAlignEvent) noexcept;
 bool candidateAlignUnconfirmed() const noexcept;
+bool liveContentPathProven (const hypha::live_compare::Status&) const noexcept;
 bool liveCompareAutoAlign() const noexcept; // INV-LC28, on unless the user turned it off
 void setLiveCompareAutoAlign (bool enabled) noexcept;
 std::int64_t liveCompareAlignFrames() const noexcept; // frames PRE is read later than K alone says
@@ -68,7 +76,12 @@ bool candidateCompareActive() const noexcept { return liveCompare.candidate.toke
 int candidateMatchSecondsRemaining() const noexcept { return liveCompare.renderer.matchSecondsRemaining(); }
 bool candidateBypassed() const noexcept;
 bool candidateHostInactive() const noexcept;
+// VST3 setActive: false while the host has switched this insert off (it is then not called at all).
+bool hostComponentIsActive() const noexcept { return liveCompare.candidate.hostActive.load (std::memory_order_acquire); }
 bool candidateMeasurementIsolated() const noexcept { return liveCompare.candidate.isolated.load (std::memory_order_acquire); }
+// INV-AB6: the return ended at its deadline alone and B may still carry the comparison's audio.
+// LISTEN, BLIND and measurement go on; Record and Keep accept nothing until the ordinary path is proven.
+bool candidateTailPending() const noexcept { return liveCompare.candidate.tail.load (std::memory_order_acquire) != 0; }
 bool candidateTrackMismatch() const noexcept { return liveCompare.candidate.trackMismatch; }
 void serviceCandidateCompare();
 void endCandidateCompare() noexcept;

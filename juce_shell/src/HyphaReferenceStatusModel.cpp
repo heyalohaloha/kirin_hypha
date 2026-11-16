@@ -4,6 +4,7 @@
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferencePendingUI.h"
+#include "HyphaReferencePreparationWatch.h"
 #include "HyphaReferenceStages.h"
 #include "HyphaTheme.h"
 
@@ -31,7 +32,8 @@ juce::String publicationReturnLine (int change, int slot)
 static juce::String songLine (const State& state)
 {
     if (state.comparisonSlot != 2) return {};
-    if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1";
+    if (state.song.chosen && ! songSupported (state)) return songUnsupportedNotice;
+    if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0";
     if (state.song.shown && state.song.aBeyond) return "A FROM START HOLDS THE DAW'S FIRST 30 MIN";
     return {};
 }
@@ -51,7 +53,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
                  state.status };
     const auto& formatCode = state.comparisonSlot == 1 ? state.versionRejectionCode
         : state.comparisonSlot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
-    if (! state.targetSelected && state.readiness == Readiness::rejected
+    if (state.readiness == Readiness::rejected
         && runtime_view::formatUnreadableCode (formatCode))
         return {StatusKind::unable, runtime_view::rejectedStatus (formatCode)};
     if (state.bSelected)
@@ -99,13 +101,28 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         // ピークの上限で届かず、上限まで上げて鳴らしている（0.5 dB を超えれば A を下げるボタンが出る）。
         const auto under = ! rangeLimited && state.peakShortfallDb > 0.05
             ? "  /  " + juce::String (state.peakShortfallDb, 1) + " DB UNDER A (PEAK LIMIT)" : juce::String {};
+        if (state.comparisonSlot == 2 && state.audibleComparisonSlot == 2 && ! state.originalAudition
+            && state.tracking == Tracking::fixed && ! state.matchProvisional && state.heldAttenuationDb >= -0.05
+            && std::isfinite (state.appliedGainDb) && songLine (state).isEmpty()
+            && state.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+            && state.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE")
+        {
+            const auto gain = gainText (state.appliedGainDb);
+            if (state.peakShortfallDb > 0.05)
+                return { StatusKind::ready, (state.appliedGainDb > 0.05 ? "C raised to its " : state.appliedGainDb < -0.05 ? "C lowered to its " : "C set to its ") + gain + " dB limit. Still "
+                    + juce::String (state.peakShortfallDb, 1) + " dB below A" };
+            return { StatusKind::ready, "C matched to A at " + gain + " dB" };
+        }
         // 大事な順（入りきらなければ後ろから区切りごとに省く、HyphaReferenceStatusRow.cpp）：合わせ方、A との差、
         // 下げた A、PRE の Δ。A を下げるボタンの横では行が狭いので、ボタンが直す差だけを言う。
         if (state.action.kind == ActionKind::lowerAAndPlay && state.peakShortfallDb > 0.05)
             return { StatusKind::ready, juce::String (std::max (state.peakShortfallDb, state.rangeShortfallDb), 1) + " DB UNDER A" };
         // B の画面は、Kirin OS の新しい公開を読めず前の公開で鳴らしている理由も言い続ける（2026-11-11）。
         const auto song = songLine (state);
-        const auto storage = (song.isNotEmpty() ? "  /  " + song : juce::String {})
+        const bool showSongFirst = song == songUnsupportedNotice && under.isEmpty() && lowered.isEmpty()
+            && state.status != "LOW DISK SPACE / REFERENCE AVAILABLE"
+            && state.status != "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE";
+        const auto storage = (song.isNotEmpty() && ! showSongFirst ? "  /  " + song : juce::String {})
             + (state.status == "LOW DISK SPACE / REFERENCE AVAILABLE"
             || state.status == "TEMPORARY STORAGE UNAVAILABLE / REFERENCE AVAILABLE" ? "  /  " + state.status : juce::String {})
             + (state.comparisonSlot == 3 && state.publicationIssue.isNotEmpty() ? "  /  " + state.publicationIssue : juce::String {});
@@ -118,26 +135,24 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             return { StatusKind::waiting,
                      (warnings.isEmpty() ? positioning : warnings.substring (5) + "  /  " + positioning) + lowered };
         }
-        return { StatusKind::ready, how + under + lowered + storage + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
+        return { StatusKind::ready, (showSongFirst ? song + "  /  " : juce::String {}) + how + under + lowered + storage + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (state.kirinOsRequest && state.action.kind != ActionKind::none)
         return { StatusKind::unable, state.status };
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {
-        // 自動で進む処理は、長く待っていても待機として表示する。
+        // 自動で進む処理は、長く待っていても待機として表示する。押してからの全体の上限を越えた待ちは、何が鳴っていて
+        // 何をすればよいかを先に言う（3 秒の読み込みの遅れの札より先）。
+        const auto letter = juce::String (roleLetter (state.pendingAudition.slot));
+        if (state.pendingAudition.waiting() && state.preparationOverdue == PreparationWatch::pressOverdueLine)
+            return { StatusKind::waiting, letter + ": " + state.preparationOverdue };
         if (state.pendingAudition.waiting() && state.pendingAudition.reasonCode == "reference_page_wait_slow")
             return { StatusKind::waiting, pending };
         if (state.pendingAudition.waiting() && state.preparationOverdue.isNotEmpty())
-            return { StatusKind::waiting, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
+            return { StatusKind::waiting, letter + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
     }
     if (state.osAccess == os_access::State::unowned) return { StatusKind::unable, state.status };
-    if (state.targetSelected)
-    {
-        const auto lowered = state.heldAttenuationDb < -0.05 && ! returnInFooter
-            ? " / A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
-        return { StatusKind::ready, "DATA ONLY" + lowered };
-    }
     if (! state.separateComparisons)
         return { state.readiness == Readiness::rejected ? StatusKind::unable
                  : state.readiness == Readiness::ready && state.auditionBuffered ? StatusKind::ready : StatusKind::waiting,

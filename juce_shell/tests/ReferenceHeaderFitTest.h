@@ -14,6 +14,7 @@ inline void verifyChartHeader (juce::Rectangle<float> cell, presentation::Contex
                                const juce::String& detail)
 {
     using reference_guide_contract::require;
+    context.referenceCheck = true;
     text_style::ShownTextLog log;
     juce::Image image (juce::Image::ARGB, juce::roundToInt (cell.getRight()) + 1,
                        juce::roundToInt (cell.getBottom()) + 1, true);
@@ -55,6 +56,7 @@ inline void verifyChartHeader (juce::Rectangle<float> cell, presentation::Contex
 inline void verifyHeaderLayouts (reference_ui::Component& panel, reference_ui::State state,
                                 presentation::Context context = presentation::forEditor (900, 600))
 {
+    context.referenceCheck = true;
     for (const auto* layout : {"auto", "equal", "main"})
     {
         state.presentationLayout = layout; panel.setState (state);

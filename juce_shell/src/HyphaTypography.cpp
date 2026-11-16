@@ -173,6 +173,13 @@ juce::Font labelFont (const presentation::Context& context,
     return makeLabelFont (typography::resolve (context, role, composition).fontHeight);
 }
 
+juce::Font labelFont (const presentation::Context& context, typography::BlindImageText role, int nameSize)
+{
+    jassert (context.output == presentation::OutputTarget::capture);
+    juce::ignoreUnused (context);
+    return makeLabelFont (typography::blindImageFontHeight (role, nameSize));
+}
+
 juce::Font monoFont (const presentation::Context& context,
                      typography::TextRole role,
                      typography::Composition composition)

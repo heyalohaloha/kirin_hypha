@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaShortcutBindings.h"
 #include "HyphaQueuedStartText.h"
+#include "HyphaLanguage.h"
 
 #include <array>
 #include <cstdlib>
@@ -46,10 +47,10 @@ void View::configureComparisonEntries()
     liveCompareButton.setTooltip (liveCompareButton.getDescription() + "\n" + live_compare_ui::realtimeBounceNotice);
     liveCompareButton.onClick = [this] { if (onLiveCompareStart) onLiveCompareStart(); };
     livePreButton.setComponentID ("observatory-live-pre");
-    livePreButton.setTitle ("PRE");
+    livePreButton.setTitle (i18n::tr ("LISTEN: play PRE"));
     livePreButton.onClick = [this] { if (onLiveCompareSelect) onLiveCompareSelect (true); };
     livePostButton.setComponentID ("observatory-live-post");
-    livePostButton.setTitle ("POST");
+    livePostButton.setTitle (i18n::tr ("LISTEN: play POST"));
     livePostButton.onClick = [this] { if (onLiveCompareSelect) onLiveCompareSelect (false); };
     liveMatchButton.setComponentID ("observatory-live-match");
     liveMatchButton.setTitle ("MATCH");
@@ -98,7 +99,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
             ? "RETURNING " + signedGain (-liveCompareState.postHeldTenthsDb) : juce::String ("RETURNING");
         liveReturnButton.setButtonText (pending);
         liveReturnButton.setTitle (pending);
-        liveReturnButton.setDescription ("Ended; normal level returns with audio");
+        liveReturnButton.setDescription ("Ended; POST back to normal within 0.5 s");
         liveReturnButton.setTooltip (liveReturnButton.getDescription());
         liveReturnButton.setStatusOnly (true);
         liveReturnButton.setVisible (true);
@@ -130,12 +131,12 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const juce::String postNamed = postLowered ? postLabel + " " + signedGain (state.postHeldTenthsDb) : postLabel;
     liveEndButton.setButtonText (state.finishing ? "RETURNING"
         : postLowered ? "END " + signedGain (-state.postHeldTenthsDb) : juce::String ("END"));
-    unavailable::set (liveEndButton, ! state.finishing, "Ended; normal level returns with audio");
-    liveEndButton.setTitle (liveEndButton.getButtonText());
+    unavailable::set (liveEndButton, ! state.finishing, "Ended; POST back to normal within 0.5 s");
+    liveEndButton.setTitle (i18n::tr (liveEndButton.getButtonText()));
     unavailable::set (localBlindButton, state.blindAvailable && ! state.finishing,
-                      state.finishing ? "Ended; normal level returns with audio" : state.blindRefusal);
+                      state.finishing ? "Ended; POST back to normal within 0.5 s" : state.blindRefusal);
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton })
-        unavailable::set (*button, ! state.finishing, "Ended; normal level returns with audio");
+        unavailable::set (*button, ! state.finishing, "Ended; POST back to normal within 0.5 s");
     auto withBlind = [this] (juce::Array<juce::Button*> set)
     {
         if (liveCompareState.blindAvailable) set.insert (3, &localBlindButton);
@@ -177,30 +178,32 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         : state.matched ? "Listen to PRE, the input of this chain, at the level MATCH set"
                         : "Listen to PRE, the input of this chain. MATCH levels it to POST";
     livePreButton.setButtonText (brief ? preLabel : named);
-    livePreButton.setTitle (preLabel);
-    livePreButton.setDescription (state.candidate ? "Listen to A" : preHelp);
+    livePreButton.setTitle (state.candidate ? preLabel : i18n::tr ("LISTEN: play PRE"));
+    livePreButton.setDescription (state.candidate ? juce::String ("Listen to A") : i18n::tr (preHelp));
     livePreButton.setTooltip (livePreButton.getDescription());
     livePreButton.setToggleState (state.preSelected, juce::dontSendNotification);
     const juce::String postHelp = postLowered ? "Listen to POST, lowered by the attenuation you approved"
                                               : "Listen to POST, the output of this chain";
     livePostButton.setButtonText (brief ? postLabel : postNamed);
-    livePostButton.setTitle (postLabel);
-    livePostButton.setDescription (state.candidate ? "Listen to B" : postHelp);
+    livePostButton.setTitle (state.candidate ? postLabel : i18n::tr ("LISTEN: play POST"));
+    livePostButton.setDescription (state.candidate ? juce::String ("Listen to B") : i18n::tr (postHelp));
     livePostButton.setTooltip (livePostButton.getDescription());
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
     const juce::String matchHelp = state.following
-        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to MATCH again or stop AUTO"
+        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press to turn MATCH off; MATCH again and AUTO are in MENU"
         : state.matchLimited
-        ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
-        : state.matched ? "Press to MATCH again or to let PRE follow POST (AUTO)"
-                        : "Match PRE to POST loudness over the latest four seconds";
+        ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to turn MATCH off; MATCH again is in MENU"
+        : state.matched ? "MATCH is on. Press to turn it off; MATCH again and AUTO are in MENU"
+        : state.matchOff ? "MATCH is off: PRE and POST play at their own levels. Press to turn the same MATCH on"
+                         : "Match PRE to POST loudness over the latest four seconds";
     liveMatchButton.setButtonText (state.following ? "AUTO" : state.matchLimited ? "TP LIMIT" : "MATCH");
     const juce::String candidateMatchHelp = state.following
-        ? "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to match again or stop AUTO"
+        ? "AUTO: A follows B loudness within 0.5 dB, up to 6 dB from your MATCH, lower if the TP ceiling needs it. Press AUTO to turn MATCH off; MATCH again and AUTO are in MENU"
         : state.matchLimited
-        ? "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to measure again"
-        : state.matched ? "Press MATCH to match again or start AUTO (A follows B)"
-                        : "Match A to B loudness over the latest four seconds";
+        ? "MATCH stopped at the true-peak ceiling: A is still quieter than B. Press to turn MATCH off; MATCH again is in MENU"
+        : state.matched ? "MATCH is on. Press MATCH to turn it off; MATCH again and AUTO are in MENU"
+        : state.matchOff ? "MATCH is off: A and B play at their own levels. Press MATCH to turn the same MATCH on"
+                         : "Match A to B loudness over the latest four seconds";
     liveMatchButton.setTitle (state.candidate ? liveMatchButton.getButtonText() : "MATCH");
     liveMatchButton.setDescription (state.candidate ? candidateMatchHelp : matchHelp);
     liveMatchButton.setTooltip (liveMatchButton.getDescription());

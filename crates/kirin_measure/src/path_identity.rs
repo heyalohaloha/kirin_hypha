@@ -156,6 +156,15 @@ fn quarantine_name(raw: &str) -> String {
     hex
 }
 
+/// Resolve an already-observed identity for read-only polling without repeating its path warning.
+pub(crate) fn observed_path_component(component: &str) -> Cow<'_, str> {
+    if is_path_safe_component(component) {
+        Cow::Borrowed(component)
+    } else {
+        Cow::Owned(quarantine_name(component))
+    }
+}
+
 /// **全 path builder 入口の within-base wall**（DiD・fail-closed）。
 /// - safe → 借用を無改変で返す（valid UUID / 安全な literal は不変＝既存テスト無改修）。
 /// - unsafe（絶対 / `..` / 区切り）→ invalid-path event + deterministic quarantine 名（base 内）。

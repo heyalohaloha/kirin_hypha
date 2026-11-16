@@ -52,11 +52,14 @@ inline std::vector<Notice> notices()
         state.observation = RecoveryReason::reaperDelayUnverified; state.reaperRestriction = restriction;
         add (live_compare_ui::namedPresentation (state).instruction, state);
     }
+    add ("Cannot write to folder. Check access.");
+    add ("Measurements saved; waiting for Kirin OS audio (auto link)");
     add ("MATCH waits for more signal");
     add ("Repeated audio: checked per block");
     add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());
     add ("LISTEN is not active");
     add ("MATCH first");
+    add ("All Keep targets changed or unavailable. Try again.");
     // B, C or V in REF holding the output past 3 s (currentListenPresentation).
     for (int slot = 1; slot <= 3; ++slot)
     {
@@ -65,35 +68,44 @@ inline std::vector<Notice> notices()
     }
     // Direct action results and numeric boundaries in the LISTEN rail, including entry refusal,
     // MATCH, AUTO and END. These are transient notices, not timing verdicts.
-    for (const char* text : { "LISTEN could not start", "Choose the PRE first",
+    for (const char* text : { "LISTEN could not start", "Choose the PRE first", "GUESS setting could not be saved",
         "Mono / stereo only", "PRE not running; choose again", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
-        "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
+        "MATCH failed; try again", "MATCH over 24 dB", "No MATCH: timing not confirmed", "No MATCH: not enough signal", "POST back to normal", "MATCH off: original levels", "MATCH on",
         "Press RETURN first", "Returning POST to normal, then LISTEN", "Returning POST to normal, then BLIND", "BLIND did not start; A/B continues", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO at TP ceiling: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB quieter", "AUTO 6 dB from MATCH: PRE 12.3 dB louder", "AUTO at 24 dB: PRE 12.3 dB quieter", "AUTO at 24 dB: PRE 12.3 dB louder", "Delay compensation is off in Pro Tools",
-        "End the current comparison first", "BLIND COMPARE COULD NOT START", live_compare_ui::realtimeBounceNotice }) add (text);
+        "Press END to finish the current comparison, then try again", "BLIND COMPARE COULD NOT START", live_compare_ui::realtimeBounceNotice }) add (text);
     // A press waiting for its start (HyphaQueuedStartText.h), for every start and wait.
     for (auto start : { live_compare_ui::QueuedStart::listen, live_compare_ui::QueuedStart::blind,
                         live_compare_ui::QueuedStart::candidate })
         for (auto wait : { live_compare_ui::QueuedWait::returning, live_compare_ui::QueuedWait::tail,
                            live_compare_ui::QueuedWait::stopped, live_compare_ui::QueuedWait::other })
             add (live_compare_ui::queuedStartNotice (start, wait));
+    add (live_compare_ui::bypassHoldsReturnNotice);
+    add ("Rendering offline: press again after it finishes");
+    add (live_compare_ui::keepBypassWaitNotice);
+    add (live_compare_ui::keepOfflineWaitNotice);
+    add (live_compare_ui::keepOtherTailNotice);
+    add (live_compare_ui::tailBypassNotice);
+    add (live_compare_ui::tailOfflineNotice);
     for (auto action : { live_compare_ui::AfterTail::referenceV, live_compare_ui::AfterTail::referenceC,
                          live_compare_ui::AfterTail::referenceB, live_compare_ui::AfterTail::keepPair })
         for (bool playing : { true, false }) add (live_compare_ui::afterTailNotice (action, playing));
+    add (live_compare_ui::keepTailEndedNotice);
+    add (live_compare_ui::unappliedNotice()); // BLIND's line, the same place and form as the delay notices
     // Why a greyed control or a key did nothing, or why the view changed by itself (2026-11-11).
     for (const char* text : { "POST is multi-mono: insert it as stereo", "BLIND is not available in this plugin format",
         "Finish Keep / Record before PRE / POST Blind", "Select LR, MID, or SIDE to view Delta",
-        "Delta has no M/S; showing one channel", "2MIX has no DRUM; showing METERS", "DRUM: choose TRACK", "Copied",
+        "Delta has no M/S; showing one channel", "2MIX has no DRUM; showing TIME / HISTORY", "DRUM: choose TRACK", "Copied",
         "No TP events yet", "Select POST for TP events", "No earlier TP over -1 dBTP", "No later TP over -1 dBTP",
         "History is already live", "No history yet", "Select POST to copy", "Click the history to hold a point first",
         "VU calibration: connecting; try again in a moment", "DAW recording: showing Hybrid VU",
         "AUTO stopped at the TP limit", "AUTO stopped: press MATCH again", "No OS Guide from Kirin OS yet",
         "Capture could not be prepared; try again", "Available in POST", "NOTE requires an active Keep",
-        "Stop playback to change connection", "Ended; normal level returns with audio", "Keep waits for PRE; Stop cancels",
+        "Stop playback to change connection", "Ended; POST back to normal within 0.5 s", "Keep waits for PRE; Stop cancels",
         "Press LOWER A & START to begin", "Nothing to choose yet", "Only one to choose", "Play A for 3 s to make a target",
         "16 targets: remove one first", "Choose a target to remove", "Preparing the song; try again in a moment",
-        "A target is measured data with no audio. Compare it on C.", "ALL SHAPE uses every song. Choose SHAPE to pick songs.",
+        "A target has no audio. A stays live.", "ALL SHAPE uses every line. Choose SHAPE to pick lines.",
         "PRE input measurements", "Local measurements; PRE subtraction does not apply",
         "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required",
         "LIVE: POST values on fixed scales, measured every 100 ms.",
@@ -150,6 +162,9 @@ inline std::vector<BlindCase> blindCases()
       state.trial.active = state.trial.revealed = true; state.trial.played = 3;
       state.trial.usedPostFallback = state.trial.fallbackForTiming = state.trial.fallbackForCeiling = candidate;
       add (state, true, 1.0f); add (state, true, 0.0630957f); }
+    // A finished preparation keeps its timing failure even when the previous wait remains prolonged.
+    { LiveBlindStatus state; state.stage = BlindStage::failed; state.waiting = MatchFailure::notProven;
+      state.prolongedWait = state.timingUnavailable = true; add (state, true, 1.0f); add (state, true, 0.0630957f); }
     // A to B BLIND adds the chain to the END line; the longest level is 24 dB.
     for (auto stage : { BlindStage::approval, BlindStage::active, BlindStage::finishing, BlindStage::invalidated })
     { LiveBlindStatus state; state.candidate = true; state.stage = stage; state.lowerPostDb = -24.0;

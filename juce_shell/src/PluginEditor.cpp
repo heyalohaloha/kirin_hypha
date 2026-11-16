@@ -1,5 +1,6 @@
 #include "HyphaPairLabels.h"
 #include "PluginEditor.h"
+#include "HyphaRecordBindingNotice.h"
 #include "HyphaKeyLight.h"
 #include "HyphaTextStyle.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -352,38 +353,6 @@ void KirinHyphaEditor::updateResizeLimits()
     sizeConstrainer.setSizeLimits (300, 200, largest.width, largest.height);
 }
 
-void KirinHyphaEditor::showToast (const juce::String& msg)
-{
-    automaticPairNotice = false;
-    comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
-    toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
-    toastText = msg;
-    updateFeedback (nowSecs(), false, {});
-}
-
-// A change Hypha made by itself says why, but never over a user's notice or a persistent error, and it
-// is withdrawn when the change is undone (showing false).
-void KirinHyphaEditor::showAutomaticNotice (const juce::String& text, bool showing)
-{
-    if (! showing)
-    {
-        if (toastText == text && text.isNotEmpty())
-        {
-            toastText.clear();
-            toastUntil = 0.0;
-            updateFeedback (nowSecs(), false, {});
-        }
-        return;
-    }
-    // Not before the notice line has been read once (a Record error may be about to show), and not
-    // into a Blind screen, whose line belongs to the trial.
-    if (! feedbackRead) return;
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (blindRunning()) return;
-   #endif
-    if (shownNotice.isEmpty() || shownNotice == text) showToast (text);
-}
-
 void KirinHyphaEditor::updateFeedback (
     double now, bool keeping, const juce::String& persistentError)
 {
@@ -394,6 +363,18 @@ void KirinHyphaEditor::updateFeedback (
         && processorRef.liveCompareStatus().active)
     {
         toastText.clear();
+        comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
+    }
+
+    const bool wavWaiting = persistentError == hypha::record_ui::wavWaiting;
+    if (feedbackRead && (shownNotice.isEmpty() || (wavWaiting && shownNotice == persistentError))
+        && now >= toastUntil && (persistentError.isEmpty() || wavWaiting)
+        && ! keeping && ! pendingAutomaticNotices.isEmpty() && automaticNoticeMayShow())
+    {
+        toastText = pendingAutomaticNotices[0];
+        pendingAutomaticNotices.remove (0);
+        toastUntil = now + 3.0;
+        automaticPairNotice = false;
         comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     }
 
@@ -413,12 +394,23 @@ void KirinHyphaEditor::updateFeedback (
     feedbackRead = true;
 
     feedbackStrip.setUnpairActionVisible (automaticPairNotice && now < toastUntil && text == toastText);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const auto slot = referenceView.state().comparisonSlot;
+    const bool compactReference = isPost && referenceView.isVisible()
+        && logicalPresentationContext().logicalWidth == 300 && referenceView.state().separateComparisons
+        && (slot == 1 || slot == 2 || slot == 3);
+    observatoryView.setCompactReferenceNotices (compactReference);
+   #endif
     observatoryView.setFeedback (text);
     // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows,
     // and then the chain timing the user turned on (POST only; empty otherwise).
     const auto footerStatus = observatoryView.footerStatus();
-    feedbackStrip.setFeedback (text.isNotEmpty() ? text
-                               : footerStatus.isNotEmpty() ? footerStatus : chainFooterText);
+    auto displayText = observatoryView.feedback();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! compactReference)
+   #endif
+        if (displayText.isEmpty()) displayText = footerStatus.isNotEmpty() ? footerStatus : chainFooterText;
+    feedbackStrip.setFeedback (displayText);
     layoutBodyAndFeedback();
 }
 
@@ -473,6 +465,8 @@ void KirinHyphaEditor::placeReferenceStatus()
     const auto footer = observatoryView.statusStripBounds();
     const bool feedbackShown = observatoryView.feedback().isNotEmpty();
     const bool footerMode = ! observatoryView.statusStripFolded() && ! footer.isEmpty()
+                         && ! (referenceView.state().separateComparisons && (referenceView.state().comparisonSlot == 1
+                                                                        || referenceView.state().comparisonSlot == 2))
                          && ! (feedbackShown && referenceView.statusRowHasControls());
     referenceView.setStatusInFooter (footerMode);
     if (footerMode)

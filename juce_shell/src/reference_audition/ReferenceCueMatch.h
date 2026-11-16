@@ -29,7 +29,7 @@ struct CueLevel
 std::optional<CueLevel> readCueLevel (const juce::File& root, const RuntimeWorkspace&, const RuntimeCandidate&,
                                       const RuntimeCue&, const RuntimeSource&);
 
-// Cue の値と、同じ ranges の「曲全体の範囲」（頭から終わりまでの範囲。Kirin OS 1.6.1 から全曲に 1 つ入る。範囲は
+// Cue の値と、同じ ranges の「曲全体の範囲」（頭から終わりまでの範囲。Kirin OS 1.7.0 から全曲に 1 つ入る。範囲は
 // 開始の順なので先頭とは限らず、探して引く）の値。C の画面の SONG が曲全体の値に使う。古い Kirin OS の ranges に
 // 曲全体の範囲が無ければ song は空（Cue が曲全体なら、その Cue の範囲が曲全体の範囲）。ranges を 1 度だけ読む。
 struct RangeLevels

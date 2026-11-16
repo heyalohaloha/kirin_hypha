@@ -136,6 +136,11 @@ inline void verify()
             state.status = "READY / A REMAINS LIVE";
             state.comparisonSlot = 1; state.visualTimeline = pair; state.visualPositionSeconds = 8;
             panel.setState (state);
+            auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+            auto* choice = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+            expect (details && choice, "V details and time comparison choice exist");
+            details->onClick();
+            choice->setSelectedId (1, juce::sendNotificationSync);
             auto* comparison = dynamic_cast<reference_ui::ComparisonView*> (panel.findChildWithID ("reference-comparison-view"));
             expect (comparison && comparison->isVisible(), "shipping route displays V comparison");
             const auto& layout = comparison->visualLayout();

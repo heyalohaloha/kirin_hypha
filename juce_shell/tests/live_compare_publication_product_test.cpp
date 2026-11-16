@@ -123,8 +123,13 @@ void stateOnly (juce::AudioProcessor::WrapperType format, int channels)
     post->serviceLiveCompare();
     require (! LiveTimingFixtureAccess::timingRingPublished (*post), "POST completed fade retires its lease");
     require (LiveTimingFixtureAccess::publishUnmappedRing (*post), "publish an END receipt control");
-    post->finishLiveCompare(); post->serviceLiveCompare();
+    post->finishLiveCompare();
+    LiveTimingFixtureAccess::callbackTime (*post, hypha::live_compare::callbackWallNanos());
+    post->serviceLiveCompare();
     require (LiveTimingFixtureAccess::timingRingPublished (*post), "pending END receipt retains POST lease");
+    LiveTimingFixtureAccess::callbackTime (*post, 0); // no callbacks: END can complete without an audio block
+    post->serviceLiveCompare();
+    require (! LiveTimingFixtureAccess::timingRingPublished (*post), "quiet END receipt retires POST lease");
     pre->releaseResources(); post->releaseResources();
 }
 void sharedRing (juce::AudioProcessor::WrapperType format, int channels)

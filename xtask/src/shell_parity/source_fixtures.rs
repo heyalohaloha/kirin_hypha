@@ -8,6 +8,7 @@
     const MANUAL_RECORD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/manual/record.md"));
     const PLUGIN_EDITOR_CPP: &str = concat!(
         include_str!("../../../juce_shell/src/PluginEditor.cpp"),
+        include_str!("../../../juce_shell/src/PluginEditorFeedback.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMeter.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMenu.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorOperations.cpp"),

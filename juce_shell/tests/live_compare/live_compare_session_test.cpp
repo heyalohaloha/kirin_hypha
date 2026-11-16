@@ -217,7 +217,7 @@ static void postLevelRampsDownFastAndUpSlowly()
     while (level.next (1.0f) < 1.0f) ++up;
     std::printf ("post level: down to -6 dB in %d frames, back up in %d frames\n", down, up);
     require (down >= 1190 && down <= 1201, "halfway down takes 25 ms");
-    require (up >= 47800 && up <= 48001, "halfway up takes about 1 s (float steps run ~0.2 % short): END and RETURN rise over 2 s");
+    require (up >= 11950 && up <= 12001, "halfway up takes about 0.25 s (float steps run short): END and RETURN rise over 0.5 s");
     float samples[] = { 0.3f, -0.2f, 0.1f };
     float* io[] = { samples };
     level.apply (io, 1, 3, 1.0f);

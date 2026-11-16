@@ -116,9 +116,10 @@ use closed_drop::ClosedDropRecovery;
 #[path = "io_thread_post_writer.rs"]
 mod writer;
 use writer::service_post_record_writer;
-
 #[path = "io_thread_post_polls.rs"]
 mod polls;
+#[cfg(test)]
+pub(crate) use polls::saved_pair_waits_for_audio;
 use polls::PostControlPolls;
 
 #[path = "io_thread_post_observation.rs"]
@@ -151,7 +152,6 @@ use identity::snapshot_pair_pre_name;
 use tick::compute_latched_display;
 #[cfg(test)]
 use tick::run_tick;
-
 #[path = "io_thread_post_policy.rs"]
 mod policy;
 use policy::record_idle_timeout;

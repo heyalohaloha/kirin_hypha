@@ -12,6 +12,7 @@ void verifyShortcutEditorActions();
 void verifyShortcutTable();
 void verifyShortcutKeys();
 void verifyShortcutMarks();
+void verifyQueuedAutomaticNotice();
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void verifyShortcutBlindScreenActions();
 void verifyShortcutReferenceMoves();
@@ -21,13 +22,15 @@ void verifyShortcutReferenceMoves();
 int main (int argc, char** argv)
 try
 {
-    if (argc != 2 || juce::String (argv[1]) != "actions")
+    if (argc != 2 || (juce::String (argv[1]) != "actions" && juce::String (argv[1]) != "automatic-notice"))
         throw std::runtime_error ("Unknown shortcut test case");
     ReferenceValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI initialise;
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif
+    hypha::tests::verifyQueuedAutomaticNotice();
+    if (juce::String (argv[1]) == "automatic-notice") return 0;
     hypha::tests::verifyShortcutTable();
     hypha::tests::verifyShortcutEditorActions();
     hypha::tests::verifyShortcutKeys();

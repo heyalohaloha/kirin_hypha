@@ -141,18 +141,19 @@ template<class Require> void verifyCandidateGenericLoopReturn (Require require)
         host.render (200, false, false);
         require (post.candidateMeasurementIsolated() && !post.keepPair(),
                  "withdrawal still drains the validated bound before ordinary measurement or Keep");
-        host.render ((static_cast<int> (ringCapacityFrames) + 192000) / host.block + 40, false, false);
+        host.render (600, false, false);
         require (post.candidateMeasurementIsolated() && post.candidateReturning() && !post.keepPair(),
-                 "an ambiguous loop cannot release isolation merely because the ring capacity elapsed");
+                 "an ambiguous loop cannot release isolation by itself before the overall deadline");
         TimingSnapshot fresh;
         const auto* source = LiveTimingFixtureAccess::publishedRing (host.pre1());
         require (source && readTiming (source->ring()->header.timing, fresh) && fresh.active
             && fresh.block.loop.active && wall.nanos() - fresh.block.wallNanos < CandidateTransfer::leaseNanos,
                  "PRE1 remains fresh during ambiguous loop return");
+        host.render (200, false, false);
+        require (!post.candidateMeasurementIsolated() && !post.candidateReturning(),
+                 "ten seconds after END the overall deadline ends the return, in a loop too");
         for (auto& clock : host.clocks) clock.loopLength = 0;
         host.render (1200, false, false);
-        require (!post.candidateMeasurementIsolated() && !post.candidateReturning(),
-                 "fresh linear correspondence automatically completes the return");
         for (auto& processor : host.instances) if (processor)
         { awaitAnalysisInput (*processor); awaitAnalysisExchange (*processor, true); }
         require (measurementActiveAfterCallback (post, [&] { host.render (1, false, false); }),

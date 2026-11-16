@@ -7,8 +7,13 @@ namespace hypha::live_compare
 {
 // END closes the user's comparison as soon as request() is accepted. This object tracks only
 // the remaining audio return, not UI lifetime. The ring/renderer lease stays alive for its fade.
-// Only an eligible audio block acknowledges actual unity; no callback, offline, bypass or other
-// output owner manufactures a receipt. Re-entry waits for that receipt, not another END click.
+// An eligible audio block acknowledges actual unity; offline, bypass or another output owner never
+// does. While no callback comes (the DAW stopped) nothing sounds, so after a short quiet the message
+// thread finishes the return (quietSince); the first block after it rises at once (INV-LC14).
+// Re-entry waits for that receipt, not another END click.
+inline bool quietSince (std::uint64_t lastCallback, std::uint64_t now) noexcept
+{ return lastCallback == 0 || (now >= lastCallback && now - lastCallback >= 500'000'000); }
+
 class Completion
 {
 public:
@@ -26,6 +31,9 @@ public:
         if (token != 0 && token == command() && eligible && ! preAudible && actualPostGain == 1.0f)
             completed.store (token, std::memory_order_release);
     }
+    // Message thread, only after quietSince: no audio callback can hear the return.
+    void complete (std::uint64_t token) noexcept
+    { if (token != 0 && token == command()) completed.store (token, std::memory_order_release); }
 
 private:
     std::atomic<std::uint64_t> requested { 0 }, completed { 0 };

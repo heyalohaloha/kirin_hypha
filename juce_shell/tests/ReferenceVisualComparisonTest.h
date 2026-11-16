@@ -50,6 +50,11 @@ inline void verifyReferenceVisualComparison()
         component.setPresentationContext (presentation::forEditor (width,width*2/3));
         component.setSize (width-12,width==900 ? 470 : width*2/3-64); component.setState (state);
         check (!component.findChildWithID ("reference-preset")->isVisible(), "C Preset row stays in C while B owns the comparison view");
+        auto* details = dynamic_cast<juce::Button*> (component.findChildWithID ("reference-check-details"));
+        auto* choice = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-check-choice"));
+        check (details && choice, "V details and choice exist");
+        if (! details->getToggleState()) details->onClick();
+        choice->setSelectedId (1, juce::sendNotificationSync);  // WHOLE
         auto* view = dynamic_cast<reference_ui::ComparisonView*> (component.findChildWithID ("reference-comparison-view"));
         check (view && view->isVisible() && component.getLocalBounds().contains (view->getBounds()), "comparison fits every size");
         for (const auto* id : {"reference-version","reference-check","reference-a","reference-b","reference-c"})

@@ -1,5 +1,5 @@
 #pragma once
-// C（CHECK）の画面（300%）。CHECK SET・Check のタブ（CHECK セットの順）・曲・Cue・MATCH、
+// C（CHECK）の画面（300%）。CHECK SET・Check の選択欄（CHECK セットの順）・曲・Cue・MATCH、
 // 見比べ（Cue 対 A の同じ長さの直近、同じ音量）、4 帯域の要約、Cue の時間軸。200% は今までの選択欄。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceHoverHelpTest.h"
@@ -65,18 +65,16 @@ inline void verifyFactoryCheckSetsFit()
             panel.setSize (888, 470);
             panel.setState (state);
             auto* box = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-preset"));
-            auto* tabs = dynamic_cast<reference_ui::CheckTabs*> (panel.findChildWithID ("reference-check-tabs"));
-            require (box != nullptr && tabs != nullptr, "the C page owns the CHECK SET and the tabs");
-            require (box->isVisible(), "the C page shows the CHECK SET for " + juce::String (name));
-            require (tabs->tabs().size() == labels.size(),
-                     "the C page shows every Check of " + juce::String (name) + " (" + juce::String ((int) tabs->tabs().size()) + ")");
+            auto* choice = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+            require (box && choice && box->isVisible(), "C owns the CHECK SET and Check selector");
+            require (choice->getNumItems() == static_cast<int> (labels.size()), "every Check is in the selector");
+            for (int index = 0; index < choice->getNumItems(); ++index)
+                require (choice->getItemText (index) == labels[static_cast<size_t> (index)], "the selector retains every full Check name in order");
             const auto shown = box->getText();
             require (shown.endsWith ("1 / 3")
                          && text_style::shownWidth (box->getLookAndFeel().getComboBoxFont (*box), shown) + 26.0f
                                 <= static_cast<float> (box->getWidth()),
                      "300%: the CHECK SET name fits with its rank: " + shown);
-            require (tabs->rowsFor (tabs->getWidth()) == 1,
-                     "300%: the Checks of " + juce::String (name) + " fit on one row of tabs");
         }
     }
 }
@@ -144,72 +142,74 @@ inline void verifyReferenceCheckPage()
     panel.setSize (888, 470);
     panel.setState (state);
     auto* tabs = dynamic_cast<reference_ui::CheckTabs*> (panel.findChildWithID ("reference-check-tabs"));
+    auto* choice = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-choice"));
+    auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
     auto* song = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-check-song"));
     auto* match = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-match"));
     auto* version = panel.findChildWithID ("reference-version");
     auto* check = panel.findChildWithID ("reference-check");
-    require (tabs && song && match && version && check, "the C page owns its tabs, song and MATCH");
-    require (tabs->isVisible() && tabs->tabs().size() == 3 && tabs->tabs()[0].label == "Low End"
-                 && tabs->tabs()[2].label == "Air" && tabs->selected() == "chk-low"
-                 && song->isVisible() && song->getNumItems() == 2 && song->getText() == "Song 1"
-                 && match->isVisible() && ! version->isVisible() && ! check->isVisible(),
-             "300%: the Checks are tabs in the set's order, the song is chosen within the Check, V stays on its page");
-    for (size_t index = 0; index < tabs->tabs().size(); ++index)
-        require (panel.getLocalBounds().contains (tabs->getBounds()) && ! tabs->tabBounds (index).isEmpty(), "every tab is reachable");
-    // 2026-10-07: a Kirin OS CHECK name may itself hold the separator. The runtime gives the CHECK and
-    // its song apart, so the tab keeps the whole name and the song stays the song.
+    require (tabs && choice && details && song && match && version && check, "C owns its selector, details, song and MATCH");
+    require (! tabs->isVisible() && choice->isVisible() && choice->getNumItems() == 3
+                 && choice->getItemText (0) == "Low End" && choice->getItemText (2) == "Air"
+                 && choice->getText() == "Low End" && song->isVisible() && song->getNumItems() == 2
+                 && song->getText() == "Song 1" && match->isVisible() && ! version->isVisible() && ! check->isVisible(),
+             "C shows one ordered Check selector and its song, not V or the old tabs");
+    require (panel.getLocalBounds().contains (choice->getBounds()) && ! details->getToggleState(), "selector fits and details start closed");
     {
         auto separated = state;
         separated.checks = { { "chk-ab/cand-1", "A  /  B  /  Song 1", "A  /  B", "Song 1" },
                              { "chk-ab/cand-2", "A  /  B  /  Song 2", "A  /  B", "Song 2" } };
         separated.checkId = "chk-ab/cand-1";
-        reference_ui::Component separatedPanel;
-        separatedPanel.setVisible (true);
-        separatedPanel.setPresentationContext (presentation::forEditor (900, 600));
-        separatedPanel.setSize (888, 470);
-        separatedPanel.setState (separated);
-        auto* separatedTabs = dynamic_cast<reference_ui::CheckTabs*> (separatedPanel.findChildWithID ("reference-check-tabs"));
-        auto* separatedSong = dynamic_cast<juce::ComboBox*> (separatedPanel.findChildWithID ("reference-check-song"));
-        require (separatedTabs != nullptr && separatedSong != nullptr && separatedTabs->tabs().size() == 1
-                     && separatedTabs->tabs()[0].label == "A  /  B" && separatedSong->getNumItems() == 2
-                     && separatedSong->getText() == "Song 1",
-                 "a CHECK name holding the separator keeps its whole name, and its songs stay songs");
-    }
-    // 2026-10-05：Check が多くて 1 段に入らなければ 2 段に分け、どの名前も
-    // 切らない（300% で Mastering の 8 項目が「音色…」「セク…」と切れていた）。
-    {
-        auto many = state;
-        many.checks.clear();
-        for (const auto* label : { "Balance", "Loudness", "True Peak", "Dynamics", "Stereo and phase",
-                                   "Low-end consistency", "Section difference", "Album context" })
-            many.checks.push_back ({ juce::String ("chk-") + juce::String (label).removeCharacters (" ") + "/ref-a",
-                                     juce::String (label) + "  /  Song 1" });
-        many.checkId = many.checks.front().id;
-        const auto font = labelFont (presentation::forEditor (900, 600), typography::TextRole::body, typography::Composition::information);
-        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
-        {
-            const i18n::ScopedLanguage scoped (language);
-            panel.setState (many);
-            require (tabs->tabs().size() == 8 && tabs->getHeight() >= 48 && panel.getLocalBounds().contains (tabs->getBounds()),
-                     "eight Checks take two rows at 300%");
-            for (size_t index = 0; index < tabs->tabs().size(); ++index)
-                require (text_style::shownWidth (font, tabs->tabs()[index].label) + 20.0f
-                             <= static_cast<float> (tabs->tabBounds (index).getWidth()),
-                         "every Check's name shows whole on two rows: " + tabs->tabs()[index].label);
-        }
+        panel.setState (separated);
+        require (choice->getNumItems() == 1 && choice->getItemText (0) == "A  /  B"
+                     && song->getNumItems() == 2 && song->getText() == "Song 1",
+                 "a CHECK name holding the separator keeps its name and songs");
         panel.setState (state);
-        require (tabs->getHeight() < 48, "three Checks stay on one row");
     }
-
     juce::String chosen;
-    int heard = 0, matched = 0;
+    int heard = 0, matched = 0, otherActions = 0;
     panel.onSelectCheck = [&] (const juce::String& id) { chosen = id; };
     panel.onSelectC = [&] { ++heard; };
     panel.onMatch = [&] { ++matched; };
-    tabs->onChoose ("chk-vocal");
-    require (chosen == "chk-vocal/cand-1", "a tab keeps the song when the Check has it");
+    panel.onSelectA = [&] { ++otherActions; }; panel.onSetFollowA = [&] (bool) { ++otherActions; };
+    panel.onSetCheckSong = [&] (bool) { ++otherActions; }; panel.onNudgeFollow = [&] (int, double) { ++otherActions; };
+    choice->setSelectedId (2, juce::sendNotificationSync);
+    require (chosen == "chk-vocal/cand-1", "selecting a Check keeps the song when available");
     song->setSelectedId (2, juce::sendNotificationSync);
     require (chosen == "chk-low/cand-2", "the song is chosen within the Check");
+    chosen.clear();
+    details->onClick(); details->onClick();
+    require (! details->getToggleState() && chosen.isEmpty() && heard == 0 && matched == 0 && otherActions == 0
+                 && panel.state().checkId == state.checkId && panel.state().followA == state.followA
+                 && panel.state().song.chosen == state.song.chosen && panel.state().comparisonMode == state.comparisonMode,
+             "opening and closing details changes neither selections nor audio and comparison actions");
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        reference_ui::Component compact;
+        compact.setVisible (true); compact.setPresentationContext (presentation::forEditor (300, 200));
+        compact.setSize (288, 136); compact.setState (state);
+        auto* compactDetails = dynamic_cast<juce::Button*> (compact.findChildWithID ("reference-check-details"));
+        require (compactDetails && compactDetails->isVisible(), "100% C offers details");
+        compactDetails->onClick();
+        for (const auto* id : { "reference-loop", "reference-follow-a", "reference-compare", "reference-match" })
+        {
+            auto* control = compact.findChildWithID (id);
+            require (control && control->isVisible() && ! control->getBounds().isEmpty()
+                         && compact.getLocalBounds().contains (control->getBounds()),
+                     juce::String ("100% C keeps its controls reachable: ") + id);
+        }
+        auto* compare = compact.findChildWithID ("reference-compare");
+        auto* cue = compare->findChildWithID ("reference-compare-cue");
+        auto* whole = compare->findChildWithID ("reference-compare-song");
+        require (cue && whole && cue->isVisible() && whole->isVisible(), "100% details shows both CUE and SONG");
+        compactDetails->onClick();
+        auto original = state; original.comparisonMode = "original"; compact.setState (original);
+        auto* unavailableMatch = compact.findChildWithID ("reference-match");
+        require (unavailableMatch->isVisible() && ! unavailableMatch->isEnabled()
+                     && unavailable::reasonAt (unavailableMatch).isNotEmpty(),
+                 "an unavailable MATCH remains visible and explains why");
+    }
     match->onClick();
     require (heard == 1 && matched == 0, "MATCH while C is silent plays C matched");
 
@@ -241,13 +241,14 @@ inline void verifyReferenceCheckPage()
     write (panel, "abcv_c_900_playing.png");
     state.viewBindings = { "spectrum_full" };
     panel.setState (state);
+    details->onClick();  // inspect the additional views and timeline
     write (panel, "abcv_c_900_spectrum.png");
     // 2026-10-04（下の行の説明）：指した項目の説明。部品は今の説明（ツールチップ）、図は描いたときに添えた説明。
     namespace text = reference_ui::help_text;
     std::set<juce::String> helpSeen;
     {
         const auto texts = helpTextsOf (panel);
-        for (const auto* expected : { text::cueSpectrum, text::blauert, text::cueBands, text::cueBar, text::checkTabs, text::match })
+        for (const auto* expected : { text::cueSpectrum, text::blauert, text::cueBands, text::cueBar })
             require (texts.count (expected) == 1, juce::String ("pointing at the C page explains it: ") + expected);
         require (texts.count (match->getTooltip()) == 1 && reference_ui::help::shownInLine (*match),
                  "a control's own help goes to the line too, not to a popup");
@@ -359,9 +360,9 @@ inline void verifyReferenceCheckPage()
 
     state.comparisonMode = "original";
     panel.setState (state);
-    require (! match->isVisible() && reference_ui::matchReadout (state) == "ORIGINAL LEVEL"
+    require (match->isVisible() && unavailable::reasonAt (match).isNotEmpty() && reference_ui::matchReadout (state) == "ORIGINAL LEVEL"
                  && std::abs (reference_ui::comparisonGainDb (state)) < 1.0e-12,
-             "a Check at its original level has no MATCH and compares as heard");
+             "a Check at its original level explains why MATCH is unavailable and compares as heard");
 
     state.comparisonMode = "loudness_match";
     state.bSelected = false;
@@ -373,9 +374,7 @@ inline void verifyReferenceCheckPage()
              "below 300% the help stays in the popups it had");
     panel.onSelectCheck = {}; panel.onSelectC = {}; panel.onMatch = {};
 
-    // V の画面（300%）。VERSION（全幅）と、WHOLE（タイムライン）の後に決まった 4 つのタブ（音色・ダイナミクス・
-    // ステレオ・低域、2026-10-04。C の CHECK SET と切り離す）。タブは見るものだけを替え、音も C の選択も
-    // 変えない。項目のタブでは同じ区間の A と V を同じ定義で比べる。
+    // V は主の比較と、音や C の選択を変えずに開く詳細を持つ。
     auto vState = state;
     vState.comparisonSlot = 1;
     vState.bSelected = true;
@@ -394,17 +393,15 @@ inline void verifyReferenceCheckPage()
     vPanel.setState (vState);
     auto* vTabs = dynamic_cast<reference_ui::CheckTabs*> (vPanel.findChildWithID ("reference-check-tabs"));
     auto* lanes = dynamic_cast<reference_ui::ComparisonView*> (vPanel.findChildWithID ("reference-comparison-view"));
-    const auto labelsOf = [] (const reference_ui::CheckTabs& strip)
-    {
-        juce::StringArray labels;
-        for (const auto& tab : strip.tabs()) labels.add (tab.label);
-        return labels.joinIntoString (",");
-    };
-    require (vTabs && lanes && vTabs->isVisible() && labelsOf (*vTabs) == "WHOLE,TONE,DYNAMICS,STEREO,LOW END"
-                 && vTabs->selected() == "whole" && lanes->isVisible() && lanes->sameSectionCheck().isEmpty()
+    auto* vChoice = dynamic_cast<juce::ComboBox*> (vPanel.findChildWithID ("reference-check-choice"));
+    auto* vDetails = dynamic_cast<juce::Button*> (vPanel.findChildWithID ("reference-check-details"));
+    require (vTabs && lanes && vChoice && vDetails && ! vTabs->isVisible() && ! vChoice->isVisible()
+                 && vDetails->isVisible() && ! vDetails->getToggleState() && lanes->sameSectionCheck() == "TONE"
                  && vPanel.findChildWithID ("reference-version")->isVisible() && ! vPanel.findChildWithID ("reference-preset")->isVisible()
                  && ! vPanel.findChildWithID ("reference-cue")->isVisible() && ! vPanel.findChildWithID ("reference-check-song")->isVisible(),
-             "300% V: VERSION, WHOLE and the fixed TONE / DYNAMICS / STEREO / LOW END; C's CHECK SET, song and Cue stay on C");
+             "V begins with its main comparison and closed details");
+    vDetails->onClick();
+    require (vChoice->isVisible() && vChoice->getNumItems() == 9, "V details expose the comparison views");
     {
         auto* versionField = vPanel.findChildWithID ("reference-version");
         auto* cButton = vPanel.findChildWithID ("reference-c");
@@ -413,12 +410,12 @@ inline void verifyReferenceCheckPage()
         auto noChecks = vState;
         noChecks.checks.clear();
         vPanel.setState (noChecks);
-        require (vTabs->isVisible() && vTabs->tabs().size() == 5, "V's tabs do not depend on C's Checks");
+        require (vChoice->isVisible() && vChoice->getNumItems() == 9, "V views do not depend on C Checks");
         vPanel.setState (vState);
     }
     juce::String vChosen;
     vPanel.onSelectCheck = [&] (const juce::String& id) { vChosen = id; };
-    vTabs->onChoose ("v-low");
+    vChoice->setSelectedId (5, juce::sendNotificationSync);
     require (lanes->sameSectionCheck() == "LOW END" && vChosen.isEmpty() && reference_ui::sameSectionReady (timeline.get()),
              "a V tab compares the same section without changing the sound or C's choice");
     write (vPanel, "abcv_v_900_check.png");
@@ -450,7 +447,7 @@ inline void verifyReferenceCheckPage()
         stripsState.visualTimeline = pairs;
         stripsState.checkViewBindings.clear();  // V の項目の表示は決まっていて、C の Check の表示を見ない
         vPanel.setState (stripsState);
-        vTabs->onChoose ("v-dynamics");
+        vChoice->setSelectedId (3, juce::sendNotificationSync);
         write (vPanel, "abcv_v_900_dynamics.png");
         {
             const auto texts = helpTextsOf (vPanel);
@@ -459,7 +456,7 @@ inline void verifyReferenceCheckPage()
             helpSeen.insert (texts.begin(), texts.end());
         }
         const auto dynamicsImage = vPanel.createComponentSnapshot (vPanel.getLocalBounds());
-        vTabs->onChoose ("v-stereo");
+        vChoice->setSelectedId (4, juce::sendNotificationSync);
         write (vPanel, "abcv_v_900_stereo.png");
         {
             const auto texts = helpTextsOf (vPanel);
@@ -475,7 +472,7 @@ inline void verifyReferenceCheckPage()
         require (changed > 500, "V's DYNAMICS and STEREO draw their own strips");
         vPanel.setState (vState);
     }
-    vTabs->onChoose ("whole");
+    vChoice->setSelectedId (1, juce::sendNotificationSync);
     require (lanes->sameSectionCheck().isEmpty(), "WHOLE returns to the song timeline");
     {
         const auto texts = helpTextsOf (vPanel);

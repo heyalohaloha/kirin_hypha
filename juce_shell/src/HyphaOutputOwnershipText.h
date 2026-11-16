@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OutputOwnership.h"
+#include "HyphaComparisonNotices.h"
 
 namespace hypha::output_owner
 {
@@ -11,9 +12,9 @@ inline const char* refusalText (Reason reason) noexcept
     {
         case Reason::layout:             return "Mono / stereo only";
         case Reason::restoring:          return "LISTEN is restoring; try again in a moment";
-        case Reason::liveReturning:      return "Ended; normal level returns with audio";
+        case Reason::liveReturning:      return "Ended; POST back to normal within 0.5 s";
         case Reason::returnFirst:        return "Press RETURN first";
-        case Reason::liveComparison:     return "End the current comparison first";
+        case Reason::liveComparison:     return comparison_ui::endThenRetry;
         case Reason::blindRunning:       return "End Blind Compare first";
         case Reason::recordRunning:      return "Finish Keep / Record first";
         case Reason::referenceReturning: return "A is returning to normal level";

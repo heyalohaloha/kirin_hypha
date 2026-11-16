@@ -248,10 +248,10 @@ inline void chunkedPost (int channels)
     const auto coherentRevision = revision.load();
     revision.store (coherentRevision + 1); // writer in progress, no new gain tuple
     for (int i = 0; i < 4; ++i) chain.chunk (false);
-    require (! post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024,
-             "an incomplete gain publication cannot switch the anonymous source");
+    require (post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024,
+             "an incomplete gain publication keeps the anonymous source on its last whole gains and address");
     revision.store (coherentRevision);
-    chain.settled (40, "the same anonymous source returns when its gains are readable");
+    chain.settled (40, "the same anonymous source plays on when its gains are readable again");
     post.kirinHostDelayCompensationStateChanged (false);
     chain.run (4);
     require (! post.liveCompareStatus().preAudible && post.liveCompareAlignFrames() == 1024,

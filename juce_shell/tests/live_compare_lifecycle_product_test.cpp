@@ -3,6 +3,8 @@
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
+#include "LiveCompareEndMatchTest.h"
+#include "kirin_hypha_reference_ffi.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -63,9 +65,11 @@ public:
         audio = std::thread ([this] { processAudio(); });
         startTimer (20);
     }
-    ~Lifecycle() override { stopTimer(); running.store (false); audio.join(); }
+    ~Lifecycle() override { stopTimer(); running.store (false); audio.join(); if (editor) post->editorBeingDeleted (editor.get()); }
     bool passed = false;
-    bool staleChecked = false;
+    bool staleChecked = false, toggled = false, lastSideChecked = false, capChecked = false, preToggled = false;
+    float matchedPost = 1.0f;
+    int stoppedAt = 0;
 
 private:
     template <typename Predicate> void waitWithoutMessageService (Predicate&& ready, int timeoutMs = 350)
@@ -77,41 +81,7 @@ private:
             std::this_thread::sleep_for (std::chrono::milliseconds (1));
         }
     }
-    void restore (bool endRequested = false)
-    {
-        pause.store (true);
-        waitWithoutMessageService ([this] { return paused.load(); });
-        held = post->liveCompareStatus().postActual;
-        const auto approval = post->liveBlindStatus().generation;
-        const auto oldMatch = post->measureLiveCompare();
-        juce::MemoryBlock saved;
-        post->getStateInformation (saved);
-        if (endRequested) post->finishLiveCompare();
-        std::thread host ([&]
-        {
-            if (mode == "restore-invalid") post->setStateInformation (nullptr, 0);
-            else post->setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
-        });
-        host.join();
-        require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "old trial controls rejected before service");
-        require (! post->liveCompareStatus().matched && ! post->liveCompareStatus().active,
-                 "MATCH and output permission immediately revoked");
-        require (! post->liveBlindStatus().trial.revealed && post->liveBlindStatus().trial.played == 0,
-                 "mapping and played receipts immediately hidden");
-        if (oldMatch.ok()) require (! post->applyLiveCompareMatch (planMatch (oldMatch, 0.0), MatchChoice::basis),
-                                   "old measurement rejected after restore");
-        const auto before = blocks.load();
-        expectedPost.store (held);
-        verifyPost.store (! endRequested);
-        pause.store (false);
-        waitWithoutMessageService ([&] { return blocks.load() > before; });
-        require (postErrors.load() == 0, "first buffer is held POST only without message service");
-        if (! endRequested) require (std::abs (post->liveCompareStatus().postActual - held) <= 0.0f, "restore never raises POST");
-        require (! post->approveLiveBlindMatch (approval), "old approval rejected");
-        if (endRequested) require (post->liveCompareStatus().finishing || post->liveCompareStatus().postActual == 1.0f,
-                                  "explicit END survives until actual unity");
-        checkedAt = Steady::now();
-    }
+    #include "LiveCompareLifecycleHelpers.h"
     void lowerPost (double db)
     {
         MatchResult measured;
@@ -131,7 +101,7 @@ private:
         post->finishLiveCompare();
         require (! post->liveCompareStatus().active, "END immediately closes the logical session");
         // Do not pump messages: audio receipt must not revive the old session before retirement.
-        // PRE fades out first, then POST rises over up to 2 s, in host-sized callbacks.
+        // PRE fades out first, then POST rises over up to 0.5 s, in host-sized callbacks.
         waitWithoutMessageService ([this] { return ! post->liveCompareStatus().finishing; }, 3500);
         require (! post->liveCompareStatus().active, "audio receipt cannot reopen the closed session");
         post->selectLiveComparePre (true);
@@ -144,24 +114,12 @@ private:
         require (postErrors.load() == 0, "closed session stays unity POST before message cleanup");
         verifyPost.store (false);
     }
-    void closeWithFade()
-    {
-        pause.store (true);
-        waitWithoutMessageService ([this] { return paused.load(); });
-        require (ratio.load() > 0.99f, "PRE is fully audible before closing");
-        post->closeLiveBlind();
-        require (LiveTimingFixtureAccess::retainsFadeSource (*post), "closing retains the proven PRE source and demand for its fade");
-        const auto before = blocks.load();
-        verifyClose.store (true); pause.store (false);
-        waitWithoutMessageService ([&] { return blocks.load() > before; }, 1000);
-        require (fadeChecks.load() == 1 && fadeErrors.load() == 0, "first closing buffer fades from PRE to exact POST");
-        post->serviceLiveCompare();
-        require (! LiveTimingFixtureAccess::retainsFadeSource (*post), "completed fade releases its PRE source");
-        passed = true; stopTimer(); juce::MessageManager::getInstance()->stopDispatchLoop();
-    }
     void timerCallback() override
     {
-        require (Steady::now() - began < std::chrono::seconds (45), "scenario timed out");
+        if (Steady::now() - began >= std::chrono::seconds (mode == "restore-matched-listen" ? 55 : 45))
+            std::cerr << "Live lifecycle timeout stage=" << stage << " blocks=" << blocks.load()
+                      << " pre=" << post->liveCompareStatus().preAudible << " ready=" << post->liveCompareStatus().matchReady << '\n';
+        require (Steady::now() - began < std::chrono::seconds (mode == "restore-matched-listen" ? 55 : 45), "scenario timed out");
         switch (stage)
         {
             case 0:
@@ -256,12 +214,33 @@ private:
                 {
                     const auto measured = post->measureLiveCompare();
                     if (! measured.ok()) break;
-                    require (post->applyLiveCompareMatch (planMatch (measured, -8.0), MatchChoice::basis), "full same-session MATCH");
+                    if (mode == "restore-matched-listen")
+                    {
+                        editor.reset (dynamic_cast<KirinHyphaEditor*> (post->createEditorIfNeeded()));
+                        require (editor != nullptr, "shipping editor for AUTO");
+                        end_match_test::apply (*editor, planMatch (measured, -8.0));
+                        require (post->liveCompareStatus().matched, "editor applies the same-session MATCH");
+                    }
+                    else require (post->applyLiveCompareMatch (planMatch (measured, -8.0), MatchChoice::basis), "full same-session MATCH");
                     stage = 5;
                 }
                 break;
             case 5:
                 if (! post->liveCompareStatus().matchReady) break;
+                if (mode == "restore-matched-listen" && ! toggled)
+                {   // MATCH on/off (INV-LC13): off returns PRE and POST to their levels when LISTEN began.
+                    const auto on = post->liveCompareStatus();
+                    matchedGain = on.gain; matchedPost = on.postTarget;
+                    end_match_test::enableAuto (*editor);
+                    require (end_match_test::autoOn (*editor, {}) && matchedPost < 1.0f, "AUTO enabled before MATCH off");
+                    end_match_test::toggle (*editor);
+                    const auto off = post->liveCompareStatus();
+                    require (off.matchOff && off.gain == 1.0f && off.postTarget == 1.0f && ! off.matched && ! off.matchHeld
+                        && ! off.matchReady, "MATCH off: PRE at its own level, POST back, nothing for BLIND to reuse");
+                    require (! post->setLiveCompareMatchOn (false).turned, "a second off changes nothing");
+                    toggled = true; stage = 10;
+                    break;
+                }
                 if (mode == "restore-matched-listen")
                 {
                     post->selectLiveComparePre (true);
@@ -274,6 +253,33 @@ private:
                 break;
             case 7:
                 if (! post->liveCompareStatus().preAudible) break;
+                if (mode == "restore-matched-listen" && ! preToggled)
+                {   // A gain write in progress keeps PRE: the block uses the last whole tuple, never POST.
+                    pause.store (true); waitWithoutMessageService ([this] { return paused.load(); });
+                    const auto playsPre = [this] (const char* why)
+                    {
+                        const auto first = firstPreDone.load(); checkFirstPre.store (true);
+                        const auto before = blocks.load();
+                        pause.store (false); waitWithoutMessageService ([&] { return firstPreDone.load() > first; }, 1000);
+                        require (firstPreErrors.load() == 0, "the first callback stays PRE throughout, without a POST step");
+                        waitWithoutMessageService ([&] { return blocks.load() > before + 3; }, 1000);
+                        require (ratio.load() > 0.0f && post->liveCompareStatus().preAudible, why);
+                    };
+                    { GainUpdate hold (LiveTimingFixtureAccess::gainRevision (*post)); require (static_cast<bool> (hold), "lease held");
+                      playsPre ("PRE keeps playing while a gain write holds the revision"); }
+                    pause.store (true); waitWithoutMessageService ([this] { return paused.load(); });
+                    require (post->setLiveCompareMatchOn (false).turned, "MATCH turns off while PRE sounds");
+                    playsPre ("PRE stays audible on the first callback after MATCH off");
+                    pause.store (true); waitWithoutMessageService ([this] { return paused.load(); });
+                    require (post->setLiveCompareMatchOn (true).turned, "MATCH turns on while PRE sounds");
+                    playsPre ("PRE stays audible on the first callback after MATCH on");
+                    preToggled = true; stage = 12;
+                    break;
+                }
+                restore(); stage = 6;
+                break;
+            case 12:
+                if (post->liveCompareStatus().postActual > matchedPost || ! post->liveCompareStatus().matchReady) break;
                 restore(); stage = 6;
                 break;
             case 4:
@@ -323,7 +329,15 @@ private:
                 post->serviceLiveCompare();
                 if (post->liveCompareStatus().finishing) break;
                 require (post->liveCompareStatus().postActual == 1.0f && ! post->liveCompareStatus().active, "END confirmed at unity");
+                if (mode == "restore-matched-listen" && ! lastSideChecked)
+                {   // PRE was chosen before the restore: the project keeps it, and only a LISTEN press uses it.
+                    require (post->startLiveCompare (std::nullopt, true) == StartResult::started
+                        && post->liveCompareStatus().preSelected, "the next LISTEN starts on PRE, the side last chosen");
+                    post->finishLiveCompare(); lastSideChecked = true;
+                    break;
+                }
                 require (post->beginLiveBlind() == StartResult::started, "new explicit session starts after RETURN");
+                require (! post->liveCompareStatus().preSelected, "BLIND does not start on LISTEN's side");
                 post->closeLiveBlind();
                 std::cout << "Live lifecycle: PASS " << mode << " postErrors=" << postErrors.load() << '\n';
                 passed = true;
@@ -333,11 +347,47 @@ private:
             case 9:
                 if (post->liveCompareStatus().preAudible && ratio.load() > 0.99f) closeWithFade();
                 break;
+            case 10: // POST rises back within half a second; then playback stops and starts again while off
+                if (post->liveCompareStatus().postActual >= 1.0f) { playing.store (false); stoppedAt = blocks.load(); stage = 13; }
+                break;
+            case 13:
+                if (blocks.load() >= stoppedAt + 20) { playing.store (true); stage = 14; }
+                break;
+            case 14: // timing is back: MATCH on restores the same match for this playback, so AUTO can resume
+                if (post->liveCompareStatus().verdict != Verdict::accepted) break;
+                end_match_test::toggle (*editor);
+                require (! post->liveCompareStatus().matchOff && post->liveCompareStatus().gain == matchedGain
+                    && post->liveCompareStatus().postTarget == matchedPost, "MATCH on: the same gain and lowered POST");
+                require (end_match_test::autoOn (*editor, {}), "AUTO remains enabled after replay and MATCH on");
+                chainGain.store (0.9f); stoppedAt = blocks.load();
+                stage = 11;
+                break;
+            case 11:
+                if (blocks.load() < stoppedAt + 26 || post->liveCompareStatus().postActual > matchedPost
+                    || ! post->liveCompareStatus().matchReady) break;
+                end_match_test::follow (*editor, post->liveCompareStatus());
+                if (std::abs (post->liveCompareStatus().gain - matchedGain) < 0.01f) break;
+                require (end_match_test::autoOn (*editor, {}), "AUTO actually moves PRE after replay and MATCH on");
+                matchedGain = post->liveCompareStatus().gain;
+                if (! capChecked)
+                {   // MATCH on checks a kept boost against PRE's true peak now: capped at the ceiling, told as TP LIMIT.
+                    auto& memory = LiveTimingFixtureAccess::matchMemory (*post);
+                    require (post->setLiveCompareMatchOn (false).turned, "MATCH turns off before the ceiling check");
+                    keptMatch = memory; memory.pre = 2.0f; memory.ceiling = std::pow (10.0f, -1.0f / 20.0f); memory.limited = false;
+                    post->selectLiveComparePre (true);
+                    intersample.store (true); stoppedAt = blocks.load(); stage = 15; break;
+                }
+                stage = 5; // the same MATCH is ready again: continue with PRE
+                break;
+            #include "LiveComparePeakCases.h"
+            case 16:
+                if (blocks.load() >= stoppedAt + 26) stage = 5;
+                break;
             default: break;
         }
     }
     float processed (float input) const
-    { return mode == "restore-approval" ? -std::max (-0.8f, std::min (0.8f, input * 8.0f)) : input * -0.5f; }
+    { return mode == "restore-approval" ? -std::max (-0.8f, std::min (0.8f, input * 8.0f)) : input * -chainGain.load(); }
     void processAudio()
     {
         hypha::tests::ProductTestClock wallClock;
@@ -356,11 +406,13 @@ private:
             clock.playing = playing.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f)
-                    buffer.setSample (c, f, signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
+                    buffer.setSample (c, f, intersample.load() ? (((clock.position + f) % 4 < 2) ? 0.44615422f : -0.44615422f)
+                                                              : inputScale.load() * signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
             pre->processBlock (buffer, midi);
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f) buffer.setSample (c, f, processed (buffer.getSample (c, f)));
             post->processBlock (buffer, midi);
+            inspectAuditionBlock (buffer);
             if (verifyClose.exchange (false))
             {
                 const auto first = signal[static_cast<std::size_t> (clock.position + 7) % signal.size()];
@@ -387,10 +439,14 @@ private:
         }
     }
     static constexpr int frames = 8192;
+    static constexpr int rampBlockCount = 18;
+    std::vector<float> rampSamples = std::vector<float> (frames * rampBlockCount * 2);
     std::vector<float> signal;
     std::string mode;
     Clock clock;
     std::unique_ptr<Processor> pre, post;
+    std::unique_ptr<KirinHyphaEditor> editor;
+    ProcessorState::MatchMemory keptMatch;
     std::thread audio;
     hypha::pair_preview::Ticket preview;
     std::atomic<bool> running { true }, playing { false }, pause { false }, paused { false }, verifyPost { false };
@@ -398,10 +454,15 @@ private:
     std::atomic<bool> verifyClose { false };
     std::atomic<int> fadeChecks { 0 }, fadeErrors { 0 };
     std::atomic<float> ratio { 0.0f }, expectedPost { 1.0f };
+    std::atomic<float> chainGain { 0.5f };
+    std::atomic<bool> intersample { false };
+    std::atomic<bool> checkFirstPre { false }, captureRamp { false };
+    std::atomic<int> firstPreDone { 0 }, firstPreErrors { 0 }, rampBlocks { 0 }, rampPreErrors { 0 };
+    std::atomic<float> inputScale { 1.0f };
     Steady::time_point began = Steady::now(), requestedAt, checkedAt;
     int stage = 0;
     bool demanded = false;
-    float held = 1.0f, matchedGain = 1.0f;
+    float held = 1.0f, matchedGain = 1.0f, retainedCap = 1.0f;
 };
 }
 

@@ -63,7 +63,7 @@ inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart
     const auto text = blauertReadout (role, contrasts);
     if (text.isEmpty() || ! blauertShown (minimumHz, maximumHz) || chart.getWidth() < 160.0f || chart.getHeight() < 40.0f) return;
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
-    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
+    g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY.withAlpha (0.92f));
     const auto line = chart.withHeight (14.0f).reduced (4.0f, 0.0f);
     const auto textWidth = std::min (line.getWidth(), std::ceil (text_style::shownWidth (g.getCurrentFont(), text)) + 4.0f);
     help::note (line.withLeft (line.getRight() - textWidth), help_text::blauert);

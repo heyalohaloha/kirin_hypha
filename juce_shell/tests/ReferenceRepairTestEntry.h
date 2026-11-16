@@ -11,13 +11,15 @@
 #include "ReferenceWorkingMixTest.h"
 #include "ReferenceShiftedMixAlignmentTest.h"
 #include "ReferenceCheckSwitchTest.h"
+#include "ReferenceTargetImmediateTest.h"
 void testReferenceLibrarySets (const juce::File&);
 #include "TestPathBudget.h"
 inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sandbox)
 {
     if (argc != 2) return false;
     const juce::String mode (argv[1]);
-    if (mode == "--source-recovery-only") testReferenceSourceRecovery (sandbox);
+    if (mode == "--target-immediate-only") testTargetImmediateDisplay (sandbox);
+    else if (mode == "--source-recovery-only") testReferenceSourceRecovery (sandbox);
     else if (mode == "--storage-fallback-only") testReferenceStorageFallback (sandbox);
     else if (mode == "--source-cache-recovery-only") testReferenceCachedSnapshotRecovery (sandbox);
     else if (mode == "--initial-copy-audition-only") testReferenceInitialCopyAudition (sandbox);
@@ -69,6 +71,7 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
     else if (mode == "--content-alignment-only") testReferenceContentAlignment (sandbox);
     else if (mode == "--source-repairs-only")
     {
+        testTargetImmediateDisplay (sandbox);
         testReferenceVersionPosition (sandbox);
         testReferenceVersionLoop (sandbox);
         testReferenceVersionLoop (sandbox, true);

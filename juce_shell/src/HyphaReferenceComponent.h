@@ -84,7 +84,7 @@ struct SelectionOption
     juce::String checkLabel {}, itemLabel {}; // a CHECK target's two parts, when the runtime gives them
     juce::String workId {}, versionId {};     // a Version's song and its version in Kirin OS
     bool elsewhere = false;                   // a Version of another song (HyphaReferenceVersionRows.h)
-    int sourceIndex = 0;                      // its place as Kirin OS sent it, before the rows are arranged
+    int sourceIndex = 0; juce::String sourceIdentityKey {}; // source order and identity across Checks
 };
 
 // B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
@@ -108,7 +108,7 @@ enum class CueSubstitute { none, wholeSong, noSpectrum };
 
 struct State
 {
-    bool targetsEnabled = false, targetSelected = false;
+    bool targetsEnabled = false, targetSelected = false, checkDetailsOpen = false;
     reference_audition::TargetSnapshot targets;
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     bool separateComparisons = false, versionReady = false, checkReady = false;
@@ -302,7 +302,7 @@ public:
     std::function<void(const juce::String&)> onSelectCandidate;
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
-    std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<void(int)> onOpenLarge; // 300% 未満の C を押したとき（広げるだけ、音は変えない）
     std::function<bool(int)> pageCurrent; // 描いている画面がまだ今の画面か（古い画面のタブの押しは捨てる）
     // A の窓のリストの回答（見せ方だけ）。開いたときの役と世代を一緒に渡す。
     std::function<void(reference_audition::AWindowTarget, reference_audition::AWindowChoice, int)> onSelectAWindow;
@@ -317,7 +317,7 @@ public:
 
     std::function<void(const reference_audition::TargetRequest&)> onTargetRequest;
     bool isInterestedInFileDrag (const juce::StringArray&) override
-    { return current.targetsEnabled && ! isBlindSession (current.blindPhase); }
+    { return current.targetsEnabled && current.comparisonSlot == 3 && ! isBlindSession (current.blindPhase); }
     void filesDropped (const juce::StringArray& files, int, int) override
     { dragActive = false; repaint(); if (isInterestedInFileDrag (files) && onTargetRequest) onTargetRequest ({ reference_audition::TargetRequest::Action::importFiles, files, {} }); }
     void fileDragEnter (const juce::StringArray&, int, int) override { dragActive = true; repaint(); }
@@ -409,8 +409,7 @@ private:
     }
 
     TargetBar targetBar;
-    TargetBadge targetBadge;
-    bool dragActive = false;
+    bool dragActive = false, detailsOpen = false, versionDetailsOpen = false;
     State current;
     bool guideShown = false;
     GuideFit lastGuideFit;
@@ -433,8 +432,8 @@ private:
     SongList songList; // B の画面の左の曲の一覧
     OverlaySwitch overlaySwitch; // B の Balance の ONE／ALL（HyphaReferenceRoles.cpp・HyphaReferenceOverlay.h）
     CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
-    SelectionControl checkSongBox; // いまの Check の曲
-    SideButton matchButton { "MATCH" };
+    SelectionControl checkSongBox, checkChooser;
+    SideButton matchButton { "MATCH" }, detailsButton { "DETAILS" };
     SongSwitch songSwitch; // C の比べる値 CUE／SONG（Cue の段の右。HyphaReferenceCheckPage.cpp）
     SideButton blindButton { "VERSION BLIND" };
     std::array<SideButton, 5> playbackButtons { SideButton ("LOOP"), SideButton ("FOLLOW A"), SideButton ("-"), SideButton ("0.00 S"), SideButton ("+") };
@@ -444,8 +443,9 @@ private:
     juce::Rectangle<int> balanceBounds;            // B の画面の Balance
     StatusStrip statusStrip;  // 状態の行と、VERSION BLIND・アクションのボタン（HyphaReferenceStatusRow.cpp）
     std::vector<help::Region> helpRegions;  // 最後に描いた図に添えた説明の場所
-    bool statusFooterMode = false;
+    bool statusFooterMode = false; juce::String checkChangeNotice, checkChangeTarget;
     int statusRowHeight() const noexcept;
+    bool showCheckPurpose() const noexcept; bool keepPanelStatus (juce::Rectangle<int>) const;
     bool statusLineShown() const noexcept;
     void layoutStatusRow (juce::Rectangle<int>);
     void configureAWindowControls();
@@ -476,10 +476,10 @@ private:
     bool listeningCheck() const;
     void paintListeningPanel (juce::Graphics&, juce::Rectangle<int>) const;
     juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
-    // V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
+    // V の画面。VERSION・主の比較と、閉じた状態で始まる詳しい表示。
     bool versionPage() const noexcept;
-    static constexpr int versionPageRows = 28;  // タブ（選択欄はボタンの段）
-    juce::String versionTab { "whole" };
+    static constexpr int versionPageRows = 28;  // 広い画面の詳しくと VERSION BLIND の段
+    juce::String versionTab { "v-tone" };
 
     bool selectionVisible (const juce::ComboBox&) const;
     // B and C while they cannot be heard: dimmed, with the reason on hover and after a click, and

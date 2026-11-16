@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "kirin_hypha_display_ffi.h"
+#include "kirin_hypha_record_binding_ffi.h"
 #include <algorithm>
 
 bool KirinHyphaProcessorBase::pollWatchDisplay (KirinWatchDisplay& out) const
@@ -16,6 +17,16 @@ bool KirinHyphaProcessorBase::pollRecordDisplay (KirinRecordDisplay& out) const
     if (hyphaHandle == nullptr)
         return false;
     return kirin_hypha_poll_record_display (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollRecordWavBindingWaiting (bool& waiting) const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr) { waiting = false; return true; }
+    const auto status = kirin_hypha_record_wav_binding_status (hyphaHandle);
+    if (status < 0) return false;
+    waiting = status == 1;
+    return true;
 }
 
 bool KirinHyphaProcessorBase::pollMeterSession (KirinMeterSession& out) const

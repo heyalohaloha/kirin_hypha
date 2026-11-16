@@ -37,7 +37,12 @@ public:
         if (key == "TrackFX_GetEnabled") return reinterpret_cast<void*> (+[] (void*, int slot) { return slot != 2 || !current->bypassed; });
         if (key == "TrackFX_GetOffline") return reinterpret_cast<void*> (+[] (void*, int) { return false; });
         if (key == "TrackFX_GetFXGUID") return reinterpret_cast<void*> (+[] (void*, int slot) -> const void*
-        { return current->ids[static_cast<std::size_t> (current->postOnly ? 4 : slot)].data(); });
+        {
+            if (current->postOnly) return current->ids[4].data();
+            const auto logical = slot + (current->sourceRemoved ? 1 : 0);
+            const auto original = logical + (current->removed && logical >= 2 ? 1 : 0);
+            return current->ids[static_cast<std::size_t> (original)].data();
+        });
         if (key == "GetTrackGUID") return reinterpret_cast<void*> (+[] (void*) -> const void* { return current->ids[5].data(); });
         if (key == "GetMediaTrackInfo_Value") return reinterpret_cast<void*> (+[] (void*, const char* property)
         { return juce::String (property) == "I_NCHAN" ? 2.0 : 0.0; });

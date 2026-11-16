@@ -7,6 +7,8 @@
 #include "PairPreviewUiContractTest.h"
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceVisualNavigationTest.h"
+#include "ReferenceBlindReasonTest.h"
+#include "ReferenceVersionCompactTest.h"
 #include "ReferenceAbcvRolesTest.h"
 #include "ReferenceActionIntentTest.h"
 #include "ReferenceLightContractTest.h"
@@ -96,6 +98,8 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    verifyReferenceBlindReason();
+    verifyVersionCompact();
     verifyReferencePageWaitStatus();
     verifyReferenceVersionRows();
     verifyReferenceActionIntent();
@@ -387,12 +391,14 @@ void verifyReferenceAuditionComponentContract()
         component.setState (abc);
         KIRIN_REF_REQUIRE (a->isVisible() && b->isVisible() && c->isVisible()
             && c->getToggleState() && ! b->getToggleState() && ! a->getToggleState());
-        // 300% の C の画面は CHECK SET・Check のタブ・曲で選ぶ（V の選択は V の画面）。
+        // 300% の C は CHECK SET・Check の選択欄・曲で選ぶ（V は V の画面）。
         auto* tabs = component.findChildWithID ("reference-check-tabs");
+        auto* choice = component.findChildWithID ("reference-check-choice");
         auto* song = component.findChildWithID ("reference-check-song");
         KIRIN_REF_REQUIRE (preset->isVisible() && (width == 900
-            ? ! version->isVisible() && ! check->isVisible() && tabs != nullptr && tabs->isVisible() && song != nullptr
-                && song->isVisible() && component.getLocalBounds().contains (tabs->getBounds())
+            ? ! version->isVisible() && ! check->isVisible() && tabs != nullptr && ! tabs->isVisible() && choice != nullptr
+                && choice->isVisible() && song != nullptr && song->isVisible() && component.getLocalBounds().contains (choice->getBounds())
+            : ! component.detailedLayout() ? ! version->isVisible() && check->isVisible() && component.getLocalBounds().contains (check->getBounds())
             : version->isVisible() && check->isVisible() && ! version->getBounds().intersects (check->getBounds())
                 && component.getLocalBounds().contains (version->getBounds())
                 && component.getLocalBounds().contains (check->getBounds())));
@@ -400,8 +406,10 @@ void verifyReferenceAuditionComponentContract()
         if (width == 900) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_OUTPUT");
     }
     c->onClick();
+    abc.comparisonSlot = 1; component.setState (abc);
     version->setSelectedId (2, juce::sendNotificationSync);
     KIRIN_REF_REQUIRE (requestedC && requestedVersion == "version-2" && component.state().checkId == abc.checkId);
+    abc.comparisonSlot = 2;
     abc.readiness = reference_ui::Readiness::waiting;
     abc.osAccess = os_access::State::connectedUnprepared;
     abc.checkReady = false;

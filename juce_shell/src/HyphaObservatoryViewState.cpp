@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaRecordBindingNotice.h"
 
 namespace hypha::observatory
 {
@@ -59,8 +60,19 @@ void View::setAttackPaired (bool paired)
     updateControls(); repaint();
 }
 
+void View::setCompactReferenceNotices (bool enabled)
+{
+    if (compactReferenceNotices == enabled) return;
+    compactReferenceNotices = enabled;
+    setFeedback (rawFeedbackText);
+    resized();
+}
+
 void View::setFeedback (juce::String text)
 {
+    rawFeedbackText = text;
+    if (compactReferenceNotices && text == record_ui::wavWaiting) text.clear();
+    if (compactReferenceNotices && text.isEmpty() && footerStatusNeedsAction()) text = footerStatusText();
     if (feedbackText == text) return;
     const auto previousBody = bodyArea;
     feedbackText = std::move (text);
@@ -200,7 +212,8 @@ juce::Rectangle<int> View::analysisBodyBounds() const noexcept
         area.removeFromTop (timeControlsHeight());
     // Reference keeps its bottom actions clear; FREQ keeps its bottom axis labels clear.
     // Both pages end where the folded status strip begins.
-    if (statusStripOverBody && (selectedDomain == Domain::reference || selectedDomain == Domain::frequency))
+    if (statusStripOverBody && (selectedDomain == Domain::reference || selectedDomain == Domain::frequency)
+        && ! (compactReferenceNotices && feedbackText.isEmpty()))
         area.setBottom (statusStrip.getY());
     return area;
 }

@@ -12,16 +12,16 @@
 #include "reference_audition/ReferenceVisualTimeline.h"
 
 // B の画面の Balance の重ね比べ（ALL）。ONE は今の形（A・選んだ曲・セットの帯）、ALL は A（金）と、左の一覧の
-// 番号で出した線を重ねる。一覧はセットの曲の後に、ドロップした目標を入れた順に並べる（ALL の時だけ）。線を出し
+// 番号で出した線を重ねる。一覧はセットの曲の後に、ドロップした目標を入れた順に並べる。線を出し
 // 入れしても鳴る音は変えない（鳴るのは選んだ 1 曲のまま。目標には音が無い）。色は出した時に決め、消すまで
 // 変えない（reference_audition::BalanceOverlay）。
 namespace hypha::reference_ui
 {
 // What a target row says when it is pressed to be heard, and the line's own words.
-inline constexpr const char* targetSilentText = "A target is measured data with no audio. Compare it on C.";
+inline constexpr const char* targetSilentText = "A target has no audio. A stays live.";
 inline constexpr const char* overlayEmptyText = "PRESS A NUMBER TO SHOW ITS LINE";
-inline constexpr const char* shapeEmptyText = "TURN ON SONGS TO SEE THEIR SHAPE";
-inline constexpr const char* noSongsText = "NO SONGS IN THIS SET / ALL SHOWS TARGETS";  // ONE with targets only
+inline constexpr const char* shapeEmptyText = "TURN ON LINES TO SEE THEIR SHAPE";
+inline constexpr const char* noSongsText = "NO SONGS IN THIS SET / CHOOSE A TARGET";
 
 // One row of B's list as the overlay sees it.
 struct OverlayItem
@@ -46,7 +46,7 @@ inline double targetOverlayGainDb (const State& state, const reference_audition:
     return state.aWindowLoudness - (target.integrated + offset);
 }
 
-// The list in its order: the set's songs, then in ALL the targets in the order added.
+// The list in its order: the set's songs, then the targets in the order added.
 inline std::vector<OverlayItem> overlayItems (const State& state)
 {
     std::vector<OverlayItem> items;
@@ -67,7 +67,7 @@ inline std::vector<OverlayItem> overlayItems (const State& state)
         }
         items.push_back (std::move (item));
     }
-    if (state.overlay.all && state.targetsEnabled)
+    if (state.targetsEnabled)
         for (const auto& target : state.targets.collection.items)
         {
             OverlayItem item { target.id, target.name, static_cast<int> (items.size()) + 1, true };

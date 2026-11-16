@@ -17,9 +17,32 @@ The diagram is a placement confirmation, not automatic routing detection. Differ
 are shown as a hint. In another arrangement, the sound can change during comparison. When timing
 or the replacement range cannot be confirmed, the actual chain output is used temporarily;
 BLIND keeps its assignment and resumes automatically. That interval is not counted as B heard.
+In A/B, BLIND's GUESS asks **Which one is B?**, and SAVE IMAGE names the sources A and B until you
+type other names ([Blind](blind.md)).
 An A that arrives later than B, or whose position the audio cannot confirm, plays as it is and the
-footer says so; comparison continues.
+footer says so; comparison continues. When an earlier A/B of the same candidate confirmed how early A
+was, and the host reports the same latencies, insert chain and delay compensation, the next start of
+that candidate plays A with that amount and says **Delay not re-measured** until the audio confirms
+it again. After a change in those, or with another candidate, the start is fresh; when the host
+starts compensating that amount itself, it is dropped. When seeks keep A from reaching such an
+amount, B stands in for at most one second in all; then A plays at its clock position with
+**Delay unmeasured** until it can.
 Normal measurement and capture are suspended during A/B. Finish Record / Keep before starting.
+After END they resume once B has played out what it was fed during A/B (four seconds of playback),
+and at the latest ten seconds after END, also while the DAW is stopped. A LISTEN, BLIND, V, C, B or
+Keep pressed meanwhile starts by itself. If the ten seconds ended the wait while B was still playing
+out the comparison, nothing of that audio is recorded: a Keep pressed then waits, the status line
+says **Clearing the A/B tail, then Keep** (or **Play to continue, then Keep** while stopped; **Bypass is
+on: Keep starts after it is off** or **Rendering offline: Keep starts after it ends** while the host holds
+POST's return; an All Keep waiting for another POST says **Clearing another POST's A/B tail, then Keep**,
+and a POST whose tail the host holds says **Bypass is on: the A/B tail clears after it is off** or
+**Rendering offline: the A/B tail clears after it ends** in its own window), and it
+starts by itself once B has cleared and four seconds of playback have settled. If the original PRE
+has been removed or its connection has expired, a supported host can confirm the clearing from its
+current delay limit; changing the pair alone does not clear it. After two minutes
+without that (playback kept stopping or seeking) it ends with **A/B tail not cleared: run A/B once, then Keep** (starting A/B again replaces the tail with its own return); if bypass or an offline render still holds it then, it ends with **Bypass is on: turn it off, then press again** or **Rendering offline: press again after it finishes**. A host that switches POST off instead of bypassing it (Cakewalk, Studio One) counts as bypass here. A LISTEN or BLIND started in that time does not measure PRE's alignment from that audio:
+PRE plays at its clock position (or with the amount confirmed before) and the status line says
+**Delay unmeasured** (or **Delay not re-measured**) until B has played it out.
 
 Hardware and effects with feedback or long tails retain their own history when their input
 changes. A/B does not reset them. Allow the effect to settle before judging it or exporting;

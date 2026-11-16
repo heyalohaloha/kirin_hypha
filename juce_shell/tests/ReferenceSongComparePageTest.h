@@ -5,7 +5,7 @@
 //    Check では出さない。300% と大きい画面のどちらでも、流し方とずらしの右で枠の中に収まる。
 //  - SONG：図と 4 帯域は A FROM START（DAW の頭から）と C の曲全体の値。凡例は「A FROM START 2:41 / C SONG 0:00-4:55」、
 //    gain は両方の曲全体の音量をそろえる量（MATCH の読みは鳴らす gain のまま）。A の窓のリストは RESET だけ。
-//  - C の曲全体の値が無い（古い Kirin OS）時は CUE の値のまま描き、状態の行が「Kirin OS 1.6.1 で曲全体の値が出ます」。
+//  - C の曲全体の値が無い（古い Kirin OS）時は CUE の値のまま描き、状態の行が「Kirin OS 1.7.0 で曲全体の値が出ます」。
 //    A が DAW の 30 分より後を鳴らした時も状態の行が言う。C を鳴らしている間も後ろの区切りで言う。どれも英日。
 //  - SONG は主の図がどれもスペクトルの Check だけ。範囲の帯の Check はどこも CUE のまま、SONG は押せず理由を持つ。
 //  - 時間軸は SONG で曲全体を Cue の箱の金で示す。切り替えは枠の中の 2 つの区切りで、文字は 12 px 以上・4.5:1 以上。
@@ -113,6 +113,9 @@ inline void verifyReferenceSongComparePage()
         panel.setPresentationContext (presentation::forEditor (editorWidth, editorHeight));
         panel.setSize (width, height);
         panel.setState (check);  // LOOP
+        auto* details = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-check-details"));
+        require (details != nullptr && details->isVisible(), "C details can be opened");
+        details->onClick();
         auto* switcher = panel.findChildWithID ("reference-compare");
         auto* cueHalf = dynamic_cast<juce::Button*> (switcher != nullptr ? switcher->findChildWithID ("reference-compare-cue") : nullptr);
         auto* songHalf = dynamic_cast<juce::Button*> (switcher != nullptr ? switcher->findChildWithID ("reference-compare-song") : nullptr);
@@ -201,20 +204,26 @@ inline void verifyReferenceSongComparePage()
                  "in SONG the A list only resets A (A FROM START too)");
         panel.setState (cue);
         require (control->makeMenu().getNumItems() > 2, "in CUE the A list chooses the window again");
-        // 範囲の帯の Check（主の図が Cue の区間と A の直近で測る）：どこも CUE のまま。SONG は押せず理由を持ち、覚えた SONG は残す。
+        // Range-strip Checks retain the selected SONG and explain that their comparison uses the Cue.
         auto ranged = check;
         ranged.song.chosen = true; ranged.viewBindings = { "dynamics", "loudness" };
         reference_ui::applySongComparison (ranged, &aSong, cSong, songLoudness);
         panel.setState (ranged);
-        require (! ranged.song.shown && ranged.song.chosen && switcher->isVisible() && cueHalf->getToggleState()
-                     && ! songHalf->getToggleState() && ! songHalf->isEnabled()
+        require (! ranged.song.shown && ranged.song.chosen && switcher->isVisible() && ! cueHalf->getToggleState()
+                     && songHalf->getToggleState() && ! songHalf->isEnabled()
+                     && reference_ui::referenceStatusLine (ranged).text.contains (reference_ui::songUnsupportedNotice)
                      && hypha::unavailable::reasonAt (songHalf) == reference_ui::songUnsupportedText,
-                 "a range-strip Check keeps CUE, SONG cannot be pressed and says why");
-        // 目標と耳で聴き比べる Check は CUE／SONG を持たない。
+                 "a range-strip Check keeps SONG selected and explains its Cue comparison");
+        // 耳で聴き比べる Check は CUE／SONG を持たない。
         auto listening = check;
         listening.listeningChecks = { "chk-low" };
         panel.setState (listening);
         require (! switcher->isVisible(), "a Check heard by ear has nothing to switch");
+        reference_ui::Component compact;
+        compact.setVisible (true); compact.setPresentationContext (presentation::forEditor (300, 200));
+        compact.setSize (288, 136); compact.setState (listening);
+        require (! compact.findChildWithID ("reference-compare")->isVisible(),
+                 "an ear-only Check has no CUE / SONG switch at 100% either");
     }
 
     // SONG で比べられるのは主の図がどれもスペクトルの Check だけ（ほかは図と 4 帯域のどちらも CUE のまま）。
@@ -234,7 +243,7 @@ inline void verifyReferenceSongComparePage()
     require (japanese (reference_ui::songUnsupportedText) == u8 (u8"SONGはSpectrumのCheckで使えます。このCheckはCueで比べます。"),
              "the reason SONG cannot be pressed reads in Japanese");
 
-    // 目標を選んだ C は SONG を使わない（選択は覚えたまま）。
+    // 保存済みの目標は C の SONG 比較を変えない。
     {
         auto target = song;
         reference_audition::MeasuredTarget measured;
@@ -243,9 +252,9 @@ inline void verifyReferenceSongComparePage()
         reference_audition::TargetSnapshot targets;
         targets.collection.items = { measured }; targets.collection.selected = "t1";
         reference_ui::applyMeasuredTarget (target, targets, true);
-        require (target.targetSelected && target.song.chosen && ! target.song.shown
-                     && reference_ui::cueSpectrumLegend (target).contains ("C TARGET"),
-                 "a target is compared as it was, SONG is kept for later");
+        require (! target.targetSelected && target.song.chosen && target.song.shown
+                     && ! reference_ui::cueSpectrumLegend (target).contains ("C TARGET"),
+                 "a saved target leaves C's song comparison intact");
     }
 
     // 使えない時の理由（英日）：C の曲全体の値が無い（CUE のまま描く）、A が 30 分より後。
@@ -256,8 +265,8 @@ inline void verifyReferenceSongComparePage()
         reference_ui::applySongComparison (missing, &aSong, nullptr, std::numeric_limits<double>::quiet_NaN());
         const auto line = reference_ui::referenceStatusLine (missing).text;
         require (missing.song.cMissing && ! missing.song.shown && missing.cueKirin == check.cueKirin
-                     && line == "WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1"
-                     && japanese (line) == u8 (u8"Kirin OS 1.6.1で曲全体の値が出ます")
+                     && line == "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0"
+                     && japanese (line) == u8 (u8"Kirin OS 1.7.0で曲全体の値が出ます")
                      && reference_ui::cueSpectrumLegend (missing).contains ("C CUE"),
                  "without C's whole-song values the page keeps the Cue and says why: " + line + " / " + japanese (line));
         auto beyond = check;
@@ -276,9 +285,9 @@ inline void verifyReferenceSongComparePage()
             playing->audibleComparisonSlot = 2;
             playing->tracking = reference_audition::TrackingState::fixed;
             const auto said = reference_ui::referenceStatusLine (*playing).text;
-            const auto reason = playing == &missing ? juce::String ("WHOLE-SONG VALUES COME WITH KIRIN OS 1.6.1")
+            const auto reason = playing == &missing ? juce::String ("WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0")
                                                     : juce::String ("A FROM START HOLDS THE DAW'S FIRST 30 MIN");
-            const auto reasonJa = playing == &missing ? u8 (u8"Kirin OS 1.6.1で曲全体の値が出ます") : u8 (u8"A頭からはDAWの最初の30分まで");
+            const auto reasonJa = playing == &missing ? u8 (u8"Kirin OS 1.7.0で曲全体の値が出ます") : u8 (u8"A頭からはDAWの最初の30分まで");
             require (said.startsWith ("C CUE 1:02-1:32 LOOP") && said.contains ("  /  " + reason) && japanese (said).contains (reasonJa),
                      "while C plays the page still says why SONG is not whole: " + said + " / " + japanese (said));
         }

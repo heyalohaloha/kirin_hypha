@@ -33,9 +33,26 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
         require (post.isRecording(), "the ordinary Keep reaches actual Record through its workers");
         require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::comparisonBusy
             && post.isRecording(), "A/B refuses active Record without ending or replacing it");
+        const auto generationDeadline = std::chrono::steady_clock::now() + std::chrono::seconds (10);
+        while (post.keepPhase() == KIRIN_KEEP_PHASE_PREPARING && std::chrono::steady_clock::now() < generationDeadline)
+        {
+            host.render (1, false, false);
+            for (auto& p : host.instances) awaitAnalysisExchange (*p, true);
+        }
+        require (post.keepPhase() == KIRIN_KEEP_PHASE_ARMED, "the Keep generation is committed before Stop");
         post.stopPair();
         host.render (20, false, false);
         for (auto& p : host.instances) awaitAnalysisExchange (*p, true);
+        require (!post.isRecording() && post.keepPhase() == KIRIN_KEEP_PHASE_IDLE,
+                 "Record stops before the next comparison starts");
+        bool released = false;
+        while (!(released = LiveTimingFixtureAccess::candidateTailLeaseAvailable (post))
+               && std::chrono::steady_clock::now() < generationDeadline)
+        {
+            host.render (1, false, false);
+            for (auto& p : host.instances) awaitAnalysisExchange (*p, true);
+        }
+        require (released, "the completed Keep releases its tail lease before the next comparison");
         juce::MemoryBlock beforeStart;
         if (channels == 1)
         {
@@ -49,7 +66,7 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
             enterCandidateThroughEditor (post, require, [&] (juce::AudioProcessorEditor& editor)
             {
                 require (!post.candidateCompareActive(), "confirmed A/B waits for the existing RETURN");
-                for (int i = 0; i < 450 && !post.candidateCompareActive(); ++i) // RETURN rises over 2 s
+                for (int i = 0; i < 450 && !post.candidateCompareActive(); ++i) // RETURN rises over 0.5 s
                 { host.render (1, false, false); candidateTick (editor); }
             }, &beforeStart);
         }
@@ -152,11 +169,12 @@ template<class Require> void verifyCandidateProduct (Require require, const juce
                      "END keeps the next confirmed entry pending while measurement is isolated");
             require ((post.referenceOwnOutputStates() & output_owner::bit (output_owner::State::localBlind)) != 0,
                      "the ended candidate BLIND still owns its capture scope during return");
-            wall.advance (std::chrono::seconds (12));
-            expireCandidateEntryDeadline (editor); // deterministic editor timeout, with the host stopped
-            candidateTick (editor);
-            require (!post.candidateCompareActive(), "no audio callback fabricates a completed return");
-            require (candidateEntryPending (editor), "a stopped host preserves the next confirmed entry past its deadline");
+            wall.advance (std::chrono::seconds (9)); candidateTick (editor);
+            require (post.candidateReturning() && !post.candidateCompareActive() && candidateEntryPending (editor),
+                     "a stopped host keeps the return and the next confirmed entry within the overall deadline");
+            wall.advance (std::chrono::seconds (2)); candidateTick (editor);
+            require (!post.candidateReturning() && (post.candidateCompareActive() || candidateEntryPending (editor)),
+                     "past the overall deadline the stopped return ends and the confirmed entry goes on by itself");
             for (auto& clock : host.clocks) clock.playing = true;
             for (int tick = 0; tick < 850 && !post.candidateCompareActive(); ++tick)
             {

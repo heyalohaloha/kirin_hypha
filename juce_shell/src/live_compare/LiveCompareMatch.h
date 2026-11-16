@@ -108,6 +108,10 @@ struct FollowStep
 FollowStep followStep (const MatchResult&, double heldPostDb, double approvedPreDb, double ceilingDbtp,
                        double currentPreDb, double peakSoFarDbtp) noexcept;
 
+// MATCH on (INV-LC13): a raised PRE gain kept at MATCH off, capped so PRE's loudest true peak known now
+// (peakDbtp) stays at or under the ceiling that MATCH approved. Never below unity: Hypha only limits what it adds.
+double ceilingCappedGainDb (double gainDb, double ceilingDbtp, double peakDbtp) noexcept;
+
 // Non-RT (message thread). Aligns the latest window of POST's input history with PRE's ring through
 // the proven K and measures it with the Local Blind gain policies (BS.1770 loudness, cue true peak).
 MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::uint32_t sampleRate,

@@ -3,6 +3,8 @@
 #include "../host_clock_diagnostic/IdentityAudit.h"
 #include <cstdlib>
 #include <iostream>
+#include <set>
+#include <sstream>
 #include <thread>
 
 static thread_local bool rt = false;
@@ -37,6 +39,8 @@ static void writer (const std::filesystem::path& parent)
     environment ("relative-folder"); assert (!Recorder::fromEnvironment());
     environment ((parent / "missing").string().c_str()); assert (!Recorder::fromEnvironment());
     std::filesystem::create_directories (parent);
+    std::set<std::filesystem::path> earlier; // a reused build folder keeps sessions written by older builds
+    for (const auto& entry : std::filesystem::directory_iterator (parent)) earlier.insert (entry.path());
     environment (parent.string().c_str());
     auto recorder = Recorder::fromEnvironment(); assert (recorder != nullptr);
     float left[] { 1, -0.0f, 0.125f, -0.5f }, right[] { -1, 0, 0.25f, 0.5f };
@@ -44,6 +48,8 @@ static void writer (const std::filesystem::path& parent)
     rt = true;
     auto* r = recorder->begin (input, 2, 4); assert (r != nullptr);
     r->role = 0; r->rate = 48000; r->precisionBits = 64; r->host.hasPosition = true;
+    hypha::chain_trace::observeNamedSelection (*r, (std::uint64_t (42) << 32) | 1u);
+    hypha::chain_trace::acceptNamedSelection (*r, true);
     recorder->finish (input);
     assert (recorder->begin (input, 2, 8193) == nullptr);
     recorder->finish (input);
@@ -53,10 +59,12 @@ static void writer (const std::filesystem::path& parent)
     for (const auto& entry : std::filesystem::directory_iterator (parent))
     {
         const auto metaPath = entry.path() / "blocks.jsonl";
-        if (!std::filesystem::exists (metaPath)) continue;
+        if (earlier.count (entry.path()) != 0 || !std::filesystem::exists (metaPath)) continue;
         std::ifstream file (metaPath); const std::string text ((std::istreambuf_iterator<char> (file)), {});
         assert (text.find ("\"dropped\":1") != std::string::npos);
         assert (text.find ("\"precisionBits\":64") != std::string::npos);
+        assert (text.find ("\"selectionCommand\":\"180388626433\"") != std::string::npos);
+        assert (text.find ("\"selectionAccepted\":true") != std::string::npos);
         std::ifstream pcm (entry.path() / "audio.f32", std::ios::binary);
         float observed[16] {}; pcm.read (reinterpret_cast<char*> (observed), sizeof (observed));
         assert (pcm.gcount() == sizeof (observed));
@@ -118,6 +126,33 @@ static void fixture()
 
 int main (int argc, char** argv)
 {
+    hypha::chain_trace::Row selectionRow;
+    selectionRow.entryNanos = hypha::live_compare::callbackWallNanos();
+    rt = true;
+    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (7) << 32) | 1u);
+    assert (selectionRow.selectionSeen && ! selectionRow.selectionAccepted && selectionRow.selectionAcceptedNanos == 0);
+    hypha::chain_trace::acceptNamedSelection (selectionRow, true);
+    rt = false;
+    selectionRow.exitNanos = hypha::live_compare::callbackWallNanos();
+    assert (selectionRow.selectionSeen && selectionRow.selectionAccepted
+        && selectionRow.selectionReadNanos <= selectionRow.selectionAcceptedNanos
+        && selectionRow.entryNanos <= selectionRow.selectionAcceptedNanos
+        && selectionRow.selectionAcceptedNanos <= selectionRow.exitNanos && allocations.load() == 0);
+    std::ostringstream selectionJson;
+    hypha::chain_trace::rowJson (selectionJson, selectionRow, 0);
+    for (const auto* key : { "\"selectionCommand\"", "\"selectionReadNanos\"",
+                             "\"selectionAcceptedNanos\"", "\"selectionAccepted\"" })
+        if (selectionJson.str().find (key) == std::string::npos)
+        {
+            std::cerr << "selection callback timing missing from trace: " << key << '\n';
+            return EXIT_FAILURE;
+        }
+    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (8) << 32) | 2u);
+    hypha::chain_trace::acceptNamedSelection (selectionRow, true);
+    assert (! selectionRow.selectionAccepted && selectionRow.selectionAcceptedNanos == 0);
+    hypha::chain_trace::observeNamedSelection (selectionRow, (std::uint64_t (9) << 32) | 1u);
+    hypha::chain_trace::acceptNamedSelection (selectionRow, false);
+    assert (! selectionRow.selectionAccepted && selectionRow.selectionAcceptedNanos == 0);
     auto queue = std::make_unique<hypha::chain_trace::Queue<2>>();
     auto* first = queue->begin (4, 2);
     assert (first != nullptr);

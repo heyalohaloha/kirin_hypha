@@ -57,7 +57,7 @@ struct RuntimeSourceRanges
             if (range.startSample == start && range.endSample == end) return &range;
         return nullptr;
     }
-    // 曲全体の範囲（頭から終わりまで。Kirin OS 1.6.1 から全曲に 1 つ）。範囲は開始の順なので先頭とは限らない
+    // 曲全体の範囲（頭から終わりまで。Kirin OS 1.7.0 から全曲に 1 つ）。範囲は開始の順なので先頭とは限らない
     // （同じ 0 から始まる短い範囲の後のこともある）。古い Kirin OS の ranges には無いことがある（null）。
     const RuntimeRangeValues* wholeSong() const
     {

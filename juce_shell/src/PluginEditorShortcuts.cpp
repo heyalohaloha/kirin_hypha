@@ -38,6 +38,10 @@ hypha::shortcuts::Context KirinHyphaEditor::shortcutContext() const
 
 bool KirinHyphaEditor::keyPressed (const juce::KeyPress& key)
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (matchChoicePopup.isVisible() && key.isKeyCode (juce::KeyPress::escapeKey))
+    { matchChoicePopup.close(); return true; }
+   #endif
     if (! shortcutsListening()) return false;
     const auto press = hypha::shortcuts::normalise (key);
     const auto result = hypha::shortcuts::resolve (press, shortcutContext());
@@ -52,6 +56,10 @@ bool KirinHyphaEditor::keyStateChanged (bool isKeyDown)
 {
     if (! isKeyDown) heldShortcutKeys.released();
    #if JUCE_WINDOWS
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isKeyDown && matchChoicePopup.isVisible() && juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey))
+        return true;
+   #endif
     // The key press comes with the WM_CHAR after this WM_KEYDOWN, which the host is sent unless it is
     // used here. A key the window will use must not reach the host as well.
     if (isKeyDown && shortcutsListening())

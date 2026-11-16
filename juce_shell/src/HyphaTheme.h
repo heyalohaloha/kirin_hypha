@@ -61,6 +61,7 @@ namespace hypha
     // fixed cells because JUCE 7 cannot request the font's OpenType `tnum` feature directly.
     juce::Font labelFont (const presentation::Context&, typography::TextRole,
                           typography::Composition = typography::Composition::shell);
+    juce::Font labelFont (const presentation::Context&, typography::BlindImageText, int nameSize = 34);
     juce::Font monoFont (const presentation::Context&, typography::TextRole,
                          typography::Composition = typography::Composition::shell);
     juce::Font nativeTextFont (const presentation::Context&, typography::TextRole,

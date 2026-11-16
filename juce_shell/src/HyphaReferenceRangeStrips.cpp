@@ -1,6 +1,7 @@
 #include "HyphaReferenceRangeStrips.h"
 
 #include "HyphaReferenceAComparison.h"
+#include "HyphaReferenceAxisLabels.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceHelp.h"
@@ -10,6 +11,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaLanguage.h"
 #include "reference_audition/ReferenceDynamicsRange.h"
 #include "reference_audition/ReferenceCrestBasis.h"
 
@@ -43,6 +45,10 @@ std::vector<Row> rowsFor (const juce::String& binding)
 {
     namespace text = help_text;
     const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu, AWords::size, text::movement };
+    if (binding == "version_movement") return { movement };
+    if (binding == "version_attack") return { rowsFor ("transient").front() };
+    if (binding == "version_onset") return { rowsFor ("transient").back() };
+    if (binding == "version_correlation") return { rowsFor ("stereo").back() };
     if (binding == "dynamics")
         return { { "CREST", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size, text::crest }, movement };
     if (binding == "loudness")
@@ -189,8 +195,18 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
                 presentation::Context context)
 {
     if (prepared.empty()) return;
+    if (context.referenceCheck && area.getHeight() < 140.0f && prepared.size() == 2)
+    {
+        auto first = area.removeFromLeft ((area.getWidth() - 28.0f) * 0.5f);
+        area.removeFromLeft (28.0f);
+        paintRows (g, first, { prepared[0] }, sides, context);
+        paintRows (g, area, { prepared[1] }, sides, context);
+        return;
+    }
     const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
-    const auto numberFont = monoFont (context, typography::TextRole::readout, typography::Composition::information);
+    const auto numberRole = context.referenceCheck && area.getHeight() / static_cast<float> (prepared.size()) >= 110.0f
+        ? typography::TextRole::referenceRangeValue : typography::TextRole::readout;
+    const auto numberFont = monoFont (context, numberRole, typography::Composition::information);
     float numberWidth = std::max (text_style::shownWidth (unitFont, "MEDIAN"), text_style::shownWidth (unitFont, "P90-P10"));
     float differenceWidth = 0.0f;
     for (const auto& item : prepared)
@@ -202,48 +218,56 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
     differenceWidth = differenceWidth > 0.0f ? std::ceil (differenceWidth) + 12.0f : 0.0f;
     constexpr float letterWidth = 20.0f, gap = 12.0f;
     if (area.getWidth() - letterWidth - numberWidth - differenceWidth - gap < 140.0f) differenceWidth = 0.0f;
-    const auto barLeft = area.getX() + letterWidth, barRight = area.getRight() - numberWidth - differenceWidth - gap;
-    if (barRight - barLeft < 60.0f) return;
-    const auto rowHeight = std::min (area.getHeight() / static_cast<float> (prepared.size()), 118.0f);
+    const auto availableBar = area.getWidth() - letterWidth - numberWidth - differenceWidth - gap;
+    const auto barWidth = context.referenceCheck ? std::min (availableBar, 360.0f) : availableBar;
+    if (barWidth < 60.0f) return;
+    const auto barLeft = area.getX() + letterWidth + (availableBar - barWidth) * 0.5f, barRight = barLeft + barWidth;
+    const auto availableRow = area.getHeight() / static_cast<float> (prepared.size());
+    const auto rowHeight = context.referenceCheck ? availableRow : std::min (availableRow, 118.0f);
     for (const auto& item : prepared)
     {
         auto block = area.removeFromTop (rowHeight);
         help::note (block, item.row.help);
-        auto title = block.removeFromTop (std::min (18.0f, block.getHeight() / 4.0f));
-        const auto lineHeight = std::min (24.0f, (block.getHeight() - 20.0f) / 2.0f);
+        const auto titleHeight = std::min (context.referenceCheck ? 20.0f : 18.0f, block.getHeight() / 4.0f);
+        const auto axisHeight = std::min (18.0f, block.getHeight() / 4.0f);
+        const auto lineHeight = context.referenceCheck ? std::min (38.0f, (block.getHeight() - titleHeight - axisHeight) / 2.0f)
+                                                       : std::min (24.0f, (block.getHeight() - titleHeight - 20.0f) / 2.0f);
+        if (context.referenceCheck)
+            block.removeFromTop (std::max (0.0f, (block.getHeight() - titleHeight - axisHeight - 2.0f * lineHeight) * 0.5f));
+        auto title = block.removeFromTop (titleHeight);
         auto aLine = block.removeFromTop (lineHeight);
         auto otherLine = block.removeFromTop (lineHeight);
-        auto axis = block.removeFromTop (std::min (15.0f, block.getHeight()));
-        g.setColour (COL_TEXT_TERTIARY);
+        auto axis = block.removeFromTop (context.referenceCheck ? axisHeight : std::min (15.0f, block.getHeight()));
+        g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
         text_style::drawEllipsized (g, item.row.fact == DynamicsFact::crest ? sides.crestName : item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
         text_style::drawEllipsized (g, item.row.spread ? "P90-P10" : "MEDIAN",
             title.withLeft (barRight + gap).withWidth (numberWidth).toNearestInt(), juce::Justification::centredRight);
-        for (auto value = item.minimum; value <= item.maximum + 1.0e-9; value += item.row.step)
+        const auto labels = axis_labels::layout (item.minimum, item.maximum, item.row.step, barLeft, barRight,
+                                                  axis, unitFont, [&item] (double value) { return tickText (item.row.unit, value); });
+        for (const auto& label : labels)
         {
-            const auto x = barLeft + static_cast<float> ((value - item.minimum) / (item.maximum - item.minimum)) * (barRight - barLeft);
             g.setColour (COL_MUTED.withAlpha (0.12f));
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, aLine.getY(), 1.0f, otherLine.getBottom() - aLine.getY()));
-            g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
-            text_style::drawText (g, tickText (item.row.unit, value), juce::Rectangle<float> (x - 24.0f, axis.getY(), 48.0f, axis.getHeight()),
-                                  juce::Justification::centred, false);
+            g.fillRect (juce::Rectangle<float> (label.x - 0.5f, aLine.getY(), 1.0f, otherLine.getBottom() - aLine.getY()));
+            g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_TERTIARY.withAlpha (0.85f));
+            if (label.visible) text_style::drawText (g, label.text, label.bounds, juce::Justification::centred, false);
         }
         for (const auto& [line, bar, letter, colour, valueColour, text] :
              { std::tuple { aLine, item.aBar, juce::String ("A"), COL_FLORA_BR, COL_FLORA_BR, item.aText },
                std::tuple { otherLine, item.otherBar, juce::String (sides.letter), COL_SPECTRUM_DELTA, COL_SPECTRUM_DELTA_BR, item.otherText } })
         {
-            g.setColour (COL_TEXT_SECONDARY);
+            g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY);
             g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
-            text_style::drawEllipsized (g, letter, line.withWidth (letterWidth).toNearestInt(), juce::Justification::centredLeft);
+            text_style::drawEllipsized (g, letter, line.withX (barLeft - letterWidth).withWidth (letterWidth).toNearestInt(), juce::Justification::centredLeft);
             paintBar (g, juce::Rectangle<float>::leftTopRightBottom (barLeft, line.getY(), barRight, line.getBottom()), bar, item.row,
                       item.minimum, item.maximum, colour);
             const auto number = juce::Rectangle<float>::leftTopRightBottom (barRight + gap, line.getY(), barRight + gap + numberWidth, line.getBottom());
-            g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
-            g.setColour (bar.shown ? valueColour : COL_MUTED);
+            g.setFont (monoFont (context, numberRole, typography::Composition::information));
+            g.setColour (bar.shown ? valueColour : context.referenceCheck ? COL_NORMAL : COL_MUTED);
             text_style::drawEllipsized (g, text, number.toNearestInt(), juce::Justification::centredRight);
             if (letter == "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())  // 差は A の行に（A が主語）
             {
-                g.setColour (COL_TEXT_SECONDARY);
+                g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY);
                 g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
                 text_style::drawEllipsized (g, item.difference, juce::Rectangle<float>::leftTopRightBottom (number.getRight() + 10.0f, line.getY(),
                                                                                                     area.getRight(), line.getBottom()).toNearestInt(),
@@ -324,7 +348,11 @@ bool rangeStripBinding (const juce::String& binding) noexcept
 bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state, const juce::String& binding,
                           presentation::Context context, juce::Rectangle<float> frame)
 {
-    const auto rows = rowsFor (binding);
+    auto rows = rowsFor (binding);
+    if (state.checkDetailsOpen && ! state.viewBindings.empty() && binding != state.viewBindings.front()
+        && (binding == "dynamics" || binding == "loudness")
+        && (state.viewBindings.front() == "dynamics" || state.viewBindings.front() == "loudness"))
+        rows.erase (std::remove_if (rows.begin(), rows.end(), [] (const Row& row) { return row.spread; }), rows.end());
     if (rows.empty()) return false;
     // C：Cue（無ければ曲全体）に丸ごと入る区間。A：直近の C の窓の長さを、C の区間の長さにまとめ直す。C の値がまだ無い
     // （Kirin OS が測っていない・Kirin OS のプレビュー）ときも帯の形は描き、値は「—」（Hypha 本体と同じ見た目）。
@@ -382,6 +410,31 @@ bool paintVersionRangeStrips (juce::Graphics& g, juce::Rectangle<float> area, co
     sides.letter = "V";
     sides.shift = std::isfinite (gainDb) ? gainDb : 0.0;
     const auto prepared = prepare (rows, sides);
+    if (area.getHeight() < 75.0f)
+    {
+        // A compact view has room for one actual pair, not two squeezed strips and a timeline.
+        const auto& item = prepared.front();
+        const auto font = labelFont (context, typography::TextRole::readout, typography::Composition::visualization);
+        g.setFont (labelFont (context, typography::TextRole::readout, typography::Composition::visualization));
+        const bool japanese = i18n::current() == i18n::Language::japanese;
+        const juce::String label = binding == "version_movement" ? (japanese ? juce::String::fromUTF8 (u8"音量の動き") : juce::String ("MOVEMENT"))
+            : binding == "version_attack" ? (japanese ? juce::String::fromUTF8 (u8"アタック") : juce::String ("ATTACK"))
+            : binding == "version_onset" ? (japanese ? juce::String::fromUTF8 (u8"立ち上がり") : juce::String ("ONSET"))
+            : binding == "version_correlation" ? (japanese ? juce::String::fromUTF8 (u8"相関") : juce::String ("CORRELATION"))
+            : binding == "stereo" ? juce::String ("WIDTH") : juce::String (item.row.name);
+        const juce::String a = "A " + item.aText, v = "V " + item.otherText;
+        const auto labelWidth = std::ceil (text_style::shownWidth (font, label)) + 10.0f;
+        const auto aWidth = std::ceil (text_style::shownWidth (font, a)) + 10.0f;
+        const auto vWidth = std::ceil (text_style::shownWidth (font, v));
+        if (labelWidth + aWidth + vWidth > area.getWidth() || area.getHeight() < font.getHeight()) return false;
+        g.setColour (COL_NORMAL);
+        text_style::drawText (g, label, area.removeFromLeft (labelWidth), juce::Justification::centredLeft, false);
+        g.setColour (COL_FLORA_BR);
+        text_style::drawText (g, a, area.removeFromLeft (aWidth), juce::Justification::centredLeft, false);
+        g.setColour (COL_SPECTRUM_DELTA);
+        text_style::drawText (g, v, area.removeFromLeft (vWidth), juce::Justification::centredLeft, false);
+        return true;
+    }
     auto overlay = area.removeFromTop (std::round (area.getHeight() * 0.32f));
     area.removeFromTop (6.0f);
     paintTimeLines (g, overlay.reduced (6.0f, 0.0f), prepared.front(), sides, context);

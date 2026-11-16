@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonNotices.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaLiveStartAfterReturn.h"
@@ -11,8 +12,8 @@ const char* hypha::live_compare_ui::startFailure (StartResult result) noexcept
     {
         case StartResult::started:
         case StartResult::notPost:           return "";
-        case StartResult::comparisonBusy:    return "End the current comparison first";
-        case StartResult::returnPending:     return "Ended; normal level returns with audio";
+        case StartResult::comparisonBusy:    return hypha::comparison_ui::endThenRetry;
+        case StartResult::returnPending:     return "Ended; POST back to normal within 0.5 s";
         case StartResult::returnRequired:    return "Press RETURN first";
         case StartResult::notReady:          return "LISTEN could not start";
         case StartResult::noPair:            return "Choose the PRE first";
@@ -39,6 +40,7 @@ const char* KirinHyphaEditor::liveCompareEntryRefusal (bool blind) const
 
 void KirinHyphaEditor::requestListenStart ()
 {
+    matchChoicePopup.close();
     liveCompareStartAfterReturnCandidate.clear();
     afterTail = {};  // LISTEN is the newer choice: a V, C, B or Keep waiting for the A/B tail is dropped
     // INV-LC14: a press that waited starts with the ticket of its press; a new press takes the latest one.
@@ -49,7 +51,7 @@ void KirinHyphaEditor::requestListenStart ()
     hypha::live_compare_ui::performAction (hypha::live_compare_ui::ActionFaultScope::duringAction,
         [this, &result, &generation, waited]
         {
-            result = processorRef.startLiveCompare (waited);
+            result = processorRef.startLiveCompare (waited, true); // on the side LISTEN last chose
             generation = processorRef.liveCompareStatus().sessionGeneration;
             liveCompareMatched = liveCompareLimited = liveCompareInterruptSeen = false;
             liveCompareActiveSeen = result == StartResult::started;
@@ -83,21 +85,45 @@ void KirinHyphaEditor::requestListenStart ()
 
 void KirinHyphaEditor::requestListenSelect (bool pre)
 {
+    matchChoicePopup.close();
     processorRef.selectLiveComparePre (pre);
     liveCompareInterruptSeen = false;
     refreshLiveCompare();
 }
 
+// MATCH on/off (INV-LC13): with a MATCH in this LISTEN a press turns it off and the next press turns the
+// same match on. MATCH again and AUTO stay in MENU and on the AUTO key. With no MATCH yet it measures.
+// On never takes PRE over the ceiling: a capped boost is told as TP LIMIT, or as AUTO's ceiling line.
 void KirinHyphaEditor::requestListenMatch ()
 {
-    if (liveCompareMatched)
-        chooseLiveCompareFollow();
-    else
-        matchLiveCompare();
+    matchChoicePopup.close();
+    const auto status = processorRef.liveCompareStatus();
+    if (! status.active || ! (status.matched || status.matchHeld || status.matchOff)) { matchLiveCompare(); return; }
+    const auto turned = processorRef.setLiveCompareMatchOn (status.matchOff, liveCompareAuto.on);
+    const bool capped = turned.turned && status.matchOff && turned.shortDb > 0.0;
+    if (capped && liveCompareAuto.on)
+    {
+        liveCompareAuto.limit = hypha::live_compare::FollowLimit::ceiling;
+        liveCompareAuto.shortDb = turned.shortDb;
+        liveCompareAuto.peakDbtp = std::max (liveCompareAuto.peakDbtp, turned.peakDbtp);
+    }
+    refreshLiveCompare();
+    const auto db = [] (double value)
+    {
+        const auto hundredths = juce::roundToInt (value * 100.0), magnitude = std::abs (hundredths);
+        return hundredths == 0 ? juce::String ("0.00 dB") : juce::String (hundredths > 0 ? "+" : "-")
+            + juce::String (magnitude / 100) + "." + juce::String (magnitude % 100).paddedLeft ('0', 2) + " dB";
+    };
+    showToast (! turned.turned ? juce::String ("MATCH failed; try again")
+        : ! status.matchOff ? juce::String ("MATCH off: original levels")
+        : capped && ! liveCompareAuto.on ? juce::String (processorRef.candidateCompareActive() ? "TP limit: A " : "TP limit: PRE ")
+              + db (turned.gainDb) + ", need " + db (turned.gainDb + turned.shortDb)
+        : juce::String ("MATCH on"));
 }
 
 void KirinHyphaEditor::requestListenEnd ()
 {
+    matchChoicePopup.close();
     liveCompareStartAfterReturnUntil = 0.0;
     processorRef.finishLiveCompare();
     liveCompareFinishingSeen = true;
@@ -120,7 +146,7 @@ void KirinHyphaEditor::requestListenAutoMenu()
 {
     const auto status = processorRef.liveCompareStatus();
     if (! status.active || status.finishing) { showToast ("LISTEN is not active"); return; }
-    if (! status.matched && ! status.matchHeld) { showToast ("MATCH first"); return; }
+    if (! status.matched && ! status.matchHeld && ! status.matchOff) { showToast ("MATCH first"); return; }
     chooseLiveCompareFollow();
 }
 #endif

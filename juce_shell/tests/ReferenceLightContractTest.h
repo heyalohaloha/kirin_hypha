@@ -82,7 +82,8 @@ inline void requireControlsOutside (reference_ui::Component& panel, juce::Rectan
                                     const juce::String& where)
 {
     for (const auto* id : { "reference-a", "reference-b", "reference-c", "reference-ref", "reference-blind",
-                            "reference-check-tabs", "reference-check-song", "reference-match", "reference-action" })
+                            "reference-check-tabs", "reference-check-choice", "reference-check-details",
+                            "reference-check-song", "reference-match", "reference-action" })
         if (const auto* control = findById (panel, id); visibleIn (panel, control))
             require (! window.intersects (panel.getLocalArea (control, control->getLocalBounds())),
                      where + ": observation leaves " + id + " reachable");

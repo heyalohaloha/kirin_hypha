@@ -99,6 +99,83 @@ void testReferenceDynamicsRange()
         bin.rms[0] = 0.5; bin.peak[0] = 0.0;
         require (std::isnan (crest()), "zero sample peak has no crest");
     }
+    {
+        std::array<KirinReferenceVisualBin, 40> bins {};
+        for (std::size_t index = 0; index < bins.size(); ++index)
+        {
+            bins[index].frames = 4800;
+            bins[index].momentary_lufs = index < 3 ? std::numeric_limits<double>::quiet_NaN() : -325.7;
+            bins[index].short_lufs = index < 29 ? std::numeric_limits<double>::quiet_NaN() : -325.7;
+        }
+        const auto silent = aggregateHops (bins.data(), bins.size(), 1, 2);
+        require (! rangeOf (silent[DynamicsFact::lufsM]).valid()
+                     && ! rangeOf (silent[DynamicsFact::lufsS]).valid(),
+                 "silent loudness has no range or extreme axis");
+        bins.back().rms[0] = 1.0e-20;
+        const auto quiet = aggregateHops (bins.data(), bins.size(), 1, 2);
+        const auto momentary = rangeOf (quiet[DynamicsFact::lufsM]);
+        const auto shortTerm = rangeOf (quiet[DynamicsFact::lufsS]);
+        require (momentary.count == 1 && momentary.median == -325.7
+                     && shortTerm.count == 1 && shortTerm.median == -325.7,
+                 "very quiet nonzero input is not discarded as silence");
+        const auto pooled = aggregateHops (bins.data(), bins.size(), 2, 2);
+        require (rangeOf (pooled[DynamicsFact::lufsM]).count == 1
+                     && rangeOf (pooled[DynamicsFact::lufsS]).count == 1,
+                 "the same input windows apply when ticks are combined");
+        bins.back().rms[0] = std::numeric_limits<double>::quiet_NaN();
+        const auto unknown = aggregateHops (bins.data(), bins.size(), 1, 2);
+        require (rangeOf (unknown[DynamicsFact::lufsM]).count == 1,
+                 "invalid energy is not evidence of silence");
+        bins.back().rms[0] = 0.0;
+        bins.back().rms[1] = 1.0e-20;
+        const auto mono = aggregateHops (bins.data(), bins.size(), 1, 1);
+        const auto stereo = aggregateHops (bins.data(), bins.size(), 1, 2);
+        require (! rangeOf (mono[DynamicsFact::lufsM]).valid()
+                     && rangeOf (stereo[DynamicsFact::lufsM]).count == 1,
+                 "silence considers only the active input channels");
+    }
+    {
+        std::array<KirinReferenceVisualBin, 30> bins {};
+        for (auto& bin : bins)
+        {
+            bin.frames = 4800;
+            bin.momentary_lufs = -42.0;
+            bin.short_lufs = -42.0;
+        }
+        const auto afterAudio = aggregateHops (bins.data(), bins.size(), 1, 2);
+        require (std::isfinite (afterAudio[DynamicsFact::lufsM][2])
+                     && std::isnan (afterAudio[DynamicsFact::lufsM][3])
+                     && std::isfinite (afterAudio[DynamicsFact::lufsS][28])
+                     && std::isnan (afterAudio[DynamicsFact::lufsS][29]),
+                 "loudness is absent once its whole input window is silent");
+    }
+    {
+        constexpr int rate = 8'000;
+        constexpr int tick = rate / 10;
+        DynamicsTicks stream (30);
+        const auto signal = syntheticSignal (rate, rate * 4);
+        stream.push (signal.data(), rate * 4, rate, 2);
+        std::vector<float> silence (static_cast<std::size_t> (tick) * 2, 0.0f);
+        for (int index = 0; index < 3; ++index) stream.push (silence.data(), tick, rate, 2);
+        require (stream.bins() && std::isfinite (stream.bins()->back().momentary_lufs),
+                 "momentary retains the preceding signal until its window ends");
+        stream.push (silence.data(), tick, rate, 2);
+        require (std::isnan (stream.bins()->back().momentary_lufs)
+                     && std::isfinite (stream.bins()->back().short_lufs),
+                 "only the fully silent momentary window is absent");
+        for (int index = 4; index < 60; ++index) stream.push (silence.data(), tick, rate, 2);
+        const auto retained = stream.bins();
+        const auto ranges = aggregateHops (retained->data(), retained->size(), 1, 2);
+        require (! rangeOf (ranges[DynamicsFact::lufsM]).valid()
+                     && ! rangeOf (ranges[DynamicsFact::lufsS]).valid(),
+                 "a cropped silent window never retains numeric filter tails");
+        std::vector<float> faint (static_cast<std::size_t> (tick) * 2);
+        for (std::size_t index = 0; index < faint.size(); ++index)
+            faint[index] = signal[index] * 1.0e-18f;
+        stream.push (faint.data(), tick, rate, 2);
+        require (std::isfinite (stream.bins()->back().momentary_lufs),
+                 "a nonzero input ends the silent window");
+    }
     const auto fixture = juce::JSON::parse (juce::File (KIRIN_REFERENCE_FIXTURE_DIR).getChildFile ("kirin_dynamics/kirin_os_hops.json"));
     const auto* signals = fixture["signals"].getArray();
     require (signals != nullptr && signals->size() == 2, "the Kirin OS dynamics fixture is readable");

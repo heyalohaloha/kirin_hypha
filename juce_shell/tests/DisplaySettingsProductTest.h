@@ -86,6 +86,19 @@ inline void verifyDisplaySettingsProduct()
                 if (field != settings::rate) require (spectrum->displaySettingsForTest().selected[(size_t) field] == choice,
                                                      "the actual FREQ view receives each menu change");
             }
+        {
+            // PEAK SLOW chosen again in the shipping menu starts its line over; any other choice keeps it.
+            const int slow = settings::firstAction + settings::peak * 10 + 2;
+            (shipping.*testMember (DisplayChoiceAccess {})) (slow);
+            spectrum->setAbsoluteObservation (true); spectrum->setSignalActive (true);
+            spectrum->setSnapshot (hypha::tests::lowFrame (48'000, false));
+            require (! spectrum->slowPeakEmptyForTest(), "PEAK SLOW holds what FREQ receives");
+            (shipping.*testMember (DisplayChoiceAccess {})) (settings::firstAction + settings::fall * 10 + 1);
+            require (! spectrum->slowPeakEmptyForTest(), "another display choice keeps the slow peak line");
+            (shipping.*testMember (DisplayChoiceAccess {})) (slow);
+            require (spectrum->slowPeakEmptyForTest(), "choosing PEAK SLOW again clears its line");
+            (shipping.*testMember (DisplayChoiceAccess {})) (settings::firstAction + settings::fall * 10 + 3);
+        }
         if (preview.isNotEmpty())
         {
             const auto menu = (shipping.*testMember (DisplayMenuAccess {}))();
@@ -93,7 +106,8 @@ inline void verifyDisplaySettingsProduct()
             {
                 const auto& entry = item.getItem();
                 if (! entry.subMenu || (entry.text != "RANGE" && entry.text != "TILT" && entry.text != "SMOOTH"
-                    && entry.text != "LIGHT" && entry.text != "PEAK" && entry.text != "LEVEL / NUM RATE")) continue;
+                    && entry.text != "LIGHT" && entry.text != "PEAK" && entry.text != "FALL" && entry.text != "FILL"
+                    && entry.text != "LEVEL / NUM RATE")) continue;
                 auto choices = *entry.subMenu;
                 choices.setLookAndFeel (&editor->getLookAndFeel());
                 choices.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (editor.get()).withMinimumWidth (190), [] (int) {});

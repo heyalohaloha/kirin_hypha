@@ -34,6 +34,11 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
     auto* mapping = liveCompare.ring.control();
     if (mapping == nullptr || mapping->ring() == nullptr)
     { stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::notReady; }
+    observer->withdrawal = std::make_shared<SharedRingMapping>();
+    if (!observer->withdrawal->open (mapping->key(), mapping->rate(), false)
+        || observer->withdrawal->ring()->header.timing.ownerA.load() != mapping->ring()->header.timing.ownerA.load()
+        || observer->withdrawal->ring()->header.timing.ownerB.load() != mapping->ring()->header.timing.ownerB.load())
+    { stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::preUnavailable; }
     std::uint64_t scope = 0;
     bool admitted = false;
     {
@@ -53,11 +58,24 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear();
         return StartResult::notReady;
     }
+    const bool hadTail = state.tail.load (std::memory_order_acquire) != 0;
+    if (hadTail) state.returnContext.fetch_add (1, std::memory_order_acq_rel);
     state.returnObserver.retire();
     if (!state.returnObserver.collect() || !state.returnObserver.publish (std::move (observer)))
     {
         releaseLocalBlindProductScope (scope);
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::notReady;
+    }
+    bool heldTail = false;
+    {
+        const juce::ScopedLock handleGuard (handleLock);
+        heldTail = state.tailHold.begin (hyphaHandle);
+    }
+    if (!heldTail)
+    {
+        state.returnObserver.retire(); state.returnObserver.collect();
+        releaseLocalBlindProductScope (scope);
+        stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear(); return StartResult::comparisonBusy;
     }
     state.scope = scope; // existing project exclusion, reused by BLIND without declaring a trial
     state.isolated.store (true, std::memory_order_release);
@@ -68,11 +86,13 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startCandidateCompare 
             original.ring()->header.timing.ownerB.load(), callbackWallNanos()))
     {
         state.scope = 0; state.token.store (0); state.isolated.store (false);
+        if (!hadTail) { const juce::ScopedLock handleGuard (handleLock); state.tailHold.clear(); }
         state.returnObserver.retire(); state.returnObserver.collect();
         releaseLocalBlindProductScope (scope);
         stopLiveCompare(); state.selectedPre.clear(); state.originalPre.clear();
         return StartResult::comparisonBusy;
     }
+    state.tail.store (0, std::memory_order_release); state.tailPre.clear(); state.tailWithdrawal.reset(); // this A/B's own return covers it
     if (liveCompare.authority.ticket() != permission || ! liveCompare.authority.permitted())
     { stopLiveCompare(); return StartResult::notReady; }
     const auto track = state.trackHash.load (std::memory_order_acquire);
@@ -91,6 +111,7 @@ void KirinHyphaProcessorBase::endCandidateCompare() noexcept
     auto& state = liveCompare.candidate;
     const auto token = state.token.load (std::memory_order_acquire);
     if (token == 0 || state.returning.exchange (true, std::memory_order_acq_rel)) return;
+    state.returnSince.store (hypha::live_compare::callbackWallNanos(), std::memory_order_release);
     if (auto* mapping = liveCompare.ring.control(); mapping != nullptr && mapping->ring() != nullptr)
     {
         auto& transfer = mapping->ring()->header.candidate;
@@ -128,7 +149,38 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
     if (role == Role::Post)
     {
         state.returnObserver.collect();
-        if (state.token.load() == 0) return;
+        if (state.token.load() == 0)
+        {
+            const juce::ScopedLock handleGuard (handleLock);
+            // The deadline's tail keeps the original upstream witness even if the selected pair changes.
+            // A marker, or withdrawal plus the host bound, precedes the four-second count.
+            if (state.tail.load() == 0) return;
+            const auto rate = static_cast<std::uint32_t> (preparedFormat.sampleRate);
+            const auto key = pairKeyForPreInstance (state.tailPre);
+            const auto* observer = state.returnObserver.control();
+            if (!observer || !observer->source.ring()->matches (key, rate))
+            {
+                auto replacement = std::make_unique<CandidateReturnObserver>();
+                replacement->withdrawal = observer ? observer->withdrawal : state.tailWithdrawal;
+                if (replacement->prepare (key, rate))
+                {
+                    if (!state.returnObserver.withdraw()) return;
+                    state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+                    state.returnObserver.retire();
+                    state.returnObserver.collect(); state.returnObserver.publish (std::move (replacement));
+                }
+            }
+            const bool proven = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+                && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0);
+            if (proven)
+            {
+                state.tailHold.clear();
+                state.tail.store (0, std::memory_order_release); state.tailPre.clear(); state.tailWithdrawal.reset();
+                state.returnObserver.retire(); state.returnObserver.collect();
+                state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+            }
+            return;
+        }
         if (state.originalPre != pairedPreInstanceId().toStdString() || ! liveCompare.authority.permitted()) endCandidateCompare();
         if (! state.returning.load())
             if (const auto* mapping = liveCompare.ring.control(); mapping && mapping->ring())
@@ -146,30 +198,61 @@ void KirinHyphaProcessorBase::serviceCandidateCompare()
             const auto* observer = state.returnObserver.control();
             if (observer && !observer->source.ring()->matches (key, rate))
             {
-                // Withdrawal is final: a marker already passed stays passed when its PRE goes.
-                const bool passed = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
-                    && state.quietFrames.load() > 0;
-                if (! passed) state.returnContext.fetch_add (1, std::memory_order_acq_rel);
-                state.returnObserver.retire(); state.returnObserver.collect();
-            }
-            if (!state.returnObserver.hasStorage())
-            {
                 auto replacement = std::make_unique<CandidateReturnObserver>();
-                if (replacement->prepare (key, rate)) state.returnObserver.publish (std::move (replacement));
+                replacement->withdrawal = observer->withdrawal;
+                if (replacement->prepare (key, rate) && state.returnObserver.withdraw())
+                {
+                    // Withdrawal is final: a marker already passed stays passed when its PRE goes.
+                    const bool passed = state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+                        && state.quietFrames.load() > 0;
+                    if (! passed) state.returnContext.fetch_add (1, std::memory_order_acq_rel);
+                    state.returnObserver.retire();
+                    state.returnObserver.collect(); state.returnObserver.publish (std::move (replacement));
+                }
             }
         }
-        const auto* held = liveCompare.ring.control();
-        const bool untouched = held && held->ring()
-            && held->ring()->header.candidate.returnedUntouched (state.token.load());
-        // Only a withdrawn, untouched request skips the downstream-history quarantine.
-        if (state.returning.load() && (untouched
-            || (state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
-                && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0))))
+        // Only a withdrawn, untouched request skips the downstream-history quarantine. Past the
+        // overall deadline normal measurement resumes in a new window without that proof; the old
+        // count is discarded and later comparisons prove their own clock and content as before.
+        const auto since = state.returnSince.load (std::memory_order_acquire);
+        const auto now = callbackWallNanos();
+        const bool expired = since != 0 && now >= since && now - since >= CandidateProcessorState::returnLimitNanos;
+        bool proven = false;
         {
+            const juce::ScopedLock handleGuard (handleLock);
+            const auto* held = liveCompare.ring.control();
+            proven = (held && held->ring() && held->ring()->header.candidate.returnedUntouched (state.token.load()))
+                || (state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+                    && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0));
+        }
+        if (state.returning.load() && (proven || expired))
+        {
+            if (!proven)
+            {
+                const juce::ScopedLock handleGuard (handleLock);
+                if (! state.tailHold.begin (hyphaHandle)) return;
+            }
             if (state.scope != 0 && ! releaseLocalBlindProductScope (state.scope)) return;
             if (liveCompare.blindScope == state.scope) liveCompare.blindScope = 0;
             state.scope = 0;
-            state.returnObserver.retire(); state.returnObserver.collect();
+            const juce::ScopedLock handleGuard (handleLock);
+            // Re-prepare may have invalidated the old-rate proof while the scope was released.
+            const auto* current = liveCompare.ring.control();
+            const bool stillUntouched = current && current->ring()
+                && current->ring()->header.candidate.returnedUntouched (state.token.load());
+            const bool stillProven = stillUntouched || (state.quietContext.load (std::memory_order_acquire) == state.returnContext.load()
+                && state.quietFrames.load() >= static_cast<std::uint64_t> (preparedFormat.sampleRate * 4.0));
+            if (!stillProven && !expired) return;
+            // Ended by the deadline alone: the tail stays out of PRE's alignment until it is proven.
+            if (stillProven) { state.tailHold.clear(); state.returnObserver.retire(); state.returnObserver.collect(); }
+            else
+            {
+                state.tailPre = state.originalPre;
+                if (const auto* kept = state.returnObserver.control()) state.tailWithdrawal = kept->withdrawal;
+                state.tail.store (state.token.load(), std::memory_order_release);
+            }
+            state.returnContext.fetch_add (1, std::memory_order_acq_rel); // no count carries into a later return
+            state.returnSince.store (0, std::memory_order_release);
             state.isolated.store (false, std::memory_order_release);
             state.token.store (0, std::memory_order_release);
             state.returning.store (false, std::memory_order_release);

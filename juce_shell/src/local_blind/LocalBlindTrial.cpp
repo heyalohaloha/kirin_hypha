@@ -173,14 +173,11 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     {
         // Stopped hosts may omit their playback clock. Keep a completed pass visible even
         // when the next source has already been armed; consume that request only once a
-        // real playing callback arrives. An incomplete pass still cannot survive a stop; the
-        // named A/B only forgets it and waits for the range start again.
+        // real playing callback arrives. A stop partway through a Blind pass keeps it: playing
+        // on from the same place continues that pass, any other place starts it again (below).
+        // The named A/B forgets it and waits for the range start again.
         exactWrapEligible = false;
-        if (hasPrevious && ! finishedRange)
-        {
-            if (! named) invalidate (TrialFailure::transport);
-            else beginPass();
-        }
+        if (named && hasPrevious && ! finishedRange) beginPass();
         return hold (data, channels, frames, block);
     }
     // The named A/B plays the range again whenever the DAW plays from before it.
@@ -206,15 +203,9 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         exactWrapEligible = false;
         return hold (data, channels, frames, block);
     }
-    if (hasPrevious && block.position != previousEnd)
-    {
-        if (! named)
-        {
-            invalidate (TrialFailure::discontinuity);
-            return hold (data, channels, frames, block);
-        }
-        beginPass(); // a seek during the named A/B waits for the range start again
-    }
+    // A seek waits for the range start again and starts the pass over, in Blind and the named
+    // A/B alike; it never fails the trial. Clock and PDC changes above still end it.
+    if (hasPrevious && block.position != previousEnd) beginPass();
     const auto blockEnd = block.position + frames;
     if (! hasPrevious && (block.position > format.start || blockEnd <= format.start))
         return hold (data, channels, frames, block); // Wait for a full pass; never enter halfway.

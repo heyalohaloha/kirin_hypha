@@ -2,7 +2,7 @@
 
 // 2026-10-06：REF の状態の行の置き場所と、REF の説明の行を、出荷のエディターで確かめる（今までの試験は置き場所の規則を
 // 試験の中で計算し直して比べていたので、規則が間違っていても通った。知らせ・ボタンの無い状態でしか流していなかった）。
-//  - 足元の段がある大きさ：何も無ければ足元の左。知らせが出ていれば行は隠すだけ（REF の図の高さは変えない）。知らせと
+//  - B・V は足元の段がある大きさでは足元の左。C の状態は常に C の画面内。B・V で知らせが出ていれば行は隠すだけ。知らせと
 //    承認・アクションのボタンが重なるときは、どちらも隠さないよう REF の一番下へ戻す。
 //  - 300% の B・C・V の項目を指すと説明を足元の行に出し、「Show hover help」を切れば出さない。
 #include "EditorProductChecks.h"
@@ -58,6 +58,7 @@ inline void verifyReferenceStatusPlacement (KirinHyphaEditor& editor, observator
     const auto savedFeedback = view.feedback();
     const auto footer = view.statusStripBounds();
     auto plain = checkPageState();
+    plain.comparisonSlot = 3;
     view.setFeedback ({});
     panel.setState (plain);
     place();
@@ -87,6 +88,15 @@ inline void verifyReferenceStatusPlacement (KirinHyphaEditor& editor, observator
               + (strip.isVisible() ? " visible" : " hidden") + " strip " + strip.getBounds().toString() + " button "
               + (button != nullptr ? button->getBounds().toString() + (button->isVisible() ? " visible" : " hidden") : juce::String ("none"))
               + " panel " + panel.getLocalBounds().toString()).toRawUTF8());
+    view.setFeedback ({}); panel.setState (checkPageState()); place();
+    require (strip.getParentComponent() == &panel && ! strip.inFooter() && strip.isVisible() && ! panel.statusInFooter(),
+             "C keeps its status inside the page at every size");
+    view.setFeedback ("Saved"); place();
+    require (strip.getParentComponent() == &panel && strip.isVisible(), "a footer notice does not hide C's status");
+    auto version = checkPageState(); version.comparisonSlot = 1;
+    panel.setState (version); place();
+    require (strip.getParentComponent() == &panel && ! strip.inFooter() && strip.isVisible() && ! panel.statusInFooter(),
+             "V keeps its status inside the page at every size");
     view.setFeedback (savedFeedback);
     panel.setState (saved);
     place();
@@ -117,12 +127,12 @@ inline void verifyReferenceHelpLine (KirinHyphaEditor& editor, reference_ui::Com
 {
     const auto saved = panel.state();
     panel.setState (checkPageState());
-    auto* tabs = panel.findChildWithID ("reference-check-tabs");
-    require (tabs != nullptr && visibleIn (editor, *tabs), "the 300% C page shows its tabs in the editor");
-    const auto point = editor.getLocalArea (tabs->getParentComponent(), tabs->getBounds()).getCentre();
+    auto* choice = panel.findChildWithID ("reference-check-choice");
+    require (choice != nullptr && visibleIn (editor, *choice), "the 300% C page shows its Check selector in the editor");
+    const auto point = editor.getLocalArea (choice->getParentComponent(), choice->getBounds()).getCentre();
     const auto shown = editor.helpLineAt (point);
     require (shown.wholeRow && shown.text == reference_ui::help_text::checkTabs,
-             ("pointing at the C page's tabs puts their help across the footer row: " + shown.text).toRawUTF8());
+             ("pointing at the C page's Check selector puts its help across the footer row: " + shown.text).toRawUTF8());
     HoverHelpPreference::shared().overrideForTest (false);
     const bool silent = editor.helpLineAt (point).text.isEmpty();
     HoverHelpPreference::shared().overrideForTest (std::nullopt);

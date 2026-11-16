@@ -262,7 +262,6 @@ namespace hypha::reference_audition
         std::atomic<AudioPages*> activePages { &pages };
         std::atomic<bool> prepareBeforeReturn { false }, reportsLibraryReceived { false };
         std::optional<WorkspaceSelection> preparedWorkspace; // Worker-owned; never read by the callback.
-        std::uint32_t stagedVersionLimitMs = 20'000;  // 検証後の位置合わせの上限。読取り・再試行の時間は別。
         std::launch stagedSearchLaunch = std::launch::async;
         PositionSearch positionSearch;  // Worker-owned.
         SourceVerification sourceVerification;  // Worker-owned.
@@ -277,7 +276,6 @@ namespace hypha::reference_audition
         std::atomic<bool> pairedSongSwitch { true };
         std::vector<std::future<juce::String>> retiredSourceVerifications;  // Worker-owned.
         std::vector<std::future<RuntimeContentAlignment>> retiredVersionSearches;  // Worker-owned.
-        std::atomic<std::uint32_t> versionHoldSinceMs { 0 };  // 0 は保っていない
         PreparedReturn preparedReturn; // stateLock; level readiness is not permission to play the new PCM.
         RuntimeV2Blind blind;
         mutable juce::CriticalSection stateLock;

@@ -36,7 +36,12 @@ inline bool readReferenceLibraryVersion (const juce::File& root, const juce::var
     skipped = skippedItem (descriptor["candidate"], "display_name");
     RuntimeCandidate candidate;
     const auto* item = descriptor.getDynamicObject();
-    if (item == nullptr || !exactProperties (*item, { "format", "version", "entry_id", "display_name", "candidate" })
+    // Kirin OS may add the Version's correction notes (change_notes_artifact). This Hypha does not show them
+    // yet; the Version stays usable whatever the notes field holds.
+    const bool notes = item != nullptr && item->hasProperty ("change_notes_artifact");
+    if (item == nullptr
+        || !(notes ? exactProperties (*item, { "format", "version", "entry_id", "display_name", "candidate", "change_notes_artifact" })
+                   : exactProperties (*item, { "format", "version", "entry_id", "display_name", "candidate" }))
         || descriptor["format"] != "kirin_hypha_reference_library_version" || descriptor["version"] != "1.0"
         || descriptor["entry_id"] != receipt.presetId
         || !parseLibraryVersionCandidate (descriptor["candidate"], candidate)

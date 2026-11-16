@@ -253,6 +253,26 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)),
              "B sounds at the matched gain");
+    require (controller.targetService().importFiles ({ first.file.getFullPathName() })
+                 && controller.targetService().waitUntilIdle (30000), "import while B plays");
+    auto overlay = controller.snapshot().visualPreferences->overlay();
+    require (overlay.all && overlay.find (state.songSets[0].songs[0].id) && overlay.find (state.songSets[0].songs[1].id)
+                 && overlay.find (controller.targetService().snapshot().collection.items.back().id),
+             "the first ALL includes songs and the imported target");
+    require (host (true) && controller.snapshot().audibleComparisonSlot == 3
+                 && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)), "import leaves B sounding");
+    overlay.lines.erase (std::remove_if (overlay.lines.begin(), overlay.lines.end(), [&state] (const auto& line) {
+        return line.id == state.songSets[0].songs[1].id;
+    }), overlay.lines.end());
+    controller.snapshot().visualPreferences->setOverlay (overlay);
+    require (controller.selectVisualSlot (3), "view B while it sounds");
+    wait ([] (const auto& s) { return s.visualTimeline && s.visualTimeline->aKirin
+                                     && s.visualTimeline->aKirin->frames >= 30; }, "A window for MAKE");
+    require (controller.makeTarget(), "MAKE while B plays");
+    overlay = controller.snapshot().visualPreferences->overlay();
+    require (overlay.all && overlay.find (controller.targetService().snapshot().collection.items.back().id)
+                 && ! overlay.find (state.songSets[0].songs[1].id) && host (true) && controller.snapshot().audibleComparisonSlot == 3
+                 && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)), "MAKE shows its target and leaves B sounding");
     require (controller.requestAudition (2, -14.0, -2.0), "C plays");
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 2 && closeTo (block.getSample (0, 479), -0.25 * gain (4.0)),

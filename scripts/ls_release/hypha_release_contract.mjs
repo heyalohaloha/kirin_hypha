@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { buildTreeManifest } from './aax_submission_archive.mjs';
 import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
-import { checkFixRows, checkOwnerDecisions, deferredRow, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
+import { checkFixRows, checkOwnerDecisions, deferredRow, EVIDENCE_KINDS, missingEvidenceKind, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
 export { CI_ORACLES, FIX_ROWS_SCHEMA, fixRows, hostTestIds, OWNER_DECISION_SCHEMA, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
 
 export const SCHEMA = 'kirin-hypha-release-pipeline-v2';
@@ -196,8 +196,10 @@ export function validateReport(state, reportPath, gate, binding, ids) {
     if (method === 'reaper' && (row.evidence.filter(item => item.kind === 'reaper').length !== 1
         || row.evidence.filter(item => item.kind === 'host-identity').length !== 1
         || row.evidence.some(item => !item.kind))) throw new Error(`${gate}: REAPER evidence kind and identity required`);
+    const lacking = missingEvidenceKind(state, id, row.evidence);
+    if (lacking) throw new Error(`${gate}: ${id} needs retained ${lacking} evidence with path and sha256`);
     for (const evidence of row.evidence) {
-      if (evidence.kind && !['attachment', 'reaper', 'host-identity'].includes(evidence.kind)) throw new Error(`${gate}: unknown evidence kind`);
+      if (evidence.kind && !['attachment', 'reaper', 'host-identity', ...EVIDENCE_KINDS].includes(evidence.kind)) throw new Error(`${gate}: unknown evidence kind`);
       const actual = fileFact(resolveInput(state, evidence.path));
       if (actual.sha256 !== evidence.sha256) throw new Error(`${gate}: evidence hash mismatch`);
       facts.push(actual);

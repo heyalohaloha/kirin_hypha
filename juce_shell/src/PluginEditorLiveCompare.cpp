@@ -1,27 +1,23 @@
 #include "PluginEditor.h"
 #include "HyphaQueuedStartText.h"
+#include "HyphaKeepPreWait.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
 #include "HyphaLocalBlindAdmissionText.h"
 #include "HyphaLiveStartAfterReturn.h"
 #include "HyphaPairLabels.h"
-
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-
 #include <cmath>
 #include <cstdlib>
-
 // The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC16). It starts and
 // ends the session, forwards PRE / POST, MATCH and AUTO, asks before lowering POST, and shows RT
 // receipts. Explicit END restores unity; window closure keeps the processor-owned comparison.
 namespace
 {
-namespace ui = hypha::ui_contract;
 using hypha::live_compare::MatchChoice;
 using hypha::live_compare::MatchFailure;
 using hypha::live_compare::MatchPlan;
-
 juce::String signedDb (double db)
 {
     const auto hundredths = juce::roundToInt (db * 100.0);
@@ -31,12 +27,10 @@ juce::String signedDb (double db)
     return juce::String (hundredths > 0 ? "+" : "-") + juce::String (magnitude / 100) + "."
          + juce::String (magnitude % 100).paddedLeft ('0', 2) + " dB";
 }
-
 juce::String magnitudeDb (double db)
 {
     return signedDb (std::fabs (db)).trimCharactersAtStart ("+");
 }
-
 // INV-LC7: the offset as a fact, without a judgement (R-22), in milliseconds at the rate the ring
 // counts in. The host's rate is not read here: a processor prepared without it reports none.
 juce::String offsetText (std::int64_t lag, double sampleRate, bool candidate)
@@ -46,22 +40,21 @@ juce::String offsetText (std::int64_t lag, double sampleRate, bool candidate)
     const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / sampleRate;
     return juce::String (candidate ? "A " : "PRE ") + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
 }
-
 // INV-LC28: the amount the audition's read position already takes up.
 juce::String alignedText (double ms, bool candidate)
 {
     return juce::String (candidate ? "A " : "PRE ") + juce::String (ms, 2) + " ms aligned";
 }
-
 juce::String matchFailure (MatchFailure failure)
 {
     switch (failure)
     {
         case MatchFailure::none:            return {};
-        case MatchFailure::notProven:
+        // These only end a MATCH at its deadline (it measures again until then); LISTEN goes on.
+        case MatchFailure::notProven:       return "No MATCH: timing not confirmed";
         case MatchFailure::tooShort:
         case MatchFailure::overwritten:
-        case MatchFailure::notEnoughSignal: return {};
+        case MatchFailure::notEnoughSignal: return "No MATCH: not enough signal";
         case MatchFailure::outOfRange:      return "MATCH over 24 dB";
         case MatchFailure::stale:
         case MatchFailure::invalidPlan:     return "MATCH failed; try again";
@@ -69,7 +62,6 @@ juce::String matchFailure (MatchFailure failure)
     return {};
 }
 }
-
 void KirinHyphaEditor::configureLiveCompare()
 {
     observatoryView.onCandidateCompare = [this] { showCandidateCompareMenu(); };
@@ -81,7 +73,7 @@ void KirinHyphaEditor::configureLiveCompare()
     const auto current = processorRef.liveCompareStatus();
     if (isPost && (rest.on || rest.matchKnown) && current.active && ! current.finishing
         && rest.session == processorRef.liveCompareListenSession() && rest.ticket == processorRef.restoreOrPairTicket()
-        && (current.matched || current.matchHeld) && ! current.matchLimited)
+        && (current.matched || current.matchHeld || current.matchOff) && ! current.matchLimited)
     {
         liveCompareAuto = { rest.on, false, rest.approvedPreDb, rest.ceilingDbtp,
                             nowSecs() + hypha::live_compare::followIntervalSeconds, rest.matchKnown };
@@ -136,22 +128,18 @@ void KirinHyphaEditor::matchLiveCompare (std::uint64_t menuGeneration)
 // menu changes nothing.
 void KirinHyphaEditor::chooseLiveCompareMatch (const MatchPlan& plan)
 {
-    juce::PopupMenu menu;
-    menu.setLookAndFeel (&pairMenuLookAndFeel());
-    menu.addSectionHeader (juce::String (processorRef.candidateCompareActive() ? "A needs " : "PRE needs ") + signedDb (plan.neededPreGainDb) + "; TP ceiling allows "
-                           + signedDb (plan.limitedPreGainDb));
-    menu.addItem (1, juce::String (processorRef.candidateCompareActive() ? "Lower B by " : "Lower POST by ")
-        + magnitudeDb (plan.lowerPostGainDb) + (processorRef.candidateCompareActive() ? "; A stays at its level" : "; PRE stays at its level"));
-    menu.addItem (2, juce::String (processorRef.candidateCompareActive() ? "Raise A by " : "Raise PRE by ") + signedDb (plan.limitedPreGainDb) + " only (TP LIMIT)");
-    const auto options = juce::PopupMenu::Options()
-        .withTargetComponent (&observatoryView.liveMatchAnchor()).withDeletionCheck (*this)
-        .withMinimumWidth (juce::jlimit (300, 520, getWidth()))
-        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
+    const bool candidate = processorRef.candidateCompareActive();
+    const auto heading = juce::String (candidate ? "A needs " : "PRE needs ") + signedDb (plan.neededPreGainDb)
+        + "; TP ceiling allows " + signedDb (plan.limitedPreGainDb);
+    const auto lower = juce::String (candidate ? "Lower B by " : "Lower POST by ")
+        + magnitudeDb (plan.lowerPostGainDb) + (candidate ? "; A stays at its level" : "; PRE stays at its level");
+    const auto limit = juce::String (candidate ? "Raise A by " : "Raise PRE by ") + signedDb (plan.limitedPreGainDb) + " only (TP LIMIT)";
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    menu.showMenuAsync (options, [safe, plan] (int result)
-    {
-        if (safe != nullptr) safe->handleLiveCompareMatchChoice (plan, result);
-    });
+    auto& matchAnchor = observatoryView.liveMatchAnchor();
+    auto& anchor = matchAnchor.isVisible() ? matchAnchor : observatoryView.operationsMenuAnchor();
+    matchChoicePopup.open (scaleRoot, scaleRoot.getLocalArea (&anchor, anchor.getLocalBounds()), heading, lower, limit,
+        logicalPresentationContext(), [safe, plan] (int result)
+        { if (safe != nullptr) safe->handleLiveCompareMatchChoice (plan, result); });
 }
 
 void KirinHyphaEditor::handleLiveCompareMatchChoice (const MatchPlan& plan, int result)
@@ -209,9 +197,12 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
     const auto notice = offsetText (status.contentJumpLagFrames, observed.sampleRate, processorRef.candidateCompareActive());
     liveCompareWarning = status.active && status.prolongedWait && status.contentHeld
         ? (notice.isEmpty() ? juce::String() : notice + " / ") + hypha::live_compare_ui::chainDelayNotice()
+        : status.active && status.contentNotRemeasured ? hypha::live_compare_ui::notRemeasuredNotice()
         : status.active && processorRef.candidateAlignUnconfirmed() ? hypha::live_compare_ui::candidateUnconfirmedNotice()
         : status.active && status.verdict == hypha::live_compare::Verdict::accepted
             && processorRef.liveCompareAlignPending() ? (processorRef.candidateCompareActive() ? "Aligning A" : "Aligning PRE")
+        : status.active && status.contentUnmeasured
+            ? juce::String (hypha::live_compare_ui::unmeasuredNotice()) + " / " + hypha::live_compare_ui::chainDelayNotice()
         : status.active && observed.verifySamples ? "Repeated audio: checked per block"
         : status.active && alignedMs > 0.0 ? alignedText (alignedMs, processorRef.candidateCompareActive())
         : status.active && observed.settled && std::llabs (observed.lagFrames) > 1
@@ -223,6 +214,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
 {
     processorRef.serviceLiveCompare();
     const auto status = processorRef.liveCompareStatus();
+    if (! status.active || status.finishing || liveBlindOpen) matchChoicePopup.close();
     if (liveBlindOpen) return false; // no identity-bearing notices or gain labels in Blind
     bool newFault = false;
     if (liveCompareFinishingSeen && ! status.finishing)
@@ -307,7 +299,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
         liveCompareWarning = "MATCH: " + juce::String (processorRef.candidateMatchSecondsRemaining()) + " s remaining";
     if (newFault) liveCompareAuto.on = false;
     followLiveCompare (status, now);
-    if (liveCompareWarning.isEmpty() && liveCompareAuto.on)
+    if (liveCompareWarning.isEmpty() && liveCompareAuto.on && ! status.matchOff)
         liveCompareWarning = juce::String (hypha::live_compare_ui::autoLimitNotice (liveCompareAuto.limit, liveCompareAuto.shortDb, processorRef.candidateCompareActive()));
     // A press waiting for its start says what it waits for, every refresh until it starts or drops.
     if ((liveCompareWarning.isEmpty() || status.finishing) && liveCompareStartAfterReturnUntil > 0.0)
@@ -319,7 +311,8 @@ bool KirinHyphaEditor::refreshLiveCompare()
             processorRef.isPlaying(), status.finishing, processorRef.candidateReturning()));
     }
     if ((liveCompareWarning.isEmpty() || status.finishing) && afterTail.action != hypha::live_compare_ui::AfterTail::none)
-        liveCompareWarning = hypha::live_compare_ui::afterTailNotice (afterTail.action, processorRef.isPlaying());
+        liveCompareWarning = hypha::live_compare_ui::afterTailWaitNotice (afterTail.action, processorRef);
+    if (liveCompareWarning.isEmpty()) liveCompareWarning = hypha::live_compare_ui::heldTailNotice (processorRef);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));
@@ -338,7 +331,8 @@ bool KirinHyphaEditor::refreshLiveCompare()
     footer.matched = status.active && (liveCompareMatched || status.matchHeld);
     footer.matchHeld = false; // the approved MATCH stays visible across timing recovery
     footer.matchLimited = footer.matched && liveCompareLimited;
-    footer.following = status.active && liveCompareAuto.on;
+    footer.matchOff = status.active && status.matchOff;
+    footer.following = status.active && liveCompareAuto.on && ! status.matchOff; // AUTO rests while MATCH is off
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
     const auto held = std::min (status.postActual, status.postTarget);
     footer.postHeldTenthsDb = held > 0.0f && held < 1.0f
@@ -352,7 +346,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
 void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
 {
     if (liveCompareStartAfterReturnUntil <= 0.0) return;
-    // Deadline, target and other activities first; only then may the press start LISTEN. The role its own
+    // Target and other activities first; only then may the press start LISTEN. The role its own
     // RETURN still fades out is not another comparison (the audio start guard is unchanged).
     using hypha::live_compare_ui::StartAfterReturn;
     const bool blind = liveCompareStartAfterReturnBlind;
@@ -369,16 +363,29 @@ void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
         liveCompareStartAfterReturnUntil = 0.0;  // PRE, state or another comparison changed
         return;
     }
+    // The return has its own overall deadline (an A/B tail 10 s after END; POST's level within 0.5 s
+    // while stopped), so waiting for it never moves this press's 10 s. A press that can start starts,
+    // even just past those 10 s; only a press still refused for another reason ends with the reason.
+    // Bypass and offline rendering can keep callbacks coming without allowing the return to complete.
+    // Past the press's deadline, explain the hold and end the press; the RETURN itself continues.
     if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
-    { liveCompareStartAfterReturnUntil = nowSecs() + 10.0; return; }
-    if (nowSecs() >= liveCompareStartAfterReturnUntil)
     {
+        const auto block = hypha::live_compare_ui::returnBlock (processorRef);
+        if (nowSecs() < liveCompareStartAfterReturnUntil || block == hypha::live_compare_ui::ReturnBlock::none) return;
+        liveCompareStartAfterReturnUntil = 0.0;
+        liveCompareStartAfterReturnCandidate.clear();
+        showToast (block == hypha::live_compare_ui::ReturnBlock::offline ? hypha::live_compare_ui::offlineHoldsReturnNotice
+                                                                          : hypha::live_compare_ui::bypassHoldsReturnNotice);
+        return;
+    }
+    if (next != StartAfterReturn::start)
+    {
+        if (nowSecs() < liveCompareStartAfterReturnUntil) return;
         liveCompareStartAfterReturnUntil = 0.0;
         liveCompareStartAfterReturnCandidate.clear();
         showToast (hypha::live_compare_ui::startFailure (admission));
         return;
     }
-    if (next != StartAfterReturn::start) return;
     liveCompareStartAfterReturnUntil = 0.0;
     const auto pre2 = std::exchange (liveCompareStartAfterReturnCandidate, {});
     if (pre2.isNotEmpty())
@@ -408,49 +415,81 @@ bool KirinHyphaEditor::waitsForAbTail (hypha::output_owner::Activity activity, h
     // The blockers of this same return: POST returning, a candidate BLIND scope draining, B's tail.
     const bool sameReturn = decision.cause == State::candidateSession || decision.cause == State::liveFinishing
                          || decision.cause == State::liveBlind;
-    if (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
-        || processorRef.candidateCompareActive())
+    // INV-AB6: the return ended at its deadline alone; Keep also waits while B may still play the comparison.
+    const bool unprovenTail = activity == hypha::output_owner::Activity::recordKeep && ! decision.refused()
+                           && processorRef.candidateTailPending();
+    if (! unprovenTail && (! decision.refused() || ! sameReturn || ! processorRef.candidateReturning()
+        || processorRef.candidateCompareActive()))
         return false;
+    const auto pair = processorRef.pairWaitSnapshot();
+    if (! pair.stable) { if (action == hypha::live_compare_ui::AfterTail::keepAll) showToast ("All Keep targets changed or unavailable. Try again."); return true; }
+    if (action == hypha::live_compare_ui::AfterTail::keepAll)
+    {
+        if (processorRef.keepAll (pair.ticket)) return true;
+        const auto notice = processorRef.drainKeepActionNotice();
+        if (notice != "A/B tail pending")
+        { showToast (notice.isNotEmpty() ? notice : "All Keep targets changed or unavailable. Try again."); return true; }
+    }
     // One waiting press at a time: this one replaces a waiting LISTEN, BLIND, A/B or C MATCH.
     liveCompareStartAfterReturnUntil = referenceRematchUntil = 0.0;
     liveCompareStartAfterReturnCandidate.clear();
-    afterTail = { action, waitingPairKey(), processorRef.restoreOrPairTicket() };
+    afterTail = { action, pair.key, pair.ticket, nowSecs(), 0.0,
+                  action == hypha::live_compare_ui::AfterTail::keepAll };
     return true;  // the status line names the wait from the next refresh (no toast to outlive it)
 }
-
 void KirinHyphaEditor::dropReferenceAfterTail() noexcept
 {
     using hypha::live_compare_ui::AfterTail;
     if (afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
-        || afterTail.action == AfterTail::referenceB)
-        afterTail = {};
+        || afterTail.action == AfterTail::referenceB) afterTail = {};
 }
-
 void KirinHyphaEditor::serviceAfterTailPress()
 {
     using hypha::live_compare_ui::AfterTail;
     if (afterTail.action == AfterTail::none) return;
     const bool reference = afterTail.action == AfterTail::referenceV || afterTail.action == AfterTail::referenceC
                         || afterTail.action == AfterTail::referenceB;
-    // A later start (A/B, LISTEN, a Blind) is the user's newer choice; REF choices and leaving REF drop it at once.
-    if (waitingPairKey() != afterTail.pairKey || processorRef.restoreOrPairTicket() != afterTail.ticket
+    const auto pair = processorRef.pairWaitSnapshot();
+    const bool restoringGroup = afterTail.action == AfterTail::keepAll && afterTail.groupStaged && ! pair.paired;
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare_ui::afterGroupRestoreReadForTest) hypha::live_compare_ui::afterGroupRestoreReadForTest();
+   #endif
+    if (! pair.stable || (!restoringGroup && pair.key != afterTail.pairKey) || pair.ticket != afterTail.ticket
         || processorRef.candidateCompareActive() || processorRef.liveCompareStatus().active
         || liveBlindOpen || localBlindOpen
         || (reference && observatoryDomain != hypha::observatory::Domain::reference))
     {
+        const bool all = afterTail.action == AfterTail::keepAll;
         afterTail = {};
+        if (all) showToast ("All Keep targets changed or unavailable. Try again.");
         return;
     }
-    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing) return;
+    if (!reference && nowSecs() - afterTail.since >= hypha::keep_ui::preWaitSeconds)
+    { afterTail = {}; showToast (hypha::live_compare_ui::keepWaitEndedNotice (processorRef)); return; }
+    if (restoringGroup) return;
+    if (processorRef.candidateReturning() || processorRef.liveCompareStatus().finishing)
+    {
+        const auto block = hypha::live_compare_ui::returnBlock (processorRef);
+        // V/C/B end at 10 s; Keep keeps its two-minute tail wait (INV-AB6) and says why. POST's return goes on.
+        if (reference && nowSecs() - afterTail.since >= 10.0 && block != hypha::live_compare_ui::ReturnBlock::none)
+        { afterTail = {}; showToast (block == hypha::live_compare_ui::ReturnBlock::offline ? hypha::live_compare_ui::offlineHoldsReturnNotice : hypha::live_compare_ui::bypassHoldsReturnNotice); }
+        return;
+    }
+    if (afterTail.action == AfterTail::keepAll && nowSecs() < afterTail.nextGroupCheck) return;
+    if (! reference && (processorRef.candidateTailPending()
+        || (afterTail.action == AfterTail::keepAll && processorRef.allKeepTailPending())))
+    {
+        afterTail.nextGroupCheck = nowSecs() + hypha::keep_ui::preRetrySeconds;
+        return;
+    }
     const auto waited = std::exchange (afterTail, {});
-    // The same request the press made: its own refusals and notices still apply.
     switch (waited.action)
     {
         case AfterTail::referenceV: if (referenceView.onSelectB) referenceView.onSelectB(); break;
         case AfterTail::referenceC: if (referenceView.onSelectC) referenceView.onSelectC(); break;
         case AfterTail::referenceB: if (referenceView.onSelectRef) referenceView.onSelectRef(); break;
         case AfterTail::keepPair:   requestKeepPair (false, waited.ticket); break;
-        case AfterTail::keepAll:    requestKeepAll (waited.ticket); break;
+        case AfterTail::keepAll:    requestKeepAll (waited.ticket, waited.groupStaged, waited.since); break;
         case AfterTail::none:       break;
     }
 }

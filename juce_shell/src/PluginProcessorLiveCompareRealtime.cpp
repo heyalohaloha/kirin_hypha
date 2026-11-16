@@ -12,10 +12,8 @@ constexpr auto vst3Wrapper = juce::AudioProcessor::wrapperType_VST3;
 
 // Audio Thread. Both roles advance their continuous clock and gap detector on every callback so
 // that the clock semantics hold whether or not a session is active.
-void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buffer,
-                                                  const hypha::HostProcessClock& clock,
-                                                  bool bypassed, bool nonRealtimeMode,
-                                                  bool outputTaken) noexcept
+void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buffer, const hypha::HostProcessClock& clock,
+                                                  bool bypassed, bool nonRealtimeMode, bool outputTaken) noexcept
 {
     using Reason = hypha::live_compare::RecoveryReason;
     const auto preparationCommand = liveCompare.blindTiming.command(); // fixed at callback opening
@@ -110,7 +108,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         || liveCompare.clockAuthority
         == static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedContent))
         liveCompare.analysisClock.observeLocal (block, preparedFormat.sampleRate, usable);
-
     if (role == Role::Pre)
     {
         liveCompare.ring.withRealtime ([&] (SharedRingMapping& mapping)
@@ -126,13 +123,24 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         });
         return;
     }
-
+    // BLIND's preparation counts its 30 s of playback in these frames, never in wall time.
+    if (block.playing && frames > 0) liveCompare.playedFrames.fetch_add (static_cast<std::uint64_t> (frames), std::memory_order_release);
     // INV-LC10: a playback run starts at play after stop; a content timing notice ends with its run.
     if (block.playing && ! liveCompare.wasPlaying)
         liveCompare.playbackRun.fetch_add (1, std::memory_order_acq_rel);
     if (! block.playing)
         liveCompare.contentHold.stopped();
     liveCompare.wasPlaying = block.playing;
+    // INV-LC14: a rise is heard at once while the DAW is stopped. The first block after a quiet in which
+    // the message thread finished END's return starts on POST and rises at once (nothing was heard in
+    // the quiet); that return also ends the trial's quieter-side level.
+    const auto previousCallback = liveCompare.lastCallbackNanos.load (std::memory_order_relaxed);
+    liveCompare.lastCallbackNanos.store (block.wallNanos, std::memory_order_release);
+    const auto quietReturn = liveCompare.quietReturn.load (std::memory_order_acquire);
+    const bool quietReturned = quietReturn != std::exchange (liveCompare.quietReturnSeen, quietReturn);
+    const bool quietResumed = quietReturned && hypha::live_compare::quietSince (previousCallback, block.wallNanos);
+    if (quietReturned) liveCompare.blindLevel = {};
+    liveCompare.postLevel.riseAtOnce (! block.playing || quietResumed);
     const bool contentNotice = liveCompare.contentHold.held(); // told after 3 s; never changes the output
     // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
     const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
@@ -151,6 +159,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         timingEligible,
         usable ? &liveCompare.chain : nullptr, &analysisQualified, trace != nullptr ? &trace->peer : nullptr);
     if (trace != nullptr) { trace->block = block; trace->timing = timing; trace->timingSeen = true; }
+    liveCompare.candidate.observeTail (block, static_cast<std::uint32_t> (preparedFormat.sampleRate), timingEligible);
     if (! projectAnalysis) liveCompare.analysisClock.observePair (block, timing, analysisQualified);
     const auto loopBlock = hypha::live_compare::pairingLoopBlock (block, wrapperType == auWrapper,
         wrapperType == aaxWrapper, timing, timingEligible);
@@ -158,7 +167,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool cycleUnverified = loopBlock == hypha::live_compare::LoopPairingBlock::auCycle;
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
-    const auto blindCommand = liveCompare.blind.command();
+    const auto blindCommand = liveCompare.blind.command(); const auto hearingGeneration = liveCompare.blindHearing.generation();
     const bool discontinuity = ! block.playing || ! block.projectValid || ! block.clockValid || block.afterGap;
     if (discontinuity)
     {
@@ -181,10 +190,19 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.preAudible.store (false, std::memory_order_release);
         liveCompare.preWaiting.store (false, std::memory_order_release);
         liveCompare.postActual.store (1.0f, std::memory_order_release);
+        liveCompare.lastGains.coherent = false; // a later session never outputs an idle-time tuple
         return;
     }
     // The idle subset grants no comparison permission; output always uses a new full snapshot.
-    const auto gains = hypha::live_compare::readGainSnapshot (liveCompare);
+    // A gain writer (MATCH, MATCH on/off, AUTO) holds the revision for a few stores. Output keeps the
+    // tuple this thread last read whole, so PRE never drops to POST for it; receipts, BLIND and the
+    // level commit below still see the write in progress (coherent stays false). A trial's pending
+    // quieter-side level is not carried over a stale tuple.
+    auto gains = hypha::live_compare::readGainSnapshot (liveCompare);
+    const bool coherent = gains.coherent;
+    if (coherent) liveCompare.lastGains = gains;
+    else if (liveCompare.lastGains.coherent && ! liveCompare.blindLevel.pending()) gains = liveCompare.lastGains;
+    const bool steady = gains.coherent; // a whole tuple for this block's output
     float postTarget = gains.post;
     const bool permitted = liveCompare.authority.permitted();
     const hypha::live_compare::Interruption interruption {
@@ -195,7 +213,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const auto selection = liveCompare.selection.command();
     const auto revision = gains.revision;
     const float gain = gains.pre, ceiling = gains.ceiling;
-    const bool coherent = gains.coherent;
     const bool blindRejected = blindCommand.active()
         && (! permitted || ! liveCompare.blind.valid (blindCommand)
             || (coherent && liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision));
@@ -204,13 +221,14 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         const auto reason = interruption.reason (Reason::gainChanged);
         if (! finishing) liveCompare.blind.invalidate (blindCommand, reason);
     }
-    const bool preSelected = permitted && ! finishing && coherent && ! blindRejected
-        && (blindCommand.active() ? blindCommand.pre()
-                                  : selection.pre());
+    const bool admitted = permitted && ! finishing && steady && ! blindRejected;
+    const bool preSelected = admitted && (blindCommand.active() ? blindCommand.pre() : selection.pre());
+    if (trace != nullptr && ! blindCommand.active()) // read, even when this callback cannot use the output
+        hypha::chain_trace::observeNamedSelection (*trace, selection.word);
     // END first removes PRE, then returns POST. A closed/retired ring still returns normally.
     const float heldTarget = postTarget;
     if (finishing) postTarget = 1.0f;
-    if (! coherent) postTarget = liveCompare.postLevel.value();
+    if (! steady) postTarget = liveCompare.postLevel.value();
     // A BLIND trial whose raised PRE met the ceiling matches on the quieter side. This thread commits
     // that tuple after this block's checks; until it lands the same ratio applies here, also while
     // END fades PRE out. If another writer lands first, POST is never raised above the lowered level.
@@ -226,8 +244,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     { return levelSame ? target * levelShift : levelHeld ? std::min (target, levelCap) : target; };
     const float levelGain = levelSame ? 1.0f : gain; // the ratio is 1/gain: PRE exactly at unity
     const bool blindLive = blindCommand.active() && ! blindRejected && ! finishing;
-    bool rendered = false;
-    bool preRemaining = false;
+    bool rendered = false, preRemaining = false, hearingCommon = false, hearingActual = false;
     liveCompare.ring.withRealtime ([&] (SharedRingMapping& mapping)
     {
         auto* ring = mapping.ring();
@@ -239,7 +256,10 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && liveCompare.alignmentConditions.observe (candidateToken, *ring, block, compensationChanged))
             liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
         if (candidateToken != 0 && ! candidateReturning)
+        {
+            liveCompare.alignConditions.store (liveCompare.alignmentConditions.fingerprint(), std::memory_order_release);
             ring->header.candidate.refreshLease (candidateToken, usable && permitted && ! outputTaken ? block.wallNanos : 0);
+        }
         if (candidateToken != 0)
         {
             auto& state = liveCompare.candidate;
@@ -256,6 +276,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             {
                 bool returned = hypha::live_compare::candidateReturnReached (*ring, candidateToken, block, timing,
                     static_cast<std::uint32_t> (preparedFormat.sampleRate), returnProjection, returnTimingFresh);
+                auto settled = block; // the wrap coordinates the observer's clock proof corroborates
                 state.returnObserver.withRealtime ([&] (hypha::live_compare::CandidateReturnObserver& observer)
                 {
                     auto observed = block;
@@ -263,16 +284,17 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                     const bool drained = observer.reached (ring->header.candidate, candidateToken, observed,
                         static_cast<std::uint32_t> (preparedFormat.sampleRate));
                     returned = returned || drained;
+                    settled = observer.coordinates (block);
                 });
-                state.quietFrames.store (state.returnSettling.advance (candidateToken, block,
+                state.quietFrames.store (state.returnSettling.advance (candidateToken, settled,
                     static_cast<std::uint32_t> (preparedFormat.sampleRate), returned, timingEligible,
                     ring->header.candidate.withdrawn (candidateToken)), std::memory_order_release);
                 state.quietContext.store (returnContext, std::memory_order_release);
             }
         }
         // Renderer lifetime is protected by the publication slot, including END/fault reads.
-        if (! permitted || blindRejected || ! coherent) liveCompare.renderer.silenceTransition();
-        if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
+        if (! permitted || blindRejected || ! steady || quietResumed) liveCompare.renderer.silenceTransition();
+        if (finishing && steady && liveCompare.renderer.hasPre()) postTarget = heldTarget;
         if (! usable || outputTaken)
         {
             // Offline render, bypass and another audition leave their input untouched.
@@ -296,6 +318,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && ring->header.ownerClosed.load (std::memory_order_acquire) == 0
             && (!coherent || !gains.retained || gains.identity.same (
                 hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
+        if (trace != nullptr && ! blindCommand.active()) hypha::chain_trace::acceptNamedSelection (*trace, admitted && namedEligible);
         const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
         if (freshBlind != liveCompare.blindTimingSeen)
         {
@@ -405,8 +428,10 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             {
                 using Source = hypha::live_compare::RenderReport::AudibleSource;
                 const auto requested = blindCommand.pre() ? Source::pre : Source::post;
-                liveCompare.blind.observe (blindCommand, report.stableSource && report.gainSettled
-                    && report.audibleSource == requested);
+                hearingCommon = blindLive && timingEligible && block.playing && gainCurrent
+                    && ! report.alignWaiting && liveCompare.renderer.alignState().pathProven();
+                hearingActual = report.stableSource && report.gainSettled && report.audibleSource == requested;
+                liveCompare.blind.observe (blindCommand, hearingActual);
             }
         }
         if (gainCurrent && report.gainSettled && ! report.guardTripped)
@@ -420,6 +445,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (preHeldBack)
             liveCompare.preWaitSeen.store (true, std::memory_order_release);
     });
+    liveCompare.blindHearing.observe (hearingGeneration, blindCommand.word, frames,
+        std::max (1, static_cast<int> (preparedFormat.sampleRate * 0.005 + 0.5)),
+        hearingCommon && liveCompare.blind.valid (blindCommand) && liveCompare.blind.command().word == blindCommand.word, hearingActual);
     // One bounded CAS on the revision this block read, as RT END: the quieter-side tuple becomes the
     // approved gains (and the trial's, when it still runs on them), so END, a restore or a return to
     // LISTEN keep it instead of raising PRE or POST again. Its receipt follows once the ramps settle.

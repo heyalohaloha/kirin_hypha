@@ -19,6 +19,8 @@ inline void verifyKeepPreparationNotices()
              "Keep storage is full. Free disk space.",
              "Keep files unavailable. Check save folder.",
              "Keep setup failed. Select PRE again.",
+             "A/B tail pending",
+             "All Keep targets changed or unavailable. Try again.",
              "Keep could not start. Try again.",
              "Choose a PRE before Keep.",
              "PRE unavailable. Choose PRE again.",

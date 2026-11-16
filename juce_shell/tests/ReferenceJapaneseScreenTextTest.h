@@ -239,6 +239,13 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
                         add (playing);
                         texts.insert (reference_ui::gainReadout (playing));
                     }
+        if (slot == 2)
+            for (const double gain : { -3.3, 0.0, 3.3 })
+                for (const double shortfall : { 0.0, 5.8 })
+                {
+                    playing.tracking = Tracking::fixed; playing.originalAudition = false; playing.heldAttenuationDb = 0;
+                    playing.appliedGainDb = gain; playing.peakShortfallDb = shortfall; add (playing);
+                }
         auto offered = base;
         offered.comparisonSlot = offered.audibleComparisonSlot = slot;
         offered.bSelected = true; offered.peakShortfallDb = 2.5;
@@ -288,6 +295,8 @@ inline void addGuidesAndNotices (std::set<juce::String>& texts)
                                                    std::vector<Skipped> { { {}, unreadable }, { {}, unreadable } } })
             texts.insert (reference_ui::notice::librarySkipped (items));
     for (const auto* help : reference_ui::help_text::all) texts.insert (help);
+    texts.insert ("C: A vs Kirin OS song and cue");
+    texts.insert ("LOWER A 9.1 DB TO LISTEN");
 }
 }
 

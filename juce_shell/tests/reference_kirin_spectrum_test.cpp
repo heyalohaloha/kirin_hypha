@@ -16,6 +16,7 @@
 #include <iostream>
 
 void testReferenceKirinSpectrum();
+void testReferenceOverlayPersistence();
 
 namespace
 {
@@ -52,7 +53,8 @@ void testBalanceOverlay()
     ref::BalanceOverlay overlay;
     const std::vector<juce::String> listed { "p/c/one", "p/c/two", "p/c/three", "target-1a" };
     juce::XmlElement none ("ReferenceChoices"); overlay.write (none);
-    check (none.getNumChildElements() == 0, "ONE with no lines writes nothing");
+    check (none.getChildByName ("Overlay") != nullptr && none.getChildByName ("Overlay")->hasAttribute ("used")
+               && ! ref::BalanceOverlay::read (none).used, "ONE explicitly saves its unused state");
     for (const auto& id : listed) overlay.toggle (id, listed);
     check (overlay.lines.size() == 4 && overlay.find ("p/c/three")->colour == 2 && overlay.find ("target-1a")->colour == 3,
            "lines take colours in the order shown");
@@ -80,6 +82,10 @@ void testBalanceOverlay()
     ref::ReferenceComparisonSettings settings; settings.overlay = overlay;
     juce::XmlElement state ("KirinHyphaState"); settings.write (state);
     check (ref::ReferenceComparisonSettings::read (state).overlay == overlay, "the project keeps the overlay");
+    ref::ReferenceComparisonSettings pending; pending.overlay.lines = { { "target-1a", 0 } };
+    juce::XmlElement pendingState ("KirinHyphaState"); pending.write (pendingState);
+    check (ref::ReferenceComparisonSettings::read (pendingState).overlay == pending.overlay,
+           "project save preserves lines registered before the first ALL");
     state.getChildByName ("ReferenceChoices")->removeChildElement (state.getChildByName ("ReferenceChoices")->getChildByName ("Overlay"), true);
     const auto older = ref::ReferenceComparisonSettings::read (state).overlay;
     check (! older.all && older.lines.empty() && ! older.used, "a project saved before the overlay opens on ONE, never used");
@@ -218,6 +224,8 @@ std::vector<double> numbers (const juce::var& array)
     return result;
 }
 }
+
+void testReferenceOverlayPersistence() { testBalanceOverlay(); }
 
 void testReferenceKirinSpectrum()
 {

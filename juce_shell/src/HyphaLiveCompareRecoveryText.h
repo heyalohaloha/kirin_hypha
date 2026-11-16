@@ -1,5 +1,6 @@
 #pragma once
 #include "HyphaHostAvailability.h"
+#include "HyphaPreProcessingNotice.h"
 
 #include "live_compare/LiveCompareProcessorState.h"
 
@@ -118,6 +119,14 @@ inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperCha
 // INV-LC10: a strong estimate the clock cannot act on. PRE (A) still sounds at K, so the notice
 // names no output and, in BLIND, does not depend on the source selected.
 inline const char* chainDelayNotice() noexcept { return "Check delay compensation"; }
+// INV-LC28: the bounded wait ended without a confirmed position; PRE (A) plays at K. Never the source.
+// Shown as "<this> / <chainDelayNotice()>", short enough for the 300% footer.
+inline const char* unmeasuredNotice() noexcept { return "Delay unmeasured"; }
+// INV-LC28: the bound ended unconfirmed; PRE (A) plays at K plus the correction confirmed before.
+inline const char* notRemeasuredNotice() noexcept { return "Delay not re-measured"; }
+// BLIND, INV-LC28: a delay settled during the trial; PRE's read position follows while the listener
+// is away from PRE, so the same words show for both sources until each has been heard.
+inline const char* unappliedNotice() noexcept { return "Delay changed: hear both sources"; }
 inline Reason contentNoticeReason (std::int64_t lagFrames) noexcept
 { return lagFrames > 0 ? Reason::preLate : Reason::contentChanged; }
 inline const char* positionNotice (bool candidate) noexcept
@@ -174,7 +183,7 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
     if (! stopped)
     {
         if (state.candidate) return { reason, RecoveryAction::checkPre, candidateRecoveryText (false, false) };
-        if (reason == Reason::notWritten) return { reason, RecoveryAction::checkPre, "Play the DAW and check PRE is enabled" };
+        if (reason == Reason::notWritten) return { reason, RecoveryAction::automatic, "Keep playing; resumes when confirmed" };
         return { reason, RecoveryAction::automatic, "Keep playing; resumes when confirmed" };
     }
     if (reason == Reason::pairChanged || reason == Reason::preUnavailable || reason == Reason::foreignRing)
@@ -197,7 +206,7 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.active && !state.interrupted && !state.preSelected
         && (state.loopBlock != live_compare::LoopPairingBlock::none
             || *loopRecovery (state.observation, state.reaperRestriction).instruction)) return {};
-    if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
+    if (state.finishing) return result (RecoveryAction::busy, "Ended; POST back to normal within 0.5 s");
     if (state.active && !state.interrupted && state.observation == Reason::contentAmbiguous)
         return { Reason::contentAmbiguous, RecoveryAction::none, "Position unconfirmed; POST plays" };
     // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
@@ -243,7 +252,7 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
             return result (RecoveryAction::stopPlay, "Clock missing: restart playback (POST)");
         if (state.observation == Reason::blockTooLarge) return result (RecoveryAction::busy, "Block too large: reduce buffer (POST)");
         if (state.observation == Reason::foreignRing) return result (RecoveryAction::checkPre, "PRE changed: check pair; END (POST)");
-        if (state.observation == Reason::notWritten) return result (RecoveryAction::checkPre, "PRE pending: check PRE is on (POST)");
+        if (state.observation == Reason::notWritten) return result (RecoveryAction::automatic, preProcessingNotice);
         return result (RecoveryAction::automatic, "Timing unavailable; check PRE and play (POST)");
     }
     if (state.active && state.matchHeld && ! state.interrupted)

@@ -15,8 +15,20 @@ vote, learn from it, or change audio from it. No Kirin OS is required.
 
 ![PRE/POST Blind after REVEAL: SOURCE 1 was POST and SOURCE 2 was PRE; switching continues until END](../media/readme/blind_result.jpg)
 
+**GUESS** in MENU (off by default) adds one question above REVEAL: **Which one is POST?**
+(**Which one is B?** in A/B). Choose **1** or **2** before REVEAL. The question and both answers look
+the same whatever the hidden assignment is. After REVEAL your answer stays lit with **— right** or
+**— not this time**. The answer is not stored. With GUESS off, BLIND is unchanged.
+
+On the RESULT, **SAVE IMAGE** saves a 1080 × 1080 PNG where you choose. Name each source first, up to
+16 characters; an empty name uses PRE and POST (A and B in A/B), and the names are remembered. The
+image shows which source was which, your answer and its outcome when GUESS was on, and the RESULT's
+own notes, in the screen language. It ends with **One blind listen at matched level.** and the Hypha
+address. Song and track names are not collected automatically. When saving fails, the reason stays on the screen.
+
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
-another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match.
+another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match, and a MATCH
+you turned off is not reused: BLIND then matches on its own.
 
 BLIND matches by raising the quieter source, as long as it stays under the ceiling (the larger of
 −1 dBTP and the measured true peaks). When raising it would peak above the ceiling, already at MATCH
@@ -26,7 +38,7 @@ the two sources stay matched, and the louder source never stands in for the rais
 under the buttons then says why both are quieter and what END gives back, for example
 **Lowered 2.0 dB to avoid clipping; END restores it**.
 END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
-END, ramped over about two seconds, and confirmed by the Audio Thread. Closing the window alone never raises the level.
+END and returns within half a second, at once while the DAW is stopped. Closing the window alone never raises the level.
 A realtime bounce or export while BLIND is on records the source you hear, so press END first.
 If restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before
 starting a new LISTEN or BLIND session. Only a still-active session can carry its own approved
@@ -40,7 +52,15 @@ returns to the same hidden assignment without END or reselection. A fallback is 
 as hearing PRE; REVEAL adds one short note if a PRE interval used POST. An audio estimate that PRE
 is late or has jumped never switches a source to POST: PRE keeps its clock position, a notice that
 lasts three seconds reads the same for both sources, and RESULT says by how much PRE may have been
-off, after the note on any POST that really stood in, even while the notice is still up. Source buttons show your selection, while internal played receipts count only the source that
+off, after the note on any POST that really stood in, even while the notice is still up. If no position is measured within the first second, PRE plays at
+its clock position and the same line, **Delay unmeasured / Check delay compensation**, appears for
+both sources. When an earlier LISTEN or BLIND with the same pair and format confirmed a correction,
+PRE plays with it instead and both sources show **Delay not re-measured**. When seeks keep PRE from
+reaching a correction of up to a second, POST stands in for at most one second in all, whatever the
+reason PRE was not playing; these waits and lines come at the same time whichever source is selected.
+Then PRE plays at its clock position with **Delay unmeasured** until it
+can. When a delay changes during a trial, both sources show **Delay changed: hear both sources**
+until you have listened to each of them for half a second: PRE takes the new position while the other source plays. A correction the host starts compensating itself is dropped. Source buttons show your selection, while internal played receipts count only the source that
 actually sounded.
 
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.

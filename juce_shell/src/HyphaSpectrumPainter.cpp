@@ -1,6 +1,7 @@
 #include "HyphaSpectrumPainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSpectrumPostBody.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
@@ -10,9 +11,8 @@
 #include "HyphaTextStyle.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstdint>
+#include <optional>
 
 namespace hypha::spectrum_painter
 {
@@ -75,10 +75,18 @@ namespace
                            plot.getY(), plot.getBottom());
     }
 
-    juce::Path makeCurve (const SpectrumBins& x, const SpectrumBins& y,
-                          const SpectrumValidity* valid = nullptr)
+    void buildCurve (juce::Path& path, const SpectrumBins& x, const SpectrumBins& y,
+                     const SpectrumValidity* valid = nullptr)
     {
-        return monotone_curve::make (x, y, valid, true);
+        const auto known = [&] (size_t i) { return (! valid || (*valid)[i]) && std::isfinite (y[i]); };
+        for (size_t first = 0; first < x.size();)
+        {
+            if (! known (first)) { ++first; continue; }
+            auto last = first;
+            while (last + 1 < x.size() && known (last + 1)) ++last;
+            monotone_curve::append (path, x, y, first, last, true, true);
+            first = last + 1;
+        }
     }
     void strokePostCurve (juce::Graphics& g, const juce::Path& curve, float scale, float brightness)
     {
@@ -99,8 +107,13 @@ float yForMagnitude (float dbfs, juce::Rectangle<float> plot, float range) noexc
 }
 
 void paintPostCurve (juce::Graphics& g, juce::Rectangle<float> plot,
-                     float visualScale, const SpectrumBins& post, float range, float brightness)
+                     float visualScale, const SpectrumBins& post, float range, float brightness,
+                     PathWorkspace* workspace)
 {
+    std::optional<PathWorkspace> localWorkspace;
+    if (workspace == nullptr) localWorkspace.emplace();
+    auto& paths = workspace != nullptr ? *workspace : *localWorkspace;
+    paths.beginFrame();
     SpectrumBins x {}, y {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
@@ -108,7 +121,9 @@ void paintPostCurve (juce::Graphics& g, juce::Rectangle<float> plot,
                               plot.getX(), plot.getRight());
         y[index] = yForMagnitudeDbfs (post[index], plot, range);
     }
-    strokePostCurve (g, makeCurve (x, y), visualScale, brightness);
+    auto& curve = paths.path (0, static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 7u));
+    buildCurve (curve, x, y);
+    strokePostCurve (g, curve, visualScale, brightness);
 }
 
 void paintCurves (juce::Graphics& g,
@@ -119,18 +134,19 @@ void paintCurves (juce::Graphics& g,
                   const SpectrumBins& delta,
                   const SpectrumValidity& deltaValid,
                   const SpectrumBins* mark,
-                  const SpectrumValidity* markValid, float range, float brightness)
+                  const SpectrumValidity* markValid, float range, float brightness, bool richPost,
+                  PathWorkspace* workspace)
 {
+    std::optional<PathWorkspace> localWorkspace;
+    if (workspace == nullptr) localWorkspace.emplace();
+    auto& paths = workspace != nullptr ? *workspace : *localWorkspace;
+    paths.beginFrame();
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float glowScale = ui_contract::spectrumGlowScale (visualScale);
     const auto scaledStroke = [strokeScale] (float value) { return value * strokeScale; };
     const auto scaledGlow = [glowScale] (float value) { return value * glowScale; };
     const float zeroY = yForDeltaDb (0.0f, plot);
-    SpectrumBins x {};
-    SpectrumBins preY {};
-    SpectrumBins postY {};
-    SpectrumBins deltaY {};
-    SpectrumBins markY {};
+    SpectrumBins x {}, preY {}, postY {}, deltaY {}, markY {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
         x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
@@ -142,11 +158,14 @@ void paintCurves (juce::Graphics& g,
             markY[index] = yForDeltaDb ((*mark)[index], plot);
     }
 
-    const juce::Path preCurve = makeCurve (x, preY);
-    const juce::Path postCurve = makeCurve (x, postY);
-    const juce::Path deltaCurve = makeCurve (x, deltaY, &deltaValid);
-    const juce::Path markCurve = mark != nullptr
-        ? makeCurve (x, markY, markValid) : juce::Path {};
+    constexpr int curveCapacity = static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 7u);
+    auto& preCurve = paths.path (0, curveCapacity);
+    auto& postCurve = paths.path (1, curveCapacity);
+    auto& deltaCurve = paths.path (2, curveCapacity);
+    buildCurve (preCurve, x, preY); buildCurve (postCurve, x, postY);
+    buildCurve (deltaCurve, x, deltaY, &deltaValid);
+    if (mark != nullptr) buildCurve (paths.path (3, curveCapacity), x, markY, markValid);
+    const auto& markCurve = paths.existing (3);
 
     // The wider ±24 dB geometry must not make ordinary 1–6 dB work look dimmer. Brightness keeps
     // the proven ±18 dB response and simply reaches its maximum before the new display edge.
@@ -156,9 +175,11 @@ void paintCurves (juce::Graphics& g,
     constexpr std::array<float, tipDepthCoverage.size()> tipAlphaShare {
         0.055f, 0.080f, 0.130f, 0.200f, 0.310f, 0.480f
     };
-    std::array<std::array<juce::Path, kIntensityLevelCount>, tipDepthCoverage.size()>
-        intensityTips;
-    std::array<juce::Path, kIntensityLevelCount> highlights;
+    static_assert (PathWorkspace::layers == tipDepthCoverage.size());
+    static_assert (PathWorkspace::levels == kIntensityLevelCount);
+    // Every segment can be its own run: at most 17 coordinates per band.
+    constexpr int ribbonCapacity = static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 18u);
+    constexpr int highlightCapacity = static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 10u);
     const auto innerTipY = [&plot] (float db, float coverage) {
         const float magnitudeDb = std::abs (db);
         const float tipDepthDb = std::min (3.0f, magnitudeDb * 0.38f) * coverage;
@@ -190,9 +211,8 @@ void paintCurves (juce::Graphics& g,
         {
             for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
             {
-                auto& tip = intensityTips[layer][bucket];
-                if (tip.isEmpty())
-                    tip.preallocateSpace (static_cast<int> ((last - first + 2u) * 6u));
+                auto& tip = paths.path (PathWorkspace::tipBase + layer * kIntensityLevelCount + bucket,
+                                        ribbonCapacity);
                 tip.startNewSubPath (x[first - 1], deltaY[first - 1]);
                 monotone_curve::append (tip, x, deltaY, first - 1, last, false, true);
                 for (size_t index = last + 1; index-- > first - 1;)
@@ -200,11 +220,9 @@ void paintCurves (juce::Graphics& g,
                 tip.closeSubPath();
             }
         }
-        if (highlights[bucket].isEmpty())
-            highlights[bucket].preallocateSpace (
-                static_cast<int> ((last - first + 2u) * 3u));
-        highlights[bucket].startNewSubPath (x[first - 1], deltaY[first - 1]);
-        monotone_curve::append (highlights[bucket], x, deltaY, first - 1, last, false, true);
+        auto& highlight = paths.path (PathWorkspace::highlightBase + bucket, highlightCapacity);
+        highlight.startNewSubPath (x[first - 1], deltaY[first - 1]);
+        monotone_curve::append (highlight, x, deltaY, first - 1, last, false, true);
         first = last + 1;
     }
 
@@ -213,10 +231,11 @@ void paintCurves (juce::Graphics& g,
                   juce::PathStrokeType (scaledStroke (ui_contract::spectrumPreStrokeWidth),
                                         juce::PathStrokeType::curved,
                                         juce::PathStrokeType::rounded));
+    if (richPost) post_body::fill (g, plot, x, postY, brightness, &paths.path (5, ribbonCapacity));
     strokePostCurve (g, postCurve, visualScale, brightness);
+    if (richPost) post_body::edge (g, postCurve, strokeScale, brightness);
 
-    juce::Path deltaFill;
-    deltaFill.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 9u));
+    auto& deltaFill = paths.path (4, ribbonCapacity);
     deltaFill.setUsingNonZeroWinding (false);
     for (size_t first = 0; first < KIRIN_SPECTRUM_BAND_COUNT;)
     {
@@ -245,14 +264,15 @@ void paintCurves (juce::Graphics& g,
 
     // A measurement-derived tip ribbon adds density beside the live presentation edge, never
     // across the whole body. Numeric readout, MARK and Focus Trail retain their unsmoothed facts.
-    for (size_t layer = 0; layer < intensityTips.size(); ++layer)
+    for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
     {
-        for (size_t bucket = 1; bucket < intensityTips[layer].size(); ++bucket)
+        for (size_t bucket = 1; bucket < kIntensityLevelCount; ++bucket)
         {
+            const auto& tip = paths.existing (PathWorkspace::tipBase + layer * kIntensityLevelCount + bucket);
             g.setColour (COL_SPECTRUM_DELTA_BR.withMultipliedBrightness (brightness).withAlpha (
                 ui_contract::spectrumTipAlpha[bucket] * tipAlphaShare[layer]));
-            if (! intensityTips[layer][bucket].isEmpty())
-                g.fillPath (intensityTips[layer][bucket]);
+            if (! tip.isEmpty())
+                g.fillPath (tip);
         }
     }
 
@@ -289,11 +309,12 @@ void paintCurves (juce::Graphics& g,
         0.56f, 0.60f, 0.64f, 0.68f, 0.715f, 0.75f,
         0.785f, 0.82f, 0.855f, 0.89f, 0.915f, 0.94f
     };
-    for (size_t bucket = 0; bucket < highlights.size(); ++bucket)
+    for (size_t bucket = 0; bucket < kIntensityLevelCount; ++bucket)
     {
+        const auto& highlight = paths.existing (PathWorkspace::highlightBase + bucket);
         g.setColour (COL_SPECTRUM_DELTA_BR.withMultipliedBrightness (brightness).withAlpha (highlightAlpha[bucket]));
-        if (! highlights[bucket].isEmpty())
-            g.strokePath (highlights[bucket],
+        if (! highlight.isEmpty())
+            g.strokePath (highlight,
                           juce::PathStrokeType (scaledStroke (1.15f),
                                                 juce::PathStrokeType::curved,
                                                 juce::PathStrokeType::rounded));
@@ -354,8 +375,12 @@ void paintAbsolute (juce::Graphics& g,
                     const absolute_spectrum::History& history,
                     presentation::Context presentation,
                     bool showHistory, display_settings::Values settings, spectrum_display::Backdrop* cache,
-                    float minimumHz, float maximumHz)
+                    float minimumHz, float maximumHz, PathWorkspace* workspace)
 {
+    std::optional<PathWorkspace> localWorkspace;
+    if (workspace == nullptr) localWorkspace.emplace();
+    auto& paths = workspace != nullptr ? *workspace : *localWorkspace;
+    paths.beginFrame();
     const auto range = settings.rangeDb(), brightness = settings.brightness();
     if (showHistory) paintAbsoluteHistory (g, plot, history, cache, settings, minimumHz, maximumHz);
 
@@ -371,8 +396,10 @@ void paintAbsolute (juce::Graphics& g,
                                               ? peakHold[index] : kMagnitudeFloorDbfs,
                                           plot, range);
     }
-    const auto current = makeCurve (x, currentY);
-    const auto hold = makeCurve (x, holdY);
+    constexpr int capacity = static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 8u + 12u);
+    auto& current = paths.path (0, capacity);
+    auto& hold = paths.path (1, capacity);
+    buildCurve (current, x, currentY); buildCurve (hold, x, holdY);
     if (showHistory)
     {
         g.setFont (monoFont (presentation, typography::TextRole::axis,
@@ -385,17 +412,13 @@ void paintAbsolute (juce::Graphics& g,
                     juce::Justification::centredRight);
     }
 
-    juce::Path fill;
+    auto& fill = paths.path (2, capacity);
     fill.startNewSubPath (x.front(), plot.getBottom());
     fill.lineTo (x.front(), currentY.front());
     monotone_curve::append (fill, x, currentY, 0, KIRIN_SPECTRUM_BAND_COUNT - 1, false, true);
     fill.lineTo (x.back(), plot.getBottom());
     fill.closeSubPath();
-    juce::ColourGradient gradient (COL_SPECTRUM_POST.withMultipliedBrightness (brightness).withAlpha (0.19f),
-                                   plot.getX(), plot.getY(),
-                                   COL_SPECTRUM_POST.withMultipliedBrightness (brightness).withAlpha (0.015f),
-                                   plot.getX(), plot.getBottom(), false);
-    g.setGradientFill (gradient);
+    g.setGradientFill (post_body::gradient (plot, brightness, settings.richFill()));
     g.fillPath (fill);
 
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
@@ -407,7 +430,8 @@ void paintAbsolute (juce::Graphics& g,
     g.strokePath (current, juce::PathStrokeType (1.8f * strokeScale,
                                                   juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));
-    if (settings[display_settings::peak] == 0)
+    if (settings.richFill()) post_body::edge (g, current, strokeScale, brightness);
+    if (settings[display_settings::peak] != 1)
     {
     g.setColour (COL_FLORA_BR.withMultipliedBrightness (brightness).withAlpha (ui_contract::spectrumHoldAlpha));
     g.strokePath (hold, juce::PathStrokeType (0.85f * strokeScale,

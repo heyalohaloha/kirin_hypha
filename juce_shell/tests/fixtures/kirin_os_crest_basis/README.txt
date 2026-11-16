@@ -1,4 +1,4 @@
-Hypha 1.1.57 へ渡す Reference の記録の受け渡しの例（Kirin OS 1.6.1、Crest = sample peak ÷ RMS）。
+Hypha 1.1.57 へ渡す Reference の記録の受け渡しの例（Kirin OS 1.7.0、Crest = sample peak ÷ RMS）。
 
 - measurement_sample_peak_over_rms.json：measurement の views.dynamics は 5 つの鍵
   start_sample, hop_samples, psr_millidb, crest_millidb, crest_basis（"sample_peak_over_rms"）。

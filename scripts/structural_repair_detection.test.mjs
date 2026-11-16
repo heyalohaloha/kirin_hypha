@@ -265,3 +265,11 @@ test('release source gate resolves tracked ABI headers without ambient include p
   const uiCompile = between(releaseGate, 'run "${CXX:-c++}"', 'run "$UI_CONTRACT_BIN"');
   assert.ok(uiCompile.includes('-I "$ABI_INCLUDE_DIR"'));
 });
+
+test('MATCH approval leaves the surrounding controls interactive', () => {
+  const source = read('juce_shell/src/PluginEditorLiveCompare.cpp');
+  const choice = between(source, 'void KirinHyphaEditor::chooseLiveCompareMatch',
+    'void KirinHyphaEditor::handleLiveCompareMatchChoice');
+  assert.doesNotMatch(choice, /\.showMenuAsync\s*\(/,
+    'approval must not enter a modal popup that consumes the next control press');
+});

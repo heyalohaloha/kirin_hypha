@@ -17,6 +17,7 @@ enum class TextRole
     axis,
     legend,
     readout,
+    referenceRangeValue,
     sectionTitle,
     body,
     status,
@@ -25,6 +26,10 @@ enum class TextRole
     menu,
     tooltip,
     captureMetadata,
+    listenAction,
+    noticeBody,
+    noticeCompact,
+    listenChoice,
 };
 
 enum class Composition
@@ -35,6 +40,26 @@ enum class Composition
     information,
     instrument,
 };
+
+// Fixed-size output typography for the square BLIND RESULT image. Name size is bounded so
+// a pair of long source names can share one readable size without compressing glyphs.
+enum class BlindImageText { caption, title, name, question, answer, outcome, closing, address };
+
+constexpr float blindImageFontHeight (BlindImageText role, int nameSize = 34) noexcept
+{
+    switch (role)
+    {
+        case BlindImageText::caption: return 12.5f;
+        case BlindImageText::title: return 30.0f;
+        case BlindImageText::name: return static_cast<float> (nameSize < 14 ? 14 : nameSize > 34 ? 34 : nameSize);
+        case BlindImageText::question: return 15.0f;
+        case BlindImageText::answer: return 14.0f;
+        case BlindImageText::outcome: return 19.0f;
+        case BlindImageText::closing: return 15.5f;
+        case BlindImageText::address: return 13.0f;
+    }
+    return 12.5f;
+}
 
 enum class Overflow
 {
@@ -84,6 +109,7 @@ constexpr Scale roleScale (TextRole role, Composition composition) noexcept
         case TextRole::axis: return { 11.0f, 11.0f, 11.0f, 12.0f, 14.0f };
         case TextRole::legend: return { 11.0f, 11.0f, 11.5f, 13.0f, 16.0f };
         case TextRole::readout: return { 11.0f, 11.0f, 12.0f, 14.0f, 17.0f };
+        case TextRole::referenceRangeValue: return { 11.0f, 11.0f, 12.0f, 14.0f, 17.0f };
         case TextRole::sectionTitle: return { 12.0f, 13.0f, 15.0f, 18.0f, 23.0f };
         case TextRole::body: return { 11.0f, 11.5f, 12.5f, 14.0f, 17.0f };
         case TextRole::status: return { 11.0f, 12.0f, 14.0f, 17.0f, 22.0f };
@@ -92,6 +118,10 @@ constexpr Scale roleScale (TextRole role, Composition composition) noexcept
         case TextRole::menu: return { 16.0f, 16.0f, 16.0f, 16.0f, 16.0f };
         case TextRole::tooltip: return { 11.5f, 11.5f, 11.5f, 11.5f, 11.5f };
         case TextRole::captureMetadata: return { 11.0f, 11.0f, 11.0f, 12.0f, 14.0f };
+        case TextRole::listenAction: return roleScale (TextRole::action, composition);
+        case TextRole::noticeBody: return roleScale (TextRole::action, composition);
+        case TextRole::noticeCompact: return roleScale (TextRole::legend, composition);
+        case TextRole::listenChoice: return roleScale (TextRole::body, composition);
     }
     return { 11.0f, 11.0f, 11.0f, 11.0f, 11.0f };
 }
@@ -112,6 +142,9 @@ constexpr Overflow overflowFor (TextRole role) noexcept
     switch (role)
     {
         case TextRole::body:
+        case TextRole::noticeBody:
+        case TextRole::noticeCompact:
+        case TextRole::listenChoice:
         case TextRole::status:
         case TextRole::tooltip: return Overflow::wrap;
         case TextRole::selector:
@@ -126,7 +159,9 @@ constexpr Overflow overflowFor (TextRole role) noexcept
         case TextRole::axis:
         case TextRole::legend:
         case TextRole::readout:
+        case TextRole::referenceRangeValue:
         case TextRole::sectionTitle:
+        case TextRole::listenAction:
         case TextRole::action:
             return Overflow::preserve;
     }
@@ -139,14 +174,25 @@ constexpr TextStyle resolve (const presentation::Context& context,
 {
     auto fontHeight = interpolate (roleScale (role, composition),
                                    presentation::densityPosition (context));
+    if (role == TextRole::listenAction && fontHeight < 12.0f) fontHeight = 12.0f;
+    if ((role == TextRole::noticeBody || role == TextRole::noticeCompact || role == TextRole::listenChoice)
+        && fontHeight < 14.0f) fontHeight = 14.0f;
     if (context.output == presentation::OutputTarget::popup)
         fontHeight = roleScale (TextRole::menu, Composition::shell).front();
     else if (context.output == presentation::OutputTarget::tooltip)
         fontHeight = roleScale (TextRole::tooltip, Composition::shell).front();
+    if ((context.referenceCheck || context.referenceCompact) && context.output != presentation::OutputTarget::popup
+        && context.output != presentation::OutputTarget::tooltip)
+    {
+        fontHeight = fontHeight < (role == TextRole::body ? 14.0f : 12.0f)
+            ? (role == TextRole::body ? 14.0f : 12.0f) : fontHeight;
+        if (context.referenceCheck && role == TextRole::referenceRangeValue)
+            fontHeight = fontHeight * 1.45f < 22.0f ? fontHeight * 1.45f : 22.0f;
+    }
 
     const auto numeric = role == TextRole::primaryValue || role == TextRole::secondaryValue
-                      || role == TextRole::readout || role == TextRole::axis;
-    const auto lineMultiplier = numeric ? 1.12f : role == TextRole::body ? 1.32f : 1.20f;
+                      || role == TextRole::readout || role == TextRole::referenceRangeValue || role == TextRole::axis;
+    const auto lineMultiplier = numeric ? 1.12f : role == TextRole::body || role == TextRole::listenChoice ? 1.32f : 1.20f;
     const auto padding = role == TextRole::action || role == TextRole::selector
         ? fontHeight * 0.55f : fontHeight * 0.25f;
     return { fontHeight, fontHeight * lineMultiplier, padding, overflowFor (role) };

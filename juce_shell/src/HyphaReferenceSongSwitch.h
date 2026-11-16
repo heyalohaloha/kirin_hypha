@@ -116,15 +116,15 @@ private:
         {
             const key_light::Scope light (*this);
             const auto area = getLocalBounds().toFloat().reduced (0.5f);
-            const bool lit = getToggleState() && isEnabled();
+            const bool lit = getToggleState();
             if (! isEnabled()) { g.setColour (unavailableFill()); g.fillRoundedRectangle (area, 3.0f); }
-            else if (lit) { g.setColour (selectedFill()); g.fillRoundedRectangle (area, 3.0f); }
+            if (lit) { g.setColour (selectedFill()); g.fillRoundedRectangle (area, 3.0f); }
             if (isEnabled() && (lit || highlighted || down))
             {
                 g.setColour (lit ? COL_TEXT_SECONDARY : COL_MUTED);
                 g.drawRoundedRectangle (area, 3.0f, 1.0f);
             }
-            g.setColour (textColour (lit));
+            g.setColour (context.referenceCheck ? COL_NORMAL : textColour (lit));
             g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));  // = font()
             text_style::drawText (g, getName(), getLocalBounds(), juce::Justification::centred);
         }

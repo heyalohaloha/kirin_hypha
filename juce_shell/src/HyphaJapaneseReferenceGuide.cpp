@@ -38,6 +38,8 @@ const Entry entries[] = {
       u8"Aを再生するとAUTOが見つけます。上のV / VERSIONからも選べます。Vは再生中の曲の別のVersionを鳴らします。" },
     { "C compares A with a section of a CHECK SET song, or of a first Reference set song if it has none.",
       u8"CはCHECK セットの曲（曲が無ければ1位のReferenceのセットの曲）の区間をAと比べます。" },
+    { "Add songs to a CHECK SET in Kirin OS to compare with A.", u8"Kirin OSのCHECKセットに曲を追加してAと比べます。" },
+    { "Choose a source in Kirin OS to compare its section with A.", u8"Kirin OSで曲を選び、その区間をAと比べます。" },
     { "Keep playing. V must be a Version of the song you are playing.",
       u8"再生を続けてください。Vには、再生中の曲のVersionを選びます。" },
     { "This passage repeats in V. Play a part that occurs only once.",

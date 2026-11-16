@@ -101,22 +101,24 @@ inline void verifySwitchAndColours()
     auto state = page (4, 2);
     panel.setState (state);
     auto& list = listOf (panel);
-    require (list.rows().size() == 4 && boxesOf (list).empty() && ! panel.state().overlay.all,
-             "ONE lists the set's songs only, numbered as before, with no boxes");
+    require (list.rows().size() == 6 && list.rows()[4].target && boxesOf (list).empty() && ! panel.state().overlay.all,
+             "ONE lists the set's songs and targets with no overlay boxes");
     const auto one = a_direction::drawnTexts (panel);
     reference_text_repairs::requireWhole (one, "TARGET RANGE");
     reference_text_repairs::requireWhole (one, "B CHORUS 1:02-1:24");
     Saved saved; saved.track (panel);
     switchHalf (panel, "reference-overlay-all").onClick();
     const auto overlay = panel.state().overlay;
-    require (overlay.all && overlay.lines.size() == 4 && saved.overlay == overlay && saved.count == 1,
-             "the first ALL shows the set's songs and asks the processor to save it (the host is told)");
+    require (overlay.all && overlay.lines.size() == 6 && saved.overlay == overlay && saved.count == 1,
+             "the first ALL shows the set's songs and targets and asks the processor to save it");
     for (int index = 0; index < 4; ++index)
         require (overlay.find (state.songs[static_cast<size_t> (index)].id)->colour == index, "songs take colours in list order");
     require (list.rows().size() == 6 && list.rows()[4].target && list.rows()[5].target && list.rows()[4].title == "Drop 1"
-             && ! list.rows()[4].shown && boxesOf (list).size() == 6, "ALL lists the targets after the songs, in the order added");
+             && list.rows()[4].shown && boxesOf (list).size() == 6, "ALL lists and shows the targets after the songs, in the order added");
     auto boxes = boxesOf (list);
     boxes[1]->onClick();
+    boxes = boxesOf (list);
+    boxes[5]->onClick();
     boxes = boxesOf (list);
     boxes[5]->onClick();
     const auto after = panel.state().overlay;
@@ -126,13 +128,13 @@ inline void verifySwitchAndColours()
     require (after.find (state.targets.collection.items[1].id)->colour == 1 && list.rows()[5].shown && list.rows()[5].colour == 1,
              "a target shown next takes the free colour, and its box shows it");
     // A target row is not heard: the press says why and changes nothing.
-    juce::String explained, chosen;
-    panel.onExplain = [&] (const juce::String& text) { explained = text; };
+    juce::String chosen, targetChoice;
     panel.onSelectSong = [&] (const juce::String& id) { chosen = id; };
+    panel.onTargetRequest = [&] (const auto& request) { targetChoice = request.id; };
     const auto rowY = [&] (int row) { return 6.0f + 18.0f + 34.0f + static_cast<float> (row - list.firstShownRow()) * 34.0f + 17.0f; };
     press (list, { 120.0f, rowY (4) });
-    require (explained == reference_ui::targetSilentText && chosen.isEmpty() && panel.state().songId == state.songId,
-             "pressing a target row to hear it says it has no audio and keeps B's song");
+    require (targetChoice == state.targets.collection.items[0].id && chosen.isEmpty() && panel.state().songId == state.songId,
+             "pressing a target row selects it without choosing an audio song");
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
@@ -154,8 +156,8 @@ inline void verifySwitchAndColours()
         for (int x = before.getWidth() / 2; x < before.getWidth(); x += 2) changed += before.getPixelAt (x, y) != pointed.getPixelAt (x, y) ? 1 : 0;
     require (changed > 50, "the pointed line is drawn stronger than the others");
     switchHalf (panel, "reference-overlay-one").onClick();
-    require (! panel.state().overlay.all && panel.state().overlay.lines.size() == after.lines.size() - 1 && list.rows().size() == 4,
-             "ONE returns to today's list and chart and keeps the lines for the next ALL");
+    require (! panel.state().overlay.all && panel.state().overlay.lines.size() == after.lines.size() - 1 && list.rows().size() == 6,
+             "ONE retains all rows and the lines for the next ALL");
     reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "TARGET RANGE");
     // Help in the line at 300%: the switch and, in ALL, a number box say what they do.
     require (boxesOf (list).empty(), "ONE has no boxes");
@@ -229,8 +231,8 @@ inline void verifyFullSet()
         panel.setState (state);
         reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), reference_ui::overlayEmptyText);
     }
-    // Every editor size, walked down from 300% and back as the editor resizes: below 300% there is no Balance,
-    // so no switch and no boxes stay behind, and what shows is reachable at every display scale.
+    // Every editor size, walked down from 300% and back. The compact chart at 100% has its own
+    // ONE / ALL switch; list number boxes belong only to the full-sized Balance.
     constexpr std::array<std::pair<int, int>, 8> sizes {{
         { 900, 600 }, { 897, 598 }, { 750, 500 }, { 600, 400 }, { 450, 300 }, { 375, 250 }, { 300, 200 }, { 900, 600 } }};
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -244,8 +246,9 @@ inline void verifyFullSet()
                                                                      : ref::BalanceOverlay::Drawing::shape;
         state.overlay.lines = { { state.songs[2].id, 0 }, { state.targets.collection.items[3].id, 1 } };
         panel.setState (state);
-        for (const auto& [width, height] : sizes)
+        for (const auto& size : sizes)
         {
+            const auto width = size.first, height = size.second;
             observatory::View shell (observatory::Role::post);
             shell.setSize (width, height); shell.setDomain (observatory::Domain::reference); shell.setExternalAnalysisBodyActive (true);
             state.blindLargeScreen = width >= 900 && height >= 600;  // as the editor sets it
@@ -253,10 +256,10 @@ inline void verifyFullSet()
             panel.setPresentationContext (presentation::forEditor (width, height));
             panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
             const bool large = state.blindLargeScreen && presentation::forEditor (width, height).density == observatory::Density::inspection;
-            require (panel.findChildWithID ("reference-overlay")->isVisible() == large
+            require (panel.findChildWithID ("reference-overlay")->isVisible() == (large || width == 300)
                      && (large || boxesOf (*dynamic_cast<reference_ui::SongList*> (panel.findChildWithID ("reference-song-list"))).empty()
                          || ! panel.findChildWithID ("reference-song-list")->isVisible()),
-                     "ONE / ALL and the number boxes show exactly where Balance does (" + juce::String (width) + ")");
+                     "the switch and list controls follow their Balance views (" + juce::String (width) + ")");
             editor_reachability::checkAtDisplayScales (panel, [&] (float scale, const juce::String& problem)
             {
                 std::cerr << "REF B ALL " << width << "x" << height << " @" << scale << ": " << problem << '\n';
@@ -358,15 +361,16 @@ inline void verifyShape()
         require (panel.state().overlay.drawing == Drawing::shape && saved.overlay.drawing == Drawing::shape
                  && shape.getToggleState() && ! lines.getToggleState(), "SHAPE is on, shown on the switch and kept where the project saves it");
         auto drawn = a_direction::drawnTexts (panel);
-        reference_text_repairs::requireWhole (drawn, "MEAN OF 4");
-        reference_text_repairs::requireWhole (drawn, "RANGE OF 4");
+        reference_text_repairs::requireWhole (drawn, "MEAN OF 6");
+        reference_text_repairs::requireWhole (drawn, "RANGE OF 6");
         reference_text_repairs::requireWhole (drawn, "20 Hz - 20 kHz");
         require (! drawn.contains (text_style::shownText ("1 Song 1")), "SHAPE draws no line of its own per song");
         auto& list = listOf (panel);
         const auto rowY = [&] (int row) { return 6.0f + 18.0f + 34.0f + static_cast<float> (row - list.firstShownRow()) * 34.0f + 17.0f; };
+        press (list, { 20.0f, rowY (4) });  // hide and show a target just like a song
         press (list, { 20.0f, rowY (1) });
-        press (list, { 20.0f, rowY (4) });  // a target joins the shape the same way
-        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF 4");
+        press (list, { 20.0f, rowY (4) });
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF 5");
         require (panel.state().overlay.find (state.targets.collection.items[0].id) != nullptr, "the numbers still choose what goes in");
         // ALL SHAPE: every song and target, whatever the numbers say.
         every.onClick();
@@ -380,7 +384,7 @@ inline void verifyShape()
         press (list, { 20.0f, rowY (0) });
         auto boxes = boxesOf (list);
         require (explained == reference_ui::allShapeFixedText && panel.state().overlay.lines == kept,
-                 "a number pressed in ALL SHAPE says ALL SHAPE uses every song and keeps what SHAPE uses");
+                 "a number pressed in ALL SHAPE says it uses every line and keeps what SHAPE uses");
         explained.clear();
         boxes[2]->onClick();
         require (explained == reference_ui::allShapeFixedText && panel.state().overlay.lines == kept && boxes[2]->getTooltip() == explained,
@@ -396,7 +400,7 @@ inline void verifyShape()
             for (int y = 0; y < image.getHeight(); ++y)
                 for (int x = 0; x < image.getWidth(); ++x) differs = differs || image.getPixelAt (x, y) != lit.getPixelAt (x, y);
             require (differs && boxes[0]->getTooltip() == reference_ui::help_text::overlayNumber, "the boxes are lit again in SHAPE");
-            reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF 4");
+            reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MEAN OF 5");
             every.onClick();
         }
         // Pointing at a row draws that one line on top, thin, while pointed.
@@ -473,7 +477,7 @@ inline void verifyOneUnchanged()
             require (rows.size() == heldRows.size() && boxesOf (listOf (held)).empty(), "ONE's list has the same rows and no boxes");
             for (size_t index = 0; index < rows.size(); ++index)
                 require (rows[index].id == heldRows[index].id && rows[index].title == heldRows[index].title && ! heldRows[index].shown
-                         && ! heldRows[index].target, "each row of ONE's list is as before");
+                         && rows[index].target == heldRows[index].target, "ONE retains the same song and target rows");
             const auto image = plain.createComponentSnapshot (plain.getLocalBounds()), heldImage = held.createComponentSnapshot (held.getLocalBounds());
             bool same = image.getWidth() == heldImage.getWidth();
             for (int y = 0; same && y < image.getHeight(); ++y)

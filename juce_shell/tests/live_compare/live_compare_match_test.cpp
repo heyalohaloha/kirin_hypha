@@ -9,6 +9,7 @@
 #include <cmath>
 #include <array>
 #include <cstdio>
+#include <limits>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -425,6 +426,17 @@ static void measurementProofNeverBridgesAnUnverifiedBlock()
              "approval carries the exact measurement proof");
 }
 
+// MATCH on (INV-LC13): a kept boost never takes PRE's current true peak over the approved ceiling.
+static void matchOnCapsAKeptBoostAtTheCeiling()
+{
+    require (ceilingCappedGainDb (6.0, -1.0, -10.0) == 6.0, "room under the ceiling keeps the boost");
+    require (std::fabs (ceilingCappedGainDb (6.0, -1.0, -4.4) - 3.4) < 1.0e-9, "a louder PRE caps the boost at the ceiling");
+    require (ceilingCappedGainDb (6.0, -1.0, 0.5) == 0.0, "a PRE already over the ceiling plays at its own level");
+    require (ceilingCappedGainDb (-3.0, -1.0, 0.5) == -3.0 && ceilingCappedGainDb (0.0, -1.0, 0.5) == 0.0,
+             "a lowered or unity PRE is never changed");
+    require (ceilingCappedGainDb (6.0, -1.0, std::numeric_limits<double>::quiet_NaN()) == 0.0, "no valid evidence never raises PRE");
+}
+
 int main()
 {
     freshMatchesAtSupportedRates();
@@ -441,6 +453,7 @@ int main()
     measurementProofNeverBridgesAnUnverifiedBlock();
     theMappingShowsAnUnreportedDelay();
     autoFollowsToTheLimitAndKeepsGoing();
+    matchOnCapsAKeptBoostAtTheCeiling();
     hypha::tests::verifyOffsetConfidence (require);
     weakPeaksNeverHoldPost();
     aJumpNeedsTwoAgreeingEstimates();

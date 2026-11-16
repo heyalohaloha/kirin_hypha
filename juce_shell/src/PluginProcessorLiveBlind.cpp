@@ -20,6 +20,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     liveCompare.blindStage = BlindStage::finishing;
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.matchRetained.store (false, std::memory_order_release);
+    liveCompare.matchOff.store (false, std::memory_order_release);
     liveCompare.selection.end();
     liveCompare.completion.request();
     requestServiceTimer();
@@ -66,6 +67,7 @@ bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
 
 StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t> pressedTicket)
 {
+    blindStorageFailed.store (false, std::memory_order_release);
     const juce::ScopedLock pairLock (automaticPair.lock);
     using Phase = hypha::local_blind::ProductSessionPhase;
     const auto permission = pressedTicket.value_or (liveCompare.authority.ticket());
@@ -109,6 +111,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     if (! admitted)
     {
         if (startedHere) stopLiveCompare();
+        if (epoch == 1) { blindStorageFailed.store (true, std::memory_order_release); return StartResult::notReady; }
         return StartResult::comparisonBusy;
     }
     const bool borrowedCandidateScope = candidateScopeBeforeBlind != 0 && epoch == candidateScopeBeforeBlind;
@@ -131,6 +134,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     ++liveCompare.blindPreparation;
     liveCompare.blindMeasuredEnd = 0;
     liveCompare.blindMatchSince = callbackWallNanos();
+    liveCompare.blindPlayedFrom = liveCompare.playedFrames.load (std::memory_order_acquire);
     liveCompare.blindContentNoticeMs = 0.0;
     liveCompare.blindWaiting = MatchFailure::notProven;
     liveCompare.blindStage = BlindStage::preparing;
@@ -175,6 +179,24 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         return;
     const auto status = liveCompareStatus();
     if (! status.active || status.finishing) return;
+    // Thirty seconds of playback without a measurable window end the preparation with its reason; POST
+    // returns to normal and nothing else waits on it (a stopped DAW is the user's wait, not counted).
+    // Every stage before the sources are ready shares it: the timing admission, the MATCH window and an
+    // applied MATCH the audio has not taken yet (settling). Playback is the Audio Thread's count of frames
+    // the host called playing: a DAW stopped without callbacks adds none, a stalled message thread loses none.
+    const auto played = liveCompare.playedFrames.load (std::memory_order_acquire) - liveCompare.blindPlayedFrom;
+    if (static_cast<double> (played) >= 30.0 * preparedFormat.sampleRate)
+    {
+        // An applied MATCH the audio never took is a timing wait, and says so.
+        if (liveCompare.blindWaiting == MatchFailure::none) liveCompare.blindWaiting = MatchFailure::notProven;
+        if (returnBlindToCandidateListen()) return;
+        stopLiveCompare();
+        // INV-LC18: a lowered POST (LISTEN's MATCH, or this preparation's) rises to normal as END and RETURN
+        // raise it, while the screen keeps the reason. With the session stopped no other gain writer is open.
+        if (GainUpdate update (liveCompare.gainRevision); update) liveCompare.postTarget.store (1.0f, std::memory_order_release);
+        liveCompare.blindStage = BlindStage::failed;
+        return;
+    }
     if (liveCompare.blindTimingReceipt.load (std::memory_order_acquire)
         != liveCompare.blindTimingRequest.load (std::memory_order_acquire)) return;
     // A content timing notice (INV-LC10) is told, never waited on: preparation continues.
@@ -183,6 +205,9 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         liveCompare.blindWaiting = MatchFailure::notProven;
         return;
     }
+    // Timing is proven again: what is left is the window filling, said as a signal wait, never a
+    // stale timing reason.
+    if (liveCompare.blindWaiting == MatchFailure::notProven) liveCompare.blindWaiting = MatchFailure::tooShort;
     if (status.matchReady)
     {
         const auto gains = readGainSnapshot (liveCompare);
@@ -204,6 +229,9 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     }
     if (status.matched && ! status.matchLimited) return; // the RT gain ramp has not settled
     const auto history = liveCompare.renderer.historyView();
+    // A seek back leaves the history behind the last measured end: count fresh audio from its new start,
+    // so MATCH measures again half a second after the audio comes, not only past the old end.
+    if (history.end < liveCompare.blindMeasuredEnd) liveCompare.blindMeasuredEnd = history.start;
     // Retry on fresh half-second windows only; silence never spins the analyser at UI tick rate.
     const auto stride = static_cast<std::int64_t> (preparedFormat.sampleRate * 0.5);
     if (history.end - liveCompare.blindMeasuredEnd < stride) return;
@@ -286,6 +314,9 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.prolongedWait = state.prolongedWait || status.signalWait;
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
+    status.contentUnmeasured = state.contentUnmeasured;
+    status.contentNotRemeasured = state.contentNotRemeasured;
+    status.contentUnapplied = state.contentUnapplied;
     status.contentLagFrames = state.contentJumpLagFrames;
     status.contentNoticeMs = liveCompare.blindContentNoticeMs;
     // A notice standing since before this trial still has its amount for RESULT.

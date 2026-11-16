@@ -161,7 +161,7 @@ struct BalanceOverlay
     bool all = false;
     Drawing drawing = Drawing::lines;
     std::vector<Line> lines;  // in the order shown
-    bool used = false;        // ALL を一度でも開いた・番号を押した（最初の ALL だけセットの曲を全部出す。空にした選択は埋めない）
+    bool used = false;        // 初めての ALL は曲と目標を全部出す。空にした選択は埋めない。
     bool operator== (const BalanceOverlay& other) const noexcept
     { return all == other.all && drawing == other.drawing && lines == other.lines && used == other.used; }
     const Line* find (const juce::String& id) const noexcept
@@ -193,10 +193,9 @@ struct BalanceOverlay
     }
     void write (juce::XmlElement& parent) const
     {
-        if (! all && drawing == Drawing::lines && lines.empty() && ! used) return;
         auto* overlay = parent.createNewChildElement ("Overlay");
         overlay->setAttribute ("all", all);
-        if (used) overlay->setAttribute ("used", true);
+        overlay->setAttribute ("used", used);
         if (drawing != Drawing::lines) overlay->setAttribute ("draw", drawing == Drawing::shape ? "shape" : "all_shape");
         for (const auto& line : lines)
         {
@@ -250,6 +249,27 @@ public:
     }
     BalanceOverlay overlay() const { const juce::ScopedLock lock (mutex); return balanceOverlay; }
     void setOverlay (BalanceOverlay value) { const juce::ScopedLock lock (mutex); balanceOverlay = std::move (value); }
+    void showNewTargets (const juce::StringArray& ids, const juce::StringArray& initial)
+    {
+        if (ids.isEmpty()) return;
+        const juce::ScopedLock lock (mutex);
+        const auto add = [this] (const juce::StringArray& choices) {
+            for (const auto& id : choices)
+                if (BalanceOverlay::validId (id) && balanceOverlay.find (id) == nullptr
+                    && balanceOverlay.lines.size() < BalanceOverlay::maximumLines)
+                    balanceOverlay.lines.push_back ({ id, balanceOverlay.freeColour() });
+        };
+        if (! balanceOverlay.used) add (initial);
+        add (ids);
+        balanceOverlay.all = true;
+        balanceOverlay.used = true;
+    }
+    void forgetTarget (const juce::String& id)
+    {
+        const juce::ScopedLock lock (mutex);
+        auto& lines = balanceOverlay.lines;
+        lines.erase (std::remove_if (lines.begin(), lines.end(), [&id] (const auto& line) { return line.id == id; }), lines.end());
+    }
     // C の画面の CUE／SONG（比べる値。鳴らし方の LOOP／FOLLOW A とは別）。SONG は C の曲全体と A を DAW の頭から。
     bool checkSong() const { const juce::ScopedLock lock (mutex); return song; }
     void setCheckSong (bool value) { const juce::ScopedLock lock (mutex); song = value; }

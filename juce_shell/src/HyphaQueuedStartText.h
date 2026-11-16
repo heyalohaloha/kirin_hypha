@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaComparisonNotices.h"
 
 // A LISTEN, BLIND or A/B press that waits says what it waits for, all the time it waits (2026-11-11):
 // POST returning to its normal level, the A/B tail clearing from B, or the DAW to play again.
@@ -9,10 +10,14 @@ enum class QueuedStart { listen, blind, candidate };
 // A realtime bounce cannot be told from playback (only an offline render is reported), so it records what
 // the comparison plays. The first LISTEN, BLIND or A/B that starts in a plug-in says so once; the buttons'
 // help says it too.
-inline constexpr const char* realtimeBounceNotice = "Realtime bounce records what you hear; END first";
+inline constexpr const char* realtimeBounceNotice = comparison_ui::beforeRealtimeBounce;
 enum class QueuedWait { returning, tail, stopped, other };
+// The host's bypass holds POST's return past the press's 10 s: the press ends; the return finishes once
+// bypass is off (INV-LC14).
+inline constexpr const char* bypassHoldsReturnNotice = "Bypass is on: turn it off, then press again";
+inline constexpr const char* offlineHoldsReturnNotice = "Rendering offline: press again after it finishes";
 
-// What the press waits for now. Stopped comes first: neither the return nor the tail moves without audio.
+// What the press waits for now. Stopped comes first; the bounded return can also finish without playback.
 constexpr QueuedWait queuedWait (bool playing, bool returning, bool tailClearing) noexcept
 {
     return ! playing ? QueuedWait::stopped
@@ -23,18 +28,77 @@ constexpr QueuedWait queuedWait (bool playing, bool returning, bool tailClearing
 // V, C, B or Keep pressed while B plays out the A/B tail after END: it starts once the tail has cleared.
 enum class AfterTail : unsigned char { none, referenceV, referenceC, referenceB, keepPair, keepAll };
 
+// INV-AB6: a Keep that waited its two minutes while B never proved the ordinary path (playback kept
+// stopping or seeking): it ends and says why.
+inline constexpr const char* keepTailEndedNotice = "A/B tail not cleared: run A/B once, then Keep";
+
 constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
 {
     switch (action)
     {
-        case AfterTail::referenceV: return playing ? "Clearing the A/B tail, then V" : "Play to continue, then V";
-        case AfterTail::referenceC: return playing ? "Clearing the A/B tail, then C" : "Play to continue, then C";
-        case AfterTail::referenceB: return playing ? "Clearing the A/B tail, then B" : "Play to continue, then B";
+        case AfterTail::referenceV: return playing ? "Clearing the A/B tail, then V" : "Waiting up to 10 s, then V";
+        case AfterTail::referenceC: return playing ? "Clearing the A/B tail, then C" : "Waiting up to 10 s, then C";
+        case AfterTail::referenceB: return playing ? "Clearing the A/B tail, then B" : "Waiting up to 10 s, then B";
         case AfterTail::keepPair:
+        // Keep records only after ordinary audio has passed through B (INV-AB6): stopped, it waits for playback.
         case AfterTail::keepAll:    return playing ? "Clearing the A/B tail, then Keep" : "Play to continue, then Keep";
         case AfterTail::none:       break;
     }
     return "";
+}
+
+// POST's return after A/B, and the tail's proof that ordinary audio passed through B, cannot move while
+// the host bypasses the plug-in or renders offline. A Keep's wait passes tailPending; V/C/B do not.
+enum class ReturnBlock : unsigned char { none, bypass, offline };
+template <class Processor> ReturnBlock returnBlock (Processor& processor, bool tailPending = false)
+{
+    if (! (tailPending || processor.candidateReturning() || processor.liveCompareStatus().finishing))
+        return ReturnBlock::none;
+    if (processor.isNonRealtime()) return ReturnBlock::offline;
+    // A host that switches the insert off by deactivating it (Cakewalk, Studio One) stops calling it
+    // without touching the bypass parameter: that is a bypass too.
+    if (! processor.hostComponentIsActive()) return ReturnBlock::bypass;
+    const auto* bypass = processor.getBypassParameter();
+    return bypass != nullptr && bypass->getValue() >= 0.5f ? ReturnBlock::bypass : ReturnBlock::none;
+}
+
+// A Keep waiting for the tail while the return is blocked says why and that it still starts by itself.
+inline constexpr const char* keepBypassWaitNotice = "Bypass is on: Keep starts after it is off";
+inline constexpr const char* keepOfflineWaitNotice = "Rendering offline: Keep starts after it ends";
+constexpr const char* afterTailNotice (AfterTail action, bool playing, ReturnBlock block) noexcept
+{
+    const bool keep = action == AfterTail::keepPair || action == AfterTail::keepAll;
+    return keep && block == ReturnBlock::offline ? keepOfflineWaitNotice
+         : keep && block == ReturnBlock::bypass ? keepBypassWaitNotice : afterTailNotice (action, playing);
+}
+// This plug-in states only what it knows: its own blocked return or tail, or that All Keep waits for
+// another POST's tail (that POST's own window says what holds it).
+inline constexpr const char* keepOtherTailNotice = "Clearing another POST's A/B tail, then Keep";
+template <class Processor> const char* afterTailWaitNotice (AfterTail action, Processor& processor)
+{
+    const bool ownTail = processor.candidateTailPending();
+    const auto block = returnBlock (processor, ownTail);
+    if (block == ReturnBlock::none && action == AfterTail::keepAll && ! ownTail && processor.isPlaying()
+        && processor.allKeepTailPending()) return keepOtherTailNotice;
+    return afterTailNotice (action, processor.isPlaying(), block);
+}
+// A POST whose own tail cannot clear because the host bypasses it or renders offline says so in its own
+// window, whether or not a press waits there (an All Keep pressed on another POST waits for this one).
+inline constexpr const char* tailBypassNotice = "Bypass is on: the A/B tail clears after it is off";
+inline constexpr const char* tailOfflineNotice = "Rendering offline: the A/B tail clears after it ends";
+template <class Processor> const char* heldTailNotice (Processor& processor)
+{
+    if (! processor.candidateTailPending()) return "";
+    const auto block = returnBlock (processor, true);
+    return block == ReturnBlock::offline ? tailOfflineNotice : block == ReturnBlock::bypass ? tailBypassNotice : "";
+}
+// Keep's two-minute wait ends with what still holds it: a bypass or an offline render is for the user to
+// end before pressing again; only an unproven tail asks for one A/B pass.
+template <class Processor> const char* keepWaitEndedNotice (Processor& processor)
+{
+    const auto block = returnBlock (processor, processor.candidateTailPending());
+    return block == ReturnBlock::offline ? offlineHoldsReturnNotice
+         : block == ReturnBlock::bypass ? bypassHoldsReturnNotice : keepTailEndedNotice;
 }
 
 constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noexcept
@@ -50,9 +114,9 @@ constexpr const char* queuedStartNotice (QueuedStart start, QueuedWait wait) noe
                  : start == QueuedStart::candidate ? "Clearing the A/B tail, then A/B"
                  : "Clearing the A/B tail, then LISTEN";
         case QueuedWait::stopped:
-            return start == QueuedStart::blind ? "Play to continue, then BLIND"
-                 : start == QueuedStart::candidate ? "Play to continue, then A/B"
-                 : "Play to continue, then LISTEN";
+            return start == QueuedStart::blind ? "Waiting up to 10 s, then BLIND"
+                 : start == QueuedStart::candidate ? "Waiting up to 10 s, then A/B"
+                 : "Waiting up to 10 s, then LISTEN";
         case QueuedWait::other:
             break;
     }

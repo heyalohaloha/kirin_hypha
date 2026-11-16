@@ -185,17 +185,17 @@ void Component::syncSourceButtons()
     cButton.setButtonText ("C");
     bButton.setAttention ((waiting && current.pendingAudition.slot == 1) || current.switchingSlot == 1);
     cButton.setAttention ((waiting && current.pendingAudition.slot == 2) || current.switchingSlot == 2);
-    // 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
-    const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen;
+    // 100%より大きく300%未満の C は押すと広げる。100% と V は今の大きさで使う。
+    const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen && presentationContext.logicalWidth != 300;
     unavailable::set (bButton, current.separateComparisons || versionAudible, unavailableText (current, true));
-    bButton.setReady (! opensLarge && (! current.separateComparisons || versionAudible || bQueue));
-    bButton.setTooltip (opensLarge ? "Open V at 300%" : bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
+    bButton.setReady (! current.separateComparisons || versionAudible || bQueue);
+    bButton.setTooltip (bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
         : ! current.separateComparisons || versionAudible
         ? help_text::versionMixContext : unavailableText (current, true));
     cButton.setReady (! opensLarge && (checkAudible || cQueue));
     cButton.setTooltip (opensLarge ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
         : checkAudible ? help_text::checkPurpose : unavailableText (current, false));
-    guideShown = ! current.targetSelected && guide (current).shown;
+    guideShown = guide (current).shown;
 }
 
 bool Component::explainUnavailable (bool version)
@@ -310,10 +310,19 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
         for (int index = first; index < first + count; ++index) needed += heightFor (index);
         if (needed <= content.getHeight()) break;
     }
+    const auto first = count == 4 ? 0 : 1;
+    // At the compact sizes a row is its letter and step only. A step wider than the row (a long
+    // Japanese step with the platform's font) leaves the rows out: the heading and reason stay.
+    const auto stepFits = [&] (int index)
+    {
+        if (observatory::isFullDensity (context.density)) return true;
+        return text_style::shownWidth (bodyFont, rows[index].state) <= static_cast<float> (content.getWidth() - 34);
+    };
     if (count < 2)
         return fit;
+    for (auto index = first; index < first + count; ++index)
+        if (! stepFits (index)) return fit;
     fit.rowCount = count;
-    const auto first = count == 4 ? 0 : 1;
     for (auto index = first; index < first + count; ++index)
         fit.rows = paintRow (g, content.removeFromTop (heightFor (index)), rows[index], context) && fit.rows;
 

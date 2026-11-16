@@ -7,10 +7,12 @@
 #include "LiveCompareMatch.h"
 #include "LiveCompareOffset.h"
 #include "LiveComparePinResult.h"
+#include "LiveComparePreAlign.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
 #include "LiveCompareCompletion.h"
 #include "LiveBlindSession.h"
+#include "LiveBlindHearing.h"
 #include "LiveCompareAuthority.h"
 #include "LiveCompareTimingPreparation.h"
 #include "LiveCompareReentry.h"
@@ -41,6 +43,9 @@ struct LiveBlindStatus
     RecoveryReason reason = RecoveryReason::none;
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
+    bool contentUnmeasured = false; // INV-LC28: the bounded wait ended unconfirmed; PRE plays at K, told
+    bool contentNotRemeasured = false; // INV-LC28: PRE plays at K plus the kept correction, told
+    bool contentUnapplied = false; // INV-LC28: a settled delay BLIND has not moved PRE to yet, told
     std::int64_t contentLagFrames = 0; // INV-LC10 notice: positive when PRE is late
     double contentNoticeMs = 0.0;      // the last notice in this trial, for the RESULT only
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
@@ -54,6 +59,7 @@ struct LiveBlindStatus
 struct Status
 {
     bool finishing = false, matched = false, matchLimited = false, matchReady = false, matchHeld = false;
+    bool matchOff = false; // MATCH turned off in this LISTEN; MATCH turns the same match on again
     float postActual = 1.0f;
     std::uint64_t sessionGeneration = 0;
     bool active = false;
@@ -73,10 +79,21 @@ struct Status
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
     bool contentHeld = false; // INV-LC10: a strong estimate the clock cannot act on; PRE still sounds at K
+    bool contentUnmeasured = false; // INV-LC28: no position confirmed by the bound; PRE plays at K, told
+    bool contentNotRemeasured = false; // INV-LC28: no position confirmed by the bound; the kept correction plays
+    bool contentUnapplied = false; // INV-LC28, BLIND: a settled delay waits for the listener to hear both sources
     std::int64_t contentJumpLagFrames = 0; // the settled offset of that notice; zero without one
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off
     RecoveryReason reason = RecoveryReason::none; // retained first failure, never a current blocker
     RecoveryReason observation = RecoveryReason::none;
+};
+
+// MATCH on/off (INV-LC13): whether it turned, the PRE gain it left, and how far a kept boost stays under
+// the match because PRE's true peak now reaches the approved ceiling (0 when it does not).
+struct MatchToggle
+{
+    bool turned = false;
+    double gainDb = 0.0, shortDb = 0.0, peakDbtp = 0.0;
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
@@ -90,6 +107,9 @@ struct ProcessorState
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
+    // INV-LC14: the last POST callback's wall time, and each return the message thread finished in a quiet.
+    std::atomic<std::uint64_t> lastCallbackNanos { 0 }, quietReturn { 0 };
+    std::uint64_t quietReturnSeen = 0; // Audio Thread only
     WaitNotice waitNotice;
     BlindSession blind;
     BlindPreparation blindTiming;
@@ -119,6 +139,19 @@ struct ProcessorState
     std::atomic<bool> timingReentryPending { false };
     std::atomic<bool> matched { false }, matchLimited { false };
     std::atomic<bool> matchRetained { false }; // fixed gains remain, independently of current proof
+    // MATCH on/off: what MATCH off kept for MATCH on, and POST's level when this LISTEN began (message
+    // thread only). A new MATCH, END and a new LISTEN forget it.
+    struct MatchMemory
+    {
+        float pre = 1.0f, post = 1.0f, ceiling = 1.0f;
+        bool limited = false;
+        double peakDbtp = 0.0; // PRE's loudest true peak known to the MATCH (the evidence its gain was checked on)
+        GainIdentity identity;
+    } matchMemory;
+    float listenBasePost = 1.0f;
+    double matchPeakDbtp = 0.0; // the last MATCH's PRE true peak (message thread)
+    GainSnapshot lastGains;     // Audio Thread only: the last whole tuple, kept while a writer holds the revision
+    std::atomic<bool> matchOff { false };
     std::atomic<std::uint32_t> matchRun { 0 };
     std::atomic<float> postActual { 1.0f };
     BlindStage blindStage = BlindStage::idle; // message thread only
@@ -127,6 +160,11 @@ struct ProcessorState
     MatchPlan blindPlan;
     std::uint64_t blindPreparation = 0, blindScope = 0, finishServiced = 0;
     std::int64_t blindMeasuredEnd = 0;
+    // BLIND's own MATCH may wait for 30 s of playback (as the Reference alignment does); stopped time is
+    // the user's to take. playedFrames: POST frames the host called playing (Audio Thread); blindPlayedFrom:
+    // that count as the trial began (message thread).
+    std::atomic<std::uint64_t> playedFrames { 0 };
+    std::uint64_t blindPlayedFrom = 0;
     std::uint32_t blindApprovalRun = 0;
     std::atomic<std::uint64_t> timelineGeneration { 0 };
     std::atomic<std::uint64_t> matchGeneration { 0 };
@@ -165,18 +203,27 @@ struct ProcessorState
     MatchPlan namedMatchPlan;
     OffsetMonitor contentMonitor;
     OffsetMonitor::Step contentStep;
+    bool contentDoubt = false; // message thread, INV-LC7: a window since did not confirm the settled position
     std::uint32_t contentMonitorRun = 0;
     std::uint64_t contentMonitorNext = 0, contentAlignRevision = 0;
-    std::uint64_t alignConfirmStart = 0;          // message thread: the short wait for content (INV-LC28)
     std::uint64_t holdEvidenceAt = 0;             // message thread: the last confident window for a notice (INV-LC10)
     double blindContentNoticeMs = 0.0;            // message thread: the last notice since this BLIND began
     std::atomic<bool> candidateUnconfirmed { false }; // a real window confirmed no position for A
+    // INV-LC28, message thread, in memory only: the one owner of PRE's alignment state (the kept
+    // correction with its K, pair, format, PRE owner and host conditions, and what is told).
+    hypha::live_compare::PreAlignState preAlign;
+    hypha::live_compare::BlindHeardBoth blindHeard; // message thread
+    hypha::live_compare::BlindHearingFrames blindHearing; // actual audio receipts, tied to request generations
+    std::atomic<std::uint64_t> alignConditions { 0 }; // Audio Thread: the A/B host conditions' fingerprint
+    std::int64_t offsetCenter = 0;                // message thread: where the fine search looks (INV-LC7)
+    std::uint64_t wideSearchNext = 0;             // message thread: at most one wide search a second
     OffsetWindow contentWindow;
     ContentHold contentHold;      // INV-LC10: a status-line notice; never changes the output
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved
     std::atomic<bool> autoAlign { true };         // INV-LC28; saved only when off
+    std::atomic<bool> listenPre { false };        // the side LISTEN last chose (INV-LC4); saved only when PRE
     std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 }, alignPeer { 0 };
     AlignmentConditions alignmentConditions; // Audio Thread only
     AlignContext alignServiced;                  // message thread: the monitor's pair and format

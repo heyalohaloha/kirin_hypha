@@ -189,6 +189,76 @@ struct CandidateOtherPair
     ~CandidateOtherPair() { for (auto* processor : { pre.get(), post.get() }) processor->releaseResources(); }
 };
 
+template<class Require> void verifyAllKeepWaitsForOtherTail (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.delayA = 0; host.delayB = 30 * 48000;
+    host.pair(); auto& post = host.post();
+    CandidateOtherPair other (host, require);
+    require (post.startCandidateCompare (host.pre2().instanceId(), true) == StartResult::started, "A/B starts");
+    host.render (180, true, false, false);
+    require (host.replacementBlocks > 0, "the candidate actually replaces audio");
+    post.finishLiveCompare(); host.render (20, true, false, false); host.render (950, false, false, false);
+    require (! post.candidateReturning() && post.candidateTailPending(), "the deadline leaves a downstream tail");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (10);
+    while (other.post->keepReadyCount() < 2 && std::chrono::steady_clock::now() < deadline)
+    { host.render (1, false, false, false); std::this_thread::sleep_for (std::chrono::milliseconds (100)); }
+    require (other.post->keepReadyCount() >= 2, "both exact pairs are ready for All Keep");
+    auto editor = std::unique_ptr<juce::AudioProcessorEditor> (post.createEditorIfNeeded());
+    require (editor != nullptr, "the local tail wait has a product editor");
+    auto& view = dynamic_cast<KirinHyphaEditor&> (*editor);
+    editor->setVisible (true);
+    require ((view.*candidateEditorTick (CandidateEditorWaitTail {})) (output_owner::Activity::recordKeep, live_compare_ui::AfterTail::keepAll),
+             "the product editor accepts All Keep while its own tail drains");
+    require ((view.*candidateEditorTick (CandidateEditorTailState {})).groupStaged && post.allKeepTailPending(),
+             "the origin stages its own tail wait with the exact roster");
+    require (post.pairedPreInstanceId().isNotEmpty(), "the waiting origin has its pair before re-prepare");
+    const auto savedPair = post.pairWaitSnapshot();
+    candidateServiceOverlap = [&] { prepareFixtureProcessor (post, 44100, host.block); };
+    live_compare_ui::afterGroupRestoreReadForTest = [] { if (auto run = std::exchange (candidateServiceOverlap, nullptr)) run(); };
+    candidateTick (*editor);
+    live_compare_ui::afterGroupRestoreReadForTest = nullptr;
+    require (!candidateServiceOverlap && post.pairedPreInstanceId().isEmpty(), "re-prepare crossed the actual timer read");
+    const auto rebuilding = post.pairWaitSnapshot();
+    require (rebuilding.stable && !rebuilding.paired && rebuilding.key == savedPair.key && rebuilding.ticket == savedPair.ticket,
+             "registration during rebuild keeps the original pair and ticket");
+    require ((view.*candidateEditorTick (CandidateEditorTailState {})).groupStaged,
+             "a re-prepare during the timer preserves the staged All Keep");
+    LiveTimingFixtureAccess::enableFixtureWrites (post);
+    host.changeFormat (post); host.render (10, false, false, false);
+    require (post.candidateTailPending() && post.allKeepTailPending(), "the local tail and its roster survive a rebuild");
+    post.editorBeingDeleted (editor.get()); editor.reset();
+    require (! other.post->keepAll(), "All Keep from the other POST waits for the tail");
+    require (other.post->allKeepTailPending(), "the waiting origin can see the other POST's tail");
+    require (! post.isRecording() && ! other.post->isRecording(), "no member begins to record the tail");
+    const auto ticket = other.post->restoreOrPairTicket();
+    host.changeFormat (*other.post);
+    require (other.post->restoreOrPairTicket() == ticket, "format rebuild retains the waiting press");
+    require (other.post->allKeepTailPending(), "the origin retains the exact waiting roster across rebuilds");
+    require (post.setPairCandidate (host.pre2().instanceId(), "Source"), "the other POST changes pair while waiting");
+    const auto pairDeadline = std::chrono::steady_clock::now() + std::chrono::seconds (10);
+    bool changed = false;
+    while (!changed && std::chrono::steady_clock::now() < pairDeadline)
+    {
+        for (const auto& claim : other.post->enumeratePostPairClaims())
+            changed = changed || (claim.instanceId == post.instanceId() && claim.pairedPreInstanceId == host.pre2().instanceId());
+        if (!changed) { host.render (1, false, false, false); std::this_thread::sleep_for (std::chrono::milliseconds (100)); }
+    }
+    require (changed, "the changed pair is published before the pending press resumes");
+    auto& tail = LiveTimingFixtureAccess::mutableCandidateStateForTest (post);
+    tail.quietContext.store (tail.returnContext.load()); tail.quietFrames.store (4 * 48000);
+    LiveTimingFixtureAccess::serviceCandidate (post);
+    require (!post.candidateTailPending(), "the old downstream hold is released after proof");
+    host.render (20, false, false, false);
+    require (!other.post->keepAll (ticket, true), "the old press cannot Keep the changed roster");
+    require (other.post->drainKeepActionNotice() == "All Keep targets changed or unavailable. Try again.",
+             "the cancelled press explains why");
+    require (!post.isRecording() && !other.post->isRecording(), "no changed target starts recording");
+    host.passengers.clear();
+}
+
 // A format change inside the return keeps the project's capture exclusion on the new engine.
 template<class Require> void verifyCandidateHeldExclusion (Require require)
 {

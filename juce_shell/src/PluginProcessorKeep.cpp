@@ -10,20 +10,36 @@ bool KirinHyphaProcessorBase::keepPair (std::optional<std::uint64_t> ticket)
     if (ticket && *ticket != restoreOrPairTicket()) return false;
     refreshLicenseForUserAction();
     if (outputDecision (hypha::output_owner::Activity::recordKeep).refused()) return false;
+    // INV-AB6: after an A/B return that ended at its deadline, B may still carry the comparison's
+    // audio. Nothing of it is recorded: the entry waits (the editor keeps the press) until an ordinary
+    // marker has passed the chain and four seconds have settled, so the take and its pre-roll are ordinary.
+    if (candidateTailPending()) return false;
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
     return kirin_hypha_keep (hyphaHandle);
 }
 
-bool KirinHyphaProcessorBase::keepAll (std::optional<std::uint64_t> ticket)
+bool KirinHyphaProcessorBase::keepAll (std::optional<std::uint64_t> ticket, bool resume)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     if (ticket && *ticket != restoreOrPairTicket()) return false;
     refreshLicenseForUserAction();
+    if (candidateTailPending() || (candidateReturning() && !candidateCompareActive()))
+    {
+        const juce::ScopedLock sl (handleLock);
+        if (!resume && hyphaHandle != nullptr) kirin_hypha_keep_all_stage (hyphaHandle);
+        return false;
+    }
     if (outputDecision (hypha::output_owner::Activity::recordKeep).refused()) return false;
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
-    return kirin_hypha_keep_all (hyphaHandle);
+    return resume ? kirin_hypha_keep_all_resume (hyphaHandle) : kirin_hypha_keep_all (hyphaHandle);
+}
+
+bool KirinHyphaProcessorBase::allKeepTailPending() const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle == nullptr || kirin_hypha_all_keep_tail_pending (hyphaHandle);
 }

@@ -120,12 +120,12 @@ void verifyRolesFromKeys()
     rig.pressShift ('A'); spy.expect ("version a1", "Shift+A is the Version before");
     rig.press ('D'); spy.expect ("version b1", "D is the next song's first Version");
 
-    // Small windows: C and V open first and do not play on that press.
+    // Small windows: C opens first; V plays at the selected size.
     state = readyState();
     state.blindLargeScreen = false;
     reference.setState (state);
     rig.press ('3'); spy.expect ("open 2", "a small C opens and stays silent");
-    rig.press ('4'); spy.expect ("open 1", "a small V opens and stays silent");
+    rig.press ('4'); spy.expect ("V", "a small V plays without resizing");
 
     // BLIND shuts all of it.
     auto& blindOpen = rig.editor.get()->*shortcutMember (ShortcutLiveBlindOpen {});

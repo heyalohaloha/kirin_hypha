@@ -1,6 +1,13 @@
 #include "PluginProcessor.h"
 #include <cmath>
 
+namespace
+{
+// A MATCH that cannot measure tries again for 10 s from the press, as a waiting press does. Then it
+// ends with its reason, and LISTEN goes on at the levels it had, without another press.
+constexpr std::uint64_t namedMatchLimitNanos = 10'000'000'000ull;
+}
+
 // Message thread. An explicit MATCH stays with its processor when the editor closes. A plan
 // that would lower POST still needs the existing explicit approval after the editor reopens.
 void KirinHyphaProcessorBase::requestLiveCompareMatch()
@@ -31,23 +38,25 @@ void KirinHyphaProcessorBase::serviceLiveCompareMatch()
     liveCompare.namedMatchNext = now + 500'000'000;
     const auto measured = measureLiveCompare();
     liveCompare.namedMatchWaiting = measured.failure;
+    const auto since = liveCompare.namedMatchSince;
+    const bool expired = since != 0 && now >= since && now - since >= namedMatchLimitNanos;
     if (!measured.ok())
     {
-        if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan)
+        if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan || expired)
         {
             liveCompare.namedMatchPlan = {};
             liveCompare.namedMatchPlan.failure = measured.failure;
             liveCompare.namedMatchApplied = liveCompare.namedMatchPending = false;
             liveCompare.namedMatchReady = true;
         }
-        return; // bounded retries, no stale window becomes an approval
+        return; // retries end at the deadline; no stale window becomes an approval
     }
     auto plan = planMatch (measured, state.postTarget > 0 ? 20.0 * std::log10 (state.postTarget) : 0.0);
     liveCompare.namedMatchApplied = false;
     if (plan.failure == MatchFailure::none && !plan.needsApproval)
     {
         const auto application = applyLiveCompareMatch (plan, MatchChoice::basis);
-        if (application.failure == MatchFailure::stale) return;
+        if (application.failure == MatchFailure::stale && !expired) return;
         plan.failure = application.failure;
         liveCompare.namedMatchApplied = static_cast<bool> (application);
     }

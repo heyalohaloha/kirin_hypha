@@ -1,10 +1,99 @@
 #pragma once
 #include "EditorProductChecks.h"
 #include <cstring>
+#include <stdexcept>
 #include "TestProcessorStorage.h"
 #include "../src/HyphaKeepPreWait.h"
+#include "../src/HyphaRecordBindingNotice.h"
+#include "../src/HyphaReferenceAccessPanel.h"
 namespace hypha::tests::editor_product
 {
+struct AutoNoticePage { using Type = analysis_navigation::Page KirinHyphaEditor::*; friend Type privateMember (AutoNoticePage); };
+template struct PrivateAccess<AutoNoticePage, &KirinHyphaEditor::analysisPage>;
+struct AutoNoticeSetPage { using Type = void (KirinHyphaEditor::*) (analysis_navigation::Page); friend Type privateMember (AutoNoticeSetPage); };
+template struct PrivateAccess<AutoNoticeSetPage, &KirinHyphaEditor::setAnalysisPage>;
+struct AutoNoticeLeave { using Type = void (KirinHyphaEditor::*)(); friend Type privateMember (AutoNoticeLeave); };
+template struct PrivateAccess<AutoNoticeLeave, &KirinHyphaEditor::leaveDrumOutsideTrack>;
+struct AutoNoticeFeedback { using Type = void (KirinHyphaEditor::*) (double, bool, const juce::String&); friend Type privateMember (AutoNoticeFeedback); };
+template struct PrivateAccess<AutoNoticeFeedback, &KirinHyphaEditor::updateFeedback>;
+struct AutoNoticeShown { using Type = juce::String KirinHyphaEditor::*; friend Type privateMember (AutoNoticeShown); };
+template struct PrivateAccess<AutoNoticeShown, &KirinHyphaEditor::shownNotice>;
+struct AutoNoticeCall { using Type = void (KirinHyphaEditor::*) (const juce::String&, bool); friend Type privateMember (AutoNoticeCall); };
+template struct PrivateAccess<AutoNoticeCall, &KirinHyphaEditor::showAutomaticNotice>;
+struct AutoNoticeUntil { using Type = double KirinHyphaEditor::*; friend Type privateMember (AutoNoticeUntil); };
+template struct PrivateAccess<AutoNoticeUntil, &KirinHyphaEditor::toastUntil>;
+
+inline void verifyAutomaticNoticeDelivery()
+{
+    const auto require = [] (bool ok, const char* reason) { if (! ok) throw std::runtime_error (reason); };
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.setMeterContextPreference (meter_context::MeterContext::trackStem, false);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+    std::unique_ptr<juce::AudioProcessorEditor> owner (processor.createEditorIfNeeded());
+    auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
+    require (editor != nullptr, "shipping editor exists");
+    (editor->*privateMember (AutoNoticeSetPage {})) (analysis_navigation::Page::attack);
+    require (editor->*privateMember (AutoNoticePage {}) == analysis_navigation::Page::attack, "DRUM is open");
+    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, "Earlier notice");
+    processor.setMeterContextPreference (meter_context::MeterContext::twoMix, false);
+    (editor->*privateMember (AutoNoticeLeave {})) ();
+    require (editor->*privateMember (AutoNoticePage {}) == analysis_navigation::Page::meters, "2MIX opens HISTORY");
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, "Earlier notice");
+    require (editor->*privateMember (AutoNoticeShown {}) == "Earlier notice", "earlier notice retains priority");
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    require (editor->*privateMember (AutoNoticeShown {}) == "2MIX has no DRUM; showing TIME / HISTORY",
+             "deferred change notice names the actual page");
+    (editor->*privateMember (ShowToast {})) ("Earlier notice");
+    const auto automatic = privateMember (AutoNoticeCall {});
+    (editor->*automatic) ("First queued", true);
+    (editor->*automatic) ("Withdrawn", true);
+    (editor->*automatic) ("Withdrawn", false);
+    (editor->*automatic) ("Second queued", true);
+    const auto expire = [&] {
+        editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+        (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+        (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    };
+    expire(); require (editor->*privateMember (AutoNoticeShown {}) == "First queued", "first waiting notice appears");
+    expire(); require (editor->*privateMember (AutoNoticeShown {}) == "Second queued", "later notice appears after the first");
+    expire(); require ((editor->*privateMember (AutoNoticeShown {})).isEmpty(), "withdrawn notice is not shown");
+    (editor->*privateMember (ShowToast {})) ("Earlier notice");
+    processor.setMeterContextPreference (meter_context::MeterContext::trackStem, false);
+    (editor->*privateMember (AutoNoticeSetPage {})) (analysis_navigation::Page::attack);
+    processor.setMeterContextPreference (meter_context::MeterContext::twoMix, false);
+    (editor->*privateMember (AutoNoticeLeave {})) ();
+    processor.setMeterContextPreference (meter_context::MeterContext::trackStem, false);
+    (editor->*privateMember (AutoNoticeLeave {})) ();
+    expire(); require ((editor->*privateMember (AutoNoticeShown {})).isEmpty(), "reverting the change withdraws its waiting notice");
+    (editor->*privateMember (ShowToast {})) ("Earlier notice");
+    (editor->*automatic) ("First queued", true);
+    editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    (editor->*automatic) ("Second queued", true);
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, {});
+    require (editor->*privateMember (AutoNoticeShown {}) == "First queued", "new arrivals do not overtake a waiting notice");
+    expire(); require (editor->*privateMember (AutoNoticeShown {}) == "Second queued", "the later notice follows in order");
+    expire();
+    const juce::String wavWaiting = "Measurements saved; waiting for Kirin OS audio (auto link)";
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, wavWaiting);
+    (editor->*automatic) ("Page notice", true);
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, wavWaiting);
+    require (editor->*privateMember (AutoNoticeShown {}) == "Page notice", "audio wait never hides a page-change notice");
+    editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+    (editor->*privateMember (AutoNoticeFeedback {})) (now, false, wavWaiting);
+    require (editor->*privateMember (AutoNoticeShown {}) == wavWaiting, "audio wait returns after the page notice");
+}
+
+inline int runAutomaticNoticeDelivery()
+{
+    try { verifyAutomaticNoticeDelivery(); }
+    catch (const std::exception& error) { std::cerr << error.what() << '\n'; return EXIT_FAILURE; }
+    return EXIT_SUCCESS;
+}
+
 struct HiddenAutoAccess {};
 void enableHiddenAuto (KirinHyphaEditor&, HiddenAutoAccess);
 bool hiddenAutoOn (const KirinHyphaEditor&, HiddenAutoAccess);
@@ -74,6 +163,10 @@ template struct PrivateAccess<WaitPairKey, &KirinHyphaEditor::waitingPairKey>;
 // never after the window hid or a Stop: the real editor handlers check those before any side effect.
 inline void verifyWaitingRequests()
 {
+    const juce::String changed = "All Keep targets changed or unavailable. Try again.";
+    require (i18n::translate (changed, i18n::Language::english) == changed
+             && i18n::translate (changed, i18n::Language::japanese) == juce::String::fromUTF8 (u8"All Keepの対象が変更・不明。再試行してください。"),
+             "the cancelled All Keep explains its changed or missing targets in both languages");
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
     hypha::tests::prepareFixtureProcessor (processor, 48'000, 512);
@@ -135,6 +228,35 @@ inline void verifyWaitingRequests()
                      && ! processor.referenceAuditionSnapshot().bSelected,
                  "a press waiting for the A/B tail is dropped when the pair changes");
     }
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        require (processor.pairedPreInstanceId().isEmpty(), "the re-prepared engine has not restored its pair yet");
+        waiting = { live_compare_ui::AfterTail::keepAll, "saved PRE|", processor.restoreOrPairTicket(), now(), 0.0, true };
+        tick();
+        require (waiting.action == live_compare_ui::AfterTail::keepAll && !processor.isRecording(),
+                 "a staged All Keep waits for its pair to be restored rather than being dropped");
+        waiting.since = now() - (keep_ui::preWaitSeconds + 1.0); tick();
+        require (waiting.action == live_compare_ui::AfterTail::none
+                 && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: run A/B once, then Keep",
+                 "a missing pair does not extend the original two-minute bound");
+    }
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        waiting = { live_compare_ui::AfterTail::keepAll, "saved PRE|", processor.restoreOrPairTicket() + 1, now(), 0.0, true };
+        e->*privateMember (HiddenToast {}) = {}; tick();
+        require (waiting.action == live_compare_ui::AfterTail::none && (e->*privateMember (HiddenToast {})) == changed,
+                 "a cancelled All Keep explains the changed authority");
+    }
+    for (const auto action : { live_compare_ui::AfterTail::keepPair, live_compare_ui::AfterTail::keepAll })
+    {
+        auto& waiting = e->*privateMember (WaitAfterTail {});
+        waiting = { action, (e->*privateMember (WaitPairKey {})) (), processor.restoreOrPairTicket(),
+                    now() - (keep_ui::preWaitSeconds + 1.0), now() + 60.0 };
+        e->*privateMember (HiddenToast {}) = {}; tick();
+        require (waiting.action == live_compare_ui::AfterTail::none && ! processor.isRecording()
+                 && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: run A/B once, then Keep",
+                 "an expired tail wait ends before a throttled check can start Keep");
+    }
     // LISTEN after RETURN and C MATCH: another target drops the press without starting or matching.
     e->*privateMember (HiddenToast {}) = {};
     e->*privateMember (WaitListenUntil {}) = now() + 5.0; e->*privateMember (WaitListenKey {}) = "another PRE|";
@@ -144,6 +266,13 @@ inline void verifyWaitingRequests()
              "a LISTEN press for another pair is dropped without starting LISTEN");
     require (e->*privateMember (WaitMatchUntil {}) <= 0.0 && (e->*privateMember (HiddenToast {})).isEmpty(),
              "a MATCH for another C is dropped without matching");
+    // A waiting C MATCH has no deadline: it never asks for MATCH again. It ends only with its C
+    // (no C sounds here, so it ends quietly).
+    e->*privateMember (HiddenToast {}) = {};
+    e->*privateMember (WaitMatchUntil {}) = 1.0; e->*privateMember (WaitMatchNext {}) = 0.0;
+    e->*privateMember (WaitMatchKey {}) = {}; tick();
+    require (e->*privateMember (WaitMatchUntil {}) <= 0.0 && (e->*privateMember (HiddenToast {})).isEmpty(),
+             "a waiting C MATCH never asks for another press");
     e->*privateMember (WaitListenBlind {}) = true;
     e->*privateMember (WaitListenUntil {}) = now() + 5.0; e->*privateMember (WaitListenKey {}) = "another PRE|"; tick();
     require (e->*privateMember (WaitListenUntil {}) <= 0.0 && processor.liveBlindStatus().stage == live_compare::BlindStage::idle,
@@ -244,6 +373,55 @@ inline void verifyHiddenAutoStops()
     owner.reset();
     processor.releaseResources();
     verifyWaitingRequests();
+}
+
+// Exercise the real editor boundary with an isolated processor: the ongoing Record notice is
+// suppressed only on compact B/C/V, while a user-action toast and the other surfaces keep working.
+inline void verifyCompactReferenceNotices()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+    std::unique_ptr<juce::AudioProcessorEditor> owner (processor.createEditorIfNeeded());
+    auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
+    require (editor != nullptr, "compact notice editor exists");
+    editor->setSize (300, 200);
+    auto* view = component<observatory::View> (*editor);
+    auto* panel = component<reference_ui::Component> (*editor);
+    auto* access = component<reference_ui::AccessPanel> (*editor);
+    auto* strip = component<FeedbackStrip> (*editor);
+    require (view && panel && strip, "compact notice surfaces exist");
+    view->setDomain (observatory::Domain::reference);
+    if (access) access->setVisible (false);
+    panel->setVisible (true);
+    const auto update = privateMember (AutoNoticeFeedback {});
+    const auto now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    for (const int slot : { 3, 2, 1 })
+    {
+        auto state = panel->state(); state.separateComparisons = true; state.comparisonSlot = slot;
+        panel->setState (state);
+        editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+        (editor->*update) (now, false, record_ui::wavWaiting);
+        require (view->feedback().isEmpty() && ! strip->isVisible(), "Record waiting notice is hidden on compact B, C and V");
+        require (view->analysisBodyBounds().getBottom() > view->statusStripBounds().getY(),
+                 "hidden notice releases its folded footer space");
+        (editor->*privateMember (ShowToast {})) ("Capture saved");
+        (editor->*update) (now, false, record_ui::wavWaiting);
+        require (view->feedback() == "Capture saved" && strip->isVisible()
+                     && view->statusStripBounds().getHeight() < 25,
+                 "a direct action still produces one visible line");
+    }
+    editor->*privateMember (AutoNoticeUntil {}) = 0.0;
+    auto state = panel->state(); state.comparisonSlot = 0; panel->setState (state);
+    (editor->*update) (now, false, record_ui::wavWaiting);
+    require (view->feedback() == record_ui::wavWaiting, "the A page keeps the Record notice");
+    editor->setSize (450, 300); state.comparisonSlot = 3; panel->setState (state); panel->setVisible (true);
+    (editor->*update) (now, false, record_ui::wavWaiting);
+    require (view->feedback() == record_ui::wavWaiting, "150% keeps the Record notice");
+    panel->setVisible (false); view->setDomain (observatory::Domain::level); editor->setSize (300, 200);
+    (editor->*update) (now, false, record_ui::wavWaiting);
+    require (view->feedback() == record_ui::wavWaiting, "other surfaces keep the Record notice");
+    processor.editorBeingDeleted (owner.get()); owner.reset(); processor.releaseResources();
 }
 
 }

@@ -28,7 +28,7 @@ Reference has four roles, each with its own button in the same place at every si
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
   to listen for; its songs are the CHECK set's, or the first-ranked Reference set's when the CHECK set
   has none (Kirin OS chooses them). The Cue is the section C plays.
-  C can also compare a measured target containing numbers only; its DATA ONLY label replaces the play button.
+  C compares A with the song, Cue and frequency bands chosen in Kirin OS. Measured targets are handled on B, not C.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
 **LOOP and FOLLOW A.** B and C play in one of two ways, chosen with **LOOP** and **FOLLOW A** on the B and C
@@ -63,11 +63,10 @@ stopped is not reused after a switch: B or C is matched again when it comes back
 way never starts a role. V always follows A's position by its content, and Blind is unchanged.
   V works best with Hypha on the 2Mix.
 
-**Measured targets.** Drop a file onto REF to measure its whole length on a worker, including files
+**Measured targets.** On B, drop a file onto the Reference page to measure its whole length on a worker, including files
 longer than ten minutes. The current comparison keeps showing during analysis; CANCEL discards the
 pending import. MAKE TARGET copies the current A display window once it contains at least three
-seconds. Select a saved target from TARGETS to compare it on C; it has a spectrum range and Balance,
-with no audio to audition. On the B page, ALL also overlays targets with the Reference set's songs. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
+seconds. Open DETAILS for MAKE TARGET, the target selector and removal. At 100%, DETAILS also shows the target count and playback controls; drop audio anywhere on the B page. At larger sizes B shows the drop hint and count. In B's list, select a target to compare its median spectrum with A in ONE. It has no audio: pressing B explains this and leaves A playing. After import or MAKE TARGET, B switches to ALL and immediately shows the new targets without changing the sound. A target being measured appears as a pending row. The project stores up to sixteen targets in the order added: 64-band p10, median and p90,
 four-band Balance, Integrated loudness, maximum True Peak, name, duration and channel count. When a
 drop holds more files than there are free places, they are measured in the order dropped until the
 places are full, and the rest are not added; nothing already saved is removed on its own, and REF says
@@ -79,6 +78,7 @@ The saved A window starts with fresh K-weighting state, matching a file of that 
 are not stored, and no target is written into Kirin OS. The Kirin OS license is required; its library
 registration and measurement preparation are unnecessary for these targets. Remove a selected target
 with the minus button.
+Targets saved by an earlier version while C was selected remain available in B's list when the project is reopened.
 
 Only one role sounds at a time. The A/B/C/V buttons change the sound; pages within Reference change only the
 display. Leaving Reference returns to A with a short fade and cancels pending playback. The selections remain,
@@ -147,15 +147,21 @@ and fixed, or original level), waiting (gold: what it waits for and how it proce
 unavailable (grey: the reason and its one fix, such as ranking a Reference set in Kirin OS). Its parts are in
 order of importance — how the role plays, how far it is under A, then the rest — and where the line is
 narrower than all of them it shows the parts that fit whole instead of cutting one; pointing at a
-shortened line shows it whole across the footer row. At 150% and
-above it sits at the bottom left of the footer on every Reference page, where the other pages show
-LIVE or HOLD, so the charts keep that row; at 100% and 125% it is the bottom row of the page. A
-notice in the footer takes its place while it shows; when the line carries an approval or VERSION
-BLIND, the line moves back to the bottom of the page instead, so neither is hidden. A role that
-cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
+shortened line shows it whole across the footer row. At 150% and above, B can use the bottom left of
+the footer, where the other pages show LIVE or HOLD; C and V keep their status inside the page.
+At 100% and 125% the line is at the bottom of each Reference page. At 100% on B, C and V,
+the continuing “measurements saved; waiting for Kirin OS audio” notice is hidden; short feedback for a
+pressed action is shown on one line. The OS connection badge is hidden at 100%; the status line reports
+when Kirin OS is needed, and the badge is visible again at larger sizes. A notice in the footer takes
+its place while it shows; when the line carries an approval or VERSION BLIND, the line moves back to
+the bottom of the page instead, so neither is hidden. A role that cannot be heard yet stays clickable
+and explains itself. A wait never runs on
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
-alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
-its reason and fix, shown even under the start guide, and returns to ready once the source is. While
+alignment, 30 s of play; A's level for MATCH, 10 s of play) it turns unavailable with its reason and
+fix, shown even under the start guide, and returns to ready once the source is. C's MATCH does not give
+up: it waits for A and applies once A has played enough, with no second press. While V changes to
+another Version, the previous Version keeps playing while Hypha looks for the new one's position; V
+does not return to A after a time limit. While
 Kirin OS prepares the song of a Reference set or CHECK set, the line says what Kirin OS is doing in its own
 terms — how many songs it prepares first, checking the file, waiting for another measurement — and a
 file Kirin OS cannot find turns the line unavailable with the retry as its fix (Kirin OS publishes
@@ -164,12 +170,15 @@ says which source plays or how it is matched. Pressing a role while it is still 
 (publishing a new choice, verifying, loading or aligning its source, or measuring A) waits for it
 and plays it as soon as it is ready, as when you press it while the DAW is stopped; a step only you
 can change (outside the Cue, no match in this passage) or a match that cannot be made is explained
-instead.
+instead. Ten seconds after the press the line says **A PLAYS UNTIL READY / PRESS A TO STOP WAITING**
+(準備できるまでAを鳴らします / Aで待つのをやめる): A plays meanwhile, pressing A stops the wait, and the
+role still plays by itself once it is ready.
 
-**Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
-them opens 300% without changing the sound (press again to listen), as Blind does. At every size, 100% too,
-the B page chooses the Reference set and the song, also while A plays, and switches FOLLOW A beside the song.
-At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue row.
+**Pages.** Each role has its page at 300% (900×600) and above. At 100%, C works in the current window:
+choose its Check and press C or MATCH to listen. Above 100% and below 300%, pressing C opens 300% without changing the
+sound (press again to listen). V works at the selected size, including 100%: choose a Version and press V to listen. Starting Version Blind opens its full-window screen. At every size,
+the B page chooses the Reference set and the song, also while A plays. At 100%, open DETAILS for LOOP and FOLLOW A;
+above 100% and below 300%, FOLLOW A sits beside the song. At 300% LOOP and FOLLOW A sit above the B song list and in C's Cue row. On C, open DETAILS to adjust the FOLLOW A offset.
 
 - **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
@@ -186,12 +195,12 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   **ONE / ALL** at the top right of Balance chooses what it draws. ONE is the view above. ALL draws A
   (gold) with the lines you show: each row's number becomes a box that shows or hides that row's line,
   as many at once as you like. It only changes the chart; B still plays the one song you chose. The first
-  ALL shows every song of the set. A line keeps the colour it was given until you hide it, whichever
+  ALL shows every song and target. Newly imported or made targets are shown immediately; a line you explicitly hide remains hidden until you show it again. A line keeps the colour it was given until you hide it, whichever
   others you show or hide, and a box takes its line's colour. The legend names the lines shown in up to
   three rows and ends with how many more (+12). Pointing at a row, or near a line on the chart, draws that
   line stronger and the others fainter and reads A and that line at the pointer. In ALL the measured
-  targets you dropped follow the songs, in the order added, at the level B would play them at (state
-  DATA); pressing one to hear it says that it has no audio. In ALL, **LINES / SHAPE / ALL SHAPE** beside
+  targets follow the songs, in the order added, at the level B would play them at (state
+  DATA); choosing one in ONE draws it with A. Pressing B to hear a target says it has no audio. In ALL, **LINES / SHAPE / ALL SHAPE** beside
   ONE / ALL chooses how the chart draws them, and the one that is on is lit. LINES draws each line
   turned on. SHAPE draws, instead of those lines, their mean and a band from the lowest to the highest
   value in each band; the numbers still choose what goes in, and the legend counts them (MEAN OF 3,
@@ -200,16 +209,19 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   the chart says to turn songs on. A stays its gold line on top, and pointing at a row draws that one
   item's line thinly over the shape. The list scrolls when its rows do not fit, and moves to the chosen
   song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
-  Hypha ignore them). Below 300 % there is no Balance, so no ALL.
-- **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
-  keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
-  set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
+  Hypha ignore them). Below 300 %, a compact Balance shows the current ONE or ALL selection,
+  with the same line colours and numbered legend. At 100 %, ONE / ALL and the chart stay visible with DETAILS closed; open DETAILS for the playback and target controls, then close it to restore the chart.
+- **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. At 100%, the CHECK SET and Check
+  selectors, MATCH, LUFS-I, MAX TP and one status line remain on the page. Open DETAILS for LOOP, FOLLOW A,
+  Cue selection and CUE / SONG; close it to return to the simpler view. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. C's status line stays at the bottom of its own page. At 300%, the first view in the Check definition
+  fills the main area; DETAILS opens its other views, the FOLLOW A offset and the timeline without
+  changing sound or comparison. At 100% the one-line description and Cue caption are omitted; at 125–150%, the description is omitted for a spectrum or while a compact guide is shown; the guide explains the next step. At 200%, when an approval notice needs extra lines, the description is temporarily hidden to keep the chart legible. The comparison is the Cue, with its p10–p90 band as TARGET RANGE, against
   A over its window, the Cue's length unless you choose another; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position (in FOLLOW A, the whole song with
   FOLLOW A and the offset). **CUE / SONG** at the right end of the Cue row chooses what C is compared
   over; it changes neither what plays nor MATCH. CUE is the comparison above. SONG compares C's whole song
-  (the whole-song range Kirin OS 1.6.1 and later publishes for every song) with A FROM START: what A played
+  (the whole-song range Kirin OS 1.7.0 and later publishes for every song) with A FROM START: what A played
   in each 100 ms step of the DAW timeline, counted from its start, where playing a step again replaces it,
   so a loop or a seek does not count a passage twice (after a start or a seek, A is taken from the next step
   boundary, and the loudness joins only steps played in one go). The legend reads A FROM START 2:41 (how
@@ -217,10 +229,14 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   the same loudness, and the time bar frames the whole song in gold with the Cue C plays as the inner box.
   A FROM START keeps the first 30 minutes of the timeline, is not saved with the project, and is emptied
   by RESET A WINDOW, the one item of A's list in SONG; a new sample rate or channel count empties it too, a
-  new C song does not. SONG compares Checks whose charts are spectra; on a Check with range strips SONG
-  cannot be pressed (it says why), C compares its Cue, and SONG comes back on the next spectrum Check.
-  Without a whole-song range (an older Kirin OS) C keeps the Cue and the status line says WHOLE-SONG VALUES
-  COME WITH KIRIN OS 1.6.1, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
+  new C song does not. Changing Check keeps the selected source when that Check includes it. Otherwise C
+  selects the first available source and the status line explains why. SONG compares Checks whose charts
+  are spectra; on a Check with range strips SONG remains selected, but C compares its Cue and says why.
+  SONG comparison returns on the next spectrum Check. A Check meant only for listening has no CUE / SONG
+  switch because it has no measurement chart.
+  An older record also shows whole-song values when it contains a real whole-song range. Without that range,
+  C keeps the Cue and the status line says WHOLE-SONG VALUES
+  COME WITH KIRIN OS 1.7.0, also while C plays, as it does when A plays past 30 minutes. CUE or SONG is
   saved with the project. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
@@ -238,8 +254,10 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   (AはCと同じ) when it rounds to zero. The metric cards read A, C and A VS C (CよりA) with the size of
   the difference and its unit and word under it (1.2 / LU QUIETER); at 200 % and below each card is one
   line, LUFS-I A 1.2 LU QUIETER.
-- **V**: the Version (across the whole row), then the tabs WHOLE, TONE, DYNAMICS, STEREO and LOW END
-  (全体・音色・ダイナミクス・ステレオ・低域). V's items are fixed and separate from C's CHECK SET, whose
+- **V**: choose the Version and see the main same-section TONE comparison. DETAILS is closed at first;
+  open it to choose WHOLE, TONE, DYNAMICS, STEREO or LOW END (全体・音色・ダイナミクス・ステレオ・低域).
+  The separate MOVEMENT, ATTACK, ONSET and CORRELATION choices keep those facts available on compact screens,
+  where VERSION BLIND is also in DETAILS below 300%. At 100%, the main page keeps the Version selector, TONE comparison and one status line. V's items are fixed and separate from C's CHECK SET, whose
   Checks each come with their own reference songs (comparing Versions of the same song needs no
   CHECK SET). WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
@@ -249,6 +267,7 @@ At 300% LOOP, FOLLOW A and the offset sit above the B song list and in C's Cue r
   loudness movement beside the attack and onset, and STEREO the width and correlation, as range strips
   for A and V over the last 30 seconds of that section (both measured by Hypha on the same frames),
   with the first fact over time above them (A gold, V cyan, scaled to the lines).
+  The footer entry **LIVE BLIND** starts the PRE/POST comparison; it is separate from VERSION BLIND.
   VERSION BLIND opens from this page and runs on the same screen as the PRE/POST **BLIND**, over the
   whole window: switch **SOURCE 1 / SOURCE 2** while the DAW plays, **REVEAL** once both
   have sounded, and BLIND RESULT names them (1: A / 2: V) while you keep switching. **END** returns
@@ -326,6 +345,6 @@ way over the section aligned with A.
 
 A is compared live: while REF is open and the song plays, Hypha measures A for the role you
 are looking at (B, C or V) and fills V's WHOLE timeline as you play. The page decides what is compared;
-MAKE TARGET can preserve the displayed A window's measured facts for a later comparison on C,
+MAKE TARGET can preserve the displayed A window's measured facts for a later comparison on B,
 without capturing audio or running a second analysis. The older A capture format is skipped on reopen
 (it neither changes the display nor uses analysis) and is dropped at the next save.

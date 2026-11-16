@@ -121,7 +121,7 @@ static void selectionAndAnswers()
 
 static void timeAndFailures()
 {
-    for (int error = 0; error < 10; ++error)
+    for (int error : { 0, 2, 3, 4, 5, 6, 7 })
     {
         auto t = trial();
         require (t->start(), "failure fixture start");
@@ -129,20 +129,32 @@ static void timeAndFailures()
         buffer.render (*t, block());
         auto next = block (0);
         if (error == 0) next.positionValid = false;
-        if (error == 1) next.playing = false;
         if (error == 2) next.realtime = false;
         if (error == 3) next.bypassed = true;
         if (error == 4) next.sampleRate = 96000;
         if (error == 5) ++next.epochs.pair;
         if (error == 6) ++next.epochs.capture;
         if (error == 7) next.epochs.scope = 0;
-        if (error == 8) next.position = 1; // seek inside cue is still a discontinuity
-        if (error == 9) next.position = 160; // partial block past cue: no modulo or stale tail
         buffer.fill();
         require (buffer.render (*t, next) == TrialOutput::untouched && buffer.original(), "invalid copy preserves input");
         require (t->view().phase == TrialPhase::returnPending && ! t->select (2), "failure latches until return");
         require (! t->reveal() && t->view().revealedOneSide == -1, "no invalidation reveal");
         require (buffer.render (*t, block (0)) == TrialOutput::untouched, "conditions returning do not restart trial");
+    }
+    // A stop or a seek partway through a pass is not a failure: the live input plays meanwhile and
+    // the trial waits for playback (a seek inside the range or past it waits for the range start).
+    for (int interruption = 0; interruption < 3; ++interruption)
+    {
+        auto t = trial();
+        require (t->start(), "interruption fixture start");
+        Buffer buffer;
+        buffer.render (*t, block());
+        auto next = block (interruption == 0 ? 0 : interruption == 1 ? 1 : 160);
+        next.playing = interruption != 0;
+        buffer.fill();
+        require (buffer.render (*t, next) == TrialOutput::untouched && buffer.original(), "an interruption plays the live input");
+        require (t->view().failure == TrialFailure::none && t->view().phase != TrialPhase::returnPending,
+                 "a stop or seek partway through a pass keeps the trial");
     }
     for (bool exact : { false, true })
     {
@@ -156,6 +168,36 @@ static void timeAndFailures()
         const auto result = buffer.render (*t, loop);
         require (result == (exact ? TrialOutput::copy : TrialOutput::untouched), "only exact proven loop accepted");
     }
+}
+
+// A stop partway through a full-range pass keeps it: playing on from the same place continues that
+// pass. A seek starts the pass again from the range start. Neither fails the anonymous trial.
+static void stopAndSeekKeepTheTrial()
+{
+    auto f = format();
+    f.minimumHeardFrames = static_cast<std::uint64_t> (f.frames);
+    auto t = std::make_unique<LocalBlindTrial> (f, TrialGain {}, std::vector<float> (512, 0.25f),
+        std::vector<float> (512, -0.125f), false, 4096);
+    Buffer buffer;
+    require (t->start(), "mid-pass fixture starts");
+    for (int position : { -64, 0 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "first half of side one");
+    auto stopped = block (64);
+    stopped.playing = false;
+    buffer.fill();
+    require (buffer.render (*t, stopped) == TrialOutput::untouched && buffer.original(), "a stop plays the live input");
+    require (t->view().failure == TrialFailure::none && t->view().phase == TrialPhase::listening,
+             "a stop partway through the pass keeps the trial");
+    for (int position : { 64, 128 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "playing on continues the same pass");
+    require (t->view().heardOneComplete, "the continued pass completes side one");
+    require (buffer.render (*t, block (-64)) == TrialOutput::copy, "side two starts at the range start");
+    buffer.fill();
+    require (buffer.render (*t, block (64)) == TrialOutput::untouched && buffer.original()
+             && t->view().failure == TrialFailure::none, "a seek inside the range waits for the range start");
+    for (int position : { -64, 0, 64, 128 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "side two plays again from the range start");
+    require (t->view().heardTwoComplete && t->view().canAnswer, "both sides heard after the interruptions");
 }
 
 static void completePassCannotBeAssembledFromFragments()
@@ -211,8 +253,9 @@ static void explicitlyArmedTransport()
         buffer.fill();
         require (buffer.render (*t, stopped) == (lower ? TrialOutput::heldAttenuation : TrialOutput::untouched),
                  "stop after audition retains only an actually applied approved level");
-        require (t->view().phase == TrialPhase::returnPending, "played trial cannot rearm on transport resume");
-        require (buffer.render (*t, block()) != TrialOutput::copy, "resume is not explicit restart");
+        require (t->view().failure == TrialFailure::none && t->view().phase != TrialPhase::returnPending,
+                 "a stop after the audition began keeps the trial");
+        require (buffer.render (*t, block()) == TrialOutput::copy, "playing from the range start plays a pass again");
     }
     for (int failure = 0; failure < 5; ++failure)
     {
@@ -386,6 +429,7 @@ int main()
     returnEvidence();
     selectionAndAnswers();
     timeAndFailures();
+    stopAndSeekKeepTheTrial();
     completePassCannotBeAssembledFromFragments();
     explicitlyArmedTransport();
     heldLevelAndRetirement();
@@ -394,5 +438,5 @@ int main()
     coherentEpochs();
     verifyNamedAb();
     require (rtAllocations.load() == 0 && rtDeletes.load() == 0, "RT allocation/destruction must be zero");
-    std::cout << "Local Blind trial: PASS (selection/receipt, 10 invalidations, exact loop, lower-level return, 9 bounds, 100 retire races, 10000 epoch writes; RT new/delete=0)\n";
+    std::cout << "Local Blind trial: PASS (selection/receipt, 7 invalidations, 3 interruptions kept, exact loop, lower-level return, 9 bounds, 100 retire races, 10000 epoch writes; RT new/delete=0)\n";
 }
