@@ -97,6 +97,12 @@ public:
         const auto state = footerStatusText();
         return state == "LIVE" || state == "HOLD" ? juce::String() : state;
     }
+    // A state the user must act on; it stays visible where the strip is otherwise kept quiet (100% Reference).
+    bool footerStatusNeedsAction() const
+    {
+        const auto state = footerStatusText();
+        return state == "BYPASSED" || state == "FORMAT HELD / STOP KEEP" || state == "Final measurement unavailable";
+    }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();

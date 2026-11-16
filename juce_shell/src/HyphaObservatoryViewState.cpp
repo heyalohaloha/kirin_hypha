@@ -72,6 +72,7 @@ void View::setFeedback (juce::String text)
 {
     rawFeedbackText = text;
     if (compactReferenceNotices && text == record_ui::wavWaiting) text.clear();
+    if (compactReferenceNotices && text.isEmpty() && footerStatusNeedsAction()) text = footerStatusText();
     if (feedbackText == text) return;
     const auto previousBody = bodyArea;
     feedbackText = std::move (text);

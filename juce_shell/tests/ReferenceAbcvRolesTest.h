@@ -382,7 +382,7 @@ inline void verifyReferenceAbcvRoles()
         else
             require (openedC == 2 && visualC == 2 && opened == 0 && ! heardC && heardV
                          && c->getTooltip() == "Open C at 300%" && v->getTooltip() != "Open V at 300%",
-                     "at 125–200% C opens its page and V plays at the selected size");
+                     "at 125-200% C opens its page and V plays at the selected size");
         if (sized.blindLargeScreen)
         {
             sized.transportPlaying = true; sized.versionReady = sized.versionArmable = false;

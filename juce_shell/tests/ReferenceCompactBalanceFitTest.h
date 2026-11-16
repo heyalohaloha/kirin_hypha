@@ -250,6 +250,12 @@ inline void verifyCompactBalanceFit()
         shell.setFeedback ("A long direct action notice should remain visible on one line when space is tight");
         require (shell.feedback().isNotEmpty() && shell.statusStripBounds().getHeight() < 25,
                  "direct action feedback remains visible in one line");
+        shell.setFeedback ({});
+        require (shell.feedback().isEmpty(), "compact Reference keeps routine states such as WAITING quiet");
+        shell.setMeasurementFormatHeld (true); shell.setFeedback ({});
+        require (shell.feedback() == "FORMAT HELD / STOP KEEP", "a state the user must act on stays visible at 100%");
+        shell.setMeasurementFormatHeld (false); shell.setFeedback ({});
+        require (shell.feedback().isEmpty(), "the held state leaves with its cause");
     }
     require (failures.isEmpty(), "compact Balance fits: " + failures.joinIntoString ("; "));
     verifyWrappedBalanceNotice();
