@@ -118,6 +118,8 @@ jobs:
     # variance/cache-save = 75 min each (tests estimated from 110 * .33, no speedup assumed).
     # Three shards would need ~46 min of tests per job. Keep checks 15+10, Rust 20+10,
     # ignored FFI 20+10 min estimates until the next authorized hosted measurements.
+    # 2026-11-16: under hosted macOS capacity limits the native build alone took about 70 min
+    # and native3 hit 75 min twice, so each native shard has 150 min. No test is skipped.
     strategy:
       fail-fast: false
       matrix:
@@ -129,13 +131,13 @@ jobs:
           - phase: ffi
             minutes: 30
           - phase: native1
-            minutes: 75
+            minutes: 150
           - phase: native2
-            minutes: 75
+            minutes: 150
           - phase: native3
-            minutes: 75
+            minutes: 150
           - phase: native4
-            minutes: 75
+            minutes: 150
     timeout-minutes: ${{ matrix.minutes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
