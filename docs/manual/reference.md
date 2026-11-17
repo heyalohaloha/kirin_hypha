@@ -31,6 +31,10 @@ Reference has four roles, each with its own button in the same place at every si
   C compares A with the song, Cue and frequency bands chosen in Kirin OS. Measured targets are handled on B, not C.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
+The Hybrid VU's LU face reads loudness against the song chosen here: the song's loudness is its 0,
+the chosen set's songs give a band, and in FOLLOW A the song at A's position is a needle
+([Watch: the LU face](watch.md#the-lu-face-loudness-against-a-reference-song)).
+
 **LOOP and FOLLOW A.** B and C play in one of two ways, chosen with **LOOP** and **FOLLOW A** on the B and C
 pages; one choice serves both, and the project remembers it.
 

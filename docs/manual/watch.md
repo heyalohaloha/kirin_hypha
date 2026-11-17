@@ -67,3 +67,52 @@ reference. It changes the needle's displayed level only. Audio, LUFS, True Peak 
 300 ms response stay unchanged. Temporary identity contention retains the adopted reference and
 disables selection until the chain is resolved. A failed save retains the previous choice and reports
 the reason.
+
+### The LU face: loudness against a Reference song
+
+With a Kirin OS license, while POST can read Kirin OS's Reference library, the Hybrid VU has a
+second face. **LU** beside the VU button switches to it and back; the control is not shown when the
+library cannot be read, and the VU is then exactly as before. The choice and its window are saved
+with the DAW project. A project reopened where Reference cannot be read shows the VU and keeps the
+choice for the day it can be read again.
+
+The box, the True Peak rails, the Clip indicators and the three value cells stay as on the VU. The
+left dial becomes one LU scale from −18 to +9 (the EBU +9 scale), and the right half says what 0 is.
+There is no numeric target: the 0 comes from Reference, in three ways.
+
+- **The song is the 0.** 0 LU is the loudness of the Reference song chosen in B or C: its Cue's
+  Integrated loudness from Kirin OS, or the whole song's when the Cue has no value. The face names
+  it, for example **0 = North Road** and **−9.8 LUFS**. When B and C both hold a song, the one
+  that is heard decides, then the page in view. The value is Kirin OS's own; the audition's MATCH gain
+  is never added. A mono song on a stereo track plays 3.01 LU above its value: the needles use the
+  played level and the face adds **MONO +3.0**. A measured target dropped on B is not a Kirin OS
+  song and is never the 0. With no song chosen the needle rests on the left stop, the readout shows
+  **---** and the face says **CHOOSE A SONG IN B OR C**; a song Kirin OS has not measured says
+  **NOT MEASURED IN KIRIN OS**.
+- **The set's range is a band.** The songs of the chosen Reference set that have a Cue loudness
+  from Kirin OS give a band on the scale from their p10 to their p90, as B's TARGET RANGE does for
+  the spectrum. It takes two songs with a value; otherwise there is no band. It sits behind the
+  needles and the figures.
+- **The song at the same place is a needle.** While **FOLLOW A** places the song at A's position
+  in the DAW, a cyan needle (**REF**) shows the song's own loudness at that position, the offset
+  included: Kirin OS's LUFS-M for the M window and LUFS-S for the S window. Where Kirin OS has no
+  value at that position (outside the measured part, or before or after the song) the needle is not
+  drawn and the face says **REF: NO VALUE HERE**. It is not drawn in LOOP, during a Blind, or for
+  the I window, whose 0 is already the song's Integrated loudness.
+
+The control beside LU chooses the window: **M** (Momentary, 0.4 s), **S** (Short-term, 3 s) or
+**I** (Integrated, the Meter Session so far). The needle points at the value itself, not through
+the VU's 300 ms response; between two publications it only eases over 60 ms so that it does not
+step. The readout under the dial repeats the window and the value in LU (**M −2.1**). A value that
+does not exist rests the needle on the left stop and reads **---**; values beyond the scale rest
+on its ends while the readout keeps the figure.
+
+In POST, a thinner needle in PRE's colour shows the PRE of the same moment, and the face says the
+difference, for example **POST − PRE +1.2 LU**. It appears only where POST confirmed a PRE of the
+same moment (M and S); it is never estimated, and I has none. PRE has no Reference page: PRE's LU
+face reads the 0 and the band that the POST of the same chain shares on this computer, shows PRE's
+own needle, and offers LU once that POST has read Reference. Without a song it says **CHOOSE A SONG
+IN POST REFERENCE**. The REF needle belongs to POST's window.
+
+All of this is display only. Audio, the measurements, Record and Keep, Reference's audition and
+MATCH are unchanged.
