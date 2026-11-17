@@ -30,6 +30,10 @@ const Entry entries[] = {
     { "MEASUREMENT UNAVAILABLE", u8"測定を完了できません" },
     { "TARGET UNAVAILABLE", u8"目標を選べません" },
     { "DROP AUDIO", u8"音声をドロップ" },
+    // 目標の欄（HyphaReferenceTargetBar.h）の残りの字。数は %1、上限 16 は字のまま。
+    { "DROP AUDIO / TARGETS %1/16", u8"音声をドロップ / 目標 %1/16" },
+    { "DROP AUDIO  /  TARGETS %1 / 16", u8"音声をドロップ  /  目標 %1 / 16" },
+    { "CHOOSE TARGET", u8"目標を選ぶ" },
     { "REMOVE TARGET", u8"目標を削除" },
     { "MEASURING %1%", u8"測定中 %1%" },
 
