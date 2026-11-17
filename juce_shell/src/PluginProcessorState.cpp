@@ -43,6 +43,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
         scaleModePreference()));
     xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
+    if (luChoicePreference() != 0) xml.setAttribute ("vu_lu_choice", (int) luChoicePreference()); // VU face, M by default
     if (! liveCompareAutoAlign()) xml.setAttribute ("live_auto_align", false); // on by default, never written
     if (liveCompare.listenPre.load (std::memory_order_acquire)) xml.setAttribute ("live_listen_pre", true); // POST by default
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -75,7 +76,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     bool restoredShortTermLoudness = false;
     uint8_t restoredObservatoryDomain = 0;
     uint8_t restoredObservatoryTarget = 0;
-    uint8_t restoredObservatoryTimeRange = 0;
+    uint8_t restoredObservatoryTimeRange = 0, restoredLuChoice = 0;
     // A state with no size (older JUCE, nih-plug) opens at the default 200%, as a new one does.
     uint8_t restoredObservatorySize = hypha::observatory::defaultSizePresetIndex;
     int restoredEditorWidth = hypha::observatory::defaultEditorSize().width;
@@ -136,6 +137,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                 xml->getBoolAttribute ("hybrid_vu_on_record", true);
             restoredAutoAlign = xml->getBoolAttribute ("live_auto_align", true);
             restoredListenPre = xml->getBoolAttribute ("live_listen_pre", false);
+            restoredLuChoice = (uint8_t) juce::jlimit (0, 5, xml->getIntAttribute ("vu_lu_choice", 0));
             restored = true;
         }
     }
@@ -196,6 +198,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         preferredScaleMode.store (
             hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
         preferredHybridVuOnRecord.store (restoredHybridVuOnRecord, std::memory_order_release);
+        preferredLuChoice.store (restoredLuChoice, std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.

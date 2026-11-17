@@ -10,6 +10,7 @@
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferenceRuntimeStatus.h"
 #include "HyphaReferenceNotices.h"
+#include "PluginEditorLu.h"
 #include "HyphaVersionBlindScreen.h"
 using namespace hypha::reference_ui::runtime_view;
 void KirinHyphaEditor::configureReferenceAudition()
@@ -207,6 +208,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
                                                   bool frameAvailable)
 {
     auto runtime = processorRef.referenceAuditionSnapshot();
+    hypha::lu_editor::refreshPost (observatoryView, processorRef, runtime); // the VU's LU face reads its 0 here
     const auto& checkSelection = runtime.checkSelection ? *runtime.checkSelection : runtime;
     const auto& versionSelection = runtime.versionSelection ? *runtime.versionSelection : runtime;
     const auto& referenceSelection = runtime.referenceSelection ? *runtime.referenceSelection : runtime;

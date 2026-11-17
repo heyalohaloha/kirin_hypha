@@ -33,6 +33,7 @@ void View::initializeVuCalibrationControl()
 {
     addChildComponent (vuCalibrationControl);
     vuCalibrationControl.onClick = [this] { if (onVuCalibrationMenu) onVuCalibrationMenu(); };
+    luFace.onLayoutChange = [this] { updateVuVisibility(); resized(); repaint(); };
 }
 
 void View::setVuCalibration (int value, bool choiceAvailable)

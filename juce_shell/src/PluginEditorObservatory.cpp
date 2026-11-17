@@ -2,6 +2,7 @@
 #include "HyphaNoteDialog.h"
 #include "HyphaSnapshotSource.h"
 #include "HyphaComparisonPresentation.h"
+#include "PluginEditorLu.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -121,6 +122,7 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.setVuCalibration (processorRef.refreshHybridVuCalibration(),
                                     processorRef.hybridVuCalibrationScope().isNotEmpty());
     observatoryView.onNote = [this] { showNoteDialog(); };
+    hypha::lu_editor::configure (observatoryView, processorRef);
 }
 
 void KirinHyphaEditor::showNoteDialog()

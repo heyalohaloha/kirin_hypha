@@ -16,7 +16,7 @@ double targetFor (const KirinMeterSession& meter, bool available, int channel)
 
 void View::updateVuVisibility()
 {
-    const auto visible = hybridVuVisible() && (vuFrameTestMode || (isShowing() && getPeer() != nullptr));
+    const auto visible = hybridVuVisible() && ! luFace.active() && (vuFrameTestMode || (isShowing() && getPeer() != nullptr));
     if (! vuAnimator)
         vuAnimator = std::make_unique<hybrid_vu::NeedleAnimator> (*this, [this]
         {
@@ -80,6 +80,12 @@ void View::paintHybridVu (juce::Graphics& g)
         jungleAppearance, presentationContext(), vuCalibration()
     };
     updateVuVisibility();
+    if (luFace.active()) // the LU face reads the published loudness; the VU's moving-coil path rests
+    {
+        luFace.paint (g, getLocalBounds(), state, observatoryFrame.delta, deltaFactsAvailable(),
+                      g.getInternalContext().getPhysicalPixelScaleFactor());
+        return;
+    }
     // Offscreen rendering uses the published values and has no dependency on frame timing.
     if (! vuAnimator->isVisible()) { hybrid_vu::paint (g, getLocalBounds(), state); return; }
     // Only the frame callback consumes live state. Paint must use exactly the position for

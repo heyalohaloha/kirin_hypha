@@ -121,6 +121,7 @@ namespace hypha::reference_audition
         bool followA = false;
         double followOffsetSeconds = 0.0;
         int followOutside = 0;
+        double followPositionSeconds = std::numeric_limits<double>::quiet_NaN();  // FOLLOW A：A の位置＋ずらしが指す曲の位置（曲の中だけ。表示用）
         // Kirin OS の公開で鳴っていた区間が変わった（1）・曲や区間が無くなった（2）ので A へ戻した。次に鳴らすまで残る。
         int publicationReturn = 0;
         // Kirin OS の新しい公開を読めず前の公開のまま（版の巻き戻し・同じ版の別内容・中身の不正など）。読めたら空。

@@ -99,6 +99,24 @@ bool KirinHyphaProcessorBase::setHybridVuCalibration (int value, const juce::Str
         scope, value, juce::Time::getApproximateMillisecondCounter());
 }
 
+void KirinHyphaProcessorBase::setLuChoicePreference (uint8_t packed)
+{
+    if (preferredLuChoice.exchange (packed, std::memory_order_acq_rel) != packed)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::shareLuZero (const hypha::lu_needle::Facts& facts)
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    luSharedZero.publish (hybridVuCalibrationScope(), facts);
+}
+
+hypha::lu_needle::Facts KirinHyphaProcessorBase::sharedLuZero()
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    return luSharedZero.read (hybridVuCalibrationScope(), juce::Time::getApproximateMillisecondCounter());
+}
+
 bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
 {
     if (! hypha::observatory::validEditorSize (width, height))

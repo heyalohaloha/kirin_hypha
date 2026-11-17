@@ -21,6 +21,7 @@
 #include "HyphaVuCalibrationControl.h"
 #include "HyphaVuNeedleAnimator.h"
 #include "HyphaVuLayerCache.h"
+#include "HyphaLuFace.h"
 #include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
@@ -195,6 +196,8 @@ public:
     void setVuCalibration (int value, bool choiceAvailable = true);
     int vuCalibration() const noexcept { return vuCalibrationControl.referenceDbfs(); }
     juce::Component& vuCalibrationAnchor() noexcept { return vuCalibrationControl; }
+    hybrid_vu::LuFace& lu() noexcept { return luFace; } // the VU's LU face: offered while Kirin OS's Reference can be read
+    bool luFaceShown() const noexcept { return hybridVuVisible() && luFace.active(); }
     bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
     bool hybridVuShownByRecording() const noexcept
     {
@@ -471,6 +474,7 @@ private:
     Button statusButton { {}, true, Button::Mark::footerNotice };
     Button hybridVuButton { "VU", false };
     vu_calibration::Control vuCalibrationControl;
+    hybrid_vu::LuFace luFace { *this };
     Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };

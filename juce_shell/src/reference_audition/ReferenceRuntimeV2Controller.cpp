@@ -132,6 +132,8 @@ namespace hypha::reference_audition
         result.followA = follows;
         result.followOffsetSeconds = requestedConfiguration.sampleRate > 0.0
             ? static_cast<double> (offsetNow) / requestedConfiguration.sampleRate : 0.0;
+        if (follows && publishedReady && sourcePosition >= 0 && mappingBefore == mappingAfter && requestedConfiguration.sampleRate > 0.0)
+            result.followPositionSeconds = static_cast<double> (sourcePosition) / requestedConfiguration.sampleRate;
         // FOLLOW A で A の位置＋ずらしが曲の外（同じ写像で読めたときだけ。曲の長さは開いた面の長さ）。
         if (follows && publishedReady && result.transportPositionValid && sourcePosition < 0
             && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter

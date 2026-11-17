@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "PluginEditorLu.h"
 #include "HyphaLocalBlindUiContract.h"
 
 KirinHyphaEditor::~KirinHyphaEditor()
@@ -68,6 +69,7 @@ void KirinHyphaEditor::timerCallback()
     // The Hybrid VU needle follows the audio thread's moving-coil state at frame rate
     // (HyphaVuLiveTap.h); the 100 ms meter publication stays the footer's and Capture's source.
     processorRef.vuLive().setEnabled (observatoryView.hybridVuVisible());
+    if (! isPost) hypha::lu_editor::refreshPre (observatoryView, processorRef); // PRE reads the 0 its POST shares
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);
