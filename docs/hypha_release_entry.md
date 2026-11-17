@@ -177,6 +177,9 @@ AUはApple専用。Windows x64を「Universal Binary」とは呼ばない。
 署名・公証・配布・GitHub・HPのコマンド接続はscriptが行うが、実DAWの聴取試験を自動PASSにしない。
 `provenance-inputs`、`ci`、`source-delivery`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`packages`、`hosts`、
 `provenance`、`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
+
+A5 の全3チャネルの取り出し証拠が揃う前に distribution まで流すと、provenance は待ち（CHECKPOINT、段は PENDING）で止まる。A5 を済ませてから同じ段を流し直せば、手動の照合や profile の修正なしで再開できる。既にある証拠の hash 不一致、取り出し失敗、重複・未知のチャネルは待ちではなく FAIL のままとする。
+
 PKGをA4の前に作るので、A4は利用者が受け取るbytesを試し、PKGの導入（管理者の認証）は1回で済む。
 
 確認待ちは`CHECKPOINT`／exit 2。後段へは進まない。担当者は表示されたgateを確認し、
