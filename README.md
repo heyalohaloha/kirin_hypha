@@ -2,11 +2,11 @@
 
 # Kirin Hypha
 
-### See the signal. Touch nothing.
+### Louder, or better?
 
-Measure before and after your processing chain, see exactly what it changed, then hear both sides
-at the same loudness — with the names hidden if you like.<br>
-A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
+Hear what your processing really did — at the same loudness, with the names hidden if you like —
+and see exactly what it changed. It never touches your signal.<br>
+A free, open-source loudness meter and comparison plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
 
 </div>
 
