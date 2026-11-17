@@ -95,7 +95,6 @@ namespace
     {
         return hypha::tests::isReferenceCurveInk (pixel, target);
     }
-
     int countColourRunsAcross (const juce::Image& image,
                                juce::Rectangle<int> requested,
                                juce::Colour target)
@@ -143,12 +142,13 @@ namespace
     }
 
 }
-using hypha::tests::renderSpectrumAtSize;
+namespace hypha::tests { void verifyMetricFaceContract(); } using hypha::tests::renderSpectrumAtSize;
 using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
     if (const auto child = hypha::tests::shell_repairs::preferenceWriter (argc, argv); child >= 0) return child;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    hypha::tests::verifyMetricFaceContract(); if (std::getenv ("HYPHA_METRIC_FACE_ONLY") != nullptr) return 0;
     hypha::tests::verifyChainClockPolicy();
     if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
     { hypha::tests::verifySpectrumShapeContract (KirinSpectrumView {}); return 0; }

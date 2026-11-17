@@ -25,6 +25,7 @@
 
 namespace hypha::reference_audition
 {
+    namespace metrics { struct Publication; }
     enum class RuntimeState
     {
         disconnected,
@@ -62,6 +63,7 @@ namespace hypha::reference_audition
 
     struct Snapshot
     {
+        std::shared_ptr<const metrics::Publication> nativeMetrics;
         RuntimeState state = RuntimeState::disconnected;
         juce::String title;
         juce::String sourceKind;

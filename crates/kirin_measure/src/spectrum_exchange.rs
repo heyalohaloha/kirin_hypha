@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
@@ -32,6 +32,8 @@ pub use mid_side::MidSideSpectrumViewSnapshot;
 mod perceptual_codec;
 #[path = "spectrum_exchange_post.rs"]
 mod post_tick;
+#[path = "spectrum_exchange_pre_local.rs"]
+mod pre_local;
 #[path = "spectrum_exchange_pre.rs"]
 mod pre_tick;
 #[path = "spectrum_exchange_view.rs"]
@@ -191,6 +193,8 @@ pub struct SpectrumCoordinator {
     attack_band_sent_at: Mutex<Option<Instant>>,
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
+    pre_control: RwLock<()>,
+    pre_local: Mutex<pre_local::LocalSharp>,
     pre_request_read_revision: AtomicU64,
     pre_spectrum_clock_revision: AtomicU64,
     post_spectrum_clock_revision: AtomicU64,
@@ -274,6 +278,8 @@ impl SpectrumCoordinator {
             attack_band_sent_at: Mutex::new(None),
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
+            pre_control: RwLock::new(()),
+            pre_local: Mutex::new(Default::default()),
             pre_request_read_revision: AtomicU64::new(0),
             pre_spectrum_clock_revision: AtomicU64::new(0),
             post_spectrum_clock_revision: AtomicU64::new(0),

@@ -35,6 +35,9 @@ public:
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
+    void setMetricObservationEnabled (bool enabled) noexcept
+    { metricObservationRequested.store (enabled, std::memory_order_release);
+      if (!enabled) { check.setMetricObservationEnabled (false); reference.setMetricObservationEnabled (false); } }
     Snapshot snapshot();
     ReferenceComparisonSettings savedSettings();
     TargetService& targetService() noexcept { return targets; }
@@ -220,6 +223,9 @@ private:
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     void ensureReferenceSong (const Snapshot& reference);
     void requestSongPreload (const Snapshot& reference);  // B の一覧を見ているあいだ、押す前に確かめる曲を渡す
+    std::atomic<bool> metricObservationRequested {false};
+    juce::String metricPriorityKey; // selectionLock
+    std::uint64_t metricPriorityGeneration = 1; // selectionLock
     juce::String songSetId, songId; // selectionLock
     std::vector<juce::String> songPreloadOrder; // selectionLock
     std::atomic<int> switchSlot { 0 };        // 選択を替えた役（1〜3）。公開されたら新しい MATCH で鳴らす

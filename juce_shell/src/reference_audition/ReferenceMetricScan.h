@@ -20,10 +20,11 @@ struct ScanResult
 // The job boundary must catch allocation exceptions and recheck its immutable generation,
 // source authority and host configuration before accepting a result. A fresh cancellation
 // token belongs to each job; never turn a cancelled token back to false.
+using ScanProgress = std::function<bool (const std::vector<KirinReferenceMetricFrame>&, std::uint64_t)>;
 using ReadAperture = std::function<ReadState (std::uint64_t, float*, std::size_t)>;
 inline ScanResult scan (std::uint32_t rate, std::uint32_t channels, std::uint64_t sourceFrames,
                         std::size_t maxObservations, const ReadAperture& read,
-                        const std::atomic<bool>& cancelled)
+                        const std::atomic<bool>& cancelled, const ScanProgress& progress = {})
 {
     const auto fail = [sourceFrames] (ScanState state) { return ScanResult {state, {}, sourceFrames}; };
     if (cancelled.load (std::memory_order_acquire)) return fail (ScanState::cancelled);
@@ -64,6 +65,7 @@ inline ScanResult scan (std::uint32_t rate, std::uint32_t channels, std::uint64_
         std::size_t written = 0;
         if (!kirin_reference_metrics_push (handle.get(), input.data(), input.size(), output, 8, &written)
             || !append (written)) return fail (ScanState::analysisFailed);
+        if (progress && written != 0 && !progress (result.frames, sourceFrames)) return fail (ScanState::readFailed);
     }
     if (cancelled.load (std::memory_order_acquire)) return fail (ScanState::cancelled);
     std::size_t written = 0;

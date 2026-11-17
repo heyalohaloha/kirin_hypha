@@ -331,3 +331,15 @@ provenance/, without adding, deleting or rewriting files. Promotion adds the ori
 manifest, candidate artifact receipt and transition record to the retained producer/qualification
 evidence. The coordinator compares all archive and local-delivery files and their hashes;
 the installer and its top-level sidecars alone are not the complete factory handoff.
+
+
+### Native metric face build-contract review
+
+The native metric face change adds a UI contract test and includes the native metric test targets
+before the storage guard. The material source list also adds the metric face painter translation
+unit. These are test and rendering-code registrations, not new embedded image assets.
+The embedded data source declarations, optional font conditions and BinaryData handling are
+unchanged. All three embedded PNGs retain their registry hashes and approved binary, preview
+and source uses. The build-contract fingerprint is updated for this reviewed CMake source only;
+asset hashes, holds, rights evidence and use permissions are unchanged. This review does not
+qualify distribution payloads or authorize publication.

@@ -1,6 +1,7 @@
 #include "HyphaLuFace.h"
 
 #include "HyphaKeyLight.h"
+#include "HyphaLanguage.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
@@ -53,7 +54,7 @@ LuFace::LuFace (juce::Component& ownerIn)
     faceButton->setComponentID ("observatory-lu-face");
     faceButton->setTitle ("LU face");
     faceButton->setTooltip ("Read loudness in LU against the Reference song chosen in B or C");
-    faceButton->onClick = [this] { choose (! luSelected, chosenWindow); };
+    faceButton->onClick = [this] { if (onFaceMenu) onFaceMenu(); else choose (! luSelected, chosenWindow); };
     windowButton->setComponentID ("observatory-lu-window");
     windowButton->setTitle ("LU window");
     windowButton->setTooltip ("Switch Momentary / Short-term loudness");
@@ -70,6 +71,7 @@ float LuFace::controlFontHeightForTest() const { return juce::jmin (faceButton->
 
 void LuFace::restore (bool luFace, lu_needle::Window window)
 {
+    if (commonFace) luFace = luSelected;
     if (window == lu_needle::Window::integrated) window = lu_needle::Window::momentary;
     if (luSelected == luFace && chosenWindow == window) return;
     luSelected = luFace;
@@ -78,6 +80,17 @@ void LuFace::restore (bool luFace, lu_needle::Window window)
     windowButton->setButtonText (lu_needle::windowLabel (chosenWindow));
     faceButton->setToggleState (luSelected, juce::dontSendNotification);
     if (onLayoutChange) onLayoutChange();
+}
+
+void LuFace::setCommonFace (bool isLu, const juce::String& label)
+{
+    const bool changed = !commonFace || luSelected != isLu || faceButton->getButtonText() != label;
+    commonFace = true; luSelected = isLu;
+    faceButton->setButtonText (label);
+    faceButton->setTitle (hypha::i18n::tr ("Meter face"));
+    faceButton->setTooltip (hypha::i18n::tr ("Choose VU / LU / PSR / CREST / SHARP"));
+    faceButton->setToggleState (isLu, juce::dontSendNotification);
+    if (changed) { snapNext = true; if (onLayoutChange) onLayoutChange(); }
 }
 
 void LuFace::choose (bool luFace, lu_needle::Window window)
@@ -120,7 +133,8 @@ void LuFace::layout (juce::Rectangle<int>& row, int buttonHeight, const presenta
         row.removeFromLeft (4);
         button.setBounds (row.removeFromLeft (width).withSizeKeepingCentre (width, buttonHeight));
     };
-    place (*faceButton, juce::jlimit (34, 72, juce::roundToInt (owner.getWidth() * 0.08f)));
+    place (*faceButton, commonFace ? juce::jlimit (56, 80, juce::roundToInt (owner.getWidth() * 0.10f))
+                                  : juce::jlimit (34, 72, juce::roundToInt (owner.getWidth() * 0.08f)));
     if (active()) place (*windowButton, juce::jlimit (28, 56, juce::roundToInt (owner.getWidth() * 0.065f)));
 }
 

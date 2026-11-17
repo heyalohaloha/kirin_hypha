@@ -181,6 +181,11 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
 
 hypha::analysis::Demand KirinHyphaEditor::desiredAnalysisDemand() const noexcept
 {
+    if (isPost && analysisOwnerToken != 0 && isShowing() && !localBlindOpen && !liveBlindOpen
+        && observatoryView.hybridVuVisible() && observatoryView.metricFaceSelection() == hypha::metric_needle::Face::sharp
+        && observatoryView.lu().available() && processorRef.isPlaying())
+        return {processorRef.pairStatus() == KIRIN_PAIR_STATUS_PAIRED
+            ? hypha::analysis::Kind::sharpDelta : hypha::analysis::Kind::sharpAbsolute, KIRIN_SPECTRUM_CHANNEL_LR};
     return hypha::analysis::forSurface ({
         analysisSurfaceShowing(), analysisPage, spectrumView.isPsbObservation(),
         observatoryView.target() == hypha::observatory::ObservationTarget::absolute,

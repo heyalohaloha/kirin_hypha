@@ -98,8 +98,8 @@ void View::resized()
             juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12);
         vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (legendWidth, buttonHeight));
         // The LU face names its own 0 on the dial: the 0 VU legend gives its place to the notice line.
-        vuCalibrationControl.setVisible (! luFace.active());
-        sessionArea = luFace.active() ? calibration : calibration.withRight (vuCalibrationControl.getX() - 6);
+        vuCalibrationControl.setVisible (! luFace.active() && ! metricFaceActive());
+        sessionArea = (luFace.active() || metricFaceActive()) ? calibration : calibration.withRight (vuCalibrationControl.getX() - 6);
         statusStrip = sessionArea;
         statusButton.setBounds (sessionArea.withSizeKeepingCentre (sessionArea.getWidth(), buttonHeight));
         statusButton.setVisible (! captureFrame && feedbackText.isNotEmpty());

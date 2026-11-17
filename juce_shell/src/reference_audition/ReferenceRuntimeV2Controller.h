@@ -35,6 +35,7 @@
 
 namespace hypha::reference_audition
 {
+    namespace metrics { class Runtime; class SetRuntime; }
     class RuntimeV2Controller final : private juce::Thread
     {
     public:
@@ -47,6 +48,10 @@ namespace hypha::reference_audition
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
         void disconnect();
+        // Control demand only; audio processing never reads this publication or starts work.
+        void setMetricObservationEnabled (bool enabled) noexcept
+        { metricObservationEnabled.store (enabled, std::memory_order_release); notify(); }
+        void setMetricContext (bool enabled, const juce::String& setId, std::uint64_t generation);
         ReferenceChoice savedChoice() const;
         void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
@@ -290,6 +295,11 @@ namespace hypha::reference_audition
         VersionIdentifier versionIdentifier; // Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
+        std::unique_ptr<metrics::Runtime> metricRuntime;
+        std::unique_ptr<metrics::SetRuntime> metricSetRuntime;
+        juce::String metricSetId; // stateLock; the upper controller chooses the set and priority role.
+        std::uint64_t metricContextGeneration = 0; // stateLock
+        std::atomic<bool> metricObservationEnabled {false};
         std::shared_ptr<const RuntimeSource> workerSource;
         std::uint64_t workerSourceGeneration = 0;
         std::shared_ptr<const RuntimeSource> publishedSource;

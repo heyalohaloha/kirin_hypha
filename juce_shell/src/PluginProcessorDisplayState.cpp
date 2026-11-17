@@ -163,3 +163,45 @@ bool KirinHyphaProcessorBase::setReferenceCheckSong (bool song)
     return false;
    #endif
 }
+
+hypha::metric_needle::Face KirinHyphaProcessorBase::metricFacePreference() const noexcept
+{
+    const auto saved = preferredMetricFace.load (std::memory_order_acquire);
+    return hypha::metric_needle::restoredFace (saved == 255 ? std::nullopt : std::optional<int> (saved), luChoicePreference());
+}
+void KirinHyphaProcessorBase::setMetricFacePreference (hypha::metric_needle::Face face)
+{
+    const auto saved = static_cast<uint8_t> (hypha::metric_needle::normaliseFace (static_cast<int> (face)));
+    if (preferredMetricFace.exchange (saved, std::memory_order_acq_rel) != saved)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::setReferenceMetricObservationEnabled (bool enabled)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const juce::ScopedLock lock (handleLock);
+    if (referenceAuditionController) referenceAuditionController->setMetricObservationEnabled (
+        enabled && stereoWorkflowsSupported() && licenseIsOs());
+   #else
+    juce::ignoreUnused (enabled);
+   #endif
+}
+
+void KirinHyphaProcessorBase::shareMetricZero (const hypha::metric_needle::SharedReferenceZero& zero)
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    // B/C have independent selection counters. The shared writer owns one
+    // monotonic publication sequence so switching roles cannot go backwards.
+    if (sharedMetricRevision == std::numeric_limits<std::uint64_t>::max()) return;
+    auto sequenced = zero;
+    sequenced.generation = ++sharedMetricRevision;
+    metricSharedZero.publish (hybridVuCalibrationScope(), sequenced);
+}
+hypha::metric_needle::SharedReferenceZero KirinHyphaProcessorBase::sharedMetricZero (hypha::metric_needle::Face face, bool readable)
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    const auto rate = getSampleRate();
+    return metricSharedZero.read (hybridVuCalibrationScope(), face,
+        std::isfinite (rate) && rate >= 8000 && rate <= 384000 ? static_cast<std::uint32_t> (rate) : 0u,
+        static_cast<std::uint32_t> (getTotalNumInputChannels()), readable && stereoWorkflowsSupported());
+}

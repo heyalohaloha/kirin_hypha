@@ -58,14 +58,29 @@ void verifyLuChoiceState (juce::AudioProcessor::WrapperType wrapper, Require req
             {
             auto legacy = xmlOf (original);
             require (legacy != nullptr, "legacy fixture serializes to XML");
+            legacy->removeAttribute ("vu_face_metric");
             legacy->setAttribute ("vu_lu_choice", oldChoice); // old LU / I selection
             juce::MemoryBlock legacyBytes;
             juce::AudioProcessor::copyXmlToBinary (*legacy, legacyBytes);
             restored.setStateInformation (legacyBytes.getData(), static_cast<int> (legacyBytes.getSize()));
             require (restored.luChoicePreference() == oldChoice - 4, "legacy I opens on M and keeps its face");
+            require (restored.metricFacePreference() == (oldChoice == 5 ? hypha::metric_needle::Face::lu : hypha::metric_needle::Face::vu), "legacy state without new face retains VU/LU");
             const auto restoredLegacy = xmlOf (restored);
             require (restoredLegacy != nullptr, "restored legacy choice serializes to XML");
             require (restoredLegacy && restoredLegacy->getIntAttribute ("vu_lu_choice", 0) == oldChoice - 4, "legacy selection saves as M");
+            }
+            for (auto face : { hypha::metric_needle::Face::vu, hypha::metric_needle::Face::lu,
+                               hypha::metric_needle::Face::psr, hypha::metric_needle::Face::crest,
+                               hypha::metric_needle::Face::sharp })
+            {
+                original.setMetricFacePreference (face);
+                juce::MemoryBlock metricBytes;
+                original.getStateInformation (metricBytes);
+                restored.setStateInformation (metricBytes.getData(), static_cast<int> (metricBytes.getSize()));
+                require (restored.metricFacePreference() == face, "all five face choices survive product state roundtrip");
+                const auto metricXml = xmlOf (restored);
+                require (metricXml && metricXml->getIntAttribute ("vu_face_metric", -1) == static_cast<int> (face),
+                         "new face state remains independently serialized");
             }
             restored.setStateInformation (defaults.getData(), static_cast<int> (defaults.getSize()));
             require (restored.luChoicePreference() == 0, "a project saved before the LU face opens on the VU");

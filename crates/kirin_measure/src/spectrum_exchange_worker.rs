@@ -279,7 +279,9 @@ impl SpectrumCoordinator {
         self.exchange_worker
             .update_pre(pre_instance_id, instance_dir);
         if self.exchange_worker.is_started() {
-            if !self.has_valid_pre_request(pre_instance_id, instance_dir) {
+            if !self.has_valid_pre_request(pre_instance_id, instance_dir)
+                && !self.pre_local_requested()
+            {
                 self.exchange_worker.reset_supervisor();
                 return;
             }

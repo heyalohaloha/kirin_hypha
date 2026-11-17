@@ -22,6 +22,8 @@ public:
     std::function<void()> onLayoutChange;                          // the owner lays out and repaints
 
     void restore (bool luFace, lu_needle::Window);
+    void setCommonFace (bool isLu, const juce::String& label);
+    std::function<void()> onFaceMenu;
     void setFacts (const lu_needle::Facts&);
     const lu_needle::Facts& facts() const noexcept { return current; }
     bool selected() const noexcept { return luSelected; }
@@ -52,7 +54,7 @@ private:
     juce::Component& owner;
     std::unique_ptr<Control> faceButton, windowButton;
     lu_needle::Facts current;
-    bool luSelected = false, snapNext = true;
+    bool luSelected = false, snapNext = true, commonFace = false;
     lu_needle::Window chosenWindow = lu_needle::Window::momentary;
     lu_needle::EasedNeedle own, pre, samePlace, integrated;
     float ownTarget = 0.0f, preTarget = 0.0f, samePlaceTarget = 0.0f, integratedTarget = 0.0f;

@@ -7,6 +7,10 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Meter face", u8"メーターの表示" },
+    { "Choose VU / LU / PSR / CREST / SHARP", u8"VU / LU / PSR / CREST / SHARPを選びます" },
+    { "MEASURING", u8"計測中" },
+    { "UNAVAILABLE", u8"利用できません" },
     // Why a LEVEL history button is greyed (2026-11-11).
     { "No TP events yet", u8"TPの記録はまだありません" },
     { "Select POST for TP events", u8"TPはPOSTを選ぶと見られます" },
@@ -220,6 +224,17 @@ const Entry entries[] = {
       u8"RUN：選んだ履歴の範囲の絶対値を、再生1回ごとにまとめて表示します" },
     { "ATTACK: automatic paired comparison or POST-only events",
       u8"ATTACK：ペアでの自動比較、またはPOSTだけの打音です" },
+
+    { "Preparing measurement", u8"計測を準備中" },
+    { "Unsupported audio format", u8"対応していない音声形式" },
+    { "Audio could not be read", u8"音声を読み込めません" },
+    { "Audio source changed", u8"参照音声が変更されました" },
+    { "Private copy required", u8"検証済みコピーが必要です" },
+    { "Audio exceeds scan limit", u8"計測できる長さを超えています" },
+    { "Audio is too short", u8"音声が短すぎます" },
+    { "Cue is too short", u8"Cueが短すぎます" },
+    { "No measurable value", u8"有効な測定値がありません" },
+    { "Measurement failed", u8"計測を完了できません" },
 
     // Information button.
     { "Hypha information", u8"Hyphaの情報" },

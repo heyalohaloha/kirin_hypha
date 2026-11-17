@@ -363,3 +363,35 @@ bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
     out = hypha::analysis_ui::slotOwnerNames (names);
     return true;
 }
+
+bool KirinHyphaProcessorBase::pollReferenceLiveMetrics (KirinReferenceLiveMetricFrame& output) const
+{
+    const juce::ScopedLock lock (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_reference_live_metrics (hyphaHandle, &output);
+}
+
+void KirinHyphaProcessorBase::setPreSharpObservationEnabled (bool enabled)
+{
+    const juce::ScopedLock lock (handleLock);
+    if (!hyphaHandle) { preSharpToken = 0; return; }
+    if (enabled)
+    {
+        const auto renewed = kirin_hypha_request_pre_sharp (hyphaHandle, preSharpToken);
+        if (renewed != 0) preSharpToken = renewed;
+        else if (preSharpToken != 0)
+        {
+            // A busy renewal must not lose our still-live token. A fresh request
+            // succeeds only after expiry/handle replacement, never steals a lease.
+            const auto fresh = kirin_hypha_request_pre_sharp (hyphaHandle, 0);
+            if (fresh != 0) preSharpToken = fresh;
+        }
+    }
+    else if (preSharpToken != 0 && kirin_hypha_release_pre_sharp (hyphaHandle, preSharpToken))
+        preSharpToken = 0;
+}
+bool KirinHyphaProcessorBase::pollPreSharp (KirinPreSharpFrame& output) const
+{
+    const juce::ScopedLock lock (handleLock);
+    return hyphaHandle != nullptr && preSharpToken != 0
+        && kirin_hypha_poll_pre_sharp (hyphaHandle, preSharpToken, &output);
+}

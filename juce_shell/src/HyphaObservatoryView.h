@@ -22,6 +22,7 @@
 #include "HyphaVuNeedleAnimator.h"
 #include "HyphaVuLayerCache.h"
 #include "HyphaLuFace.h"
+#include "HyphaMetricFaceState.h"
 #include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
@@ -196,7 +197,12 @@ public:
     void setVuCalibration (int value, bool choiceAvailable = true);
     int vuCalibration() const noexcept { return vuCalibrationControl.referenceDbfs(); }
     juce::Component& vuCalibrationAnchor() noexcept { return vuCalibrationControl; }
-    hybrid_vu::LuFace& lu() noexcept { return luFace; } // the VU's LU face: offered while Kirin OS's Reference can be read
+    hybrid_vu::LuFace& lu() noexcept { return luFace; }
+    const hybrid_vu::LuFace& lu() const noexcept { return luFace; }
+    void setMetricFace (metric_needle::Face); metric_needle::Face metricFaceSelection() const noexcept { return metricSelection.face; }
+    void setMetricFrame (const metric_needle::Frame&); void setPreSharpAvailable (bool);
+    bool metricFaceActive() const noexcept;
+    std::function<void (metric_needle::Face)> onMetricFaceChoice;
     bool luFaceShown() const noexcept { return hybridVuVisible() && luFace.active(); }
     bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
     bool hybridVuShownByRecording() const noexcept
@@ -474,7 +480,7 @@ private:
     Button statusButton { {}, true, Button::Mark::footerNotice };
     Button hybridVuButton { "VU", false };
     vu_calibration::Control vuCalibrationControl;
-    hybrid_vu::LuFace luFace { *this };
+    hybrid_vu::LuFace luFace { *this }; metric_face::Selection metricSelection;
     Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };

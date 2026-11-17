@@ -4,6 +4,8 @@
 
 KirinHyphaEditor::~KirinHyphaEditor()
 {
+    processorRef.setReferenceMetricObservationEnabled (false);
+    processorRef.setPreSharpObservationEnabled (false);
     stopTimer();
     removeMouseListener (&unavailableClicks);
     processorRef.vuLive().setEnabled (false);
@@ -56,6 +58,7 @@ void KirinHyphaEditor::timerCallback()
         pairPreviewObservedGeneration = 0;
         processorRef.setReferenceViewPresented (false);
         processorRef.vuLive().setEnabled (false);
+        processorRef.setPreSharpObservationEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         // AUTO rests while hidden: nothing below runs, so it neither measures nor moves (INV-LC16).
         matchChoicePopup.close();

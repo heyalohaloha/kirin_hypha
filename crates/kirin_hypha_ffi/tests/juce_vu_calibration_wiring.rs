@@ -18,7 +18,11 @@ fn vu_calibration_is_a_shared_display_choice_outside_audio_and_measurement() {
     let painter = read_repo("juce_shell/src/HyphaHybridVuPainter.cpp");
     assert!(painter.contains("dbfs - reference"));
     assert!(painter.contains("quiet_NaN(), state.calibrationDbfs"));
-    assert!(painter.contains("channel_instant_true_peak_dbtp[channel]"));
+    assert!(painter.contains("#include \"HyphaTruePeakRail.h\""));
+    assert!(painter.contains("peak_rail::paint (g, inner, state, 0, compact)"));
+    assert!(painter.contains("peak_rail::paint (g, inner, state, 1, compact)"));
+    let peak_rail = read_repo("juce_shell/src/HyphaTruePeakRail.h");
+    assert!(peak_rail.contains("channel_instant_true_peak_dbtp[channel]"));
     let measure = read_repo("crates/kirin_measure/src/stereo_meter.rs");
     assert!(measure.contains("300"));
 }

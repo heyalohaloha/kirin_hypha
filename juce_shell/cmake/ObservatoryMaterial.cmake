@@ -3,6 +3,7 @@
 set(KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaHybridVuPainter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaLuFacePainter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaMetricFacePainter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaLuFace.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaObservatoryWorld.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJungleMaterial.cpp")

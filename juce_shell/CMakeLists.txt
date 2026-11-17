@@ -697,6 +697,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/HybridVuContractTest.cpp
         tests/LuNeedleContractTest.cpp
         tests/LuNeedleFaceContractTest.cpp
+        tests/MetricFaceContractTest.cpp
         tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
         tests/LiveCompareFooterContractTest.cpp
@@ -1157,6 +1158,6 @@ include(cmake/ProductTestClock.cmake)
 include(cmake/ShortcutTests.cmake)
 include(cmake/NativeTestLibraries.cmake)
 
-include(cmake/NativeStorageGuard.cmake)
 include(cmake/ReferenceMetricTests.cmake)
+include(cmake/NativeStorageGuard.cmake)
 include(cmake/NativeTestTargets.cmake)

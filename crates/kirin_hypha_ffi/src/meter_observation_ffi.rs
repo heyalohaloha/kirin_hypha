@@ -1,5 +1,7 @@
 //! UI-only meter snapshots and history export. No audio processing lives here.
 use super::*;
+#[path = "pre_sharp_ffi.rs"]
+mod pre_sharp;
 #[path = "reference_live_metrics_ffi.rs"]
 mod reference_live_metrics;
 #[path = "time_snapshot_ffi.rs"]

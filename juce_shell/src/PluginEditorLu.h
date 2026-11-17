@@ -3,6 +3,7 @@
 #include "HyphaLuReferenceFacts.h"
 #include "HyphaObservatoryView.h"
 #include "PluginProcessor.h"
+#include "PluginEditorMetric.h"
 
 // The editor's part of the VU's LU face: the saved choice, and what Reference gives the face.
 // POST reads its own Reference and shares the 0 with the PRE of its chain; PRE reads that copy.
@@ -12,11 +13,13 @@ inline void syncChoice (observatory::View& view, KirinHyphaProcessorBase& proces
 {
     const auto packed = processor.luChoicePreference();
     view.lu().restore (lu_needle::packedLuFace (packed), lu_needle::packedWindow (packed));
+    view.setMetricFace (processor.metricFacePreference());
 }
 
 inline void configure (observatory::View& view, KirinHyphaProcessorBase& processor)
 {
     syncChoice (view, processor);
+    view.onMetricFaceChoice = [&processor] (metric_needle::Face face) { processor.setMetricFacePreference (face); };
     view.lu().onChoice = [&processor] (bool luFace, lu_needle::Window window)
     { processor.setLuChoicePreference (lu_needle::packChoice (luFace, window)); };
 }
@@ -30,11 +33,21 @@ inline void refreshPost (observatory::View& view, KirinHyphaProcessorBase& proce
     const auto facts = lu_needle::referenceFacts (runtime, readable, view.lu().window());
     processor.shareLuZero (facts);
     view.lu().setFacts (facts);
+    const auto face = processor.metricFacePreference();
+    processor.setReferenceMetricObservationEnabled (readable && metric_needle::metric (face));
+    metric_editor::shareReference (processor, runtime, readable);
+    view.setMetricFrame (metric_editor::facts (processor, runtime, face));
 }
 
 inline void refreshPre (observatory::View& view, KirinHyphaProcessorBase& processor)
 {
     syncChoice (view, processor);
-    view.lu().setFacts (processor.sharedLuZero());
+    const auto face = processor.metricFacePreference();
+    processor.setPreSharpObservationEnabled (view.isShowing() && view.metricFaceActive()
+        && face == metric_needle::Face::sharp && processor.isPlaying());
+    const auto shared = processor.sharedLuZero();
+    view.lu().setFacts (shared);
+    view.setMetricFrame (metric_editor::preFacts (processor, processor.metricFacePreference(),
+        shared.readable && shared.zero != lu_needle::Zero::noSong));
 }
 }

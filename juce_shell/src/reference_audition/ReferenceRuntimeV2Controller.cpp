@@ -1,4 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceMetricRuntime.h"
+#include "ReferenceMetricSetRuntime.h"
 #include "ReferenceCopyCorrespondence.h"
 #include "ReferenceTestCommitObserver.h"
 
@@ -53,6 +55,8 @@ namespace hypha::reference_audition
           eventTransport (root),
           libraryReceivedWriter (root, std::move (receivedStore))
     {
+        metricRuntime = std::make_unique<metrics::Runtime> (root);
+        metricSetRuntime = std::make_unique<metrics::SetRuntime> (root);
         trackingEnabled.store (versionComparison, std::memory_order_release);  // V は追従、C は固定
         outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
@@ -67,6 +71,8 @@ namespace hypha::reference_audition
         notify();
         if (! stopThread (-1))
             jassertfalse;
+        metricRuntime->clear();
+        metricSetRuntime->clear();
         outputRetirement.stop();
         blind.forceClearAfterAudioStopped();
         releaseActiveOutputGate();
@@ -105,10 +111,39 @@ namespace hypha::reference_audition
         configure ({}, 0.0, 0);
     }
 
+    void RuntimeV2Controller::setMetricContext (bool enabled, const juce::String& setId, std::uint64_t generation)
+    {
+        const juce::ScopedLock lock (stateLock);
+        if (metricObservationEnabled.load() == enabled && metricSetId == setId && metricContextGeneration == generation) return;
+        metricSetId = setId; metricContextGeneration = generation;
+        metricObservationEnabled.store (enabled, std::memory_order_release);
+        notify();
+    }
+
     Snapshot RuntimeV2Controller::snapshot() const
     {
         const juce::ScopedLock lock (stateLock);
         auto result = currentSnapshot;
+        result.nativeMetrics = metricRuntime->snapshot();
+        if (!ready.load (std::memory_order_acquire) || !metricObservationEnabled.load (std::memory_order_acquire)
+            || (result.nativeMetrics && result.nativeMetrics->selectionGeneration != requestedSelection.generation))
+            result.nativeMetrics.reset();
+        if (result.nativeMetrics && result.nativeMetrics->series)
+        {
+            const auto set = metricSetRuntime->snapshot();
+            if (set && set->membershipKey == metrics::metricSetKey (workspace.get(), metricSetId)
+                && set->generation == metricContextGeneration && set->rate == result.nativeMetrics->series->rate
+                && set->channels == result.nativeMetrics->series->channels)
+            {
+                auto combined = std::make_shared<metrics::Publication> (*result.nativeMetrics);
+                combined->setKey = set->membershipKey; combined->setReason = set->reason; combined->setGeneration = set->generation;
+                combined->setExpected = set->expected; combined->setCompleted = set->completed;
+                combined->setComplete = set->complete;
+                if (set->complete) combined->bands = set->bands;
+                result.nativeMetrics = std::move (combined);
+            }
+        }
+
         const auto observationBefore = inputObservationGeneration.load (std::memory_order_acquire);
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
         result.publicationIssue = retainedPublicationIssue;

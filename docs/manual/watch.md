@@ -122,3 +122,29 @@ IN POST REFERENCE**. The REF needle belongs to POST's window.
 
 All of this is display only. Audio, the measurements, Record and Keep, Reference's audition and
 MATCH are unchanged.
+
+### PSR, CREST, and SHARP needle faces
+
+When Kirin OS Reference is readable, the face selector also offers **PSR**, **CREST**, and, in
+POST, **SHARP**. Each has one large dial rather than a second dial with a different definition.
+PSR and CREST use a −9 to +9 dB scale; SHARP uses −1 to +1 acum. The zero is the median of the
+chosen Reference Cue, not an ideal value or a target score.
+
+These faces measure Reference's audio in Hypha, using the same measurement engines and windows
+as the live values. They do not substitute Kirin OS's differently defined PSR, crest, or sharpness
+summaries. Reference is measured at the host's supported sample rate and mono/stereo format,
+without MATCH gain. The native reader is separate from audition playback.
+
+The own needle shows the current value minus that zero. POST can add a PRE needle only when the
+same-time paired observation is valid. Its REF needle requires FOLLOW A and a measured value at
+that position; missing data is not drawn as zero. The set band is the p10–p90 range of the songs'
+Cue medians, with each song counted once. It stays absent until every member has completed the
+same-definition measurement. A failed, missing, or still-preparing song is not silently dropped
+from the set.
+
+**MEASURING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
+usable baseline is available. Changing a face never changes audio, Record, Keep, or MATCH.
+PRE reads Reference baselines shared by an open POST of the same chain while POST has a
+PSR, CREST, or SHARP face selected. Those shared metric baselines expire when POST stops publishing. PRE measures its own PSR and CREST. **SHARP is
+available in POST's window only**: the optional PRE sharpness worker exceeded its CPU acceptance
+budget, so PRE does not offer that menu item.
