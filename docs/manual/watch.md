@@ -48,6 +48,9 @@ the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
+The True Peak rails in both VU and LU extend to **+3 dBTP**. Above 0 dBTP, the live bar and held
+marker change to the Clip lamp's colour family; this does not change the sample-clip lamp's condition.
+Values above +3 stop at the end of the rail.
 
 The live needles use a second-order moving-coil response on full-wave rectified input, with unity
 steady gain: 300 ms to the first 99% crossing, 1.25% overswing, and about 112 ms to halfway,
@@ -77,7 +80,8 @@ with the DAW project. A project reopened where Reference cannot be read shows th
 choice for the day it can be read again.
 
 The box, the True Peak rails, the Clip indicators and the three value cells stay as on the VU. The
-left dial becomes one LU scale from −18 to +9 (the EBU +9 scale), and the right half says what 0 is.
+left dial reads M or S, and the right dial always reads I (the Meter Session so far). Both use
+the same LU scale from −18 to +9 (the EBU +9 scale); the song defining 0 is named below the dials.
 There is no numeric target: the 0 comes from Reference, in three ways.
 
 - **The song is the 0.** 0 LU is the loudness of the Reference song chosen in B or C: its Cue's
@@ -90,7 +94,7 @@ There is no numeric target: the 0 comes from Reference, in three ways.
   **---** and the face says **CHOOSE A SONG IN B OR C**; a song Kirin OS has not measured says
   **NOT MEASURED IN KIRIN OS**.
 - **The set's range is a band.** The songs of the chosen Reference set that have a Cue loudness
-  from Kirin OS give a band on the scale from their p10 to their p90, as B's TARGET RANGE does for
+  from Kirin OS give a band on the **right I scale only** from their p10 to their p90, as B's TARGET RANGE does for
   the spectrum. It takes two songs with a value; otherwise there is no band. It sits behind the
   needles and the figures.
 - **The song at the same place is a needle.** While **FOLLOW A** places the song at A's position
@@ -100,8 +104,10 @@ There is no numeric target: the 0 comes from Reference, in three ways.
   drawn and the face says **REF: NO VALUE HERE**. It is not drawn in LOOP, during a Blind, or for
   the I window, whose 0 is already the song's Integrated loudness.
 
-The control beside LU chooses the window: **M** (Momentary, 0.4 s), **S** (Short-term, 3 s) or
-**I** (Integrated, the Meter Session so far). The needle points at the value itself, not through
+The control beside LU chooses the left window: **M** (Momentary, 0.4 s) or **S** (Short-term, 3 s).
+The right window stays **I**: POST shows its own Integrated loudness, and PRE shows its own.
+There is no PRE comparison needle on POST's right dial. Older projects that selected I for the left
+dial reopen on M. The needle points at the value itself, not through
 the VU's 300 ms response; between two publications it only eases over 60 ms so that it does not
 step. The readout under the dial repeats the window and the value in LU (**M −2.1**). A value that
 does not exist rests the needle on the left stop and reads **---**; values beyond the scale rest

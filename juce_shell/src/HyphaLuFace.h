@@ -9,7 +9,7 @@
 namespace hypha::hybrid_vu
 {
 // The Hybrid VU's second face: LU against a Reference song from Kirin OS. It owns the two controls
-// in the VU row (LU, and the M / S / I window), the choice, what Reference gave, and the needles.
+// in the VU row (LU, and the M / S window), the choice, what Reference gave, and the needles.
 // The face is offered only while Kirin OS's Reference can be read; otherwise the VU is unchanged
 // and a saved choice is kept for the day it can be read again.
 class LuFace final : private juce::Timer
@@ -54,8 +54,8 @@ private:
     lu_needle::Facts current;
     bool luSelected = false, snapNext = true;
     lu_needle::Window chosenWindow = lu_needle::Window::momentary;
-    lu_needle::EasedNeedle own, pre, samePlace;
-    float ownTarget = 0.0f, preTarget = 0.0f, samePlaceTarget = 0.0f;
+    lu_needle::EasedNeedle own, pre, samePlace, integrated;
+    float ownTarget = 0.0f, preTarget = 0.0f, samePlaceTarget = 0.0f, integratedTarget = 0.0f;
     bool preShown = false, samePlaceShown = false;
     double lastStepMs = 0.0;
     juce::Rectangle<int> lastBounds;

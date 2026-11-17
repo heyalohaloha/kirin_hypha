@@ -17,7 +17,7 @@ constexpr double scaleLowLu = -18.0;
 constexpr double scaleHighLu = 9.0;
 constexpr double nan = std::numeric_limits<double>::quiet_NaN();
 
-// Which loudness the needles read: Momentary (0.4 s), Short-term (3 s) or Integrated.
+// The left dial chooses Momentary or Short-term. Integrated is retained for decoding old states.
 enum class Window : std::uint8_t { momentary, shortTerm, integrated };
 
 constexpr const char* windowLabel (Window window) noexcept
@@ -28,7 +28,7 @@ constexpr const char* windowLabel (Window window) noexcept
 constexpr Window nextWindow (Window window) noexcept
 {
     return window == Window::momentary ? Window::shortTerm
-         : window == Window::shortTerm ? Window::integrated : Window::momentary;
+         : Window::momentary;
 }
 
 // The face and window as one saved value: bit 0 is the LU face, bits 1-2 the window.
@@ -40,7 +40,7 @@ constexpr bool packedLuFace (std::uint8_t packed) noexcept { return (packed & 1u
 constexpr Window packedWindow (std::uint8_t packed) noexcept
 {
     const auto value = (packed >> 1) & 3u;
-    return value == 1u ? Window::shortTerm : value == 2u ? Window::integrated : Window::momentary;
+    return value == 1u ? Window::shortTerm : Window::momentary; // legacy I opens on M
 }
 
 // The scale is linear from -18 to +9 LU (the EBU +9 scale). A value that does not exist rests

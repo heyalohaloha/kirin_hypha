@@ -56,7 +56,7 @@ LuFace::LuFace (juce::Component& ownerIn)
     faceButton->onClick = [this] { choose (! luSelected, chosenWindow); };
     windowButton->setComponentID ("observatory-lu-window");
     windowButton->setTitle ("LU window");
-    windowButton->setTooltip ("Switch Momentary / Short-term / Integrated");
+    windowButton->setTooltip ("Switch Momentary / Short-term loudness");
     windowButton->onClick = [this] { choose (luSelected, lu_needle::nextWindow (chosenWindow)); };
     owner.addChildComponent (*faceButton);
     owner.addChildComponent (*windowButton);
@@ -70,6 +70,7 @@ float LuFace::controlFontHeightForTest() const { return juce::jmin (faceButton->
 
 void LuFace::restore (bool luFace, lu_needle::Window window)
 {
+    if (window == lu_needle::Window::integrated) window = lu_needle::Window::momentary;
     if (luSelected == luFace && chosenWindow == window) return;
     luSelected = luFace;
     chosenWindow = window;
@@ -137,6 +138,9 @@ lu_face::Frame LuFace::frame (const State& state, const KirinDelta& delta, bool 
     result.own = lu_needle::normalized (result.reading.own);
     result.pre = lu_needle::normalized (result.reading.pre);
     result.samePlace = lu_needle::normalized (result.reading.samePlace);
+    result.integratedLu = lu_needle::relativeLu (state.cumulativeAvailable ? state.meter.lufs_i : lu_needle::nan,
+                                                  current.readable ? current.playedZero() : lu_needle::nan);
+    result.integrated = lu_needle::normalized (result.integratedLu);
     return result;
 }
 
@@ -145,7 +149,8 @@ bool LuFace::step (double seconds)
     const bool a = own.step (ownTarget, seconds);
     const bool b = preShown && pre.step (preTarget, seconds);
     const bool c = samePlaceShown && samePlace.step (samePlaceTarget, seconds);
-    return a || b || c;
+    const bool d = integrated.step (integratedTarget, seconds);
+    return a || b || c || d;
 }
 
 void LuFace::timerCallback()
@@ -167,21 +172,23 @@ void LuFace::paint (juce::Graphics& g, juce::Rectangle<int> bounds, const State&
     auto shown = frame (vu, delta, deltaAvailable);
     const bool hadPre = preShown, hadSamePlace = samePlaceShown;
     ownTarget = shown.own; preTarget = shown.pre; samePlaceTarget = shown.samePlace;
+    integratedTarget = shown.integrated;
     preShown = std::isfinite (shown.reading.pre);
     samePlaceShown = std::isfinite (shown.reading.samePlace);
     // Offscreen (a capture, a test) there is no frame clock: the needles show the values themselves.
     const bool live = owner.isShowing() && owner.getPeer() != nullptr;
-    if (snapNext || ! live) { own.snap (ownTarget); pre.snap (preTarget); samePlace.snap (samePlaceTarget); }
+    if (snapNext || ! live) { own.snap (ownTarget); pre.snap (preTarget); samePlace.snap (samePlaceTarget); integrated.snap (integratedTarget); }
     if (! hadPre) pre.snap (preTarget);
     if (! hadSamePlace) samePlace.snap (samePlaceTarget);
     snapNext = false;
     lastBounds = bounds;
     if (live && ! isTimerRunning()
-        && (own.shown != ownTarget || (preShown && pre.shown != preTarget) || (samePlaceShown && samePlace.shown != samePlaceTarget)))
+        && (own.shown != ownTarget || integrated.shown != integratedTarget || (preShown && pre.shown != preTarget) || (samePlaceShown && samePlace.shown != samePlaceTarget)))
     {
         lastStepMs = juce::Time::getMillisecondCounterHiRes();
         startTimerHz (30);
     }
+    shown.integrated = integrated.shown;
     shown.own = own.shown; shown.pre = pre.shown; shown.samePlace = samePlace.shown;
 
     pixelScale = std::isfinite (pixelScale) ? juce::jlimit (1.0f, 4.0f, pixelScale) : 1.0f;

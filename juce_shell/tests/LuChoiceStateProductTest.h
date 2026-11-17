@@ -54,6 +54,19 @@ void verifyLuChoiceState (juce::AudioProcessor::WrapperType wrapper, Require req
                      "reopening returns the LU face and its window");
             const auto again = xmlOf (restored);
             require (again && again->getIntAttribute ("vu_lu_choice", -1) == chosen, "the reopened choice is saved again");
+            for (int oldChoice : { 4, 5 })
+            {
+            auto legacy = xmlOf (original);
+            require (legacy != nullptr, "legacy fixture serializes to XML");
+            legacy->setAttribute ("vu_lu_choice", oldChoice); // old LU / I selection
+            juce::MemoryBlock legacyBytes;
+            juce::AudioProcessor::copyXmlToBinary (*legacy, legacyBytes);
+            restored.setStateInformation (legacyBytes.getData(), static_cast<int> (legacyBytes.getSize()));
+            require (restored.luChoicePreference() == oldChoice - 4, "legacy I opens on M and keeps its face");
+            const auto restoredLegacy = xmlOf (restored);
+            require (restoredLegacy != nullptr, "restored legacy choice serializes to XML");
+            require (restoredLegacy && restoredLegacy->getIntAttribute ("vu_lu_choice", 0) == oldChoice - 4, "legacy selection saves as M");
+            }
             restored.setStateInformation (defaults.getData(), static_cast<int> (defaults.getSize()));
             require (restored.luChoicePreference() == 0, "a project saved before the LU face opens on the VU");
             restored.releaseResources();

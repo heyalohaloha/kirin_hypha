@@ -1,5 +1,6 @@
 #include "HybridVuContractTest.h"
 #include "HybridVuCalibrationContract.h"
+#include "TruePeakRailContract.h"
 
 #include "../src/HyphaHybridVuPainter.h"
 #include "../src/HyphaVuLayerCache.h"
@@ -84,6 +85,7 @@ void writePreview (const juce::Image& image,
         juce::String (role == observatory::Role::pre ? "pre" : "post")
         + "-hybrid-vu-" + state + "-" + juce::String (width) + ".png").createOutputStream();
     KIRIN_HYBRID_VU_REQUIRE (output != nullptr);
+    KIRIN_HYBRID_VU_REQUIRE (output->setPosition (0) && output->truncate().wasOk());
     KIRIN_HYBRID_VU_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
 }
 }
@@ -91,18 +93,13 @@ void writePreview (const juce::Image& image,
 void verifyHybridVuContract()
 {
     vu_calibration_contract::verify();
+    true_peak_rail_contract::verify();
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) > 0.06f);
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) < 0.08f);
     KIRIN_HYBRID_VU_REQUIRE (
         std::abs (hybrid_vu::vuNormalized (-15.0) - 1.0f) < 1.0e-6f);
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) > 0.77f);
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) < 0.79f);
-    KIRIN_HYBRID_VU_REQUIRE (
-        std::abs (hybrid_vu::truePeakNormalized (-28.0)) < 1.0e-6f);
-    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::truePeakNormalized (-24.0) > 0.14f);
-    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::truePeakNormalized (-24.0) < 0.15f);
-    KIRIN_HYBRID_VU_REQUIRE (
-        std::abs (hybrid_vu::truePeakNormalized (0.0) - 1.0f) < 1.0e-6f);
 
     const auto meter = meterFixture();
     for (const auto role : { observatory::Role::pre, observatory::Role::post })
@@ -145,6 +142,13 @@ void verifyHybridVuContract()
                 ! vuButton->getBounds().intersects (clearButton->getBounds()));
             const auto manualImage = render (view);
             writePreview (manualImage, role, "manual", preset.width);
+            auto overs = meter;
+            overs.true_peak = overs.max_true_peak = 1.5;
+            overs.channel_instant_true_peak_dbtp[0] = overs.channel_instant_true_peak_dbtp[1] = 1.5;
+            overs.channel_max_true_peak_dbtp[0] = overs.channel_max_true_peak_dbtp[1] = 1.5;
+            view.setMeterSnapshot (overs, true);
+            writePreview (render (view), role, "tp-plus-1p5", preset.width);
+            view.setMeterSnapshot (meter, true);
             KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
             const auto recordingImage = render (view);
             writePreview (recordingImage, role, "recording", preset.width);

@@ -122,69 +122,66 @@ void paintLegend (juce::Graphics& g, juce::Rectangle<float> row, const std::vect
     }
 }
 
-// The right half says what the 0 is, or what to do to get one.
+// One row below both hubs keeps the Reference zero away from needles and scale figures.
 void paintZeroText (juce::Graphics& g, juce::Rectangle<float> face, const Frame& view, bool compact,
                     std::vector<TextBox>* trace)
 {
     const auto context = faceContext (view.vu.presentation);
-    const bool post = view.vu.role == observatory::Role::post;
-    auto plate = juce::Rectangle<float> (face.getCentreX() + face.getWidth() * 0.035f, face.getY() + face.getHeight() * 0.33f,
-                                         face.getWidth() * 0.405f, face.getHeight() * 0.47f);
-    plate = plate.toNearestInt().toFloat(); // whole pixels, so stacked lines never share a row
-    const auto nameFont = labelFont (context, TextRole::sectionTitle, instrument);
-    const auto valueFont = monoFont (context, TextRole::secondaryValue, instrument);
-    const auto smallFont = labelFont (context, TextRole::legend, instrument);
-    const auto line = [] (const juce::Font& font) { return std::ceil (font.getHeight() * 1.22f); };
-    const auto wrapped = [&] (const char* text, int maximumLines)
-    {
-        const auto width = juce::roundToInt (plate.getWidth());
-        const auto height = juce::jmin (line (smallFont) * static_cast<float> (maximumLines),
-                                        std::ceil (text_style::shownWrappedHeight (text, smallFont, width)));
-        const auto area = plate.removeFromTop (height).toNearestInt();
-        g.setColour (COL_NORMAL);
-        g.setFont (labelFont (context, TextRole::legend, instrument));
-        text_style::drawLines (g, text, area, juce::Justification::centredLeft, maximumLines);
-        note (trace, text, area.toFloat(), smallFont);
-    };
-
+    const auto font = labelFont (context, TextRole::legend, instrument);
+    auto plate = juce::Rectangle<float> (face.getX() + face.getWidth() * 0.025f,
+        face.getBottom() - std::ceil (font.getHeight() * 1.25f), face.getWidth() * 0.95f,
+        std::ceil (font.getHeight() * 1.25f));
     if (view.facts.zero == lu_needle::Zero::noSong)
     {
-        // PRE has no Reference page: its 0 is the song chosen in the paired POST.
-        wrapped (post ? "CHOOSE A SONG IN B OR C" : "CHOOSE A SONG IN POST REFERENCE", 3);
-        return;
+        const auto text = view.vu.role == observatory::Role::post
+            ? "CHOOSE A SONG IN B OR C" : "CHOOSE A SONG IN POST REFERENCE";
+        g.setColour (COL_NORMAL); g.setFont (labelFont (context, TextRole::legend, instrument));
+        text_style::drawText (g, text, plate, juce::Justification::centred, true);
+        note (trace, text, plate, font); return;
     }
-    drawFixed (g, "0 = " + displayableText (view.facts.song), plate.removeFromTop (line (nameFont)), context,
-               TextRole::sectionTitle, ivory, juce::Justification::centredLeft, trace);
+    const bool delta = ! compact && std::isfinite (view.reading.postMinusPre);
+    const float width = plate.getWidth();
+    auto name = plate.removeFromLeft (width * (compact ? 0.55f : 0.32f));
+    drawFixed (g, "0 = " + displayableText (view.facts.song), name, context,
+        TextRole::legend, ivory, juce::Justification::centredLeft, trace);
     if (view.facts.zero != lu_needle::Zero::ready)
     {
-        wrapped ("NOT MEASURED IN KIRIN OS", 2);
+        g.setColour (COL_NORMAL); g.setFont (labelFont (context, TextRole::legend, instrument));
+        text_style::drawText (g, "NOT MEASURED IN KIRIN OS", plate, juce::Justification::centredRight, true);
+        note (trace, "NOT MEASURED IN KIRIN OS", plate, font); return;
+    }
+    auto value = plate.removeFromLeft (compact ? plate.getWidth() : width * 0.18f);
+    drawFigures (g, juce::String (view.facts.zeroLufs, 1) + " LUFS", value, context, TextRole::legend,
+        COL_NORMAL, juce::Justification::centred, trace);
+    if (compact) return;
+    const auto mono = view.facts.playedOffsetLu > 0.005
+        ? "MONO +" + juce::String (view.facts.playedOffsetLu, 1) : juce::String();
+    if (view.facts.samePlace == lu_needle::SamePlace::noValueHere)
+    {
+        // Missing-reference guidance takes the comparison slot, not the mono-zero explanation.
+        if (mono.isNotEmpty())
+            drawFixed (g, mono, plate.removeFromLeft (std::ceil (font.getStringWidthFloat (mono)) + 6.0f),
+                context, TextRole::legend, COL_NORMAL, juce::Justification::centredLeft, trace);
+        g.setColour (COL_NORMAL); g.setFont (labelFont (context, TextRole::legend, instrument));
+        text_style::drawText (g, "REF: NO VALUE HERE", plate, juce::Justification::centredRight, true);
+        note (trace, "REF: NO VALUE HERE", plate, font);
         return;
     }
-    auto value = juce::String (view.facts.zeroLufs, 1) + " LUFS";
-    if (! compact && view.facts.playedOffsetLu > 0.005) // a mono song on a stereo track plays louder than its value
-        value << "  MONO +" << juce::String (view.facts.playedOffsetLu, 1);
-    drawFigures (g, value, plate.removeFromTop (line (valueFont)), context, TextRole::secondaryValue, COL_NORMAL,
-                 juce::Justification::centredLeft, trace);
-    if (std::isfinite (view.reading.postMinusPre))
+    if (delta)
         drawFixed (g, juce::String ("POST - PRE") + "  " + lu_needle::signedLu (view.reading.postMinusPre) + " LU",
-                   plate.removeFromTop (line (smallFont)), context, TextRole::legend, COL_NORMAL,
-                   juce::Justification::centredLeft, trace);
-    if (view.facts.samePlace == lu_needle::SamePlace::noValueHere && view.window != lu_needle::Window::integrated)
+            plate.removeFromLeft (width * 0.30f), context, TextRole::legend, COL_NORMAL,
+            juce::Justification::centredRight, trace);
+    if (mono.isNotEmpty())
+        drawFixed (g, mono, plate, context, TextRole::legend, COL_NORMAL, juce::Justification::centredRight, trace);
+    else
     {
-        if (plate.getHeight() >= line (smallFont)) wrapped ("REF: NO VALUE HERE", 1);
-        return;
-    }
-    if (compact || plate.getHeight() < line (smallFont)) return;
-    std::vector<LegendItem> items { { post ? "POST" : "PRE", Needle::own } };
-    if (std::isfinite (view.reading.pre)) items.push_back ({ "PRE", Needle::pre });
-    if (std::isfinite (view.reading.samePlace)) items.push_back ({ "REF", Needle::samePlace });
-    if (items.size() > 1)
-    {
-        plate.removeFromTop (smallFont.getHeight() * 0.25f);
-        if (plate.getHeight() >= line (smallFont))
-            paintLegend (g, plate.removeFromTop (line (smallFont)), items, context, trace);
+        std::vector<LegendItem> items;
+        if (std::isfinite (view.reading.samePlace)) items.push_back ({ "REF", Needle::samePlace });
+        if (std::isfinite (view.reading.pre)) items.push_back ({ "PRE", Needle::pre });
+        paintLegend (g, plate, items, context, trace);
     }
 }
+
 }
 
 juce::Colour needleColour (Needle needle) noexcept
@@ -195,12 +192,12 @@ juce::Colour needleColour (Needle needle) noexcept
 juce::Rectangle<int> dialBounds (juce::Rectangle<int> bounds)
 {
     const auto face = needle_painter::faceBounds (bounds);
-    return face.withWidth (face.getWidth() * 0.5f).getSmallestIntegerContainer().getIntersection (bounds);
+    return face.getSmallestIntegerContainer().getIntersection (bounds);
 }
 
-juce::Point<float> needlePoint (juce::Rectangle<int> bounds, float normalized, float reach)
+juce::Point<float> needlePoint (juce::Rectangle<int> bounds, float normalized, float reach, int channel)
 {
-    return along (dialGeometry (needle_painter::faceBounds (bounds), 0), normalized, reach);
+    return along (dialGeometry (needle_painter::faceBounds (bounds), channel), normalized, reach);
 }
 
 void paintScale (juce::Graphics& g, juce::Rectangle<int> bounds, const State& state, std::vector<TextBox>* trace)
@@ -208,7 +205,9 @@ void paintScale (juce::Graphics& g, juce::Rectangle<int> bounds, const State& st
     const auto face = needle_painter::faceBounds (bounds);
     const auto width = face.getWidth();
     const bool compact = compactFace (bounds);
-    const auto dial = dialGeometry (face, 0);
+    for (int channel = 0; channel < 2; ++channel)
+    {
+    const auto dial = dialGeometry (face, channel);
     juce::Path arc;
     for (int step = 0; step <= 80; ++step)
     {
@@ -255,6 +254,7 @@ void paintScale (juce::Graphics& g, juce::Rectangle<int> bounds, const State& st
         drawFigures (g, text, area, context, TextRole::axis, lu == 0 ? COL_FLORA_BR : ivory,
                      juce::Justification::centred, trace);
     }
+    }
 }
 
 void paintLive (juce::Graphics& g, juce::Rectangle<int> bounds, const Frame& view, std::vector<TextBox>* trace)
@@ -263,23 +263,26 @@ void paintLive (juce::Graphics& g, juce::Rectangle<int> bounds, const Frame& vie
     const auto width = face.getWidth();
     const bool compact = compactFace (bounds);
     const auto dial = dialGeometry (face, 0);
-    paintBand (g, dial, width, view.facts);
+    const auto right = dialGeometry (face, 1);
+    paintBand (g, right, width, view.facts);
+    paintNeedle (g, right, width, Needle::own, view.integrated);
     if (std::isfinite (view.reading.samePlace)) paintNeedle (g, dial, width, Needle::samePlace, view.samePlace);
     if (std::isfinite (view.reading.pre)) paintNeedle (g, dial, width, Needle::pre, view.pre);
     paintNeedle (g, dial, width, Needle::own, view.own);
 
     const auto context = faceContext (view.vu.presentation);
-    if (! compact)
-        drawFixed (g, "LU", { dial.pivot.x - dial.radiusX * 0.31f, dial.pivot.y - face.getHeight() * 0.405f, dial.radiusX * 0.62f,
-                              juce::jmax (labelFont (context, TextRole::sectionTitle, instrument).getHeight(), scaled (28.0f, width, 10.0f)) },
-                   context, TextRole::sectionTitle, ivory, juce::Justification::centred, trace, 0.08f);
-    // The window and the main needle's value. A value that does not exist reads "---".
     const auto readout = monoFont (context, TextRole::secondaryValue, instrument);
-    drawFigures (g, juce::String (lu_needle::windowLabel (view.window)) + " " + lu_needle::signedLu (view.reading.own),
-                 { dial.pivot.x - dial.radiusX * 0.62f, dial.pivot.y - face.getHeight() * 0.285f,
-                   dial.radiusX * 1.24f, juce::jmax (readout.getHeight(), scaled (42.0f, width, 14.0f)) },
-                 context, TextRole::secondaryValue, std::isfinite (view.reading.own) ? COL_NORMAL : COL_TEXT_SECONDARY,
-                 juce::Justification::centred, trace);
+    const std::array<double, 2> values { view.reading.own, view.integratedLu };
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        const auto item = dialGeometry (face, channel);
+        const auto label = channel == 0 ? lu_needle::windowLabel (view.window) : "I";
+        drawFigures (g, juce::String (label) + " " + lu_needle::signedLu (values[channel]),
+            { item.pivot.x - item.radiusX * 0.62f, item.pivot.y - face.getHeight() * 0.285f,
+              item.radiusX * 1.24f, juce::jmax (readout.getHeight(), scaled (42.0f, width, 14.0f)) },
+            context, TextRole::secondaryValue, std::isfinite (values[channel]) ? COL_NORMAL : COL_TEXT_SECONDARY,
+            juce::Justification::centred, trace);
+    }
     paintZeroText (g, face, view, compact, trace);
 }
 

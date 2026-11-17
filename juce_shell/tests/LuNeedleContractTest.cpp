@@ -57,13 +57,15 @@ void verifyScale()
     KIRIN_LU_REQUIRE (near (many.lowLufs, -19.0) && near (many.highLufs, -3.0));
 
     // The saved choice: face and window in one value; unknown values read as the default.
-    for (const auto window : { Window::momentary, Window::shortTerm, Window::integrated })
+    for (const auto window : { Window::momentary, Window::shortTerm })
         for (const bool face : { false, true })
         {
             const auto packed = lu_needle::packChoice (face, window);
             KIRIN_LU_REQUIRE (lu_needle::packedLuFace (packed) == face && lu_needle::packedWindow (packed) == window);
         }
     KIRIN_LU_REQUIRE (lu_needle::packChoice (false, Window::momentary) == 0);
+    KIRIN_LU_REQUIRE (lu_needle::packedWindow (5) == Window::momentary);
+    KIRIN_LU_REQUIRE (lu_needle::nextWindow (Window::shortTerm) == Window::momentary);
     KIRIN_LU_REQUIRE (lu_needle::packedWindow (7) == Window::momentary);
 
     // The needle points at the value: a 60 ms ease, within 5 % after 180 ms, settled within half a second.

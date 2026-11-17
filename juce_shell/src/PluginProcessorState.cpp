@@ -137,7 +137,9 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                 xml->getBoolAttribute ("hybrid_vu_on_record", true);
             restoredAutoAlign = xml->getBoolAttribute ("live_auto_align", true);
             restoredListenPre = xml->getBoolAttribute ("live_listen_pre", false);
-            restoredLuChoice = (uint8_t) juce::jlimit (0, 5, xml->getIntAttribute ("vu_lu_choice", 0));
+            const auto savedLuChoice = (uint8_t) juce::jlimit (0, 5, xml->getIntAttribute ("vu_lu_choice", 0));
+            restoredLuChoice = hypha::lu_needle::packChoice (hypha::lu_needle::packedLuFace (savedLuChoice),
+                                                            hypha::lu_needle::packedWindow (savedLuChoice));
             restored = true;
         }
     }

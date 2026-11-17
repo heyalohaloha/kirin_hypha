@@ -93,9 +93,9 @@ int brightness (const juce::Image& image, juce::Point<float> point)
     return best;
 }
 
-bool needleAt (const juce::Image& with, const juce::Image& without, juce::Rectangle<int> bounds, double lu)
+bool needleAt (const juce::Image& with, const juce::Image& without, juce::Rectangle<int> bounds, double lu, int channel = 0)
 {
-    const auto point = hybrid_vu::lu_face::needlePoint (bounds, lu_needle::normalized (lu), 0.97f);
+    const auto point = hybrid_vu::lu_face::needlePoint (bounds, lu_needle::normalized (lu), 0.97f, channel);
     return brightness (with, point) > brightness (without, point) + 50;
 }
 
@@ -133,10 +133,11 @@ void verifyText (observatory::View& view)
 void writePreview (const juce::Image& image, observatory::Role role, const char* state, int width)
 {
     const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
-    if (directory.isEmpty() || (width != 300 && width != 600 && width != 900)) return;
+    if (directory.isEmpty() || (width != 300 && width != 450 && width != 600 && width != 900)) return;
     auto output = juce::File (directory).getChildFile (juce::String (role == observatory::Role::pre ? "pre" : "post")
         + "-lu-" + state + "-" + juce::String (width) + ".png").createOutputStream();
-    KIRIN_LU_FACE_REQUIRE (output != nullptr && juce::PNGImageFormat().writeImageToStream (image, *output));
+    KIRIN_LU_FACE_REQUIRE (output != nullptr && output->setPosition (0) && output->truncate().wasOk());
+    KIRIN_LU_FACE_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
 }
 
 void prepare (observatory::View& view, observatory::SizePreset preset, bool post)
@@ -146,6 +147,63 @@ void prepare (observatory::View& view, observatory::SizePreset preset, bool post
                         post ? observatory::ConnectionState::paired : observatory::ConnectionState::source);
     view.setMeterSnapshot (meterFixture(), true);
     view.setManualHybridVuVisible (true);
+}
+
+// Exercise availability independently: stopped playback may retain its session I.
+void verifyIntegratedAvailability (observatory::Role role, observatory::SizePreset preset)
+{
+    juce::Component owner;
+    owner.setSize (preset.width, preset.height);
+    hybrid_vu::LuFace face (owner);
+    face.restore (true, Window::momentary);
+    auto meter = meterFixture();
+    KirinWatchDisplay watch {};
+    hybrid_vu::State state { role, meter, watch, true, true };
+    state.presentation = presentation::forEditor (preset.width, preset.height);
+    const auto delta = deltaFixture();
+    const auto check = [&] (double expected, bool paired)
+    {
+        const auto frame = face.frame (state, delta, paired);
+        if (std::isfinite (expected))
+            KIRIN_LU_FACE_REQUIRE (std::abs (frame.integratedLu - expected) < 1.0e-9);
+        else
+            KIRIN_LU_FACE_REQUIRE (std::isnan (frame.integratedLu));
+        KIRIN_LU_FACE_REQUIRE (frame.integrated == lu_needle::normalized (expected));
+        juce::Image image (juce::Image::RGB, preset.width, preset.height, true);
+        juce::Graphics graphics (image);
+        face.paint (graphics, owner.getLocalBounds(), state, delta, paired, 1.0f);
+        const auto expectedText = "I " + lu_needle::signedLu (expected);
+        bool found = false;
+        for (const auto& box : face.textForTest()) found |= box.text == expectedText;
+        KIRIN_LU_FACE_REQUIRE (found);
+        return frame;
+    };
+    face.setFacts (readyFacts (-4.0));
+    check (-10.5, false);
+    state.cumulativeAvailable = false; // A finite stale I must not leak through.
+    check (lu_needle::nan, false);
+    state.cumulativeAvailable = true;
+    meter.lufs_i = lu_needle::nan;
+    check (lu_needle::nan, false);
+    meter.lufs_i = -14.5;
+    state.currentAvailable = false;
+    KIRIN_LU_FACE_REQUIRE (std::isnan (check (-10.5, false).reading.own));
+    state.currentAvailable = true;
+    for (const auto zero : { Zero::noSong, Zero::noValue })
+    {
+        auto facts = readyFacts (-4.0); facts.zero = zero;
+        face.setFacts (facts); check (lu_needle::nan, false);
+    }
+    auto mono = readyFacts (-4.0); mono.playedOffsetLu = 3.01;
+    face.setFacts (mono); check (-13.51, false);
+    face.setFacts (readyFacts (-4.0));
+    const auto paired = check (-10.5, true);
+    const auto unpaired = check (-10.5, false);
+    KIRIN_LU_FACE_REQUIRE (paired.integrated == unpaired.integrated);
+    KIRIN_LU_FACE_REQUIRE (std::isfinite (paired.reading.pre) == (role == observatory::Role::post));
+    KIRIN_LU_FACE_REQUIRE (std::isnan (unpaired.reading.pre));
+    face.restore (true, Window::shortTerm);
+    check (-10.5, false);
 }
 
 void verifyFace (observatory::Role role, observatory::SizePreset preset)
@@ -219,26 +277,30 @@ void verifyFace (observatory::Role role, observatory::SizePreset preset)
     view.lu().setFacts (readyFacts (20.0)); // far below the scale: the left end, the true figure in the readout
     KIRIN_LU_FACE_REQUIRE (needleAt (render (view), highImage, bounds, -18.0) && shows (view, "S -33.5"));
 
-    // M, S and I, chosen with the window control and reported for saving.
+    // Left cycles M/S only. Right always reads the session I, and legacy I opens on M.
     view.lu().setFacts (readyFacts (-4.0));
     window.onClick();
-    KIRIN_LU_FACE_REQUIRE (choices == 1 && chosenFace && chosenWindow == Window::integrated && window.getButtonText() == "I");
-    const auto integratedImage = render (view);
-    KIRIN_LU_FACE_REQUIRE (shows (view, "I -10.5") && needleAt (integratedImage, highImage, bounds, -10.5));
-    window.onClick();
-    KIRIN_LU_FACE_REQUIRE (choices == 2 && chosenWindow == Window::momentary && window.getButtonText() == "M");
+    KIRIN_LU_FACE_REQUIRE (choices == 1 && chosenFace && chosenWindow == Window::momentary && window.getButtonText() == "M");
     const auto momentaryImage = render (view);
-    KIRIN_LU_FACE_REQUIRE (shows (view, "M -8.5") && needleAt (momentaryImage, integratedImage, bounds, -8.5));
+    KIRIN_LU_FACE_REQUIRE (shows (view, "M -8.5") && shows (view, "I -10.5"));
+    KIRIN_LU_FACE_REQUIRE (needleAt (momentaryImage, highImage, bounds, -10.5, 1));
+    window.onClick();
+    KIRIN_LU_FACE_REQUIRE (choices == 2 && chosenWindow == Window::shortTerm && window.getButtonText() == "S");
+    render (view);
+    KIRIN_LU_FACE_REQUIRE (shows (view, "S -9.5") && shows (view, "I -10.5"));
+    view.lu().restore (true, Window::integrated);
+    KIRIN_LU_FACE_REQUIRE (view.lu().window() == Window::momentary && window.getButtonText() == "M");
+    render (view);
 
     // The PRE needle: only in POST, only with a confirmed PRE of the same moment.
     KIRIN_LU_FACE_REQUIRE (! showsStarting (view, "POST - PRE") && ! shows (view, "PRE"));
     view.setDeltaSnapshot (deltaFixture(), true);
     const auto pairedImage = render (view);
-    KIRIN_LU_FACE_REQUIRE (showsStarting (view, "POST - PRE") == post);
+    KIRIN_LU_FACE_REQUIRE (showsStarting (view, "POST - PRE") == (post && ! compact));
     if (post)
     {
-        KIRIN_LU_FACE_REQUIRE (shows (view, "POST - PRE  +1.2 LU") && needleAt (pairedImage, momentaryImage, bounds, -9.7));
-        KIRIN_LU_FACE_REQUIRE (compact || (shows (view, "POST") && shows (view, "PRE")));
+        KIRIN_LU_FACE_REQUIRE ((compact || shows (view, "POST - PRE  +1.2 LU")) && needleAt (pairedImage, momentaryImage, bounds, -9.7));
+        KIRIN_LU_FACE_REQUIRE (compact || shows (view, "PRE"));
         verifyText (view);
         writePreview (pairedImage, role, "zero-pre", preset.width);
         view.setDeltaSnapshot (deltaFixture(), false);
@@ -254,9 +316,12 @@ void verifyFace (observatory::Role role, observatory::SizePreset preset)
     view.lu().setFacts (banded);
     const auto bandImage = render (view);
     writePreview (bandImage, role, "zero-band", preset.width);
-    const auto bandPoint = hybrid_vu::lu_face::needlePoint (bounds, lu_needle::normalized (1.5), 0.925f);
+    const auto bandPoint = hybrid_vu::lu_face::needlePoint (bounds, lu_needle::normalized (1.5), 0.925f, 1);
     KIRIN_LU_FACE_REQUIRE (bandImage.getPixelAt (juce::roundToInt (bandPoint.x), juce::roundToInt (bandPoint.y))
                            != pairedImage.getPixelAt (juce::roundToInt (bandPoint.x), juce::roundToInt (bandPoint.y)));
+    const auto leftBandPoint = hybrid_vu::lu_face::needlePoint (bounds, lu_needle::normalized (1.5), 0.925f);
+    KIRIN_LU_FACE_REQUIRE (bandImage.getPixelAt (juce::roundToInt (leftBandPoint.x), juce::roundToInt (leftBandPoint.y))
+                           == pairedImage.getPixelAt (juce::roundToInt (leftBandPoint.x), juce::roundToInt (leftBandPoint.y)));
     verifyText (view);
 
     // The song at the same place (FOLLOW A): a third needle; where Kirin OS has no value, a short reason.
@@ -276,6 +341,13 @@ void verifyFace (observatory::Role role, observatory::SizePreset preset)
     KIRIN_LU_FACE_REQUIRE (shows (view, "REF: NO VALUE HERE") || compact);
     verifyText (view);
 
+    following.playedOffsetLu = 3.01;
+    view.lu().setFacts (following);
+    const auto monoMissing = render (view);
+    KIRIN_LU_FACE_REQUIRE (compact || (shows (view, "MONO +3.0") && shows (view, "REF: NO VALUE HERE")));
+    verifyText (view);
+    if (preset.width == 450) writePreview (monoMissing, role, "mono-no-ref", preset.width);
+
     // Back to the VU with the same control; Reference going away also returns the VU and keeps the choice.
     face.onClick();
     KIRIN_LU_FACE_REQUIRE (choices == 3 && ! chosenFace && ! view.luFaceShown() && face.isVisible() && ! window.isVisible());
@@ -293,6 +365,9 @@ void verifyLuNeedleFace()
 {
     for (const auto role : { observatory::Role::pre, observatory::Role::post })
         for (const auto preset : observatory::sizePresets)
+        {
             verifyFace (role, preset);
+            verifyIntegratedAvailability (role, preset);
+        }
 }
 }
