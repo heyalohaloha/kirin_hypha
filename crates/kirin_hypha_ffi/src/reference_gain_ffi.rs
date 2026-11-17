@@ -1,3 +1,5 @@
+#[path = "reference_metrics_ffi.rs"]
+mod metrics;
 #[path = "reference_visual_ffi.rs"]
 mod visual;
 use std::panic::{catch_unwind, AssertUnwindSafe};

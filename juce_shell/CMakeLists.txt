@@ -1158,4 +1158,5 @@ include(cmake/ShortcutTests.cmake)
 include(cmake/NativeTestLibraries.cmake)
 
 include(cmake/NativeStorageGuard.cmake)
+include(cmake/ReferenceMetricTests.cmake)
 include(cmake/NativeTestTargets.cmake)

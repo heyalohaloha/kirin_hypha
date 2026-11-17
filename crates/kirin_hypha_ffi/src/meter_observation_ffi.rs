@@ -1,5 +1,7 @@
 //! UI-only meter snapshots and history export. No audio processing lives here.
 use super::*;
+#[path = "reference_live_metrics_ffi.rs"]
+mod reference_live_metrics;
 #[path = "time_snapshot_ffi.rs"]
 mod time_ffi;
 pub use time_ffi::*;

@@ -44,7 +44,7 @@ fn authority(engine: &KirinHyphaEngine) -> Option<Authority> {
 }
 #[path = "level_comparison_values.rs"]
 mod level;
-pub(super) use level::level_values;
+pub(super) use level::{exact_level_values, level_values};
 #[path = "time_comparison_current.rs"]
 mod current;
 

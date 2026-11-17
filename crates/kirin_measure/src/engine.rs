@@ -5,6 +5,9 @@
 //! EBU Tech 3341の20ms alignment testを取りこぼさないよう内部解析は10ms、既存の
 //! MeasureResult / TRACE / GUI observer公開は100msのまま分離する。
 
+#[path = "reference_metrics.rs"]
+pub mod reference_metrics;
+
 use ebur128::{EbuR128, Mode};
 use std::collections::VecDeque;
 

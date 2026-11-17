@@ -121,3 +121,52 @@ fn continuity_source_and_pair_edges_retire_before_one_second() {
     assert!(values.0[0].is_none() && values.1.is_none());
     assert_eq!(values.0[3], point.wire.values[3]);
 }
+
+#[test]
+fn reference_reconstruction_requires_the_exact_absolute_aperture() {
+    let now = Instant::now();
+    let (point, _, view) = tests::joined(now);
+    let exact = level::exact_values_for_current(
+        &view,
+        point.wire.span,
+        Some(&point),
+        point.wire.observed,
+        now,
+    );
+    assert_eq!(exact, Some((point.wire.values, point.wire.crest)));
+    let mut latest = point.clone();
+    latest.wire.observed += 4800;
+    latest.wire.endpoint = latest.wire.endpoint.map(|end| end + 4800);
+    // Existing LEVEL keeps its bounded publication-lag behavior.
+    assert!(level::values_for_current(&view, point.wire.span, Some(&latest), now).is_some());
+    assert!(level::exact_values_for_current(
+        &view,
+        point.wire.span,
+        Some(&latest),
+        latest.wire.observed,
+        now
+    )
+    .is_none());
+    assert!(level::exact_values_for_current(
+        &view,
+        point.wire.span,
+        None,
+        point.wire.observed,
+        now
+    )
+    .is_none());
+    let mut span = point.wire.span;
+    span.generation += 1;
+    assert!(
+        level::exact_values_for_current(&view, span, Some(&point), point.wire.observed, now)
+            .is_none()
+    );
+    assert!(level::exact_values_for_current(
+        &view,
+        point.wire.span,
+        Some(&point),
+        point.wire.observed,
+        now + Duration::from_secs(2)
+    )
+    .is_none());
+}
