@@ -695,6 +695,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/HybridVuContractTest.cpp
+        tests/LuNeedleContractTest.cpp
+        tests/LuNeedleFaceContractTest.cpp
         tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
         tests/LiveCompareFooterContractTest.cpp
@@ -828,6 +830,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     include(cmake/ReferenceVisualMeasurementTest.cmake)
     kirin_reference_visual_measurement_test(KirinUiRenderContractTests)
     add_test(NAME kirin_hybrid_vu_contract COMMAND KirinUiRenderContractTests --hybrid-vu-only)
+    add_test(NAME kirin_lu_needle_contract COMMAND KirinUiRenderContractTests --lu-needle-only)
     add_test(NAME kirin_vu_animator_lifecycle COMMAND KirinUiRenderContractTests --vu-animation-only)
     add_test(NAME kirin_vu_frame_performance COMMAND KirinUiRenderContractTests --vu-performance-only)
     add_test(NAME kirin_vu_layer_parity COMMAND KirinUiRenderContractTests --vu-layer-only)

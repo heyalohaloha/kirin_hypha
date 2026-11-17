@@ -16,6 +16,7 @@
 #include "AbsoluteTimelineContractTest.h"
 #include "AbsoluteSpectrumContractTest.h"
 #include "ObservatoryViewContractTest.h"
+#include "LuNeedleContractTest.h"
 #include "CaptureHistoryContractTest.h"
 #include "ComparisonPresentationContractTest.h"
 #include "TimeFieldContractTest.h"
@@ -67,6 +68,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { verifyVuAnimatorLifecycle(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-performance-only")
     { measureVuFramePerformance(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--lu-needle-only")
+    { verifyLuNeedleContract(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-layer-only")
     { verifyVuLayerParity(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-frame-trace-only")
@@ -203,6 +206,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyAbsoluteSpectrumContract();
     verifyPerceptualRenderingContract();
     verifyHybridVuContract();
+    verifyLuNeedleContract();
     verifyObservatoryViewContract();
     verifyCaptureHistoryContract();
     verifyTimeHistoryContract();

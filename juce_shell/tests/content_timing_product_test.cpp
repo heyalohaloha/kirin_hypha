@@ -4,6 +4,7 @@
 #include "LiveTimingAvailabilityTest.h"
 #include "TestProcessorStorage.h"
 #include "AutoAlignStateProductTest.h"
+#include "LuChoiceStateProductTest.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -27,6 +28,7 @@ int main()
                           juce::AudioProcessor::wrapperType_AAX })
     {
         verifyAutoAlignState (wrapper, require);
+        verifyLuChoiceState (wrapper, require);
         juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);
         Processor post (Processor::Role::Post);
         auto layout = post.getBusesLayout();
