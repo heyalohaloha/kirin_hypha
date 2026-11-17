@@ -5,7 +5,7 @@
 ### Louder, or better?
 
 Hear what your processing really did — at the same loudness, with the names hidden if you like —
-and see exactly what it changed. It never touches your signal.<br>
+and see exactly what it changed. In normal measurement it never touches your signal.<br>
 A free, open-source loudness meter and comparison plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
 
 </div>
