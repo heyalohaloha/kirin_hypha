@@ -108,7 +108,11 @@ inline void exportReferenceAliasImages()
             (shell.createComponentSnapshot (shell.getLocalBounds()), *stream), "write full shell image");
         ++images;
     }
-    require (output.getChildFile ("controls.tsv").replaceWithText (report), "write inspection inventory");
+    // The destination is fresh; write directly without target-derived temporary siblings.
+    auto inventory = output.getChildFile ("controls.tsv").createOutputStream();
+    require (inventory && inventory->writeText (report, false, false, nullptr), "write inspection inventory");
+    inventory->flush();
+    require (inventory->getStatus().wasOk(), "flush inspection inventory");
     std::cout << "REFERENCE_ALIAS_IMAGES=" << images << " VISIBLE_NAMES=" << visibleNames << " FAILURES=" << failures << '\n';
     require (images == 15 && visibleNames == 15 && failures == 0, "name visibility/font/layout contract");
 }
