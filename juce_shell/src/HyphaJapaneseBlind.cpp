@@ -338,6 +338,7 @@ const Entry entries[] = {
     { "Reveal the results after at least one answer", u8"1回以上選んだら結果を表示できます" },
     { "All rounds answered; reveal when ready", u8"すべて選びました。準備ができたら結果を表示します" },
     { "Measured during this blind", u8"このBLIND中の計測値" },
+    { "Frequency difference (POST - PRE)", u8"周波数の差（POST − PRE）" },
     { "Not shown because the measured time is too short", u8"計測時間が不足しているため表示しません" },
     { "Measurement capacity reached; value not shown", u8"測定の容量に達したため値を出しません" },
     { "Off", u8"切る" },

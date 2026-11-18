@@ -86,6 +86,7 @@ private:
     blind_preference::Trial preference;
     blind_details::Collector detailsMeasurements;
     blind_details::Result measuredDetails;
+    std::shared_ptr<const blind_details::Result> frequencyDetails;
     int rounds = 1, activeRounds = 0; // configured next trial / captured active trial
     bool preferenceBusy = false, awaitingEpoch = false, detailsOpen = false;
     std::uint32_t expectedEpoch = 0;

@@ -3,6 +3,7 @@
 #include <functional>
 
 #include "HyphaTextButton.h"
+#include "HyphaBlindFrequencyRow.h"
 #include "HyphaTextLookAndFeel.h"
 
 // PRE/POST の LIVE BLIND と REF の VERSION BLIND が同じ画面で出す（2026-10-04。形式と見た目を
@@ -37,6 +38,7 @@ struct Screen
     juce::String roundsProgress;
     bool detailsShown = false, detailsOpen = false;
     juce::String detailsText, preferenceResultText, preferenceResultNote;
+    std::shared_ptr<const blind_details::Result> frequencyDetails;
     bool saveImageShown = false;  // SAVE IMAGE on the RESULT, where REVEAL stood
 
     bool operator== (const Screen&) const noexcept;
@@ -85,6 +87,9 @@ private:
     HyphaTextButton saveImage { "SAVE IMAGE" }, detailsToggle { "Details" };
     juce::Label roundsLabel;
     HyphaTextButton roundsOne { "1", true, text_style::LabelPolicy::fixed }, roundsFive { "5", true, text_style::LabelPolicy::fixed }, roundsTen { "10", true, text_style::LabelPolicy::fixed };
+    juce::Viewport detailsViewport;
+    juce::Component detailsContent;
+    FrequencyRow frequencyRow;
     juce::TextEditor detailsBody, preferenceResultBody, preferenceNoteBody;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)
 };

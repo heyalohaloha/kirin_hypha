@@ -7,7 +7,7 @@ namespace hypha::live_blind_ui
 void Component::resetPreference()
 {
     preferenceNameA.clear(); preferenceNameB.clear();
-    detailsMeasurements.clear(); measuredDetails = {};
+    detailsMeasurements.clear(); measuredDetails = {}; frequencyDetails.reset();
     preference.reset(); activeRounds = 0; awaitingEpoch = false; expectedEpoch = 0; detailsOpen = false;
     preferenceFallback = preferenceTimingFallback = preferenceCeilingFallback = false;
     preferenceContentNoticeMs = 0; approvedGainsValid = false; approvedGainGeneration = 0;
@@ -53,7 +53,7 @@ void Component::refreshPreference()
         else { resetPreference(); return; }
     }
     if (current.trial.revealed) {
-        if (preference.canReveal()) { retainPreferenceNotes(); detailsMeasurements.freeze(); measuredDetails = detailsMeasurements.result(); preference.reveal(); detailsOpen = false; }
+        if (preference.canReveal()) { retainPreferenceNotes(); detailsMeasurements.freeze(); measuredDetails = detailsMeasurements.result(); frequencyDetails = std::make_shared<const blind_details::Result> (measuredDetails); preference.reveal(); detailsOpen = false; }
     } else preference.observePlayed (current.generation, current.trial.epoch, current.trial.played);
 }
 void Component::retainPreferenceNotes()
@@ -151,6 +151,7 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
         if (detailsOpen) {
             screen.detailsText = blind_preference::historyText (preference, current.candidate, preferenceNameA, preferenceNameB);
             if (!current.candidate) {
+                screen.frequencyDetails = frequencyDetails;
                 screen.detailsText += "\n\n" + i18n::tr ("Measured during this blind") + " (" + nameB + juce::String::fromUTF8(u8" − ") + nameA + ")";
                 const auto line = [&] (const char* name, const blind_details::Summary& value, const char* unit) {
                     return juce::String ("\n") + name + ": " + (value.sufficient

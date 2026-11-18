@@ -51,7 +51,7 @@ inline bool samePixels (const juce::Image& a, const juce::Image& b)
 }
 
 template <typename Require>
-void requireScreenFits (juce::Component& view, Require require, const juce::String& where)
+void requireScreenFits (juce::Component& view, Require require, const juce::String& where, bool blindDetailsScroll = false)
 {
     const auto context = presentation::forEditor (view.getWidth(), view.getHeight());
     for (int i = 0; i < view.getNumChildComponents(); ++i)
@@ -75,7 +75,7 @@ void requireScreenFits (juce::Component& view, Require require, const juce::Stri
         }
     }
     editor_reachability::checkAtDisplayScales (view, [&] (float scale, const juce::String& problem)
-    { require (false, where + " @" + juce::String (scale) + ": " + problem); });
+    { require (false, where + " @" + juce::String (scale) + ": " + problem); }, blindDetailsScroll);
 }
 }
 
@@ -427,7 +427,7 @@ void verifyBlindGuessAndImage (Require check)
     }
     hypha::tests::runBlindRoundsPreferenceTests (root);
     verifyBlindPreferenceComponent (require, [&] (juce::Component& view, const juce::String& where) {
-        requireScreenFits(view,require,where);
+        requireScreenFits(view,require,where,true);
     }, root, preview);
     i18n::observeMisses (nullptr);
     require (misses().isEmpty(), "every new Japanese line is in the catalog: " + misses().joinIntoString (" | "));

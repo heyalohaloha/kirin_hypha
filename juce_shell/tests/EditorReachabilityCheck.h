@@ -31,10 +31,56 @@ inline bool keyboardReaches (juce::Component& control)
     return false;
 }
 
+// Opt-in for the BLIND details fixture only. The whole read-only editor scrolls inside
+// a viewport; test both ends and hit/keyboard reachability instead of demanding that
+// off-screen content lie in the host. All other controls retain the original checks.
+inline bool checkBlindDetailsScroll (juce::Component& child, juce::Component& editor,
+                                     const std::function<void (const juce::String&)>& fail)
+{
+    if (child.getComponentID() != "live-blind-details-body") return false;
+    juce::Viewport* viewport = nullptr;
+    for (auto* parent = child.getParentComponent(); parent && parent != &editor; parent = parent->getParentComponent())
+        if (parent->getComponentID() == "live-blind-details-viewport")
+            viewport = dynamic_cast<juce::Viewport*> (parent);
+    if (!viewport) { fail ("BLIND details has no scroll viewport"); return true; }
+    auto* content = viewport->getViewedComponent();
+    if (!content || child.getParentComponent() != content || !content->getLocalBounds().contains(child.getBounds()))
+    { fail ("BLIND details is not contained in scroll content"); return true; }
+    const auto viewportBounds = editor.getLocalArea(viewport, viewport->getLocalBounds());
+    if (!editor.getLocalBounds().contains(viewportBounds) || viewportBounds.isEmpty())
+        fail ("BLIND details viewport is outside editor");
+    const auto original = viewport->getViewPosition();
+    for (const bool bottom : { false, true })
+    {
+        viewport->setViewPosition(0, bottom ? child.getBottom() - viewport->getViewHeight() : child.getY());
+        const auto visible = viewport->getViewArea();
+        const auto edge = bottom ? child.getBounds().withTrimmedTop(child.getHeight()-1)
+                                 : child.getBounds().withHeight(1);
+        if (!visible.contains(edge)) fail ("BLIND details text endpoint is unreachable by scrolling");
+        const auto portion = visible.getIntersection(child.getBounds());
+        if (portion.isEmpty()) { fail ("BLIND details visible text is empty"); continue; }
+        const auto point = editor.getLocalPoint(content, portion.getCentre());
+        auto* hit = editor.getComponentAt(point);
+        if (hit != &child && !child.isParentOf(hit)) fail ("BLIND details visible text cannot be reached by a press");
+    }
+    if (!keyboardReaches(child)) fail ("BLIND details is not keyboard reachable");
+    if (auto* graph = content->findChildWithID("live-blind-frequency-details"); graph && graph->isVisible())
+    {
+        if (!content->getLocalBounds().contains(graph->getBounds())) fail ("BLIND frequency row escapes scroll content");
+        viewport->setViewPosition(0, graph->getY());
+        if (!viewport->getViewArea().contains(graph->getBounds()))
+            fail ("BLIND frequency heading, pointer and plot cannot be visible together");
+        const auto bounds = editor.getLocalArea(graph, graph->getLocalBounds());
+        if (!editor.getLocalBounds().contains(bounds)) fail ("BLIND frequency row escapes editor when scrolled into view");
+    }
+    viewport->setViewPosition(original);
+    return true;
+}
+
 // Calls `fail` with a description for each shown control that is cut by the edge of `editor` (the
 // editor, or the host window holding it at a display scale) or that a press at its centre does not
 // reach. Returns the number of controls checked.
-inline int check (juce::Component& editor, const std::function<void (const juce::String&)>& fail)
+inline int check (juce::Component& editor, const std::function<void (const juce::String&)>& fail, bool blindDetailsScroll = false)
 {
     int checked = 0;
     std::function<void (juce::Component&)> visit = [&] (juce::Component& component)
@@ -47,6 +93,7 @@ inline int check (juce::Component& editor, const std::function<void (const juce:
                 || dynamic_cast<juce::TextEditor*> (child) != nullptr;
             if (! control || ! shownWithin (*child, editor)) continue;
             ++checked;
+            if (blindDetailsScroll && checkBlindDetailsScroll(*child, editor, fail)) continue;
             const auto bounds = editor.getLocalArea (child, child->getLocalBounds());
             const auto name = child->getComponentID().isNotEmpty() ? child->getComponentID() : child->getTitle();
             if (! editor.getLocalBounds().contains (bounds))
@@ -74,7 +121,7 @@ inline int check (juce::Component& editor, const std::function<void (const juce:
 // transforms the surface, presses land in the window's pixels. Restores the surface afterwards.
 inline constexpr float displayScales[] { 1.0f, 1.25f, 1.5f, 2.0f };
 
-inline int checkAtDisplayScales (juce::Component& surface, const std::function<void (float, const juce::String&)>& fail)
+inline int checkAtDisplayScales (juce::Component& surface, const std::function<void (float, const juce::String&)>& fail, bool blindDetailsScroll = false)
 {
     auto* parent = surface.getParentComponent();
     const auto transform = surface.getTransform();
@@ -88,7 +135,7 @@ inline int checkAtDisplayScales (juce::Component& surface, const std::function<v
         surface.setTransform (juce::AffineTransform::scale (scale));
         const auto scaled = surface.getBoundsInParent();
         window.setSize (scaled.getRight(), scaled.getBottom());
-        checked += check (window, [&] (const juce::String& problem) { fail (scale, problem); });
+        checked += check (window, [&] (const juce::String& problem) { fail (scale, problem); }, blindDetailsScroll);
     }
     surface.setTransform (transform);
     window.removeChildComponent (&surface);

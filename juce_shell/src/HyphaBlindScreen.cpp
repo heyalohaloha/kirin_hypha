@@ -17,7 +17,7 @@ bool Screen::operator== (const Screen& other) const noexcept
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle, screen.guessShown, screen.guessOpen, screen.guessRight,
-                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.detailsShown, screen.detailsOpen, screen.detailsText, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
+                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.detailsShown, screen.detailsOpen, screen.detailsText, screen.frequencyDetails, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
     };
     return key (*this) == key (other);
 }
@@ -87,7 +87,13 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     detailsBody.setMultiLine (true); detailsBody.setReadOnly (true);
     detailsBody.setScrollbarsShown (true);
     detailsBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
-    addChildComponent (detailsBody);
+    detailsViewport.setComponentID (idPrefix + "-details-viewport");
+    detailsViewport.setViewedComponent (&detailsContent, false);
+    detailsViewport.setScrollBarsShown (true, false);
+    detailsContent.addAndMakeVisible (detailsBody);
+    frequencyRow.setComponentID (idPrefix + "-frequency-details");
+    detailsContent.addChildComponent (frequencyRow);
+    addChildComponent (detailsViewport);
     preferenceResultBody.setComponentID (idPrefix + "-preference-result");
     preferenceResultBody.setMultiLine (true); preferenceResultBody.setReadOnly (true);
     preferenceResultBody.setScrollbarsShown (true);
@@ -108,7 +114,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     apply();
 }
 
-ScreenComponent::~ScreenComponent() { setLookAndFeel (nullptr); }
+ScreenComponent::~ScreenComponent() { detailsViewport.setViewedComponent (nullptr, false); setLookAndFeel (nullptr); }
 
 void ScreenComponent::setActionNotice (const juce::String& notice)
 {
@@ -218,7 +224,10 @@ void ScreenComponent::apply()
     if (preferenceResultBody.getText() != resultText) preferenceResultBody.setText (resultText, false);
     detailsToggle.setVisible (shown.detailsShown);
     detailsToggle.setButtonText (shown.detailsOpen ? "Back" : "Details");
+    detailsViewport.setVisible (shown.detailsShown && shown.detailsOpen);
     detailsBody.setVisible (shown.detailsShown && shown.detailsOpen);
+    frequencyRow.setResult (shown.frequencyDetails);
+    frequencyRow.setVisible (shown.detailsShown && shown.detailsOpen && shown.frequencyDetails != nullptr);
     if (detailsBody.getText() != shown.detailsText) detailsBody.setText (shown.detailsText, false);
     saveImage.setVisible (shown.saveImageShown);
     saveImage.setTitle ("Save the result as an image");
@@ -236,7 +245,7 @@ void ScreenComponent::apply()
             own->setVisible (false);
     if (covered)
         for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
-                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &detailsToggle, &detailsBody, &preferenceResultBody, &preferenceNoteBody })
+                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &detailsToggle, &detailsViewport, &detailsBody, &preferenceResultBody, &preferenceNoteBody })
             own->setVisible (false);
     repaint();
 }
@@ -289,7 +298,15 @@ void ScreenComponent::resized()
         auto actions = panel.removeFromBottom (compact ? 28 : 40);
         detailsToggle.setBounds (actions.removeFromLeft (actions.getWidth() / 2).reduced (3, 0));
         end.setBounds (actions.reduced (3, 0));
-        detailsBody.setBounds (panel.reduced (0, 5));
+        detailsViewport.setBounds (panel.reduced (0, 5));
+        const int width = juce::jmax (1, detailsViewport.getWidth() - detailsViewport.getScrollBarThickness());
+        detailsBody.setScrollbarsShown (false);
+        detailsBody.setBounds (0, 0, width, 100);
+        const int textHeight = juce::jmax (40, detailsBody.getTextHeight() + 16);
+        detailsBody.setSize (width, textHeight);
+        const int graphHeight = juce::jmax (108, juce::jmin (180, detailsViewport.getHeight()));
+        frequencyRow.setBounds (0, textHeight + 12, width, graphHeight);
+        detailsContent.setSize (width, textHeight + (shown.frequencyDetails ? graphHeight + 12 : 0));
         return;
     }
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
