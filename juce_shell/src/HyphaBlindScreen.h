@@ -36,7 +36,7 @@ struct Screen
     int roundsValue = 1;
     juce::String roundsProgress;
     bool detailsShown = false, detailsOpen = false;
-    juce::String detailsText, preferenceResultText;
+    juce::String detailsText, preferenceResultText, preferenceResultNote;
     bool saveImageShown = false;  // SAVE IMAGE on the RESULT, where REVEAL stood
 
     bool operator== (const Screen&) const noexcept;
@@ -85,7 +85,7 @@ private:
     HyphaTextButton saveImage { "SAVE IMAGE" }, detailsToggle { "Details" };
     juce::Label roundsLabel;
     HyphaTextButton roundsOne { "1", true, text_style::LabelPolicy::fixed }, roundsFive { "5", true, text_style::LabelPolicy::fixed }, roundsTen { "10", true, text_style::LabelPolicy::fixed };
-    juce::TextEditor detailsBody, preferenceResultBody;
+    juce::TextEditor detailsBody, preferenceResultBody, preferenceNoteBody;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)
 };
 }

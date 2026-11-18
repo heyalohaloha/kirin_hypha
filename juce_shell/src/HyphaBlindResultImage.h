@@ -257,7 +257,7 @@ inline Layout layoutFor (const Facts& facts)
 
     if (facts.preference.total() > 0)
     {
-        for (const auto& text : { blind_preference::summaryLine (facts.preference, facts.candidate),
+        for (const auto& text : { blind_preference::summaryLine (facts.preference, facts.candidate, facts.nameA, facts.nameB, true),
                                   blind_preference::probabilityLine (facts.preference) })
         {
             if (text.isEmpty()) continue;

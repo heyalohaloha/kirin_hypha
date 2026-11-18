@@ -16,17 +16,17 @@ press **END**. This is the existing BLIND flow.
 
 ## Preference rounds
 
-Choose **ROUNDS 1 / 5 / 10** near REVEAL in the BLIND screen. **1** is the default and keeps
+Choose **ROUNDS 1× / 5× / 10×** near REVEAL in the BLIND screen. **1** is the default and keeps
 the existing comparison without a question. MENU offers the same **ROUNDS** setting and stays in
 sync with the screen. At small sizes where the screen control cannot fit legibly, use MENU instead.
 You can change the count only before the first answer of that trial. After an answer, the control
-shows progress such as **3 / 5** and cannot be changed; you can choose again for the next trial.
+shows progress such as **Round 3 of 5** and cannot be changed; you can choose again for the next trial.
 
 With **5** or **10** selected, BLIND asks **Which do you prefer?** in both PRE/POST and A/B comparisons. After both sources have
 actually sounded in the current round, choose **1** or **2**. An interval where a substitute
 source played does not count as hearing the requested source.
 
-The counter shows the current round, such as **3 / 5**. Each answer starts a new, independently
+The counter shows the current round, such as **Round 3 of 5**. Each answer starts a new, independently
 randomized hidden assignment, while the matched gain and approval stay fixed. Hearing marks start
 over for each round. The source number you have selected stays the same, but its hidden assignment
 may change. If a random assignment cannot be prepared, Hypha stops rather than using a predictable one.
@@ -34,7 +34,7 @@ may change. If a random assignment cannot be prepared, Hypha stops rather than u
 After at least one answer, you can press **REVEAL** without finishing all the rounds. An unanswered
 round is not counted. After the final answer, Hypha invites you to reveal; it does not reveal automatically.
 The result reports the number of times you chose PRE or POST (A or B in A/B), or the equal counts.
-From two completed rounds onward, it also reports how often a preference at least this uneven would
+From two completed rounds onward, except when the percentage rounds to 100%, it also reports how often a preference at least this uneven would
 occur when choosing at random, using a two-sided binomial calculation. This is a description of the
 choices, not an assessment of the listener, an ABX identification test, or proof of better sound.
 

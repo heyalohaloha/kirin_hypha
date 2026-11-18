@@ -77,6 +77,7 @@ private:
     void refreshPreference();
     void choosePreference (int);
     void resetPreference();
+    juce::String preferenceNameA, preferenceNameB;
     void decoratePreference (blind_ui::Screen&) const;
     void retainPreferenceNotes();
     bool rememberNames();

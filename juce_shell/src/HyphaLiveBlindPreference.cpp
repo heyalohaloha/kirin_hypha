@@ -6,6 +6,7 @@ namespace hypha::live_blind_ui
 {
 void Component::resetPreference()
 {
+    preferenceNameA.clear(); preferenceNameB.clear();
     detailsMeasurements.clear(); measuredDetails = {};
     preference.reset(); activeRounds = 0; awaitingEpoch = false; expectedEpoch = 0; detailsOpen = false;
     preferenceFallback = preferenceTimingFallback = preferenceCeilingFallback = false;
@@ -131,21 +132,26 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
         screen.roundsShown = true; screen.roundsEnabled = canChangePreferenceRounds();
         screen.roundsValue = activeRounds;
         if (preference.answered() > 0)
-            screen.roundsProgress = juce::String (preference.roundNumber()) + " / " + juce::String (preference.planned());
+            screen.roundsProgress = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
     }
     if (preference.planned() == 0) return;
     const bool revealed = current.trial.revealed && preference.phase() == blind_preference::Phase::revealed;
     if (revealed) {
         screen.guessShown = false; screen.guessOpen = false; screen.guessAnswer = 0; screen.guessRight = false;
         screen.guessQuestion.clear(); screen.guessOutcome.clear();
-        screen.preferenceResultText = blind_preference::summaryLine (preference.summary(), current.candidate);
+        screen.preferenceResultText = blind_preference::summaryLine (preference.summary(), current.candidate, preferenceNameA, preferenceNameB);
         const auto chance = blind_preference::probabilityLine (preference.summary());
         if (chance.isNotEmpty()) screen.preferenceResultText += "\n" + chance;
+        const auto nameA = blind_preference::sideName(true,current.candidate,preferenceNameA,preferenceNameB);
+        const auto nameB = blind_preference::sideName(false,current.candidate,preferenceNameA,preferenceNameB);
+        screen.sourceOne = "1: " + (current.trial.firstPre ? nameA : nameB);
+        screen.sourceTwo = "2: " + (current.trial.firstPre ? nameB : nameA);
+        screen.preferenceResultNote = text_style::shownText(screen.instruction) + "\n" + text_style::shownText(screen.detail);
         screen.detailsShown = preference.answered() > 0; screen.detailsOpen = detailsOpen;
         if (detailsOpen) {
-            screen.detailsText = blind_preference::historyText (preference, current.candidate);
+            screen.detailsText = blind_preference::historyText (preference, current.candidate, preferenceNameA, preferenceNameB);
             if (!current.candidate) {
-                screen.detailsText += "\n\n" + i18n::tr ("Measured during this blind") + " (POST - PRE)";
+                screen.detailsText += "\n\n" + i18n::tr ("Measured during this blind") + " (" + nameB + juce::String::fromUTF8(u8" − ") + nameA + ")";
                 const auto line = [&] (const char* name, const blind_details::Summary& value, const char* unit) {
                     return juce::String ("\n") + name + ": " + (value.sufficient
                         ? juce::String (value.median, 2) + " " + unit
@@ -156,15 +162,16 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
                     + line ("CREST", measuredDetails.crest, "dB") + line ("SHARP", measuredDetails.sharp, "acum");
             }
             if (!current.candidate && approvedGainsValid && approvedGainGeneration == current.generation) {
-                screen.detailsText += "\n" + i18n::tr ("Matched level: PRE %1 dB; POST %2 dB.")
-                    .replace ("%1", juce::String (approvedPreDb,1)).replace ("%2", juce::String (approvedPostDb,1));
+                screen.detailsText += "\n" + i18n::tr ("Matched level: %1 %2 dB; %3 %4 dB")
+                    .replace ("%1", nameA).replace ("%2", blind_preference::signedDb(approvedPreDb))
+                    .replace ("%3", nameB).replace ("%4", blind_preference::signedDb(approvedPostDb));
             }
         }
         return;
     }
     screen.guessShown = true; screen.guessOpen = preference.canAnswer(); screen.guessAnswer = 0;
     screen.guessQuestion = i18n::tr ("Which do you prefer?");
-    screen.guessOutcome = juce::String (preference.roundNumber()) + " / " + juce::String (preference.planned());
+    screen.guessOutcome = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
     screen.revealEnabled = preference.canReveal();
     screen.revealTitle = "Reveal the results after at least one answer";
     if (screen.revealEnabled) screen.alignOffShown = false;

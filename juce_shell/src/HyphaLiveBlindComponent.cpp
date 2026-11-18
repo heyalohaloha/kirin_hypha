@@ -179,7 +179,9 @@ void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPl
     const bool startsTrial = next.stage == Stage::active && !next.trial.invalidated && !next.trial.revealed
         && (current.stage != Stage::active || current.trial.invalidated || current.generation != next.generation);
     current = next;
-    if (startsTrial && !preferenceBusy) { resetPreference(); activeRounds = rounds; detailsMeasurements.begin(); }
+    if (startsTrial && !preferenceBusy) { resetPreference(); activeRounds = rounds; detailsMeasurements.begin();
+        preferenceNameA = blind_image::rememberedName(preferences,current.candidate,false);
+        preferenceNameB = blind_image::rememberedName(preferences,current.candidate,true); }
     playing = hostPlaying;
     actualPost = postActual;
     repeating = repeatingAudio;
@@ -246,6 +248,7 @@ bool Component::rememberNames()
     const auto facts = sheet->facts();
     const auto a = blind_image::rememberName (preferences, facts.candidate, false, sheet->nameField (false).getText());
     const auto b = blind_image::rememberName (preferences, facts.candidate, true, sheet->nameField (true).getText());
+    if (a && b) { preferenceNameA = facts.nameA; preferenceNameB = facts.nameB; show(); }
     return a && b;
 }
 

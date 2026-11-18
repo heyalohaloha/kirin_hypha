@@ -225,7 +225,7 @@ void verifyBlindGuessAndImage (Require check)
         const auto font = labelFont (presentation::forEditor (900, 600), typography::TextRole::unit, typography::Composition::information);
         for (const auto* help : { "Answer SOURCE 1", "Answer SOURCE 2", "Choose an answer first", "Reveal the sources after choosing an answer", "The answer was fixed at REVEAL", "Save the result as an image",
                                   "Choose where to save the image", "Back to the result", "Name of POST in the image, up to 16 characters",
-                                  "GUESS setting could not be saved", "Image saved", "Names could not be remembered",
+                                  "Rounds setting could not be saved", "Image saved", "Names could not be remembered",
                                   "Image saved; names could not be remembered" })
             if (text_style::shownWidth (font, help) > (float) line.getWidth())
                 tooWide << "\n  " << tag << juce::String (text_style::shownWidth (font, help), 0) << " > " << line.getWidth()

@@ -68,7 +68,7 @@ inline std::vector<Notice> notices()
     }
     // Direct action results and numeric boundaries in the LISTEN rail, including entry refusal,
     // MATCH, AUTO and END. These are transient notices, not timing verdicts.
-    for (const char* text : { "LISTEN could not start", "Choose the PRE first", "GUESS setting could not be saved",
+    for (const char* text : { "LISTEN could not start", "Choose the PRE first", "Rounds setting could not be saved",
         "Mono / stereo only", "PRE not running; choose again", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
         "MATCH failed; try again", "MATCH over 24 dB", "No MATCH: timing not confirmed", "No MATCH: not enough signal", "POST back to normal", "MATCH off: original levels", "MATCH on",

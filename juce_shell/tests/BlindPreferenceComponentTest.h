@@ -93,7 +93,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
         require(!h.view.canChangePreferenceRounds() && !h.view.setPreferenceRounds(1)
             && h.view.preferenceRounds()==10 && h.view.trialSummary().total()==1,"answered trial rejects changes without resetting votes");
         h.view.onRounds(5); require(changed==5 && h.view.preferenceRounds()==10,"disabled selector sends no setting change");
-        require(!h.view.screen().roundsEnabled && h.view.screen().roundsProgress=="2 / 10","answered selector becomes progress only");
+        require(!h.view.screen().roundsEnabled && h.view.screen().roundsProgress==blind_preference::roundProgress(2,10),"answered selector becomes progress only");
         h.reveal(); require(!h.view.setPreferenceRounds(5),"result cannot retroactively change round target");
         h.status.stage=live_compare::BlindStage::idle; h.status.trial.revealed=false; h.publish();
         require(h.view.canChangePreferenceRounds() && h.view.setPreferenceRounds(1),"after END next trial can select again");
@@ -148,6 +148,25 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
     for (auto language : {i18n::Language::english,i18n::Language::japanese}) {
         const i18n::ScopedLanguage shown(language);
         const auto lang = language==i18n::Language::english ? "en" : "ja";
+        for (const auto counts : {std::pair<unsigned,unsigned>{5,0},{4,1},{3,2},{10,0},{9,1},{8,2},{7,3},{6,4},{5,5}}) {
+            const blind_preference::Summary summary{counts.first,counts.second,blind_preference::probability(counts.first,counts.second)};
+            require(blind_preference::probabilityLine(summary).isEmpty()==(summary.chance.roundedPerHundred()==100),
+                "rounded 100 percent is hidden; other probabilities remain visible");
+        }
+        for (bool candidate : {false,true}) {
+            const auto namesFile=root.getChildFile("preference-named-fixture");
+            const auto a=language==i18n::Language::japanese ? juce::String::fromUTF8(u8"処理前") : juce::String("Before");
+            const auto b=language==i18n::Language::japanese ? juce::String::fromUTF8(u8"処理後") : juce::String("After");
+            require(blind_image::rememberName(namesFile,candidate,false,a)
+                && blind_image::rememberName(namesFile,candidate,true,b),"named fixture settings prepared");
+            Harness named(5,candidate,namesFile); named.heard(3); named.choose(1); named.reveal();
+            require(named.view.screen().preferenceResultText.contains(a)
+                && named.view.screen().sourceOne.contains(b) && named.view.screen().sourceTwo.contains(a),
+                "named revealed cards and preference summary use the same names");
+            named.view.onDetails();
+            require(named.view.screen().detailsText.contains(a),"named history preserves chosen card name");
+            require(namesFile.deleteFile(),"named fixture settings removed");
+        }
         for (bool candidate : {false,true}) for (int width : {300,600,900}) {
             Harness h(5,candidate,file); h.view.setBounds(0,0,width,width*2/3);
             live_compare::GainSnapshot gain;
@@ -184,22 +203,64 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             const auto selector = childById("live-blind-rounds-5");
             const auto progress = childById("live-blind-rounds-label");
             require(selector && progress && selector->isVisible()==(width>=450),"selector is available at 600/900 and hidden at 300");
+            const auto verifyCoverRoundTrip = [&] (bool answered) {
+                auto* one=childById("live-blind-rounds-1");
+                auto* ten=childById("live-blind-rounds-10");
+                auto* outcome=childById("live-blind-guess-outcome");
+                require(one && ten && outcome,"covered round controls exist");
+                h.view.setCovered(true);
+                require(!selector->isVisible() && !progress->isVisible()
+                    && !one->isVisible() && !ten->isVisible(),"covered immediately hides every round control");
+                h.view.resized();
+                h.view.setCovered(false);
+                const bool large=width>=450;
+                require(progress->isVisible()==large && selector->isVisible()==(large && !answered)
+                    && one->isVisible()==(large && !answered) && ten->isVisible()==(large && !answered),
+                    "uncover restores selector or progress; compact stays hidden");
+                require(outcome->isVisible()==!large,"uncover keeps only compact inline progress");
+            };
+            verifyCoverRoundTrip(false);
             save("selector");
             h.heard(3); h.choose(1); h.heard(3); h.choose(2);
             require(h.view.preferenceTrial().roundNumber()==3 && !selector->isVisible(),"answered selector buttons replaced by progress");
             require(progress->isVisible()==(width>=450),"small-size progress fallback does not overlap");
             if (auto* label=dynamic_cast<juce::Label*>(progress); label && label->isVisible())
                 require(label->getFont().getHeight()>=12.0f,"progress text remains at least 12px");
+            verifyCoverRoundTrip(true);
             save("round3"); h.reveal(); save("result");
             h.view.setPreferenceApprovedGains(h.status.generation,gain);
             h.view.onDetails(); save("details");
+            auto* detailsEditor=dynamic_cast<juce::TextEditor*>(childById("live-blind-details-body"));
+            require(detailsEditor && detailsEditor->isReadOnly(),"details scroll preview uses the read-only body");
+            if (detailsEditor) {
+                const auto originalText=detailsEditor->getText();
+                detailsEditor->moveCaretToEnd();
+                require(detailsEditor->getCaretPosition()==originalText.length()
+                    && detailsEditor->getText()==originalText,"scrolling to details end preserves all text");
+                auto* viewport = [&]() -> juce::Viewport* {
+                    for (int i=0;i<detailsEditor->getNumChildComponents();++i)
+                        if (auto* v=dynamic_cast<juce::Viewport*>(detailsEditor->getChildComponent(i))) return v;
+                    return nullptr;
+                }();
+                require(viewport && viewport->getViewedComponent(),"details has a measurable text viewport");
+                if (viewport && viewport->getViewedComponent()) {
+                    const auto last=detailsEditor->getCaretRectangleForCharIndex(juce::jmax(0,originalText.length()-1));
+                    const auto visible=detailsEditor->getLocalArea(viewport,viewport->getLocalBounds());
+                    require(last.getY()>=visible.getY() && last.getBottom()<=visible.getBottom(),
+                        "details final character is vertically visible after moving caret to end");
+                    const int bottom=viewport->getViewedComponent()->getHeight();
+                    require(viewport->getViewPositionY()+viewport->getViewHeight()>=bottom-2,
+                        "details viewport reaches content bottom, or all text fits without scrolling");
+                }
+                save("details-end");
+            }
             if (!candidate) require(h.view.screen().detailsText.contains("PSR")
                 && h.view.screen().detailsText.contains(i18n::tr("Not shown because the measured time is too short")),
                 "unmeasured details give explicit insufficient-time reason, not invented values");
             if (candidate) require(!h.view.screen().detailsText.contains("dB"),"A/B details contains no unsupported measured values");
             else {
-                require(h.view.screen().detailsText.contains("1.2") && h.view.screen().detailsText.contains("-2.3"),"validated approved gain displayed");
-                const auto hasGain = [&] { return h.view.screen().detailsText.contains("1.2") && h.view.screen().detailsText.contains("-2.3"); };
+                require(h.view.screen().detailsText.contains("1.2") && h.view.screen().detailsText.contains(juce::String::fromUTF8(u8"−2.3")),"validated approved gain displayed");
+                const auto hasGain = [&] { return h.view.screen().detailsText.contains("1.2") && h.view.screen().detailsText.contains(juce::String::fromUTF8(u8"−2.3")); };
                 auto changed=gain; ++changed.revision;
                 h.view.setPreferenceApprovedGains(h.status.generation,changed);
                 require(!hasGain(),"new revision cannot replace initial captured gain");
@@ -220,14 +281,49 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
                 h.heard(3); h.choose(1); h.reveal(); h.view.onDetails();
                 require(!hasGain() && h.view.screen().detailsText.contains("0.0"),"END clears stored tuple so new trial captures new gain");
             }
+            // A fresh generation gives five accepted A votes without exposing hidden mapping.
+            h.status.stage=live_compare::BlindStage::idle; h.publish();
+            ++h.status.generation; ++h.status.trial.epoch; h.status.trial.revealed=false;
+            h.accepted=0; h.nextCalls=0; h.status.stage=live_compare::BlindStage::active; h.publish();
+            for (unsigned vote=0;vote<5;++vote) {
+                h.heard(3);
+                const bool firstA=(h.accepted+1)%3!=0;
+                h.choose(firstA?1:2);
+            }
+            require(h.accepted==5 && h.view.trialSummary().a==5 && h.view.trialSummary().b==0,"majority fixture has five accepted A answers");
+            h.reveal();
+            const auto summary=blind_preference::summaryLine(h.view.trialSummary(),candidate);
+            const auto chance=blind_preference::probabilityLine(h.view.trialSummary());
+            require(summary.isNotEmpty() && chance.isNotEmpty()
+                && h.view.screen().preferenceResultText==summary+"\n"+chance,
+                "majority result contains both complete result and nonempty probability");
+            save("result-majority"); // Preserve the diagnostic image even if visibility fails below.
+            auto* result=dynamic_cast<juce::TextEditor*>(childById("live-blind-preference-result"));
+            require(result && result->isVisible(),"majority result pane is visible");
+            if (result) {
+                juce::Viewport* viewport=nullptr;
+                for(int i=0;i<result->getNumChildComponents();++i)
+                    if(auto* v=dynamic_cast<juce::Viewport*>(result->getChildComponent(i))) viewport=v;
+                require(viewport && viewport->getViewedComponent(),"majority result viewport is measurable");
+                if(viewport && viewport->getViewedComponent()) {
+                    const auto visible=result->getLocalArea(viewport,viewport->getLocalBounds());
+                    const auto first=result->getCaretRectangleForCharIndex(0);
+                    const auto last=result->getCaretRectangleForCharIndex(result->getText().length()-1);
+                    require(viewport->getViewPositionY()==0
+                        && viewport->getViewedComponent()->getHeight()<=viewport->getViewHeight()+2
+                        && first.getY()>=visible.getY() && last.getBottom()<=visible.getBottom(),
+                        "complete majority result and probability fit without vertical scrolling at every size");
+                }
+            }
         }
         for (bool candidate : {false,true}) for (const auto counts : {std::pair<unsigned,unsigned>{1,0},{5,0},{8,2},{5,5}}) {
             blind_image::Facts facts; facts.candidate=candidate;
             const bool named = counts.first==8 && counts.second==2;
             if (named) {
-                facts.nameA=language==i18n::Language::japanese ? juce::String::fromUTF8(u8"比較前") : "Before";
-                facts.nameB=language==i18n::Language::japanese ? juce::String::fromUTF8(u8"比較後") : "After";
+                facts.nameA=language==i18n::Language::japanese ? juce::String::fromUTF8(u8"処理前") : "Before";
+                facts.nameB=language==i18n::Language::japanese ? juce::String::fromUTF8(u8"処理後") : "After";
             }
+            if (!named) { facts.nameA=blind_image::defaultName(candidate,false); facts.nameB=blind_image::defaultName(candidate,true); }
             facts.preference={counts.first,counts.second,blind_preference::probability(counts.first,counts.second)};
             const auto layout=blind_image::layoutFor(facts);
             juce::String text;
@@ -240,8 +336,8 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             if (named) require(text.contains(facts.nameA) && text.contains(facts.nameB),
                 "named preference image preserves both supplied display names");
             const auto plain=[](juce::String x){return x.removeCharacters(" \n\r");};
-            require(plain(text).contains(plain(blind_preference::summaryLine(facts.preference,candidate))),"image includes exact preference summary");
-            if (facts.preference.chance.available)
+            require(plain(text).contains(plain(blind_preference::summaryLine(facts.preference,candidate,facts.nameA,facts.nameB,true))),"image includes exact preference summary");
+            if (blind_preference::probabilityLine(facts.preference).isNotEmpty())
                 require(plain(text).contains(plain(blind_preference::probabilityLine(facts.preference))),"image includes exact two-sided probability text");
             if (language == i18n::Language::japanese)
                 require(!blind_preference::probabilityLine(facts.preference).contains("about")
