@@ -195,19 +195,36 @@ fn sync_directory(directory: &File) -> io::Result<()> {
     directory.sync_all()
 }
 
+#[cfg(any(target_vendor = "apple", test))]
+#[path = "atomic_file_sync_fallback.rs"]
+mod sync_fallback;
+
 #[cfg(target_vendor = "apple")]
 fn barrier(file: &File) -> io::Result<()> {
     use std::os::fd::AsRawFd;
-    loop {
-        // SAFETY: F_BARRIERFSYNC takes no argument; `file` owns the descriptor for this call.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return file.sync_all().map_err(|_| error);
-        }
-    }
+    static FALLBACK_WARNED: AtomicBool = AtomicBool::new(false);
+    sync_fallback::run(
+        || {
+            // SAFETY: F_BARRIERFSYNC takes no argument; file owns this descriptor.
+            if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        },
+        || file.sync_all(),
+        |primary, fallback| {
+            if FALLBACK_WARNED.swap(true, Ordering::Relaxed) {
+                log::debug!(
+                    "[durable] F_BARRIERFSYNC failed: {primary}; sync_all fallback failed: {fallback}"
+                );
+            } else {
+                log::warn!(
+                    "[durable] F_BARRIERFSYNC failed: {primary}; sync_all fallback failed: {fallback}"
+                );
+            }
+        },
+    )
 }
 
 #[cfg(not(test))]
