@@ -2,6 +2,7 @@
 
 #include "../src/HyphaReferenceDisplayText.h"
 #include "../src/HyphaLanguage.h"
+#include "ReferenceAliasImagesTest.h"
 #include "../src/HyphaTextStyle.h"
 #include <cstdlib>
 #include <iostream>
@@ -14,6 +15,7 @@ namespace hypha::tests
 {
 inline void verifyReferenceJapaneseNames()
 {
+    exportReferenceAliasImages();
     const auto check = [] (bool valid, const char* message)
     {
         if (! valid) { std::cerr << "Reference Japanese names: " << message << '\n'; std::exit (1); }
@@ -57,7 +59,7 @@ inline void verifyReferenceJapaneseNames()
         const auto checks = shownLabels (shown.checks, true);  // Check のタブ
         check (checks[0] == utf8 (u8"低域") && checks[1] == utf8 (u8"ダイナミクス")
                    && checks[2] == utf8 (u8"ボーカルのバランス") && checks[3] == utf8 (u8"音色")
-                   && checks[5] == utf8 (u8"聴かせどころ") && checks[9] == utf8 (u8"低域"),
+                   && checks[5] == utf8 (u8"聴かせたい箇所") && checks[9] == utf8 (u8"低域"),
                "each Check tab reads as Kirin OS names it in Japanese");
         check (checks[4] == "Stereo" && checks[6] == "Mono", "a name Kirin OS keeps in English stays English");
         check (checks[7] == utf8 (u8"QA 自分の音色確認") && checks[8] == "Tone mix",

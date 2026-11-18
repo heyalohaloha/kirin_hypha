@@ -12,6 +12,12 @@ namespace hypha::reference_ui
 // だけに使い（kirinOsBuiltInId）、日本語で保存された名前も英語の画面では英語にそろえる。名前の後ろに曲名・順位が
 // 付いた形（「名前  /  曲名」「名前   1 / 3」）にも当てる。ID・利用者が付けた名前・音源は変えない。
 inline constexpr const char* standardDisplayNames[][2] {
+    { u8"録音｜部屋・ノイズ・他の音の混入", u8"Recording · room, noise, and bleed" },
+    { u8"聴かせたい箇所の位置", u8"Hook placement" },
+    { u8"聴かせたい箇所", u8"Hook" },
+    { u8"分離と他の音の混入", u8"Separation and bleed" },
+    { u8"他の音の混入", u8"Bleed" },
+    { u8"録音｜部屋・ノイズ・Bleed", u8"Recording · room, noise, and bleed" },
     { u8"Mastering｜ステレオ・低域・全体の流れ", u8"Mastering · stereo, low end, and context" },
     { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" },
     { u8"編曲｜グルーヴ・展開・Hook", u8"Arrangement · groove, energy, and hooks" },
@@ -138,6 +144,11 @@ inline bool kirinOsBuiltInId (const juce::String& id)
 // 日本語の画面で Kirin OS の日本語の画面と同じ名前（ja.json）。上の表を逆に引き、Kirin OS が日本語でも英語のまま出す
 // 名前は英語のまま。
 inline constexpr const char* standardJapaneseOverrides[][2] {
+    { u8"Recording · room, noise, and bleed", u8"録音｜部屋・ノイズ・他の音の混入" },
+    { u8"Hook placement", u8"聴かせたい箇所の位置" },
+    { u8"Hook", u8"聴かせたい箇所" },
+    { u8"Separation and bleed", u8"分離と他の音の混入" },
+    { u8"Bleed", u8"他の音の混入" },
     { "Mastering", "Mastering" }, { "Stereo", "Stereo" }, { "MIX", "MIX" }, { "Arrangement", u8"構成" },
 };
 

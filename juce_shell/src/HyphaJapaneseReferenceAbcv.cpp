@@ -7,7 +7,7 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
-    { "V works best with Hypha on the 2Mix.", u8"VはHyphaを2Mixに置くと動きやすい" },
+    { "V works best with Hypha on the 2Mix.", u8"VはHyphaを2Mixに置くと動作しやすい" },
     { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSで確認" },
     { "AUDIO READ FAILED", u8"音声を読み出せません" },
     { "PLAYHEAD OUTSIDE VERSION", u8"再生位置が版の範囲外です" },
@@ -137,7 +137,7 @@ const Entry entries[] = {
     { "OTHER SONGS", u8"他の曲" },
     { "NOT SENT TO HYPHA", u8"Hyphaに出していない" },  // Kirin OS で外した CHECK セット（2026-10-18）
     { "CHECKING", u8"確認中" },
-    { "A PLAYS UNTIL READY / PRESS A TO STOP WAITING", u8"準備できるまでAを鳴らします / Aで待つのをやめる" },
+    { "A PLAYS UNTIL READY / PRESS A TO STOP WAITING", u8"準備できるまでAを鳴らします / Aで待機を中止" },
     { "%1 AHEAD", u8"前に%1曲" },
     { "KIRIN OS CANNOT FIND THE FILE / IT RETRIES ONCE SOON", u8"Kirin OSがファイルを見つけられません / まもなく再試行" },
     { "KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS", u8"Kirin OSがファイルを見つけられません / Kirin OSで再試行" },
@@ -173,11 +173,11 @@ const Entry entries[] = {
     { "Peak of each moment (dBFS), with the compared side at the level it plays at.",
       u8"瞬間ごとのPeak（dBFS）。比べる側は鳴らす音量に合わせて並べる。" },
     { "RMS of each moment (dBFS), the body of the sound, with the compared side at its playing level.",
-      u8"瞬間ごとのRMS（dBFS）。音の芯の大きさ。比べる側は鳴らす音量で並べる。" },
+      u8"瞬間ごとのRMS（dBFS）。音の実効レベル。比べる側は鳴らす音量で並べる。" },
     { "Onset: how sharply the level rises from the moment before. Shows the attacks.",
       u8"Onset：前の瞬間からの音量の上がり方。Attackの強さを見る。" },
     { "Attack: how far each moment's peak stands above its loudness (LUFS-M); limiting lowers it.",
-      u8"Attack：PeakがLUFS-Mからどれだけ突き出るか。詰めると小さくなる。" },
+      u8"Attack：PeakがLUFS-Mからどれだけ突き出るか。圧縮すると小さくなる。" },
     { "The first fact over the last 30 seconds: A gold, V cyan, scaled to the lines.",
       u8"最初の項目の直近30秒の動き。Aは金、Vは水色。縦軸は線の値の範囲。" },
     { "Spectrum of C's Cue with its target range, and A over the chosen window, with C at its playing level.",
