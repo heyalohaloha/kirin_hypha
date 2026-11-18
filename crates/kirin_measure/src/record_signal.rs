@@ -534,13 +534,13 @@ fn write_signal_unlocked(
 ) -> Result<(), SignalError> {
     let final_path = signal_path(base_dir, project_hash, post_instance_id);
     let json = serde_json::to_vec(signal)?;
-    crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&final_path, &json)?;
     if !signal.target_pre_instance_id.trim().is_empty() {
         let target_json = serde_json::to_vec(&TargetRecordSignal {
             project_hash: project_hash.to_string(),
             signal: signal.clone(),
         })?;
-        if let Err(error) = crate::atomic_file::write_bytes_atomic(
+        if let Err(error) = crate::atomic_file::write_bytes_atomic_durable(
             &target_signal_path(base_dir, &signal.target_pre_instance_id),
             &target_json,
         ) {

@@ -137,7 +137,10 @@ impl CaptureGenerationTransaction {
             publish_current_generation(&self.base_dir, project_hash, &self.generation)?;
         }
         let json = serde_json::to_vec(&self.generation)?;
-        crate::atomic_file::write_bytes_atomic(&preparing_generation_path(&self.base_dir), &json)?;
+        crate::atomic_file::write_bytes_atomic_durable(
+            &preparing_generation_path(&self.base_dir),
+            &json,
+        )?;
         Ok(())
     }
 
@@ -273,7 +276,7 @@ impl CaptureGenerationTransaction {
                 // exact generation. Publish the new active pointer first, then compare-remove
                 // preparation. At every observable filesystem state Stop therefore resolves the
                 // new generation; there is no gap in which retained old active can win.
-                crate::atomic_file::write_bytes_atomic(
+                crate::atomic_file::write_bytes_atomic_durable(
                     &active_generation_path(&self.base_dir),
                     &json,
                 )?;

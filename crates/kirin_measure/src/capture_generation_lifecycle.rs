@@ -162,7 +162,7 @@ pub fn mark_generation_terminal_by_identity(
             terminal_at_ms: chrono::Utc::now().timestamp_millis(),
         };
         let json = serde_json::to_vec(&terminal)?;
-        crate::atomic_file::write_bytes_atomic(
+        crate::atomic_file::write_bytes_atomic_durable(
             &generation_terminal_path(base_dir, capture_generation_id),
             &json,
         )?;

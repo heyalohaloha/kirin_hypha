@@ -231,8 +231,11 @@ fn write_broadcast_signal(
 ) -> Result<(), AllKeepError> {
     let final_path = signal_path(base_dir, project_hash, originator_post_instance_id);
     let json = serde_json::to_vec(broadcast)?;
-    crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
-    crate::atomic_file::write_bytes_atomic(&current_broadcast_path(base_dir, project_hash), &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&final_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(
+        &current_broadcast_path(base_dir, project_hash),
+        &json,
+    )?;
     Ok(())
 }
 
@@ -403,3 +406,7 @@ fn now_iso8601() -> String {
 #[cfg(test)]
 #[path = "all_keep_signal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "coordination_durable_tests.rs"]
+mod coordination_durable_tests;
