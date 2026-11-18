@@ -201,7 +201,7 @@ pub fn release_pairing(base_dir: &Path, project_hash: &str, pre_iid: &str, post_
         .as_ref()
         .is_some_and(|(pre, post)| pre == pre_iid && post == post_iid)
     {
-        let _ = fs::remove_file(path);
+        let _ = crate::atomic_file::durable::entry::remove_file(path);
     }
 }
 
@@ -419,7 +419,7 @@ pub(crate) fn reclaim_stale_project_reservations_unlocked(
             ),
             None => true,
         };
-        if reclaim && fs::remove_file(&path).is_ok() {
+        if reclaim && crate::atomic_file::durable::entry::remove_file(&path).is_ok() {
             removed += 1;
         }
     }

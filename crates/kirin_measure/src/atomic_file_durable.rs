@@ -17,6 +17,9 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[path = "atomic_directory_mutation.rs"]
+pub(crate) mod entry;
+
 static FILE_SYNC_WARNED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 static DIRECTORY_SYNC_WARNED: AtomicBool = AtomicBool::new(false);

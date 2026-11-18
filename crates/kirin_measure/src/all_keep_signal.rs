@@ -274,7 +274,7 @@ pub fn delete_broadcast(
     originator_post_instance_id: &str,
 ) -> Result<(), AllKeepError> {
     let path = signal_path(base_dir, project_hash, originator_post_instance_id);
-    match fs::remove_file(&path) {
+    match crate::atomic_file::durable::entry::remove_file(&path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(AllKeepError::Io(e)),
@@ -287,7 +287,7 @@ pub fn delete_broadcast(
             broadcast.originator_post_instance_id == originator_post_instance_id
         });
     if owns_current {
-        match fs::remove_file(current) {
+        match crate::atomic_file::durable::entry::remove_file(current) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(AllKeepError::Io(e)),

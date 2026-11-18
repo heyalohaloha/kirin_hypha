@@ -412,8 +412,8 @@ fn reclaim_or_reject_existing(
         }
     }
 
-    let _ = fs::remove_file(&path);
-    let _ = fs::remove_file(claim_state_path(&path));
+    let _ = crate::atomic_file::durable::entry::remove_file(&path);
+    let _ = crate::atomic_file::durable::entry::remove_file(claim_state_path(&path));
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "claim dir missing"))?;
@@ -559,8 +559,8 @@ fn ensure_current_owner(path: &Path, owner_id: &str) -> Result<(), WriterClaimEr
 
 fn release_if_current_owner(path: &Path, owner_id: &str) -> Result<(), WriterClaimError> {
     ensure_current_owner(path, owner_id)?;
-    let _ = fs::remove_file(claim_state_path(path));
-    match fs::remove_file(path) {
+    let _ = crate::atomic_file::durable::entry::remove_file(claim_state_path(path));
+    match crate::atomic_file::durable::entry::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),

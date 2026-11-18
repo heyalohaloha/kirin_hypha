@@ -248,7 +248,7 @@ fn quarantine_terminal_locked(
         .join(CAPTURE_GENERATION_SUBDIR)
         .join(GENERATION_TERMINAL_SUBDIR)
         .join(GENERATION_TERMINAL_QUARANTINE_SUBDIR);
-    crate::atomic_file::create_private_dir_all(&quarantine_dir)?;
+    crate::atomic_file::durable::create_private_dir_all(&quarantine_dir)?;
     let generation_id = crate::path_identity::guard_path_component(
         capture_generation_id,
         "capture_generation_terminal.quarantine.generation_id",
@@ -259,7 +259,7 @@ fn quarantine_terminal_locked(
         std::process::id(),
         sequence
     ));
-    match fs::rename(source, destination) {
+    match crate::atomic_file::durable::entry::rename(source, destination) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),

@@ -369,7 +369,8 @@ fn remove_preparing_if_current(base_dir: &Path, generation: &CaptureGeneration) 
         .as_ref()
         .is_some_and(|current| same_generation(current, generation))
     {
-        let _ = std::fs::remove_file(preparing_generation_path(base_dir));
+        let _ =
+            crate::atomic_file::durable::entry::remove_file(preparing_generation_path(base_dir));
     }
 }
 
@@ -388,7 +389,10 @@ fn restore_project_pointer_if_current(
         if let Some(previous) = previous {
             let _ = publish_current_generation(base_dir, project_hash, previous);
         } else {
-            let _ = std::fs::remove_file(current_generation_path(base_dir, project_hash));
+            let _ = crate::atomic_file::durable::entry::remove_file(current_generation_path(
+                base_dir,
+                project_hash,
+            ));
         }
     }
 }

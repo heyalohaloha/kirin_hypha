@@ -155,7 +155,7 @@ fn reclaim_or_reject_existing(
         }
     }
 
-    let _ = fs::remove_file(&path);
+    let _ = crate::atomic_file::durable::entry::remove_file(&path);
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "entry lock dir missing"))?;

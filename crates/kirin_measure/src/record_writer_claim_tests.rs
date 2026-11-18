@@ -347,3 +347,6 @@ fn the_first_claim_makes_its_new_project_directory_durable_in_the_base() {
         );
     }
 }
+
+#[path = "record_writer_claim_durable_tests.rs"]
+mod durable_tests;

@@ -549,7 +549,7 @@ fn write_signal_unlocked(
             // half-started Record. Later status transitions retain canonical history because the
             // exact paired PRE already knows the POST key and reads that file directly.
             if signal.status == SignalStatus::Pending {
-                let _ = fs::remove_file(&final_path);
+                let _ = crate::atomic_file::durable::entry::remove_file(&final_path);
             }
             return Err(SignalError::Io(error));
         }
@@ -815,7 +815,7 @@ fn delete_signal_unlocked(
 ) -> Result<(), SignalError> {
     let prior = read_signal(base_dir, project_hash, post_instance_id);
     let path = signal_path(base_dir, project_hash, post_instance_id);
-    match fs::remove_file(&path) {
+    match crate::atomic_file::durable::entry::remove_file(&path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(SignalError::Io(e)),
@@ -831,7 +831,7 @@ fn delete_signal_unlocked(
                     && current.signal.session_id == prior.session_id
             });
         if owns_target {
-            match fs::remove_file(target) {
+            match crate::atomic_file::durable::entry::remove_file(target) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(SignalError::Io(e)),
