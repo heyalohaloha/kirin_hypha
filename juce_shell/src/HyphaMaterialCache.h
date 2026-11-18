@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaSpectrumPhaseProfile.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -238,6 +239,7 @@ template <typename Paint>
 void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed, Paint&& paint,
            Flat flat = {}, InitialPaint initial = InitialPaint::direct)
 {
+    KIRIN_WELL_TOTAL(profileWell, key.kind);
     const auto store = juce::SharedResourcePointer<Store>::getSharedObjectWithoutCreating();
     const auto scale = g.getInternalContext().getPhysicalPixelScaleFactor();
     const auto extent = area.withTop (area.getY() - bleed.top)
@@ -246,15 +248,22 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
         || ! std::isfinite (scale) || scale <= 0.0f
         || scale > 4.0f || extent.getWidth() * scale > 4'096.0f || extent.getHeight() * scale > 4'096.0f)
     {
+        KIRIN_WELL_EVENT(key.kind, 3);
+        KIRIN_WELL_SCOPE(profileFallback, well_direct_fallback);
         paint (g, area);
         return;
     }
     key.width = area.getWidth();
     key.height = area.getHeight();
     key.scale = scale;
+    KIRIN_WELL_SCOPE(profileLookup, well_cache_lookup);
     auto found = store.has_value() ? (*store)->lookup (key) : Store::Lookup {};
+    KIRIN_FREQ_FINISH(profileLookup);
+    if (found.image.isValid()) { KIRIN_WELL_EVENT(key.kind, 0); }
     if (! found.image.isValid() && ! found.build && initial == InitialPaint::direct)
     {
+        KIRIN_WELL_EVENT(key.kind, 1);
+        KIRIN_WELL_SCOPE(profileFirstDirect, well_direct_fallback);
         paint (g, area);
         return;
     }
@@ -262,6 +271,8 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
     const auto pixelHeight = (int) std::ceil (extent.getHeight() * scale);
     if (! found.image.isValid())
     {
+        KIRIN_WELL_EVENT(key.kind, 2);
+        KIRIN_WELL_SCOPE(profileBuild, well_cache_build_and_keep);
         juce::Image image (juce::Image::ARGB, pixelWidth, pixelHeight, true);
         {
             juce::Graphics pixels (image);
@@ -272,6 +283,7 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
             (*store)->keep (key, image);
         found.image = image;
     }
+    KIRIN_WELL_SCOPE(profileClip, well_flat_clip_setup);
     const juce::Graphics::ScopedSaveState saved (g);
     // The flat part, a point inside its edge, is left out of the composite in whole points; the
     // fill reaches a point further, so no pixel the clip cuts through is left without the colour.
@@ -289,6 +301,8 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
     g.setOpacity (1.0f);
     // Already device resolution: one image pixel per device pixel, never smoothed.
     g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+    KIRIN_FREQ_FINISH(profileClip);
+    KIRIN_WELL_SCOPE(profileBlit, well_cache_blit);
     g.drawImage (found.image, { extent.getX(), extent.getY(), (float) pixelWidth / scale,
                                 (float) pixelHeight / scale });
 }

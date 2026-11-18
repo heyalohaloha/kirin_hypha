@@ -9,12 +9,13 @@ inline void stopPhaseProfile() { check(freq_profile::stop(),"profile stack or de
 inline void exportPhaseProfile(juce::var& out, int rendered) {
     using namespace freq_profile;
     check(!state.enabled && state.depth==0 && !state.error,"profile must be stopped and balanced");
-    constexpr std::array<const char*,23> names{{"paint_chrome","well_material_cache_and_draw","axes_and_labels",
+    constexpr std::array<const char*,30> names{{"paint_chrome","well_material_cache_and_draw","axes_and_labels",
         "legend_and_actions","paired_curves","curve_geometry_paths","pre_post_stroke_and_rich_fill",
         "delta_fill_geometry","delta_fill_stroke_glow","absolute_curves","history_total",
         "history_raster_render_callback","mid_side_curves","peak_tags","instrument_notes",
         "focus_trail","probe","guide_overlay","delta_gradient_body","delta_tip_ribbons",
-        "delta_mark_and_zero_lines","delta_primary_strokes","delta_bucket_highlights"}};
+        "delta_mark_and_zero_lines","delta_primary_strokes","delta_bucket_highlights",
+        "well_glass_cache_total","well_frame_cache_total","well_cache_lookup","well_cache_build_and_keep","well_flat_clip_setup","well_cache_blit","well_direct_fallback"}};
     static_assert(names.size()==static_cast<std::size_t>(Phase::count));
     const auto captured=state.counters;
     const auto& chrome=captured[static_cast<std::size_t>(Phase::paint_chrome)];
@@ -40,6 +41,18 @@ inline void exportPhaseProfile(juce::var& out, int rendered) {
     check(exclusive==chrome.inclusiveNs,"exclusive phase sum must equal chrome inclusive time");
     set(out,"profile_phases",phases); set(out,"profile_scope_clock","steady wall nanoseconds, NOT thread CPU");
     set(out,"profile_stack_balanced",true); set(out,"profile_counts_valid",true);
+    juce::Array<juce::var> cacheEvents;
+    for(std::size_t i=0;i<state.wellCacheEvents.size();++i) {
+        const auto& e=state.wellCacheEvents[i];
+        const auto phase=i==0 ? Phase::well_glass_cache_total : Phase::well_frame_cache_total;
+        check(e[0]+e[1]+e[2]+e[3]==captured[static_cast<std::size_t>(phase)].calls,
+              "well cache outcome count mismatch");
+        auto item=object(); set(item,"kind",static_cast<int>(i+2));
+        set(item,"hit",static_cast<juce::int64>(e[0])); set(item,"first_direct",static_cast<juce::int64>(e[1]));
+        set(item,"build",static_cast<juce::int64>(e[2])); set(item,"bypass_direct",static_cast<juce::int64>(e[3]));
+        cacheEvents.add(item);
+    }
+    set(out,"well_cache_events",cacheEvents);
     // Separate diagnostic after measured interval. Never subtract this from measured phases or CPU.
     constexpr int samples=10000; check(reset(true),"empty-scope reset failed"); const auto begin=Clock::now();
     for(int i=0;i<samples;++i) { Scope empty(Phase::paint_chrome); }
