@@ -18,6 +18,7 @@ int main (int argc, char** argv)
     const auto sandbox = hypha::tests::temporaryParent()
                              .getNonexistentChildFile ("ref", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    if (runReferenceChangeNotes(argc, argv, sandbox, require)) return 0;
     if (argc == 2 && juce::String (argv[1]) == "--b-switch-only")
     {
         runReferenceBSwitchTests (sandbox); require (hypha::tests::removeFixtureDirectory (sandbox), "B switch fixtures must be removed");
@@ -135,7 +136,6 @@ int main (int argc, char** argv)
     ref::removeRuntimeFiles (files);
     require (! files.capability.exists() && ! files.acknowledgement.exists(),
              "runtime owner must remove its own lease files");
-
     const auto recoveryRoot = sandbox.getChildFile ("plugin_data").getChildFile ("reference")
                                      .getChildFile ("v2");
     const juce::String recordingId = "22222222-2222-4222-8222-222222222222";

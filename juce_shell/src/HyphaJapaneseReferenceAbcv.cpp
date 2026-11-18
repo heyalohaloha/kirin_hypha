@@ -7,6 +7,9 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Source time", u8"音源の時刻" },
+    { "Change notes", u8"修正指示" },
+    { "Done", u8"済み" },
     { "V works best with Hypha on the 2Mix.", u8"VはHyphaを2Mixに置くと動作しやすい" },
     { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSで確認" },
     { "AUDIO READ FAILED", u8"音声を読み出せません" },

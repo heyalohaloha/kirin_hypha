@@ -1150,8 +1150,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_recommended_warning_flags)
     include(cmake/ReferenceVisualMeasurementTest.cmake)
     kirin_reference_visual_measurement_test(KirinReferenceAuditionComponentTests)
-    add_test(NAME kirin_reference_audition_component
-        COMMAND KirinReferenceAuditionComponentTests)
+    include(cmake/ReferenceComponentTests.cmake)
 endif()
 
 include(cmake/UpdateIntegrationTests.cmake)

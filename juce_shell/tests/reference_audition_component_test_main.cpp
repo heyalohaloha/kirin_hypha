@@ -23,6 +23,8 @@ int main (int argc, char** argv)
 {
     ValidationStorageSandbox storage;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 2 && juce::String (argv[1]) == "--change-notes-ui-only")
+    { hypha::tests::verifyReferenceChangeNotesUiContract(); return 0; }
     if (argc == 3 && juce::String (argv[1]) == "--reference-text-snapshots")
     { hypha::tests::reference_text_repairs::exportSnapshots (juce::File (argv[2])); return 0; }
     if (argc == 3 && juce::String (argv[1]) == "--balance-alignment-snapshots")

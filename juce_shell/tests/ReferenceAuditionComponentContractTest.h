@@ -2,5 +2,6 @@
 
 namespace hypha::tests
 {
+void verifyReferenceChangeNotesUiContract();
 void verifyReferenceAuditionComponentContract();
 }

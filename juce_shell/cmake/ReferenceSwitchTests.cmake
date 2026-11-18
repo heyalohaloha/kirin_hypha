@@ -1,2 +1,5 @@
 target_sources(KirinReferenceAuditionRuntimeTests PRIVATE tests/reference_b_switch_test.cpp)
 add_test(NAME kirin_reference_b_switch COMMAND KirinReferenceAuditionRuntimeTests --b-switch-only)
+
+add_test(NAME kirin_reference_change_notes COMMAND KirinReferenceAuditionRuntimeTests --change-notes-only)
+set_tests_properties(kirin_reference_change_notes PROPERTIES TIMEOUT 180)

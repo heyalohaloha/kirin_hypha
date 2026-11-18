@@ -1,5 +1,4 @@
 #pragma once
-
 #include <map>
 #include <set>
 #include <array>
@@ -8,7 +7,6 @@
 #include <limits>
 #include <memory>
 #include <vector>
-
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaReferenceAction.h"
@@ -27,6 +25,7 @@
 #include "HyphaReferenceSongList.h"
 #include "HyphaReferenceCheckTabs.h"
 #include "HyphaReferenceSongSwitch.h"
+#include "HyphaReferenceChangeNotes.h"
 #include "reference_audition/ReferenceCuePart.h"
 #include "reference_audition/ReferenceKirinSpectrum.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
@@ -108,6 +107,7 @@ enum class CueSubstitute { none, wholeSong, noSpectrum };
 
 struct State
 {
+    std::shared_ptr<const reference_audition::ChangeNotes> changeNotes;
     bool targetsEnabled = false, targetSelected = false, checkDetailsOpen = false;
     reference_audition::TargetSnapshot targets;
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
@@ -415,6 +415,7 @@ private:
     GuideFit lastGuideFit;
     juce::Rectangle<int> observationArea;
     ComparisonView comparisonView;
+    ChangeNotesView changeNotesView;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;

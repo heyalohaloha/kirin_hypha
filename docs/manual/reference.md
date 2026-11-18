@@ -31,6 +31,8 @@ Reference has four roles, each with its own button in the same place at every si
   C compares A with the song, Cue and frequency bands chosen in Kirin OS. Measured targets are handled on B, not C.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
+**Change notes in V.** When Kirin OS includes change notes with the selected Version, V shows numbered marks at their positions in the source file. Open a mark or the note list to read its plain text; completed notes appear more quietly in the list. These times belong to that source file, not the DAW timeline. Reading a note does not seek, change the playing role or level, or apply an alignment. Notes are hidden during Blind. If the optional notes are missing or cannot be read safely, V remains usable without them.
+
 The Hybrid VU's LU face reads loudness against the song chosen here: the song's loudness is its 0,
 the chosen set's songs give a band, and in FOLLOW A the song at A's position is a needle
 ([Watch: the LU face](watch.md#the-lu-face-loudness-against-a-reference-song)).

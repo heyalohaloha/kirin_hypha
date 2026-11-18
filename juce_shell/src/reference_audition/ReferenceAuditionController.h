@@ -14,6 +14,7 @@
 
 #include "ReferenceAudioPages.h"
 #include "ReferenceCuePart.h"
+#include "ReferenceChangeNotesModel.h"
 #include "ReferenceDeferredControl.h"
 #include "ReferenceVisualTimeline.h"
 #include "ReferenceVisualPreferences.h"
@@ -63,6 +64,9 @@ namespace hypha::reference_audition
 
     struct Snapshot
     {
+        std::shared_ptr<const ChangeNotes> changeNotes;
+        juce::String changeNotesIssue;
+        std::uint64_t changeNotesConfigurationGeneration = 0, changeNotesSelectionGeneration = 0;
         std::shared_ptr<const metrics::Publication> nativeMetrics;
         RuntimeState state = RuntimeState::disconnected;
         juce::String title;

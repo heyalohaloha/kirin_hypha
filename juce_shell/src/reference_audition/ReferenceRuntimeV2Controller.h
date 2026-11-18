@@ -290,6 +290,8 @@ namespace hypha::reference_audition
         juce::CriticalSection outputGateLock;
         Configuration requestedConfiguration;
         RequestedSelection requestedSelection;
+        juce::String changeNotesCacheKey; // Worker-owned: only the selected Version, never all library bodies.
+        ChangeNotesReadResult changeNotesCache;
         std::uint64_t appliedConfigurationGeneration = 0;
         std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;

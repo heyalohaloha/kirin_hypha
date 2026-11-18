@@ -256,6 +256,10 @@ namespace hypha::reference_audition
                 contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()));
         if ((versionComparison && !blindState.eligible) || result.followOutside != 0) result.auditionBuffered = false;
         if (result.bSelected && normalPageWaiting.load (std::memory_order_acquire)) result.auditionBuffered = false;
+        if (!versionComparison || result.changeNotesSelectionGeneration != requestedSelection.generation
+            || result.changeNotesConfigurationGeneration != requestedConfiguration.generation
+            || blindState.phase != BlindPhase::inactive)
+            result.changeNotes.reset();
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;
         result.pendingBlindStimulus = blindState.pendingStimulus;

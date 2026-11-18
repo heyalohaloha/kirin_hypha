@@ -14,6 +14,8 @@
 #include "ReferenceLightContractTest.h"
 #include "ReferencePageWaitStatusTest.h"
 #include "ReferenceVersionRowsTest.h"
+#include "ReferenceChangeNotesUiTest.h"
+#include "ReferenceChangeNotesSurfaceTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -96,8 +98,17 @@ reference_ui::State readyState()
 }
 }
 
+void verifyReferenceChangeNotesUiContract()
+{
+    const auto notesPreview = juce::SystemStats::getEnvironmentVariable("KIRIN_REFERENCE_NOTES_IMAGES", {});
+    verifyReferenceChangeNotesUi(notesPreview);
+    verifyReferenceChangeNotesSurface(notesPreview);
+    std::cout << "REFERENCE_CHANGE_NOTES_UI_CONTRACT=PASS\n";
+}
+
 void verifyReferenceAuditionComponentContract()
 {
+    verifyReferenceChangeNotesUiContract();
     verifyReferenceBlindReason();
     verifyVersionCompact();
     verifyReferencePageWaitStatus();
