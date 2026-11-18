@@ -14,7 +14,7 @@ const Entry entries[] = {
     { "MOVE INSIDE VERSION, THEN PRESS V", u8"版の範囲内へ移動してVを押してください" },
     { "NO SOURCE IN KIRIN OS", u8"Kirin OSに音源なし" },
     { "LEVEL NOT MATCHED", u8"音量未調整" },
-    { "MATCHED TO EACH OTHER", u8"曲どうしでそろえています" },
+    { "MATCHED TO EACH OTHER", u8"各曲の音量をそろえて表示" },
     { "C Song", u8"Cの曲" },
     { "Choose the song C plays for this Check. A stays the current DAW input.",
       u8"このCheckでCが鳴らす曲を選びます。AはDAWの今の入力のままです。" },

@@ -7,6 +7,30 @@ namespace hypha::tests::balance_alignment
 inline void verify()
 {
     using namespace reference_ui;
+    // Display-only synthetic fixture: no claim that its spectra were measured.
+    auto varied = variedFixture();
+    const auto variedItems = overlayItems (varied);
+    const auto variedShape = overlayShape (variedItems, true);
+    require (variedItems.size() == 4 && variedShape.count == 4 && !variedShape.low.empty(),
+             "varied fixture has exactly four songs and no target");
+    require (variedItems[0].drawGainDb == 0, "varied selected curve does not move");
+    for (size_t b = 0; b < variedShape.low.size(); ++b)
+    {
+        std::array<double, 4> levels {};
+        for (size_t i = 0; i < 4; ++i)
+            levels[i] = (*variedItems[i].medians)[b] + variedItems[i].drawGainDb;
+        const double selected = levels[0];
+        std::sort (levels.begin(), levels.end());
+        // ONE uses linear p10/p90 at positions 0.3 and 2.7 for four songs.
+        const double p10 = levels[0] * 0.7 + levels[1] * 0.3;
+        const double p90 = levels[2] * 0.3 + levels[3] * 0.7;
+        require (selected - p10 > 2.79 && p90 - selected > 3.0,
+                 "synthetic selected curve is strictly interior to ONE percentile band");
+        require (selected - variedShape.low[b] > 3.99 && variedShape.high[b] - selected > 3.0,
+                 "synthetic selected curve is strictly interior to ALL SHAPE range");
+        require (variedShape.high[b] - variedShape.low[b] > 7.0,
+                 "varied aligned range retains nonzero spectral shape width");
+    }
     auto waiting = fixture (false);
     const auto items = overlayItems (waiting);
     require (balanceReferenceLevel (waiting) == -7.5 && items[0].drawGainDb == 0, "selected line stays at its original height");

@@ -188,7 +188,7 @@ above 100% and below 300%, FOLLOW A sits beside the song. At 300% LOOP and FOLLO
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
   OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
   right: A over its window, 10 seconds unless you choose another (gold), the chosen song (cyan) and the set's p10–p90 range, each
-  song shifted to the level B plays it at. Before A is available, songs and targets are drawn at the selected song’s loudness (or the median available song loudness), with MATCHED TO EACH OTHER in the header; when A arrives, the chart uses A matching. Only items without Integrated loudness remain unshifted (LEVEL NOT MATCHED). This drawing alignment never changes MATCH or playback gain. No genre curves are supplied. B plays and is measured over
+  song shifted to the level B plays it at. Before A is available, songs and targets are drawn at the selected song’s loudness (or the median available song loudness), with MATCHED TO EACH OTHER (各曲の音量をそろえて表示 in Japanese) in the header; when A arrives, the chart uses A matching. Only items without Integrated loudness remain unshifted (LEVEL NOT MATCHED). This drawing alignment never changes MATCH or playback gain. No genre curves are supplied. B plays and is measured over
   its default Cue: for a song left on the whole track in Kirin OS, that is the chorus candidate, or the
   loudest 30 seconds when no chorus is found; the legend names the part and its times
   (B CHORUS 1:02-1:24), and the C page legend names C's part the same way. The list starts with A's row
