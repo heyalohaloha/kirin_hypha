@@ -1,4 +1,5 @@
 #include "HyphaSpectrumChromePainter.h"
+#include "HyphaSpectrumPhaseProfile.h"
 #include "HyphaSpectrumPostBody.h"
 #include "HyphaSpectrumPeakTags.h"
 #include "HyphaSpectrumProbePainter.h"
@@ -321,6 +322,7 @@ void paint (juce::Graphics& g,
             juce::Rectangle<float> bounds,
             const PaintState& state)
 {
+    KIRIN_FREQ_SCOPE(profileChrome, paint_chrome);
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
     const bool focusLocked = ! state.absoluteObservation && state.focusFrequencyHz > 0.0f;
@@ -350,9 +352,9 @@ void paint (juce::Graphics& g,
             const auto tilt = spectrum_display::tiltAt (band, minimumHz, maximumHz, state.settings.tiltDb());
             pre[band] += tilt; post[band] += tilt; hold[band] += tilt;
         }
-    surface_material::paintObservationWell (g, plot);
-    spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz,
-                              state.absoluteObservation, state.presentation, range);
+    KIRIN_FREQ_CALL(well_material_cache_and_draw, surface_material::paintObservationWell (g, plot));
+    KIRIN_FREQ_CALL(axes_and_labels, spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz,
+                              state.absoluteObservation, state.presentation, range));
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
     const float reservedReadoutWidth = probeNormalisedX >= 0.0f
         ? (float) (scale > 1.1f ? ui_contract::spectrumExpandedReadoutWidth
@@ -360,8 +362,8 @@ void paint (juce::Graphics& g,
                                    ? ui_contract::spectrumFocusReadoutWidth
                                    : ui_contract::spectrumHoverReadoutWidth) * scale
         : 0.0f;
-    paintModeAndLegend (g, outerPlot, scale, reservedReadoutWidth,
-                        expandedReadout, probeNormalisedX >= 0.0f, state);
+    KIRIN_FREQ_CALL(legend_and_actions, paintModeAndLegend (g, outerPlot, scale, reservedReadoutWidth,
+                        expandedReadout, probeNormalisedX >= 0.0f, state));
 
     if (! state.snapshotValid)
     {
@@ -405,35 +407,35 @@ void paint (juce::Graphics& g,
     }
 
     if (state.guideOverlay.visible())
-        guide_frequency::paint (g, plot, scale, state.guideOverlay,
-                                minimumHz, maximumHz);
+        KIRIN_FREQ_CALL(guide_overlay, guide_frequency::paint (g, plot, scale, state.guideOverlay,
+                                minimumHz, maximumHz));
     if (state.midSideObservation)
-        spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness, state.paths);
+        KIRIN_FREQ_CALL(mid_side_curves, spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness, state.paths));
     else if (state.absoluteObservation && state.absoluteHistory != nullptr)
-        spectrum_painter::paintAbsolute (g, plot, scale, post,
+        KIRIN_FREQ_CALL(absolute_curves, spectrum_painter::paintAbsolute (g, plot, scale, post,
                                          hold,
                                          *state.absoluteHistory, state.presentation,
-                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz, state.paths);
+                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz, state.paths));
     else
-        spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
+        KIRIN_FREQ_CALL(paired_curves, spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.deltaValid,
                                        state.haveMark ? &state.mark : nullptr,
-                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill(), state.paths);
+                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill(), state.paths));
     if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
-        paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range);
+        KIRIN_FREQ_CALL(peak_tags, paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range));
     if (! state.midSideObservation)
-        spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
-                                                state.presentation, state.shapeObservation);
+        KIRIN_FREQ_CALL(instrument_notes, spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
+                                                state.presentation, state.shapeObservation));
     if (focusLocked
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {
-        spectrum_focus_painter::paint (
+        KIRIN_FREQ_CALL(focus_trail, spectrum_focus_painter::paint (
             g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
             *state.focusTrail, focusNormalisedX, scale <= 1.1f,
-            state.shapeObservation, state.presentation);
+            state.shapeObservation, state.presentation));
     }
     if (probeNormalisedX >= 0.0f)
-        paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
-                    minimumHz, maximumHz, state);
+        KIRIN_FREQ_CALL(probe, paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
+                    minimumHz, maximumHz, state));
 }
 }

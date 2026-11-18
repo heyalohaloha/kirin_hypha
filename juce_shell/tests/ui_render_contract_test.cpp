@@ -1,4 +1,5 @@
 #include "TestTemporaryDirectory.h"
+#include "SpectrumBenchmarkDispatch.h"
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
@@ -113,7 +114,6 @@ namespace
         }
         return runs;
     }
-
     int countColourColumnsAcross (const juce::Image& image,
                                   juce::Rectangle<int> requested,
                                   juce::Colour target)
@@ -129,7 +129,6 @@ namespace
         }
         return columns;
     }
-
     int countDifferentPixels (const juce::Image& a, const juce::Image& b)
     {
         KIRIN_REQUIRE (a.getBounds() == b.getBounds());
@@ -148,6 +147,7 @@ int main (int argc, char** argv)
 {
     if (const auto child = hypha::tests::shell_repairs::preferenceWriter (argc, argv); child >= 0) return child;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (const auto result=hypha::tests::dispatchSpectrumBenchmark(argc,argv); result>=0) return result;
     hypha::tests::verifyMetricFaceContract(); if (std::getenv ("HYPHA_METRIC_FACE_ONLY") != nullptr) return 0;
     hypha::tests::verifyChainClockPolicy();
     if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
