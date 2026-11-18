@@ -24,13 +24,57 @@ impl<T: Send + 'static> TimedJoin<T> {
     }
 
     fn join(self) -> T {
-        self.done
-            .recv_timeout(TIMEOUT)
-            .expect("control operation did not finish");
+        self.join_diagnosed("unnamed control", || {})
+    }
+
+    fn join_diagnosed(self, name: &str, diagnostic: impl FnOnce()) -> T {
+        if let Err(error) = self.done.recv_timeout(TIMEOUT) {
+            eprintln!("control wait failed: join={name}, wait={TIMEOUT:?}, result={error:?}");
+            diagnostic();
+            panic!("control operation did not finish: {name}: {error:?}");
+        }
         self.handle
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     }
+}
+
+#[test]
+fn diagnosed_join_reports_disconnection_with_name_once() {
+    let worker = TimedJoin::spawn(|| 17_u32);
+    worker.done.recv_timeout(TIMEOUT).unwrap();
+    assert_eq!(
+        worker.done.recv_timeout(TIMEOUT),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    );
+    // Disconnection confirms the sender was dropped after the task returned
+    // and its completion notification was sent. This failure path does not
+    // join the OS thread; the success test below covers that separate path.
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        worker.join_diagnosed("completed diagnostic worker", || {
+            calls.fetch_add(1, Ordering::SeqCst);
+        })
+    }));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let panic = result.expect_err("drained completion must fail the wait");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .expect("diagnosed wait panic must have a text payload");
+    assert!(message.contains("completed diagnostic worker"));
+    assert!(message.contains("Disconnected"));
+}
+
+#[test]
+fn diagnosed_join_returns_result_without_failure_callback() {
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    let result = TimedJoin::spawn(|| 23_u32).join_diagnosed("successful worker", || {
+        calls.fetch_add(1, Ordering::SeqCst);
+    });
+    assert_eq!(result, 23);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 fn feedback(engine: &KirinHyphaEngine, all: bool) -> KeepPreparationFeedback {

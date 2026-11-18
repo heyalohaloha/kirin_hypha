@@ -14,7 +14,8 @@ impl Drop for StorageRoot {
     }
 }
 
-fn wait_for_preparation_worker(base: PathBuf) {
+fn wait_for_preparation_worker(base: PathBuf, engine: &KirinHyphaEngine, all: bool, label: &str) {
+    let diagnostic_base = base.clone();
     // The worker owns this installation-local lock until feedback and rollback have finished.
     // Block on that notification instead of sleeping or polling the worker's phase.
     TimedJoin::spawn(move || {
@@ -25,7 +26,45 @@ fn wait_for_preparation_worker(base: PathBuf) {
             .unwrap();
         lock.lock().unwrap();
     })
-    .join();
+    .join_diagnosed(label, || control_diagnostic(engine, &diagnostic_base, all));
+}
+
+// Failure-only observation. Never acquire the Keep control/publication lock.
+// These independent atomics/files may straddle a transition; they are not authority.
+fn control_diagnostic(engine: &KirinHyphaEngine, base: &std::path::Path, all: bool) {
+    eprintln!(
+        "keep timeout: all={all}, phase={}, phase_generation={}, record_generation={}, keep_record_generation={}, heartbeat={}, worker_generation={}",
+        engine.keep_phase.load(Ordering::Acquire),
+        engine
+            .keep_phase_generation_started_at_ms
+            .load(Ordering::Acquire),
+        engine.record_sm.generation(),
+        engine.keep_record_generation.load(Ordering::Acquire),
+        engine.heartbeat.load(Ordering::Acquire),
+        engine.__measure_worker_generation_for_test(),
+    );
+    for name in ["current.json", "preparing.json"] {
+        let result = (|| -> Result<serde_json::Value, String> {
+            use std::io::Read;
+            let file = std::fs::File::open(base.join("capture_generation").join(name))
+                .map_err(|error| format!("open: {error}"))?;
+            let mut bytes = Vec::new();
+            file.take(65537)
+                .read_to_end(&mut bytes)
+                .map_err(|error| format!("read: {error}"))?;
+            if bytes.len() > 65536 {
+                return Err("diagnostic size bound".into());
+            }
+            let value: serde_json::Value =
+                serde_json::from_slice(&bytes).map_err(|error| format!("parse: {error}"))?;
+            Ok(serde_json::json!({
+                "capture_generation_id": value.get("capture_generation_id"),
+                "started_at_ms": value.get("started_at_ms"),
+                "state": value.get("state"),
+            }))
+        })();
+        eprintln!("keep publication: file={name}, generation={result:?}");
+    }
 }
 
 fn paired_engine(paths: &PlatformPaths) -> Arc<KirinHyphaEngine> {
@@ -94,7 +133,9 @@ fn accepted_keep_and_all_keep_with_repeated_controls_and_generation_changes_fini
                     starting_engine.keep()
                 }
             })
-            .join(),
+            .join_diagnosed("initial keep", || {
+                control_diagnostic(&engine, &paths.storage.plugin_data_dir(), all)
+            }),
             "the fixture must enter the actual preparation path"
         );
         assert_eq!(engine.keep_phase(), KIRIN_KEEP_PHASE_PREPARING);
@@ -127,10 +168,19 @@ fn accepted_keep_and_all_keep_with_repeated_controls_and_generation_changes_fini
             }
         });
         start.wait();
-        keeps.join();
-        stops.join();
+        keeps.join_diagnosed("repeated keeps", || {
+            control_diagnostic(&engine, &paths.storage.plugin_data_dir(), all)
+        });
+        stops.join_diagnosed("repeated stops", || {
+            control_diagnostic(&engine, &paths.storage.plugin_data_dir(), all)
+        });
         engine.stop();
-        wait_for_preparation_worker(paths.storage.plugin_data_dir());
+        wait_for_preparation_worker(
+            paths.storage.plugin_data_dir(),
+            &engine,
+            all,
+            "publication lock after controls",
+        );
         assert_eq!(engine.keep_phase(), KIRIN_KEEP_PHASE_IDLE);
         assert!(engine.drain_keep_action_notice().is_none());
 
@@ -143,7 +193,9 @@ fn accepted_keep_and_all_keep_with_repeated_controls_and_generation_changes_fini
                 restarting_engine.keep_all()
             }
         })
-        .join());
+        .join_diagnosed("opposite keep restart", || {
+            control_diagnostic(&engine, &paths.storage.plugin_data_dir(), all)
+        }));
         assert_ne!(
             engine
                 .keep_phase_generation_started_at_ms
@@ -151,7 +203,12 @@ fn accepted_keep_and_all_keep_with_repeated_controls_and_generation_changes_fini
             first_generation
         );
         engine.stop();
-        wait_for_preparation_worker(paths.storage.plugin_data_dir());
+        wait_for_preparation_worker(
+            paths.storage.plugin_data_dir(),
+            &engine,
+            all,
+            "publication lock after restart",
+        );
         assert_eq!(engine.keep_phase(), KIRIN_KEEP_PHASE_IDLE);
         assert!(engine.drain_keep_action_notice().is_none());
     }

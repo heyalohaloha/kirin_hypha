@@ -49,11 +49,39 @@ fn feed(pre: &KirinHyphaEngine, post: &KirinHyphaEngine, from: i64, to: i64) {
     }
 }
 
+// Fixture-only observations, never used to decide whether the pair is ready.
+fn pair_diagnostic(
+    stage: &str,
+    point: &str,
+    pre: &KirinHyphaEngine,
+    post: &KirinHyphaEngine,
+    position: i64,
+) {
+    for (role, engine) in [("PRE", pre), ("POST", post)] {
+        let publication = engine.poll_meter_session().map(|meter| {
+            (
+                meter.generation,
+                meter.measurement_epoch,
+                meter.observed_frames,
+                meter.active_frames,
+            )
+        });
+        eprintln!(
+            "pair diagnostic: stage={stage}, point={point}, role={role}, position={position}, heartbeat_live={}, signal={}, worker_generation={}, publication={publication:?}",
+            engine.heartbeat_live(),
+            engine.signal_state_abi(),
+            engine.__measure_worker_generation_for_test(),
+        );
+    }
+}
+
 fn current(
+    stage: &str,
     pre: &KirinHyphaEngine,
     post: &KirinHyphaEngine,
     position: &mut i64,
 ) -> KirinObservatoryFrame {
+    pair_diagnostic(stage, "begin", pre, post, *position);
     let end = Instant::now() + Duration::from_secs(3);
     loop {
         let mut frame = unsafe { std::mem::zeroed::<KirinObservatoryFrame>() };
@@ -92,7 +120,11 @@ fn current(
             assert!(frame.delta.true_peak.abs() < 0.01);
             assert!(time.main.current.values[0].abs() < 0.01);
             assert!(time.main.current.values[2].abs() < 0.01);
+            pair_diagnostic(stage, "ready", pre, post, *position);
             return frame;
+        }
+        if Instant::now() >= end {
+            pair_diagnostic(stage, "timeout", pre, post, *position);
         }
         assert!(
             Instant::now() < end,
@@ -134,12 +166,12 @@ fn threaded_fractional_reset_and_bypass_resume_level_and_time_delta() {
     post.set_pair_target("mix".into());
     feed(&pre, &post, 0, 51200);
     let mut position = 51200;
-    current(&pre, &post, &mut position);
+    current("initial", &pre, &post, &mut position);
     assert!(post.reset_meter_session());
     let end = position + 192000;
     feed(&pre, &post, position, end);
     position = end;
-    current(&pre, &post, &mut position);
+    current("after reset", &pre, &post, &mut position);
     // The IO thread must see both the bypass and its end; PCM is deliberately missing on POST.
     post.set_signal_state(2);
     sleep(Duration::from_millis(250));
@@ -148,7 +180,7 @@ fn threaded_fractional_reset_and_bypass_resume_level_and_time_delta() {
     let end = position + 192000;
     feed(&pre, &post, position, end);
     position = end;
-    current(&pre, &post, &mut position);
+    current("after bypass", &pre, &post, &mut position);
     let history = post
         .poll_meter_delta_history(kirin_measure::MeterHistoryResolution::Hz10, 32)
         .unwrap();
