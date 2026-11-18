@@ -298,8 +298,6 @@ pub fn write_both(paths: &StoragePaths, identity: &Identity) -> Result<(), Stora
 // ── 4 段階復旧フロー（T-4） ──────────────────────────────────────────────
 
 /// 起動時に Identity を取得する。4 段階復旧 + 2-of-3 判定を実行。
-///
-/// # 引数
 /// - `paths` : ストレージパス（本番は `StoragePaths::default_platform()`）
 /// - `current_hw` : 現在マシンの 3 要素（`HardwareComponents::current()`）
 /// - `default_license` : 新規生成時の license（OS 版配布は `License::Os`）
@@ -392,16 +390,11 @@ pub fn load_or_recover(
 // PluginDataWriter が Frame.installation_id を埋めるための最小読取り。
 // HMAC 検証・2-of-3 判定は行わず、identity JSON の `installation_id` フィールド
 // のみを loose に抽出する。license.rs `load_license_safe` と同位相:
-// - 本番パス: `StoragePaths::default_platform().primary_path()`
+// - 一次を優先し、不在・不正JSON・ID欠落時は副本へread-only fallback
 // - platform path 解決不能 / ファイル不在 / 不正 JSON / フィールド欠落 → `None`
 // - 書込は行わない（`load_or_recover` と分離）
 //
-// ログ分岐は以下の 5 系統:
-// - `[installation_id] loaded: <uuid>` — 正常
-// - `[installation_id] loaded: None (no $HOME)` — $HOME 解決不能
-// - `[installation_id] loaded: None (file missing)` — identity.json 不在
-// - `[installation_id] loaded: None (JSON parse error: <detail>)` — 破損
-// - `[installation_id] loaded: None (installation_id field missing)` — フィールド欠落
+// 一次を優先し、読めない・ID欠落の場合だけ副本を読む。復元や生成はしない。
 
 /// `identity.json` から installation_id を安全に読み込む（IO Thread 起動時用）。
 ///
@@ -416,7 +409,12 @@ pub fn load_installation_id_safe() -> Option<String> {
             return None;
         }
     };
+    load_installation_id_from_paths(&paths)
+}
+
+fn load_installation_id_from_paths(paths: &StoragePaths) -> Option<String> {
     load_installation_id_from(&paths.primary_path())
+        .or_else(|| load_installation_id_from(&paths.secondary_path()))
 }
 
 /// 任意パスから installation_id を loose 抽出（テスト・`load_installation_id_safe` 共用）。
@@ -449,8 +447,6 @@ pub(crate) fn load_installation_id_from(path: &Path) -> Option<String> {
         }
     }
 }
-
-// ── 一次 / 二次 同期（起動中のアップグレード検出・T-6 準備） ─────────
 
 /// 一次を読み、mtime が変化していれば再読込した Identity を返す。
 /// T-6 Sense→OS アップグレード即時反映に使用。
@@ -498,3 +494,7 @@ impl IdentityCache {
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "storage_identity_fallback_tests.rs"]
+mod identity_fallback_tests;
