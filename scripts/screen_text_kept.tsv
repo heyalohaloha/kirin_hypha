@@ -136,3 +136,4 @@ LEVEL / NUM RATE	LEVEL display cadence menu label
 1/12-1/3 oct	FREQ display unit choice
 1/6-1/2 oct	FREQ display unit choice
 /oct	FREQ compact tilt unit
+Application Support	OS filesystem directory component in StorageWritePathPolicy protected-root discovery; never displayed UI text

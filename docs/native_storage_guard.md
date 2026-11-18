@@ -118,7 +118,7 @@ regression controls.
 
 ## Phase 1: Appearance standalone test write-entry guard
 
-Only `KirinAppearanceContractTests` compiles `KIRIN_APPEARANCE_TEST_WRITE_GUARD`.
+The first phase introduced a target-local guard for `KirinAppearanceContractTests`.
 Its Appearance preference parent creation, primary/backup atomic-write entry and
 lock creation/removal (including stale cleanup and destruction) reject mutations
 outside an existing absolute `KIRIN_HYPHA_TEST_STORAGE_ROOT`. Shipping targets,
@@ -143,3 +143,30 @@ case aliases and normal isolated persistence. They do not attempt writes to real
 storage. Windows Known Folder redirection, reparse points and Windows execution
 remain unverified on real hardware; a Mac pass must not be reported as Windows
 validation. Mutation-entry counts are permitted guard entries, not syscall counts.
+
+## Phase 2a: limited C++ runtime activation
+
+`StorageWriteGuard.h` now supplies identical inline runtime definitions to Appearance
+and AtomicFile callers. Shipping starts disabled and saves normally; environment
+variables alone do not activate it. No class layout or C ABI changes are introduced.
+The Appearance and AtomicFile native mains explicitly enable it before fixture
+creation (including the Appearance lock child). Missing, relative, nonexistent or
+protected roots exit 78. Failed initialization stays enabled-and-denied permanently.
+The initial allowed root is fixed: later fixture/environment roots cannot expand it.
+Fixture policies can narrow it and add protected exclusions, never remove real roots.
+
+Appearance guards preference directories, primary/backup publication and lock
+creation/removal. AtomicFile guards the target, staging entry and final publication.
+TemporaryFile cleanup retains its existing checked same-parent behavior; this is
+not a syscall interception layer or a TOCTOU guarantee. The two mains use
+`--guard-startup-only` for no-write preflight. AtomicFile also has isolated
+`--guard-failed-enable` and `--guard-shipping-disabled` modes. The latter deliberately
+leaves the runtime disabled but validates its disposable fixture root before saving.
+`kirin_storage_write_guard_startup` tests direct startup separately from CTest setup.
+`kirin_atomic_file_boundaries` continues to provide its own existing child root.
+
+This phase does NOT protect other mains, upper-level directory creation outside
+Appearance, Rust, or separately loaded modules. Inline state is not a cross-module
+policy transport. It does not claim protection if a test runs writers before its
+explicit initialization. The normal POST build must still be checked independently.
+Windows execution and alias/redirect behavior remain unverified on actual Windows.

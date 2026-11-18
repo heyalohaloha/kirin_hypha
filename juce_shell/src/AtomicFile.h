@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include "StorageWriteGuard.h"
 
 namespace hypha::storage
 {
@@ -22,7 +23,10 @@ bool writeTextWithStream (const juce::File& target, const juce::String& text,
                           const char* lineFeed, OpenStream open)
 {
     if (target == juce::File {} || target.isDirectory()) return false;
-    juce::TemporaryFile temporary (target, temporarySibling (target));
+    if (!write_guard::permitMutation(target)) return false;
+    const auto stage = temporarySibling(target);
+    if (!write_guard::permitMutation(stage)) return false;
+    juce::TemporaryFile temporary (target, stage);
     {
         auto stream = open (temporary.getFile());
         if (! stream || ! stream->openedOk() || ! stream->writeText (text, asUnicode, writeHeaderBytes, lineFeed))
@@ -30,6 +34,7 @@ bool writeTextWithStream (const juce::File& target, const juce::String& text,
         stream->flush();
         if (stream->getStatus().failed()) return false;
     }
+    if (!write_guard::permitMutation(target)) return false;
     return temporary.overwriteTargetFileWithTemporary();
 }
 

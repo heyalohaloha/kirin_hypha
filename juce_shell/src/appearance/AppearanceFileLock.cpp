@@ -1,7 +1,5 @@
 #include "AppearanceFileLock.h"
-#if KIRIN_APPEARANCE_TEST_WRITE_GUARD
-#include "AppearanceTestWriteGuard.h"
-#endif
+#include "../StorageWriteGuard.h"
 
 #include <utility>
 
@@ -24,9 +22,7 @@ constexpr std::int64_t staleLockMilliseconds = 30'000;
 
 bool createLockDirectory (const juce::File& directory)
 {
-   #if KIRIN_APPEARANCE_TEST_WRITE_GUARD
-    if (!test_write_guard::permitMutation(directory)) return false;
-   #endif
+    if (!hypha::storage::write_guard::permitMutation(directory)) return false;
    #if JUCE_WINDOWS
     return ::CreateDirectoryW (directory.getFullPathName().toWideCharPointer(), nullptr) != FALSE;
    #else
@@ -36,9 +32,7 @@ bool createLockDirectory (const juce::File& directory)
 
 void removeLockDirectory (const juce::File& directory)
 {
-   #if KIRIN_APPEARANCE_TEST_WRITE_GUARD
-    if (!test_write_guard::permitMutation(directory)) return;
-   #endif
+    if (!hypha::storage::write_guard::permitMutation(directory)) return;
    #if JUCE_WINDOWS
     ::RemoveDirectoryW (directory.getFullPathName().toWideCharPointer());
    #else

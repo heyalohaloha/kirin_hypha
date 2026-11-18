@@ -20,3 +20,9 @@ find_program(KIRIN_HYPHA_NODE_EXECUTABLE NAMES node node.exe REQUIRED)
 add_test(NAME kirin_atomic_file_boundaries COMMAND "${KIRIN_HYPHA_NODE_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/atomic_file_boundaries.mjs" "$<TARGET_FILE:KirinAtomicFileTests>")
 set_tests_properties(kirin_atomic_file_boundaries PROPERTIES TIMEOUT 30)
+if(TARGET KirinAppearanceContractTests)
+    add_test(NAME kirin_storage_write_guard_startup COMMAND "${KIRIN_HYPHA_NODE_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/storage_write_guard_startup.mjs"
+        "$<TARGET_FILE:KirinAtomicFileTests>" "$<TARGET_FILE:KirinAppearanceContractTests>")
+    set_tests_properties(kirin_storage_write_guard_startup PROPERTIES TIMEOUT 90)
+endif()

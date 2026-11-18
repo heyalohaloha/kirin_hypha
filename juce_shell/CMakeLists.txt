@@ -861,7 +861,6 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/appearance/AppearanceStorage.cpp
         src/appearance/AppearanceService.cpp)
     target_compile_definitions(KirinAppearanceContractTests PRIVATE
-        KIRIN_APPEARANCE_TEST_WRITE_GUARD=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
     if(WIN32)

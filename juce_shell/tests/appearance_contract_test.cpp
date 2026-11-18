@@ -1,3 +1,4 @@
+#include "StorageWriteGuardStartup.h"
 #include "TestTemporaryDirectory.h"
 #include "../src/appearance/AppearanceContract.h"
 #include "../src/appearance/AppearanceFileLock.h"
@@ -269,6 +270,8 @@ void verifyOperatingSystemLock()
 
 int main (int argc, char** argv)
 {
+    if (!hypha::tests::initializeStorageWriteGuard()) return 78;
+    if (argc == 2 && juce::String(argv[1]) == "--guard-startup-only") return 0;
     if (argc == 3 && juce::String (argv[1]) == "--lock-child")
         return runLockChild (juce::String (argv[2]));
     KIRIN_APPEARANCE_REQUIRE(hypha::appearance::test_write_guard::permitMutation(
