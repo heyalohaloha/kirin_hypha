@@ -113,14 +113,14 @@ fn damaged_sidecar_uses_only_original_heartbeat_and_never_readiness() {
 }
 
 #[test]
-fn damaged_immutable_owner_cannot_be_reclaimed_without_time_evidence() {
+fn damaged_immutable_owner_waits_for_existing_deadline() {
     for bytes in [b"".as_slice(), b"{".as_slice()] {
         let root = tempfile::tempdir().unwrap();
         let guard = claim_writer(root.path(), "project", "session", Role::Post, "post").unwrap();
         fs::write(&guard.path, bytes).unwrap();
         assert!(matches!(
             claim_writer(root.path(), "project", "session", Role::Post, "post"),
-            Err(WriterClaimError::Serde(_))
+            Err(WriterClaimError::AlreadyActive { .. })
         ));
         assert_eq!(fs::read(&guard.path).unwrap(), bytes);
     }

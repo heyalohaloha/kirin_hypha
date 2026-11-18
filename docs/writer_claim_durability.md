@@ -14,9 +14,23 @@ plain atomic, without synchronization, because its measured cost exceeded budget
 
 A damaged or unreadable sidecar supplies no fresh readiness or closure. Readers use
 only the immutable claim's original heartbeat and ownership under the existing
-execution/reclaim deadlines. A damaged immutable ownership claim remains an error:
-no owner, process identity or timestamp is inferred, and no mtime-based deadline or
-immediate takeover is introduced.
+execution deadlines. Acquisition handles a damaged immutable body separately from
+ownership/readiness readers: it waits until more than the existing 15-minute
+reclaim deadline after the latest body mtime, sidecar mtime, or readable sidecar
+heartbeat. None of these recovery timestamps creates an owner, readiness, closure,
+or execution authority. Missing/unusable timestamp evidence denies recovery;
+future timestamps extend the wait. One diagnostic is logged per recovery attempt.
+A repaired owner or changed timestamp evidence on the final recheck denies recovery.
+The existing remove/link primitive is retained; the recheck is not a filesystem
+compare-and-unlink transaction and does not eliminate its pre-existing race.
+The initial immutable body already uses successful content `sync_all` before
+hard-link publication; its synchronization failure remains an error.
+
+The isolated tests exercise the exact 15-minute boundary, empty/truncated bodies,
+new/old/missing sidecars, body-read error injection, repair/refresh during recovery,
+and actual claim replacement without fabricated readiness. Permission-error
+injection is deliberate so privileged test runners cannot silently bypass chmod;
+it is not a real-device permission or power-loss test.
 
 Entry preparation progress remains asynchronous. Its samples-only schema has no
 four-way terminal state; completion/abort evidence in existing separate lifecycle

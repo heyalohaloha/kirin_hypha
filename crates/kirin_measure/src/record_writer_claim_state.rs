@@ -126,7 +126,8 @@ pub(super) fn read_claim_snapshot(
     };
     // A damaged/unreadable mutable sidecar is not fresh execution/readiness.
     // Retain only the immutable owner's original heartbeat and existing lease
-    // rules. A damaged ownership file still returns an error: no owner/time proof.
+    // rules. Damaged ownership still errors here; acquisition alone may apply
+    // the separate timestamp-based recovery gate without inventing a snapshot.
     let state = read_existing_state(path).ok().flatten().filter(|state| {
         state.owner_id == claim.owner_id && state.schema_version == WRITER_CLAIM_SCHEMA
     });

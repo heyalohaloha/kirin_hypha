@@ -325,7 +325,7 @@ fn reclaim_or_reject_existing(
     role: Role,
     bytes: &[u8],
 ) -> Result<WriterClaimGuard, WriterClaimError> {
-    let existing = read_claim_snapshot(&path)?;
+    let existing = recovery::snapshot_for_reclaim(&path, now_epoch_ms())?;
     if let Some(existing) = existing {
         if existing.closed_at_ms.is_some() {
             return Err(WriterClaimError::AlreadyClosed {
@@ -481,3 +481,6 @@ mod state;
 #[cfg(test)]
 use state::write_state_atomic;
 use state::{claim_state_path, read_claim_snapshot, read_existing_claim, snapshot_matches_writer};
+
+#[path = "record_writer_claim_recovery.rs"]
+mod recovery;
