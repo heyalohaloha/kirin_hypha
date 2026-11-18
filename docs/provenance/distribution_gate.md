@@ -343,3 +343,30 @@ unchanged. All three embedded PNGs retain their registry hashes and approved bin
 and source uses. The build-contract fingerprint is updated for this reviewed CMake source only;
 asset hashes, holds, rights evidence and use permissions are unchanged. This review does not
 qualify distribution payloads or authorize publication.
+
+
+### 2026-11-18 BLIND preference and BALANCE test build-contract review
+
+The implementation coordinator and a separate read-only reviewer inspected the complete
+CMake difference from B-9091 (`498e2814`). It adds four registrations only:
+`PluginProcessorBlindPreference.cpp` once, `HyphaLiveBlindPreference.cpp` twice,
+and `include(cmake/ReferenceBalanceAlignmentTests.cmake)`. Removing those four lines
+restores the B-9091 CMake bytes exactly. The included BALANCE module registers seven
+existing-component test invocations and their timeout; the related `LiveCompare.cmake`
+change registers the original preference-trial and details-collector native fixtures.
+Neither module adds embedded materials, fonts or new external dependencies.
+
+The embedded DATA_SOURCES declaration, optional licensed-font conditions, BinaryData
+handling and `ObservatoryMaterial.cmake` retain their B-9091 bytes. All three embedded
+PNG files and the verified documentation alias remain byte-identical to B-9091 and
+match their existing registry hashes. Asset hashes, rights evidence, allowed uses,
+individual holds and license/NOTICE files are unchanged. This is a technical code
+review by the two implementation reviewers, not a new material approval by the owner.
+
+Only `embedContractSha256` advances from
+`497a9145570b4d03ab075f7b58ff0aeeb88a9ca7da1dd5f065e2a69254114404` to
+`8b97d9d83ea53c2f1e3852aa0b1404e271e0c4f85e362ffac0341509e7ccef63`.
+The whole-file fail-closed check and its tests remain unchanged. This bounded source
+review does not establish test execution, actual payload linkage, new material rights,
+release acceptance or permission to distribute. Exact-candidate provenance, source
+delivery, signing and publication gates remain required separately.
