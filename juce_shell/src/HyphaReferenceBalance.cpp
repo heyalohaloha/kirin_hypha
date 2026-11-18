@@ -255,7 +255,7 @@ void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& s
             if (item.id == state.overlayPointed && item.drawable())
             {
                 const auto colour = item.line != nullptr ? overlayLineColour (item.line->colour) : COL_NORMAL;
-                const auto gain = std::isfinite (item.gainDb) ? item.gainDb : 0.0;
+                const auto gain = std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0;
                 g.setColour (colour);
                 g.strokePath (linePath (*item.centers, *item.medians, static_cast<float> (gain), chart),
                               juce::PathStrokeType (1.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
@@ -284,9 +284,9 @@ void paintOverlay (juce::Graphics& g, juce::Rectangle<float> chart, const State&
     std::vector<ReadCurve> curves;
     for (const auto& item : sources.shown)
     {
-        unmatched = unmatched || ! std::isfinite (item.gainDb);
+        unmatched = unmatched || ! std::isfinite (item.drawGainDb);
         curves.push_back (drawnCurve ("", overlayLineColour (item.line->colour), *item.centers, *item.medians,
-                                      std::isfinite (item.gainDb) ? item.gainDb : 0.0, minimumHz, maximumHz));
+                                      std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0, minimumHz, maximumHz));
     }
     int pointed = -1;
     for (size_t index = 0; index < sources.shown.size(); ++index)
@@ -378,15 +378,11 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);
     paintBlauertZones (g, chart, minimumHz, maximumHz);
 
-    // REFERENCE SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
-    // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
-    // 曲の LUFS-I が無い）曲はそのままの高さで描き、見出しの右に「音量はそろっていない」と出す。
-    const bool bPlaying = state.bSelected && state.audibleComparisonSlot == 3;
+    // Chart gain is independent of MATCH: before A, align references to each other.
     bool unmatched = false;
-    const auto shift = [&state, &unmatched, bPlaying] (const SongFact& fact, bool chosenSong)
+    const auto shift = [&state, &unmatched] (const SongFact& fact, bool chosenSong)
     {
-        if (chosenSong && bPlaying && std::isfinite (state.appliedGainDb)) return state.appliedGainDb;
-        if (const auto gain = songPreviewGainDb (state, fact, chosenSong); std::isfinite (gain)) return gain;
+        if (const auto gain = balanceSongGainDb (state, fact, chosenSong); std::isfinite (gain)) return gain;
         unmatched = true;
         return 0.0;
     };
@@ -431,7 +427,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     }
     if (sources.target != nullptr && ! state.overlay.all)
     {
-        const auto gain = targetOverlayGainDb (state, *sources.target);
+        const auto gain = balanceTargetGainDb (state, sources.target->integrated, targetOverlayGainDb (state, *sources.target));
         unmatched = unmatched || ! std::isfinite (gain);
         const auto offset = static_cast<float> (std::isfinite (gain) ? gain : 0.0);
         auto values = sources.target->spectrum.medianDb;
@@ -455,7 +451,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
     // ALL の描き方の切り替えで見出しに入らない時は、図の右上に（ALL は Blauert の読みを出さないので空いている）。
-    const juce::String rangeText (unmatched ? "LEVEL NOT MATCHED" : "20 Hz - 20 kHz");
+    const juce::String rangeText (balanceLevelText (state, unmatched));
     const bool headerFits = text_style::shownWidth (legendFont, rangeText) <= static_cast<float> (header.getWidth());
     text_style::drawEllipsized (g, rangeText, headerFits ? header : chart.toNearestInt().removeFromTop (16).reduced (4, 0),
                                 juce::Justification::centredRight);
