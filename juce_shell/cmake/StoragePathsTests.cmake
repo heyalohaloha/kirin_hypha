@@ -26,3 +26,10 @@ if(TARGET KirinAppearanceContractTests)
         "$<TARGET_FILE:KirinAtomicFileTests>" "$<TARGET_FILE:KirinAppearanceContractTests>")
     set_tests_properties(kirin_storage_write_guard_startup PROPERTIES TIMEOUT 90)
 endif()
+if(TARGET KirinAppearanceContractTests AND TARGET KirinPreDisplayRuntimeTests)
+    add_test(NAME kirin_pre_display_write_guard_startup COMMAND "${KIRIN_HYPHA_NODE_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/storage_write_guard_startup.mjs"
+        "$<TARGET_FILE:KirinAtomicFileTests>" "$<TARGET_FILE:KirinAppearanceContractTests>"
+        "$<TARGET_FILE:KirinPreDisplayRuntimeTests>")
+    set_tests_properties(kirin_pre_display_write_guard_startup PROPERTIES TIMEOUT 120)
+endif()

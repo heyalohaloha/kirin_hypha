@@ -170,3 +170,22 @@ Appearance, Rust, or separately loaded modules. Inline state is not a cross-modu
 policy transport. It does not claim protection if a test runs writers before its
 explicit initialization. The normal POST build must still be checked independently.
 Windows execution and alias/redirect behavior remain unverified on actual Windows.
+
+## Phase 2b: PreDisplay presence writer and one additional main
+
+PreDisplay presence/capability/acknowledgement publication now checks permission
+before parent creation and delegates identical LF JSON publication to AtomicFile.
+Presence, acknowledgement and capability removal each check permission before
+unlink. Existing identity checks, lease durations and worker/RT behavior are unchanged.
+The standalone PreDisplay runtime main enables the same fixed-root guard before
+fixtures. `--guard-startup-only` has the same exit-78 failure contract; its isolated
+`--guard-shipping-disabled` mode exercises normal publication/update/removal without
+activating test policy. `kirin_pre_display_write_guard_startup` includes this third
+main as well as the two preceding ones. Synthetic revoked-policy fixtures check
+missing parent creation and byte-preserving denial of all three cleanup operations.
+
+This additional main does not activate the guard for other executables, Rust or
+separately loaded plugins. Pre-main writers and module propagation are still not
+covered. In particular, Windows environment-redirecting sandboxes require separate
+policy work before broader bootstrap adoption; this phase does not relax real-root
+protection to accommodate them. Windows runtime execution remains unverified.

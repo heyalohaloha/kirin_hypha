@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 // Only disposable roots. Each subprocess has fresh, irreversible guard state.
-assert.equal(process.argv.length, 4);
+assert.ok(process.argv.length === 4 || process.argv.length === 5);
 const root = fs.mkdtempSync(path.join(process.cwd(), 'guard-startup-'));
 let checks = 0;
 try {
@@ -30,6 +30,7 @@ try {
   }
   invoke(process.argv[2], '--guard-failed-enable', root, 0);
   invoke(process.argv[2], '--guard-shipping-disabled', root, 0);
+  if (process.argv.length === 5) invoke(process.argv[4], '--guard-shipping-disabled', root, 0);
   console.log(`STORAGE_GUARD_STARTUP_ASSERTIONS=${checks}`);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
