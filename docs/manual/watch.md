@@ -144,7 +144,23 @@ from the set.
 
 **MEASURING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
 usable baseline is available. Changing a face never changes audio, Record, Keep, or MATCH.
-PRE reads Reference baselines shared by an open POST of the same chain while POST has a
-PSR, CREST, or SHARP face selected. Those shared metric baselines expire when POST stops publishing. PRE measures its own PSR and CREST. **SHARP is
-available in POST's window only**: the optional PRE sharpness worker exceeded its CPU acceptance
-budget, so PRE does not offer that menu item.
+PRE measures its own PSR and CREST and uses the Reference selected by POST in the same chain.
+Opening a PRE metric face can request that measurement without opening POST's window or
+selecting the same face in POST. If no POST or Reference selection is available, PRE explains
+where to select the Reference; it does not invent a baseline. Only one POST publishes that
+chain's metric baseline at a time, and expired or mismatched publications are rejected.
+
+Completed observations are reused between the Reference roles. The memory-only cache keeps up
+to eight songs or 32 MiB of observation storage, whichever limit is reached first, evicting the
+least recently used song. It does not store whole PCM or write a disk cache. Cancelled unfinished
+analysis may restart when the selected source or role changes. Display snapshots and working
+buffers are separate from this cache budget.
+
+At 44.1, 48, and 96 kHz, a later Cue can be prepared from five seconds before its
+start; those preceding samples warm up the existing measurement engine and are not
+included in the Cue statistics. Other rates retain source-origin measurement.
+Full-song analysis follows in the background. A Cue outside the prepared range
+returns to **MEASURING** until its own observations are available.
+
+**SHARP is available in POST's window only**: the optional PRE sharpness worker exceeded its CPU
+acceptance budget, so PRE does not offer that menu item or run that optional worker.

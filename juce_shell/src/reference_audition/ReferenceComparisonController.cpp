@@ -1,4 +1,5 @@
 #include "ReferenceComparisonController.h"
+#include "ReferenceMetricSeriesCache.h"
 #include <algorithm>
 
 namespace hypha::reference_audition
@@ -29,6 +30,9 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           return binding;
       },analysis)
 {
+    metricSeriesCache = std::make_shared<metrics::SeriesCache>();
+    check.setMetricSeriesCache (metricSeriesCache);
+    reference.setMetricSeriesCache (metricSeriesCache);
     check.prepareSelectionsBeforeReturn();
     check.reportLibraryReceived();  // V と B の id には印が付く。素の id を持つ C が返す
     version.prepareSelectionsBeforeReturn();

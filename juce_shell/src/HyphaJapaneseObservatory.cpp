@@ -225,6 +225,7 @@ const Entry entries[] = {
     { "ATTACK: automatic paired comparison or POST-only events",
       u8"ATTACK：ペアでの自動比較、またはPOSTだけの打音です" },
 
+    { "Choose Reference in POST", u8"POSTでReferenceを選びます" },
     { "Preparing measurement", u8"計測を準備中" },
     { "Unsupported audio format", u8"対応していない音声形式" },
     { "Audio could not be read", u8"音声を読み込めません" },

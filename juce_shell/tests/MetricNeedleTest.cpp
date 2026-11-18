@@ -106,7 +106,7 @@ std::vector<juce::Rectangle<float>> chromeAreas (juce::Rectangle<float> face)
 }
 void reasons()
 {
-    const std::array<const char*, 10> codes {"preparing", "unsupported_format", "read_failed", "source_changed",
+    const std::array<const char*, 11> codes {"select_reference_post", "preparing", "unsupported_format", "read_failed", "source_changed",
         "private_copy_required", "capacity_exceeded", "audio_too_short", "cue_too_short", "no_valid_value", "analysis_failed"};
     require (juce::String (reasonText ("/private/user/music.wav")) == "UNAVAILABLE", "unknown reason never exposes a path");
     for (const auto language : {hypha::i18n::Language::english, hypha::i18n::Language::japanese})

@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceMetricPublication.h"
+#include "ReferenceMetricSeriesCache.h"
 #include "ReferenceMetricJob.h"
 #include "ReferenceMetricSourceScan.h"
 #include <array>
@@ -17,6 +18,7 @@ class Runtime final
         std::uint32_t rate = 0, channels = 0;
         std::atomic<std::uint64_t> requestedEnd {0};
         std::shared_ptr<const SeriesData> prefix;
+        std::shared_ptr<const SeriesData> cachedFull; // Worker writes; accepted take synchronizes read.
         juce::String finalReason; // Worker writes; control owner reads only after accepted Job::take.
     };
 public:
@@ -26,11 +28,27 @@ public:
     void waitForTest() { job.waitForTest(); }
     std::function<void()> afterEarlyForTest;
     std::size_t startsForTest() const { return testStarts; }
+    std::size_t nativeScansForTest() const { return testNativeScans->load(); }
+    static std::uint8_t warmupMaskForTest (std::uint32_t rate) { return verifiedWarmupMask (rate); }
+    static bool coversForTest (const std::shared_ptr<const SeriesData>& data, Cue cue) { return covers (data, cue); }
     static juce::String failureReasonForTest (ScanState state, const juce::String& raw) { return failureReason (state, raw); }
    #endif
+    // Control-worker only. Ownership changes cancel and invalidate old publications;
+    // detached Work retains the previous lease until all reader teardown finishes.
+    void setPublisherLease (std::shared_ptr<void> lease)
+    {
+        if (publisherLease == lease) return;
+        clear(); publisherLease = std::move (lease);
+    }
+    // Worker-only mailbox application. A shared cache holds facts, not source authority.
+    void setSeriesCache (std::shared_ptr<SeriesCache> shared)
+    {
+        if (!shared || shared == cache) return;
+        clear(); cache = std::move (shared);
+    }
     void clear()
     {
-        job.cancel(); early.reset(); activeKey.clear(); attemptedKey.clear(); terminalReason.clear(); ++serial;
+        job.cancel(); early.reset(); activeKey.clear(); attemptedKey.clear(); terminalReason.clear(); verifiedContentAuthority.clear(); ++serial;
         std::atomic_store (&published, std::shared_ptr<const Publication> {});
     }
     void service (const std::shared_ptr<const RuntimeSource>& source, std::uint32_t rate,
@@ -54,27 +72,37 @@ public:
         const auto key = keyFor (*source, rate, channels);
         if (key != activeKey)
         {
-            job.cancel(); early.reset(); activeKey = key; attemptedKey.clear(); terminalReason.clear(); ++serial;
+            job.cancel(); early.reset(); activeKey = key; attemptedKey.clear(); terminalReason.clear(); verifiedContentAuthority.clear(); ++serial;
             publish (Availability::measuring, selectionGeneration, cue, {});
         }
-        if (cache && cacheKey == key)
+        const auto contentKey = contentKeyFor (*source, rate, channels);
+        const bool contentVerified = verifiedContentAuthority == key || preparedContent (*source);
+        if (const auto cached = contentVerified ? cache->find (contentKey) : nullptr)
         {
             const auto existing = snapshot();
             if (!existing || existing->state != Availability::ready || !existing->series
                 || existing->selectionGeneration != selectionGeneration
                 || lastCue.start != cue.start || lastCue.end != cue.end)
-                publish (Availability::ready, selectionGeneration, cue, cache);
+                publish (Availability::ready, selectionGeneration, cue, cached);
             return;
         }
         if (auto result = job.take (serial))
         {
             if (result->scan.state == ScanState::complete)
             {
-                auto data = std::make_shared<SeriesData>();
-                data->frames = std::move (result->scan.frames); data->sourceFrames = result->scan.sourceFrames;
-                data->rate = rate; data->channels = channels; data->fullScanComplete = true;
-                cache = std::move (data); cacheKey = key;
-                publish (Availability::ready, selectionGeneration, cue, cache);
+                std::shared_ptr<const SeriesData> data;
+                if (early && early->serial == serial && early->key == key) data = early->cachedFull;
+                if (!data)
+                {
+                    auto full = std::make_shared<SeriesData>();
+                    full->frames = std::move (result->scan.frames); full->sourceFrames = result->scan.sourceFrames;
+                    full->rate = rate; full->channels = channels; full->fullScanComplete = true;
+                    data = std::move (full);
+                }
+                // Store only the accepted locator proof, never its PCM/snapshot owner.
+                verifiedContentAuthority = key;
+                cache->insert (contentKey, data);
+                publish (Availability::ready, selectionGeneration, cue, std::move (data));
                 return;
             }
             // Retry only preparation waits that consumed no PCM. A partially-read
@@ -124,14 +152,53 @@ public:
         progressState->requestedEnd.store (cue.end);
 #if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
         const auto earlyHook = afterEarlyForTest;
+        const auto nativeScans = testNativeScans;
 #endif
-        const auto started = job.start (serial, [description = std::move (description), taskRoot, rate, channels, progressState
+        const auto started = job.start (serial, [description = std::move (description), taskRoot, rate, channels, progressState, lease = publisherLease, initialCue = cue, sharedCache = cache, contentKey
 #if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
-            , earlyHook
+            , earlyHook, nativeScans
 #endif
             ]
             (const std::atomic<bool>& cancelled) mutable {
+                juce::ignoreUnused (lease); // Lifetime extends through Work destruction, not merely return.
                 auto privateDescription = std::make_shared<RuntimeSource> (description);
+                // An unprepared alias must authenticate its own bytes before borrowing
+                // another locator's facts. All copy/hash work stays inside this worker.
+                const auto prepared = revision_detail::snapshotCache().get (*privateDescription);
+                if (cancelled.load (std::memory_order_acquire)) return ScanResult {ScanState::cancelled, {}, 0};
+                if (!prepared || !prepared->hasPrivateCopy()
+                    || !revision_detail::equal (prepared->revision(), privateDescription->revision))
+                {
+                    progressState->finalReason = prepared && prepared->available()
+                        ? (prepared->hasPrivateCopy() ? "source_changed" : "private_copy_required")
+                        : failureReason (ScanState::readFailed, prepared ? prepared->reason() : juce::String {});
+                    return ScanResult {progressState->finalReason == "preparing" ? ScanState::waiting : ScanState::readFailed, {}, 0};
+                }
+                if (const auto cached = sharedCache->find (contentKey))
+                { progressState->cachedFull = cached; return ScanResult {ScanState::complete, {}, cached->sourceFrames}; }
+#if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
+                ++*nativeScans;
+#endif
+                const auto warmupMask = verifiedWarmupMask (rate);
+                if (warmupMask != 0 && initialCue.start > static_cast<std::uint64_t> (rate) * warmupSeconds)
+                {
+                    auto focused = scanPreparedSource (privateDescription, taskRoot, rate, channels,
+                        true, maxObservations, cancelled, {}, {}, CueScanRequest {initialCue, warmupSeconds, warmupMask});
+                    if (cancelled.load (std::memory_order_acquire)) return std::move (focused.scan);
+                    if (focused.scan.state == ScanState::complete && !focused.scan.wholeSource)
+                    {
+                        auto data = std::make_shared<SeriesData>();
+                        data->frames = std::move (focused.scan.frames); data->sourceFrames = focused.scan.sourceFrames;
+                        data->rate = rate; data->channels = channels; data->boundedCue = true;
+                        data->completeCue = focused.scan.completeCue; data->completeMetricMask = focused.scan.completeMetricMask;
+                        std::atomic_store (&progressState->prefix, std::shared_ptr<const SeriesData> (std::move (data)));
+#if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
+                        if (earlyHook) earlyHook();
+#endif
+                    }
+                    // Even an unsupported/short focused range can use the original path.
+                    // Full-source completion, cache and fallback metrics remain independent.
+                }
                 std::uint64_t lastPublishedEnd = 0;
                 auto scanned = scanPreparedSource (std::move (privateDescription), taskRoot, rate, channels,
                     true, maxObservations, cancelled, [&] (const auto& frames, std::uint64_t sourceFrames) {
@@ -183,7 +250,19 @@ private:
     static bool covers (const std::shared_ptr<const SeriesData>& data, Cue cue)
     {
         return data && cue.end > cue.start && cue.end <= data->sourceFrames
-            && (data->fullScanComplete || (!data->frames.empty() && cue.end <= data->frames.back().end_sample));
+            && (!data->boundedCue || (cue.start >= data->completeCue.start && cue.end <= data->completeCue.end))
+            && (data->fullScanComplete || data->boundedCue || (!data->frames.empty() && cue.end <= data->frames.back().end_sample));
+    }
+    static bool preparedContent (const RuntimeSource& source)
+    {
+        const auto prepared = revision_detail::snapshotCache().prepared (source);
+        return prepared && prepared->hasPrivateCopy() && revision_detail::equal (prepared->revision(), source.revision);
+    }
+    static juce::String contentKeyFor (const RuntimeSource& source, std::uint32_t rate, std::uint32_t channels)
+    {
+        const auto& sha = source.sourceFileSha256;
+        if (sha.length() != 64 || !sha.containsOnly ("0123456789abcdef")) return {};
+        return sha + "\n" + juce::String (rate) + ":" + juce::String (channels) + ":native-metrics-v1:gain1";
     }
     static juce::String keyFor (const RuntimeSource& source, std::uint32_t rate, std::uint32_t channels)
     {
@@ -219,18 +298,25 @@ private:
         lastCue = cue;
         std::atomic_store (&published, std::shared_ptr<const Publication> (std::move (next)));
     }
+    // Five-second convergence is checked against zero-origin dynamic fixtures.
+    // Unverified rates/metrics continue from source origin, not estimated history.
+    static std::uint8_t verifiedWarmupMask (std::uint32_t rate) noexcept
+    { return rate == 44100 || rate == 48000 || rate == 96000 ? 7 : 0; }
+    static constexpr unsigned warmupSeconds = 5;
     static constexpr std::size_t maxObservations = 36000; // One hour, bounded frames, never whole PCM.
     juce::File root;
     RuntimeV2SourceRepository repository;
     Job job;
+    std::shared_ptr<void> publisherLease;
     std::uint64_t serial = 1;
-    juce::String activeKey, attemptedKey, cacheKey, terminalReason;
+    juce::String activeKey, attemptedKey, terminalReason, verifiedContentAuthority;
 #if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
     std::size_t testStarts = 0;
+    std::shared_ptr<std::atomic<std::size_t>> testNativeScans = std::make_shared<std::atomic<std::size_t>> (0);
 #endif
     double retryAt = 0;
     Cue lastCue;
-    std::shared_ptr<const SeriesData> cache;
+    std::shared_ptr<SeriesCache> cache = std::make_shared<SeriesCache>();
     std::shared_ptr<EarlyState> early;
     std::shared_ptr<const Publication> published;
 };

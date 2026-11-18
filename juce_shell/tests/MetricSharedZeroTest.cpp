@@ -1,7 +1,9 @@
+#include "reference_audition/ReferenceMetricLeaseEpoch.h"
 #include "TestPathBudget.h"
 #include "TestTemporaryDirectory.h"
 #include "AtomicFile.h"
 #include "HyphaMetricSharedZero.h"
+#include "HyphaMetricChainDemand.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -95,7 +97,7 @@ void reasons()
     require (legacy.status == Status::ready && legacy.reason.empty(), "old record decodes without reason");
     value.status = Status::unavailable;
     value.song = juce::String::repeatedString (juce::String::fromUTF8 ("長い曲名🎶"), 100);
-    for (const auto* code : {"preparing", "unsupported_format", "read_failed", "source_changed", "private_copy_required",
+    for (const auto* code : {"select_reference_post", "preparing", "unsupported_format", "read_failed", "source_changed", "private_copy_required",
                              "capacity_exceeded", "audio_too_short", "cue_too_short", "no_valid_value", "analysis_failed"})
     {
         value.reason = code;
@@ -131,6 +133,109 @@ struct Fixture
     juce::File file (Face face) const
     { return root.getChildFile (scope + "-" + juce::String (static_cast<int> (face)) + ".txt"); }
 };
+void chainDemand()
+{
+    Fixture fixture;
+    ChainDemand pre (fixture.root), anotherPre (fixture.root), post (fixture.root), otherPost (fixture.root);
+    require (!post.requested (scope, 48000, 2, instant), "no PRE request initially");
+    pre.request (scope, 48000, 2, true, instant);
+    hypha::tests::recordPathsBeforeRemoval (fixture.root);
+    require (post.requested (scope, 48000, 2, instant), "PRE-first demand crosses independent service instances");
+    require (!post.requested (otherScope, 48000, 2, instant)
+        && !post.requested (scope, 44100, 2, instant) && !post.requested (scope, 48000, 1, instant),
+        "demand cannot cross chain or host format");
+    require (!post.requested (scope, 48000, 2, instant - 1)
+        && !post.requested (scope, 48000, 2, instant + 1500), "future or expired request cannot cause work");
+    anotherPre.request (scope, 48000, 2, true, instant + 250);
+    hypha::tests::recordPathsBeforeRemoval (fixture.root);
+    pre.withdraw();
+    require (post.requested (scope, 48000, 2, instant + 250), "one PRE close cannot withdraw another PRE's request");
+    anotherPre.request (scope, 44100, 2, true, instant + 500);
+    hypha::tests::recordPathsBeforeRemoval (fixture.root);
+    require (!post.requested (scope, 48000, 2, instant + 500)
+        && post.requested (scope, 44100, 2, instant + 500), "format change withdraws former demand");
+    anotherPre.withdraw();
+    require (!post.requested (scope, 44100, 2, instant + 500), "PRE close withdraws its last demand");
+    auto processorOwner = post.ownership (scope);
+    require (processorOwner != nullptr && !otherPost.ownership (scope), "one chain admits only one POST owner");
+    auto detachedWorkerOwner = processorOwner;
+    processorOwner.reset(); post.ownership ({});
+    require (!otherPost.ownership (scope), "cancelled detached worker retains exclusive chain owner");
+    detachedWorkerOwner.reset();
+    auto successor = otherPost.ownership (scope);
+    require (successor != nullptr, "ownership transfers only after old worker actually releases");
+    auto separateChain = post.ownership (otherScope);
+    require (separateChain != nullptr, "different chains own independent service slots");
+   #if ! JUCE_WINDOWS
+    // Windows symlink creation can require elevated/developer permissions; the
+    // production handle rejects reparse files, and its platform test is separate.
+    const auto target = fixture.root.getChildFile ("link-target");
+    require (target.createDirectory().wasOk(), "symlink fixture target");
+    const auto link = fixture.root.getChildFile ("link-parent");
+    require (target.createSymbolicLink (link, false), "symlink fixture parent");
+    ChainOwner redirected (link.getChildFile ("owner.lock"));
+    require (!redirected.acquired(), "publisher refuses a redirected immediate parent");
+   #endif
+    require (post.serviceDue (instant) && !post.serviceDue (instant + 249) && post.serviceDue (instant + 250),
+             "processor service transport remains bounded at four Hz");
+}
+void staleDemandPopulation()
+{
+    Fixture fixture;
+    const auto directory = fixture.root.getChildFile (scope);
+    require (directory.createDirectory().wasOk(), "stale peer fixture directory");
+    const auto expired = juce::String ("KHMD1\n") + scope + "\n48000 2 " + juce::String (instant - 1500) + "\n";
+    for (int i = 0; i < 130; ++i)
+        require (hypha::storage::writeText (directory.getChildFile (juce::String (i) + ".req"), expired,
+            false, false, "\n"), "write expired peer fixture");
+    ChainDemand pre (fixture.root), post (fixture.root);
+    pre.request (scope, 48000, 2, true, instant);
+    hypha::tests::recordPathsBeforeRemoval (fixture.root);
+    bool found = false;
+    for (int i = 0; i < 3; ++i) found = post.requested (scope, 48000, 2, instant) || found;
+    require (found, "rotating bounded reads discover live peer beyond 64 crash leftovers");
+    require (post.requested (scope, 48000, 2, instant + 250), "cached peer validity is refreshed");
+    require (!post.requested (scope, 48000, 2, instant + 1500), "cached peer expiration is enforced");
+    require (!post.requested (otherScope, 48000, 2, instant), "cached peer never crosses scope");
+    require (directory.findChildFiles (juce::File::findFiles, false, "*.req").size() == 131,
+        "expired peers are never deleted by another instance");
+}
+void leasePublicationEpoch()
+{
+    hypha::reference_audition::metrics::LeaseEpoch epoch;
+    require (epoch.current(), "unmanaged legacy epoch starts current");
+    epoch.changed(); const auto oldLease = epoch.ticket();
+    require (!epoch.current(), "new lease hides snapshots before worker applies it");
+    epoch.acknowledge (oldLease); require (epoch.current(), "applied lease can publish");
+    epoch.changed(); const auto newLease = epoch.ticket();
+    require (!epoch.current(), "nonnull old to nonnull new lease immediately hides old result");
+    epoch.acknowledge (oldLease);
+    require (!epoch.current(), "late old worker acknowledgement cannot revalidate old result");
+    epoch.changed(); const auto cancelledLease = epoch.ticket();
+    epoch.acknowledge (newLease);
+    require (!epoch.current(), "cancellation during lease application stays hidden");
+    epoch.acknowledge (cancelledLease); require (epoch.current(), "cancel acknowledgement matches latest request");
+    epoch.changed(); require (!epoch.current(), "reacquiring same pointer still needs new epoch after cancellation");
+}
+void scopeOwnerRelease()
+{
+    Fixture fixture;
+    ChainDemand unselected (fixture.root), selected (fixture.root), successor (fixture.root);
+    require (!unselected.selectionOwnership (scope, false, true), "unselected POST cannot monopolise peer demand");
+    auto selectedLease = selected.selectionOwnership (scope, true, true);
+    require (selectedLease != nullptr, "selected POST acquires behind an unselected POST");
+    auto cancellingWorker = selectedLease;
+    selectedLease.reset(); // Controller has revoked its lease; cancelled worker is still alive.
+    require (!selected.selectionOwnership (scope, false, true), "deselection withdraws processor ownership");
+    require (!successor.selectionOwnership (scope, true, true), "handoff waits for old work destruction");
+    cancellingWorker.reset();
+    auto next = successor.selectionOwnership (scope, true, true);
+    require (next != nullptr, "selected successor acquires after cancellation completion");
+    next.reset();
+    require (!successor.selectionOwnership (scope, true, false), "no demand releases selected owner");
+    require (selected.selectionOwnership (scope, true, true) != nullptr, "demand can resume on another selected POST");
+    require (!unselected.selectionOwnership (otherScope, true, false), "idle POST never reserves another scope");
+}
 void transport()
 {
     Fixture fixture;
@@ -179,6 +284,6 @@ void transport()
 }
 int main()
 {
-    try { wire(); reasons(); transport(); std::cout << "Metric shared zero passed\n"; return 0; }
+    try { wire(); reasons(); transport(); chainDemand(); scopeOwnerRelease(); leasePublicationEpoch(); staleDemandPopulation(); std::cout << "Metric shared zero passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -3,7 +3,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* PRE own observation. UI/non-RT only; no PRE/POST delta or transport payload. */
+/* Reserved unsupported ABI. PRE own SHARP is deferred after CPU-budget failure.
+ * These functions never access an engine, acquire demand, or start a worker. */
 typedef struct KirinPreSharpFrame {
     uint32_t version, struct_size;
     uint64_t owner_generation, analysis_generation;
@@ -11,10 +12,11 @@ typedef struct KirinPreSharpFrame {
     uint32_t sample_rate, aperture_samples, channels, reserved;
     double sharpness_acum;
 } KirinPreSharpFrame;
-/* token=0 acquires; nonzero renews only that live token. 0 means unavailable/busy. */
+/* Always returns 0 (unsupported), for every handle/token. */
 uint64_t kirin_hypha_request_pre_sharp(KirinHypha* handle, uint64_t token);
+/* Always false; out remains untouched. */
 bool kirin_hypha_poll_pre_sharp(KirinHypha* handle, uint64_t token, KirinPreSharpFrame* out);
-/* false is busy/foreign; retry busy release. Unrenewed demand expires in 1.5 seconds. */
+/* Always false; no PRE-local demand exists in this build. */
 bool kirin_hypha_release_pre_sharp(KirinHypha* handle, uint64_t token);
 #ifdef __cplusplus
 }

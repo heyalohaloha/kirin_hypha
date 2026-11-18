@@ -190,6 +190,16 @@ void verify (observatory::Role role, int width, Face face)
         check (log.texts().contains ("POST " + juce::String::charToString (0x2014)), "Japanese reason keeps Unicode missing value");
         preview (japaneseImage, previewName + "-reason-ja");
     }
+    if (pre && face == Face::psr && (width == 300 || width == 900))
+    {
+        const i18n::ScopedLanguage japanese (i18n::Language::japanese);
+        auto unavailable = frame; unavailable.status = Status::unavailable; unavailable.reason = "select_reference_post";
+        view.setMetricFrame (unavailable); log.clear();
+        const auto hintImage = render (view);
+        check (log.texts().joinIntoString (" ").contains (i18n::tr ("Choose Reference in POST")),
+               "PRE explains where its Reference is selected");
+        preview (hintImage, previewName + "-select-reference-ja");
+    }
     view.setMetricFrame (frame);
     view.setMetricFace (Face::lu);
     check (view.luFaceShown() && !view.metricFaceActive() && view.lu().windowControl().isVisible(), "switch metric to LU");

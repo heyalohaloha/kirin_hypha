@@ -67,6 +67,7 @@ struct Reading
 // Unknown/private diagnostic content must never reach the screen.
 inline const char* reasonText (const std::string& code) noexcept
 {
+    if (code == "select_reference_post") return "Choose Reference in POST";
     if (code == "preparing") return "Preparing measurement";
     if (code == "unsupported_format") return "Unsupported audio format";
     if (code == "read_failed") return "Audio could not be read";

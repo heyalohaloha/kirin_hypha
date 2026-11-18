@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "HyphaObservatoryResizeContract.h"
+#include "HyphaMetricReferenceZero.h"
 #include "kirin_hypha_vu_calibration_ffi.h"
 
 void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
@@ -178,16 +179,54 @@ void KirinHyphaProcessorBase::setMetricFacePreference (hypha::metric_needle::Fac
 
 void KirinHyphaProcessorBase::setReferenceMetricObservationEnabled (bool enabled)
 {
+    // Editor close withdraws only its demand. Another PRE window may still need
+    // the POST-owned Reference job and its processor-lifetime publication.
+    if (metricChainDemand.local() == enabled) return;
+    metricChainDemand.local (enabled);
+    if (role == Role::Pre && !enabled) metricChainDemand.withdraw();
+    requestServiceTimer();
+}
+
+void KirinHyphaProcessorBase::serviceReferenceMetrics()
+{
+    if (!metricChainDemand.serviceDue()) return;
+    const auto scope = hybridVuCalibrationScope();
+    const auto sampleRate = getSampleRate();
+    const auto rate = std::isfinite (sampleRate) && sampleRate >= 8000 && sampleRate <= 384000
+        && std::floor (sampleRate) == sampleRate ? static_cast<std::uint32_t> (sampleRate) : 0u;
+    const auto channels = static_cast<std::uint32_t> (getTotalNumInputChannels());
+    const bool permitted = stereoWorkflowsSupported() && licenseIsOs();
+    if (role == Role::Pre)
+    { metricChainDemand.request (scope, rate, channels, permitted && metricChainDemand.local()); return; }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    const juce::ScopedLock lock (handleLock);
-    if (referenceAuditionController) referenceAuditionController->setMetricObservationEnabled (
-        enabled && stereoWorkflowsSupported() && licenseIsOs());
-   #else
-    juce::ignoreUnused (enabled);
+    std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
+    { const juce::ScopedLock lock (handleLock); controller = referenceAuditionController; }
+    if (!controller) { metricChainDemand.selectionOwnership (scope, false, false); return; }
+    const auto selection = controller->snapshot();
+    const bool selected = permitted && selection.libraryReceived && hypha::lu_needle::zeroRole (selection) != nullptr;
+    const bool wanted = metricChainDemand.local() || metricChainDemand.requested (scope, rate, channels);
+    if (!selected || !wanted)
+    {
+        // Revoke admission/publication first. Worker-held leases keep the lock
+        // alive until cancellation completes, even after this processor yields.
+        controller->setMetricObservationEnabled (false);
+        controller->setMetricOwnershipLease ({});
+        metricChainDemand.selectionOwnership (scope, selected, wanted);
+        return;
+    }
+    const auto ownership = metricChainDemand.selectionOwnership (scope, selected, wanted);
+    controller->setMetricOwnershipLease (ownership);
+    controller->setMetricObservationEnabled (ownership != nullptr);
+    if (!ownership) return; // Never overwrite the actual chain owner's publication.
+    const auto runtime = controller->snapshot();
+    if (scope != hybridVuCalibrationScope()) return;
+    const bool readable = permitted && runtime.libraryReceived;
+    for (std::size_t i = 0; i < 3; ++i)
+        shareMetricZero (scope, hypha::metric_needle::referenceZero (runtime, readable, sampleRate, channels, i));
    #endif
 }
 
-void KirinHyphaProcessorBase::shareMetricZero (const hypha::metric_needle::SharedReferenceZero& zero)
+void KirinHyphaProcessorBase::shareMetricZero (const juce::String& scope, const hypha::metric_needle::SharedReferenceZero& zero)
 {
     jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
     // B/C have independent selection counters. The shared writer owns one
@@ -195,7 +234,7 @@ void KirinHyphaProcessorBase::shareMetricZero (const hypha::metric_needle::Share
     if (sharedMetricRevision == std::numeric_limits<std::uint64_t>::max()) return;
     auto sequenced = zero;
     sequenced.generation = ++sharedMetricRevision;
-    metricSharedZero.publish (hybridVuCalibrationScope(), sequenced);
+    metricSharedZero.publish (scope, sequenced); // Publish only into the scope covered by the retained owner lease.
 }
 hypha::metric_needle::SharedReferenceZero KirinHyphaProcessorBase::sharedMetricZero (hypha::metric_needle::Face face, bool readable)
 {

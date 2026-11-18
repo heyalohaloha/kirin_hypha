@@ -32,6 +32,27 @@ pub extern "C" fn kirin_reference_metrics_create(
     .unwrap_or(std::ptr::null_mut())
 }
 
+/// Independent non-RT scan at an absolute aligned endpoint; existing create remains zero-based.
+#[no_mangle]
+pub extern "C" fn kirin_reference_metrics_create_at(
+    rate: u32,
+    channels: u32,
+    start_sample: u64,
+) -> *mut ReferenceMetricsHandle {
+    catch_unwind(|| {
+        ReferenceMetrics::new_at(rate, channels as usize, start_sample).map_or(
+            std::ptr::null_mut(),
+            |engine| {
+                Box::into_raw(Box::new(ReferenceMetricsHandle {
+                    engine,
+                    poisoned: false,
+                }))
+            },
+        )
+    })
+    .unwrap_or(std::ptr::null_mut())
+}
+
 /// # Safety
 /// `handle` is null or live and owned by this caller. No concurrent calls or reuse after drop.
 #[no_mangle]

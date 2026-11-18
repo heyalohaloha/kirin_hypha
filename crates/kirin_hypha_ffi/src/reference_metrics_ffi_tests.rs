@@ -212,3 +212,32 @@ fn reference_metrics_ffi_eof_and_null_output_are_explicit() {
         }
     }
 }
+
+#[test]
+fn reference_metrics_ffi_absolute_origin_validation() {
+    assert!(kirin_reference_metrics_create_at(48000, 2, 1).is_null());
+    assert!(kirin_reference_metrics_create_at(48000, 2, u64::MAX).is_null());
+    let handle = kirin_reference_metrics_create_at(48000, 1, 9600);
+    assert!(!handle.is_null());
+    unsafe {
+        let mut out = [KirinReferenceMetricFrame {
+            end_sample: 0,
+            crest_db: 0.0,
+            psr_db: 0.0,
+            sharpness_acum: 0.0,
+        }; 8];
+        let mut written = 0;
+        assert!(kirin_reference_metrics_push(
+            handle,
+            [0.0f32; 4800].as_ptr(),
+            4800,
+            out.as_mut_ptr(),
+            8,
+            &mut written
+        ));
+        if written != 0 {
+            assert_eq!(out[0].end_sample, 14400);
+        }
+        kirin_reference_metrics_drop(handle);
+    }
+}

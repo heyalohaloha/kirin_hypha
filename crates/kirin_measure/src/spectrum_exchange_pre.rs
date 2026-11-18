@@ -30,10 +30,6 @@ impl SpectrumCoordinator {
             self.clock_unix_ms(),
         );
         after_read();
-        // Non-RT ownership transaction, including publication. Local UI calls never wait.
-        let Ok(control) = self.pre_control.try_read() else {
-            return false;
-        };
         let Some(ValidatedRequest {
             request_id,
             analysis_mode,
@@ -43,12 +39,8 @@ impl SpectrumCoordinator {
             attack_band,
         }) = request
         else {
-            drop(control);
-            let Ok(_local_control) = self.pre_control.try_write() else {
-                return false;
-            };
             self.retire_pre_session(read_revision);
-            return self.service_pre_local(read_revision);
+            return false;
         };
         if !self.prepare_pre_session(
             read_revision,
@@ -108,7 +100,6 @@ impl SpectrumCoordinator {
         if self.pre_request_read_revision.load(Ordering::Acquire) != read_revision {
             return false;
         }
-        let owner_changed = self.pre_local_external(request_id);
         // The descriptor's mode and epoch owner cannot change separately from its session.
         if !self.runtime.set_analysis_mode(analysis_mode)
             || !self.runtime.set_channel_mode(channel_mode)
@@ -122,13 +113,6 @@ impl SpectrumCoordinator {
         }
         if let Some(runtime) = self.attack_runtime.as_ref() {
             runtime.set_band(attack_band);
-        }
-        if owner_changed && slot.as_ref().map(|state| state.request_id) == Some(request_id) {
-            self.restart_session_runtimes(analysis_mode);
-            if let Some(current) = slot.as_mut() {
-                current.state_epoch_samples = None;
-                Self::clear_pre_epoch_publication(current);
-            }
         }
         if slot.as_ref().map(|state| state.request_id) != Some(request_id) {
             self.restart_session_runtimes(analysis_mode);
@@ -401,10 +385,6 @@ impl SpectrumCoordinator {
             if self.pre_request_read_revision.load(Ordering::Acquire) != read_revision {
                 return;
             }
-            // A tombstone belongs to POST; a local runtime must not consume its rearm.
-            if self.pre_local_is_running() {
-                return;
-            }
             let has_session = slot.is_some();
             if let Some(current) = slot.as_mut() {
                 if self.runtime.analysis_mode() == AnalysisViewMode::Perceptual
@@ -420,7 +400,6 @@ impl SpectrumCoordinator {
             } else {
                 let _ = slot.take();
             }
-            self.pre_local_external_retired();
             if has_session {
                 self.disable_analysis_runtimes();
                 if let Some(runtime) = self.attack_runtime.as_ref() {

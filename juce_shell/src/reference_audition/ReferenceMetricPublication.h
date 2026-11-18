@@ -11,6 +11,9 @@ struct SeriesData
     std::uint64_t sourceFrames = 0;
     std::uint32_t rate = 0, channels = 0;
     bool fullScanComplete = false; // Prefix Cue facts never imply full-source completion.
+    bool boundedCue = false;
+    Cue completeCue; // Only this interval is measured for a seek/warmup publication.
+    std::uint8_t completeMetricMask = 7;
 };
 enum class Availability { unavailable, measuring, ready };
 struct Publication

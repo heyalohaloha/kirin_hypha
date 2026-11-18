@@ -35,6 +35,8 @@ public:
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
+    void setMetricOwnershipLease (std::shared_ptr<void> lease)
+    { check.setMetricOwnershipLease (lease); reference.setMetricOwnershipLease (std::move (lease)); }
     void setMetricObservationEnabled (bool enabled) noexcept
     { metricObservationRequested.store (enabled, std::memory_order_release);
       if (!enabled) { check.setMetricObservationEnabled (false); reference.setMetricObservationEnabled (false); } }
@@ -223,6 +225,7 @@ private:
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     void ensureReferenceSong (const Snapshot& reference);
     void requestSongPreload (const Snapshot& reference);  // B の一覧を見ているあいだ、押す前に確かめる曲を渡す
+    std::shared_ptr<metrics::SeriesCache> metricSeriesCache; // One aggregate B/C cache, not one per role.
     std::atomic<bool> metricObservationRequested {false};
     juce::String metricPriorityKey; // selectionLock
     std::uint64_t metricPriorityGeneration = 1; // selectionLock

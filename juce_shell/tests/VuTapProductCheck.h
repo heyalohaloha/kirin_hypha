@@ -248,8 +248,38 @@ void verifyVuTapProduct()
                 expectVuLiveFrame (*view, stopped, returnBegan, returnEnded, (frame + 1) / 60.0);
             }
             require (view->vuPositionForTest (0) < .02, "stale public readings cannot pin the stopped needle");
+            const auto reopenWaitStart = std::chrono::steady_clock::now();
+            const auto dueDeltaBeforeWait = std::chrono::duration<double> (due - reopenWaitStart).count();
+            const auto positionBeforeWait = view->vuPositionForTest (0);
             advanceFrames (48000);
-            vu->onClick(); vu->onClick();
+            const auto reopenWaitEnd = std::chrono::steady_clock::now();
+            const auto beforeReopen = view->onVuLiveReading();
+            const auto reopenBeganNanos = hypha::live_compare::callbackWallNanos();
+            const auto positionBeforeClose = view->vuPositionForTest (0);
+            vu->onClick();
+            const auto positionAfterClose = view->vuPositionForTest (0);
+            vu->onClick();
+            const auto reopenEndedNanos = hypha::live_compare::callbackWallNanos();
+            const auto afterReopen = view->onVuLiveReading();
+            const auto ageBeforeReopen = reopenBeganNanos > beforeReopen.wallNanos
+                ? static_cast<double> (reopenBeganNanos - beforeReopen.wallNanos) * 1.0e-9 : 0.0;
+            std::cout << "VU reopen diagnostic wrapper=" << int (processor.wrapperType) << " role=" << processor.getName()
+                      << " wait_wall_seconds=" << std::chrono::duration<double> (reopenWaitEnd - reopenWaitStart).count()
+                      << " due_minus_now_before_wait=" << dueDeltaBeforeWait
+                      << " due_minus_now_after_wait=" << std::chrono::duration<double> (due - reopenWaitEnd).count()
+                      << " reopen_wall_seconds=" << static_cast<double> (reopenEndedNanos - reopenBeganNanos) * 1.0e-9
+                      << " position_before_wait=" << positionBeforeWait << " position_before_close=" << positionBeforeClose
+                      << " position_after_close=" << positionAfterClose << " position_after_open=" << view->vuPositionForTest (0)
+                      << " stopped_generation=" << stopped.generation << " stopped_wall_nanos=" << stopped.wallNanos
+                      << " stopped_ahead_seconds=" << stopped.aheadSeconds
+                      << " before_generation=" << beforeReopen.generation << " before_wall_nanos=" << beforeReopen.wallNanos
+                      << " before_coherent=" << beforeReopen.coherent << " before_feeding=" << beforeReopen.feeding
+                      << " before_age_seconds=" << ageBeforeReopen << " before_ahead_seconds=" << beforeReopen.aheadSeconds
+                      << " before_effective_age=" << ageBeforeReopen - beforeReopen.aheadSeconds
+                      << " before_needle=" << beforeReopen.needles[0].value << " before_velocity=" << beforeReopen.needles[0].velocity
+                      << " after_generation=" << afterReopen.generation << " after_wall_nanos=" << afterReopen.wallNanos
+                      << " after_coherent=" << afterReopen.coherent << " after_feeding=" << afterReopen.feeding
+                      << " after_ahead_seconds=" << afterReopen.aheadSeconds << std::endl;
             require (view->vuPositionForTest (0) < .02, "stopped VU reopening cannot revive old audio on first paint");
             view->tickVuForTest (1.0 / 60);
             require (view->vuPositionForTest (0) < .02, "stopped VU reopening keeps the returned needle");

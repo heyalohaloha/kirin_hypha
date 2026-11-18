@@ -212,7 +212,21 @@ namespace hypha::reference_audition
                 }
             }
             if (songsOnly.load (std::memory_order_acquire)) serviceSongPreload();
-            if (metricObservationEnabled.load (std::memory_order_acquire) && !versionComparison
+            std::shared_ptr<void> metricLease;
+            std::uint64_t metricLeaseTicket = 0;
+            std::shared_ptr<metrics::SeriesCache> metricCache;
+            bool metricOwnershipAllowed = false;
+            { const juce::ScopedLock lock (stateLock);
+              metricLease = metricOwnershipLease;
+              metricLeaseTicket = metricOwnershipEpoch.ticket();
+              metricCache = metricSeriesCache;
+              metricOwnershipAllowed = !metricOwnershipManaged || static_cast<bool> (metricLease); }
+            metricRuntime->setSeriesCache (std::move (metricCache));
+            metricRuntime->setPublisherLease (metricLease);
+            metricSetRuntime->setPublisherLease (metricLease);
+            { const juce::ScopedLock lock (stateLock);
+              metricOwnershipEpoch.acknowledge (metricLeaseTicket); }
+            if (metricOwnershipAllowed && metricObservationEnabled.load (std::memory_order_acquire) && !versionComparison
                 && libraryReceived.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire)
                 && workerSourceGeneration == selectionGeneration && !currentPages().sourceUnavailable()
                 && std::isfinite (configuration.sampleRate) && configuration.sampleRate >= 8000.0

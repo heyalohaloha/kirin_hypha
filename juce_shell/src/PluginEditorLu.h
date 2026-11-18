@@ -31,11 +31,10 @@ inline void refreshPost (observatory::View& view, KirinHyphaProcessorBase& proce
     // The same condition that lets B and C list Kirin OS's sets.
     const bool readable = processor.stereoWorkflowsSupported() && processor.licenseIsOs() && runtime.libraryReceived;
     const auto facts = lu_needle::referenceFacts (runtime, readable, view.lu().window());
-    processor.shareLuZero (facts);
     view.lu().setFacts (facts);
+    processor.shareLuZero (facts);
     const auto face = processor.metricFacePreference();
     processor.setReferenceMetricObservationEnabled (readable && metric_needle::metric (face));
-    metric_editor::shareReference (processor, runtime, readable);
     view.setMetricFrame (metric_editor::facts (processor, runtime, face));
 }
 
@@ -45,9 +44,14 @@ inline void refreshPre (observatory::View& view, KirinHyphaProcessorBase& proces
     const auto face = processor.metricFacePreference();
     processor.setPreSharpObservationEnabled (view.isShowing() && view.metricFaceActive()
         && face == metric_needle::Face::sharp && processor.isPlaying());
-    const auto shared = processor.sharedLuZero();
+    auto shared = processor.sharedLuZero();
+    const bool readable = processor.stereoWorkflowsSupported() && processor.licenseIsOs();
+    // PRE has no independent selection. Keep the metric face available to explain
+    // how to choose its shared Reference even before POST has selected a song.
+    shared.readable = readable;
     view.lu().setFacts (shared);
-    view.setMetricFrame (metric_editor::preFacts (processor, processor.metricFacePreference(),
-        shared.readable && shared.zero != lu_needle::Zero::noSong));
+    processor.setReferenceMetricObservationEnabled (readable && view.isShowing()
+        && (face == metric_needle::Face::psr || face == metric_needle::Face::crest));
+    view.setMetricFrame (metric_editor::preFacts (processor, face, readable));
 }
 }

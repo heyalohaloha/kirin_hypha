@@ -19,6 +19,8 @@ typedef struct {
     double sharpness_acum;
 } KirinReferenceMetricFrame;
 KirinReferenceMetrics* kirin_reference_metrics_create(uint32_t rate, uint32_t channels);
+/* Absolute 100 ms-aligned start; caller discards warmup observations. No PCM padding. */
+KirinReferenceMetrics* kirin_reference_metrics_create_at(uint32_t rate, uint32_t channels, uint64_t start_sample);
 void kirin_reference_metrics_drop(KirinReferenceMetrics* handle);
 /* output capacity must be >= 8. `written` and output remain unchanged on failure.
  * sample count = (rate / 10) * channels. Outputs can lag input by resampler latency.

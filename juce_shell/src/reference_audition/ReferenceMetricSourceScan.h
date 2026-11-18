@@ -9,6 +9,12 @@
 
 namespace hypha::reference_audition::metrics
 {
+struct CueScanRequest
+{
+    Cue cue;
+    unsigned warmupSeconds = 5;
+    std::uint8_t verifiedMetricMask = 0;
+};
 struct SourceScanResult
 {
     ScanResult scan;
@@ -19,7 +25,7 @@ struct SourceScanResult
 // generation check; a successful scan grants no ongoing source authority.
 inline SourceScanResult scanPreparedSource (std::shared_ptr<const RuntimeSource> source,
     const juce::File& transportRoot, std::uint32_t rate, std::uint32_t channels,
-    bool conversionApproved, std::size_t maxObservations, const std::atomic<bool>& cancelled, const ScanProgress& progress = {})
+    bool conversionApproved, std::size_t maxObservations, const std::atomic<bool>& cancelled, const ScanProgress& progress = {}, const std::optional<ScanWindow>& window = {}, const std::optional<CueScanRequest>& cueRequest = {})
 {
     const auto failed = [] (ScanState state, const juce::String& reason) {
         return SourceScanResult {{state, {}, 0}, reason};
@@ -34,6 +40,9 @@ inline SourceScanResult scanPreparedSource (std::shared_ptr<const RuntimeSource>
     if (!SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL))
         return failed (ScanState::analysisFailed, "reference_metric_priority_unavailable");
    #endif
+    if (window && cueRequest) return failed (ScanState::invalidFormat, "reference_metric_range_unsupported");
+    if (window && window->start > static_cast<std::uint64_t> (std::numeric_limits<std::int64_t>::max()))
+        return failed (ScanState::invalidFormat, "reference_metric_range_unsupported");
     const auto prepared = revision_detail::snapshotCache().prepared (*source);
     if (!prepared) return failed (ScanState::waiting, "reference_metric_source_preparing");
     if (!prepared->hasPrivateCopy())
@@ -48,13 +57,20 @@ inline SourceScanResult scanPreparedSource (std::shared_ptr<const RuntimeSource>
         [&repository, pinned] (RuntimeFileRevision& revision) { return pinned->verified (repository, revision); },
         pinned->input(), [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
         pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation(),
-        [pinned] { return pinned->readSucceeded(); }, 0);
+        [pinned] { return pinned->readSucceeded(); }, window ? static_cast<std::int64_t> (window->start) : 0);
     if (cancelled.load (std::memory_order_acquire)) return failed (ScanState::cancelled, "cancelled");
     if (reason.isNotEmpty() || pages.sourceInvalidated())
         return failed (reason == "reference_source_revalidating" ? ScanState::waiting : ScanState::readFailed,
                        reason.isNotEmpty() ? reason : juce::String ("reference_source_changed"));
     const auto length = pages.lengthInSamples();
     if (length <= 0) return failed (ScanState::readFailed, "reference_metric_empty_source");
+    auto effectiveWindow = window;
+    if (cueRequest) {
+        // Host-converted length belongs to AudioPages, never estimate it from native metadata.
+        effectiveWindow = cueScanWindow (rate, static_cast<std::uint64_t> (length), cueRequest->cue,
+                                        cueRequest->warmupSeconds, cueRequest->verifiedMetricMask);
+        if (!effectiveWindow) return failed (ScanState::invalidFormat, "reference_metric_range_unsupported");
+    }
     PageReader reader (pages, rate, channels, cancelled);
     // Yield at least as long as the preceding aperture's wall work. Wall work
     // bounds this worker's CPU time from above, including decode/native analysis;
@@ -78,7 +94,7 @@ inline SourceScanResult scanPreparedSource (std::shared_ptr<const RuntimeSource>
             if (cancelled.load (std::memory_order_acquire) || !pinned->verified (repository, current)
                 || pages.sourceInvalidated() || pages.sourceUnavailable()) return false;
             return progress (frames, total);
-        } } : ScanProgress {});
+        } } : ScanProgress {}, effectiveWindow);
     rest();
     RuntimeFileRevision revision;
     if (cancelled.load (std::memory_order_acquire)) return failed (ScanState::cancelled, "cancelled");

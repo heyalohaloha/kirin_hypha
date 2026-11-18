@@ -2,6 +2,7 @@
 #include "PreparedFormat.h"
 #include "HyphaMetricNeedle.h"
 #include "HyphaMetricSharedZero.h"
+#include "HyphaMetricChainDemand.h"
 #include "kirin_hypha_pre_sharp.h"
 #include "kirin_hypha_reference_live_metrics.h"
 #include "HyphaSpectrumAverage.h"
@@ -288,11 +289,11 @@ public:
     hypha::metric_needle::Face metricFacePreference() const noexcept;
     void setMetricFacePreference (hypha::metric_needle::Face);
     bool pollReferenceLiveMetrics (KirinReferenceLiveMetricFrame&) const;
-    void setReferenceMetricObservationEnabled (bool);
+    void setReferenceMetricObservationEnabled (bool); void serviceReferenceMetrics();
     void setLuChoicePreference (uint8_t packed); // the VU's LU face and its window, saved with the project
     void setPreSharpObservationEnabled (bool);
     bool pollPreSharp (KirinPreSharpFrame&) const;
-    void shareMetricZero (const hypha::metric_needle::SharedReferenceZero&);
+    void shareMetricZero (const juce::String& scope, const hypha::metric_needle::SharedReferenceZero&);
     hypha::metric_needle::SharedReferenceZero sharedMetricZero (hypha::metric_needle::Face, bool readable);
     void shareLuZero (const hypha::lu_needle::Facts&); hypha::lu_needle::Facts sharedLuZero(); // POST to its PRE; message thread
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
@@ -476,8 +477,8 @@ private:
     std::atomic<uint8_t> preferredMetricFace { 255 }; // absent new state follows the legacy VU/LU selection
     std::atomic<uint8_t> preferredLuChoice { 0 }; hypha::lu_needle::SharedZero luSharedZero;
     hypha::metric_needle::SharedMetricZero metricSharedZero;
+    hypha::metric_needle::ChainDemand metricChainDemand;
     std::uint64_t sharedMetricRevision = 0; // Message-thread publication sequence across B/C roles.
-    std::uint64_t preSharpToken = 0; // UI-owned, handleLock protects native lifetime.
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<bool> preferredSpectrumLowScope { false }; // like M/S: this instance only

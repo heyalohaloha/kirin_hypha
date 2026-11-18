@@ -128,7 +128,7 @@ private:
     { return value.length() == 32 && value.containsOnly ("0123456789abcdef"); }
     static bool validReason (const std::string& value)
     {
-        return value.empty() || value == "preparing" || value == "unsupported_format"
+        return value.empty() || value == "select_reference_post" || value == "preparing" || value == "unsupported_format"
             || value == "read_failed" || value == "source_changed" || value == "private_copy_required"
             || value == "capacity_exceeded" || value == "audio_too_short" || value == "cue_too_short"
             || value == "no_valid_value" || value == "analysis_failed";

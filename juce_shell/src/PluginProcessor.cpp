@@ -61,6 +61,9 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
 {
     // Host bypass keeps audio unchanged while reporting the matching signal state.
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
+    // Defer even on the message thread: construction must not synchronously start service.
+    // PRE can request Reference before any POST editor exists.
+    if (role == Role::Post) triggerAsyncUpdate();
 }
 
 

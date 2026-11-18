@@ -65,6 +65,13 @@ class SetRuntime final
 public:
     explicit SetRuntime (juce::File directory) : root (std::move (directory)), repository (root) {}
     std::shared_ptr<const SetPublication> snapshot() const { return std::atomic_load (&published); }
+    // Control-worker only. Ownership changes cancel and invalidate old publications;
+    // detached Work retains the previous lease until all reader teardown finishes.
+    void setPublisherLease (std::shared_ptr<void> lease)
+    {
+        if (publisherLease == lease) return;
+        clear(); publisherLease = std::move (lease);
+    }
     void clear()
     {
         job.cancel(); ++serial; identity.clear(); results.clear(); done.clear(); retries.clear(); retryAt.clear(); pending.reset(); active.reset();
@@ -125,11 +132,12 @@ public:
 #if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
         const auto hook = testWork;
 #endif
-        const auto start = job.start (serial, [candidate, box, rootCopy, rate, channels, savedCache
+        const auto start = job.start (serial, [candidate, box, rootCopy, rate, channels, savedCache, lease = publisherLease
 #if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
             , hook
 #endif
             ] (const std::atomic<bool>& cancel) {
+                juce::ignoreUnused (lease); // Keep the chain claim through detached reader teardown.
 #if defined(KIRIN_REFERENCE_METRIC_JOB_TEST)
                 if (hook) { *box = hook (candidate, cancel); return ScanResult {box->complete ? ScanState::complete : ScanState::analysisFailed, {}, 0}; }
 #endif
@@ -270,6 +278,7 @@ private:
     juce::File root;
     RuntimeV2SourceRepository repository;
     Job job;
+    std::shared_ptr<void> publisherLease;
     std::uint64_t serial = 1;
     juce::String identity;
     SetRequest current;

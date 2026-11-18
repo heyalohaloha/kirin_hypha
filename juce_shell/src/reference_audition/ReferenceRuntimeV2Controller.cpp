@@ -111,6 +111,21 @@ namespace hypha::reference_audition
         configure ({}, 0.0, 0);
     }
 
+    void RuntimeV2Controller::setMetricSeriesCache (std::shared_ptr<metrics::SeriesCache> cache)
+    {
+        { const juce::ScopedLock lock (stateLock); metricSeriesCache = std::move (cache); }
+        notify();
+    }
+
+    void RuntimeV2Controller::setMetricOwnershipLease (std::shared_ptr<void> lease)
+    {
+        { const juce::ScopedLock lock (stateLock);
+          if (!metricOwnershipManaged || metricOwnershipLease != lease) metricOwnershipEpoch.changed();
+          metricOwnershipManaged = true;
+          metricOwnershipLease = std::move (lease); }
+        notify();
+    }
+
     void RuntimeV2Controller::setMetricContext (bool enabled, const juce::String& setId, std::uint64_t generation)
     {
         const juce::ScopedLock lock (stateLock);
@@ -125,7 +140,8 @@ namespace hypha::reference_audition
         const juce::ScopedLock lock (stateLock);
         auto result = currentSnapshot;
         result.nativeMetrics = metricRuntime->snapshot();
-        if (!ready.load (std::memory_order_acquire) || !metricObservationEnabled.load (std::memory_order_acquire)
+        if ((metricOwnershipManaged && (!metricOwnershipLease || !metricOwnershipEpoch.current()))
+            || !ready.load (std::memory_order_acquire) || !metricObservationEnabled.load (std::memory_order_acquire)
             || (result.nativeMetrics && result.nativeMetrics->selectionGeneration != requestedSelection.generation))
             result.nativeMetrics.reset();
         if (result.nativeMetrics && result.nativeMetrics->series)

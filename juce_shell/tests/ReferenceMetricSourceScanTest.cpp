@@ -1,4 +1,5 @@
 #include "TestPathBudget.h"
+#include "ReferenceMetricCueCoverageTest.h"
 #include "TestTemporaryDirectory.h"
 #include "AtomicFile.h"
 #include "reference_audition/ReferenceMetricSourceScan.h"
@@ -82,6 +83,22 @@ void verifyPreparedScan()
             && same (a.psr_db, b.psr_db) && same (a.sharpness_acum, b.sharpness_acum),
             "repeat native observations identical");
     }
+    const metric::ScanWindow partial { 4800, 24000, { 9601, 24000 } };
+    const auto cueOnly = metric::scanPreparedSource (f.source, f.root, 48000, 2, false, 100, cancel, {}, partial);
+    require (cueOnly.scan.state == metric::ScanState::complete && !cueOnly.scan.wholeSource
+        && cueOnly.scan.scannedFrom == 4800 && cueOnly.scan.frames.size() == 3
+        && cueOnly.scan.frames.front().end_sample == 14400, "private reader seek retains absolute Cue endpoints only");
+    const auto requested = metric::scanPreparedSource (f.source, f.root, 48000, 2, false, 100, cancel,
+        {}, {}, metric::CueScanRequest { { 9601, 24000 }, 5, 7 });
+    require (requested.scan.state == metric::ScanState::complete && !requested.scan.wholeSource
+        && requested.scan.sourceFrames == 24000 && requested.scan.frames.size() == 3
+        && requested.scan.frames.front().end_sample == 14400, "Cue request resolves from actual host reader length");
+    require (metric::scanPreparedSource (f.source, f.root, 48000, 2, false, 100, cancel,
+        {}, partial, metric::CueScanRequest { {9601, 24000}, 5, 7 }).scan.state == metric::ScanState::invalidFormat,
+        "explicit window and Cue request are mutually exclusive");
+    require (metric::scanPreparedSource (f.source, f.root, 48000, 2, false, 100, cancel,
+        {}, {}, metric::CueScanRequest { {0, 24001}, 5, 7 }).scan.state == metric::ScanState::invalidFormat,
+        "Cue request cannot extend past actual host EOF");
     cancel.store (true);
     require (metric::scanPreparedSource (f.source, f.root, 48000, 2, false, 100, cancel).scan.state
              == metric::ScanState::cancelled, "cancelled job never opens reader");
@@ -109,6 +126,15 @@ void verifyRuntimeCache()
     const auto cue = runtime.snapshot();
     require (cue && cue->state == metric::Availability::ready && cue->selectionGeneration == 11
         && cue->series == full->series, "cue and selection generation reuse same native series");
+    Fixture other (48000, 2, 28800);
+    const auto otherCopy = revision::snapshotCache().get (*other.source);
+    runtime.service (other.source, 48000, 2, 20, {0, 24000}); runtime.waitForTest();
+    runtime.service (other.source, 48000, 2, 20, {0, 24000});
+    require (runtime.snapshot()->state == metric::Availability::ready && runtime.startsForTest() == 2,
+             "A then B measured once each");
+    runtime.service (f.source, 48000, 2, 21, {0, 9600});
+    require (runtime.snapshot()->series == full->series && runtime.snapshot()->selectionGeneration == 21
+        && runtime.startsForTest() == 2, "A-B-A reuses exact cached native series without a third scan");
     runtime.clear();
     require (!runtime.snapshot(), "clear withdraws published series immediately");
     runtime.service (f.source, 48000, 2, 11, {0, 9600});
@@ -120,6 +146,34 @@ void verifyRuntimeCache()
     require (runtime.snapshot() && runtime.snapshot()->state == metric::Availability::ready
         && runtime.snapshot()->selectionGeneration == 12 && runtime.snapshot()->series == full->series,
         "new generation reopen is ready from verified cache");
+}
+void verifySeriesLru()
+{
+    const auto series = [] {
+        auto result = std::make_shared<metric::SeriesData>();
+        result->frames.resize (4); result->fullScanComplete = true;
+        return result;
+    };
+    metric::SeriesCache cache;
+    for (int i = 0; i < 8; ++i) require (cache.insert (juce::String (i), series()), "eight full series admitted");
+    require (cache.size() == 8 && cache.bytes() <= metric::SeriesCache::maximumBytes, "song and byte bounds");
+    require (cache.find ("0") != nullptr, "touch oldest makes it most recently used");
+    require (cache.insert ("8", series()) && !cache.find ("1") && cache.find ("0") && cache.find ("8"),
+             "ninth song evicts least recently used, not oldest inserted");
+    metric::SeriesCache probe;
+    require (probe.insert ("a", series()), "measure accounted series storage");
+    const auto one = probe.bytes();
+    metric::SeriesCache small (one * 2);
+    require (small.insert ("a", series()) && small.insert ("b", series()) && small.size() == 2, "exact byte limit fits");
+    require (small.find ("a") && small.insert ("c", series()) && !small.find ("b") && small.find ("a")
+        && small.size() == 2 && small.bytes() == one * 2, "byte bound evicts LRU before eight songs");
+    auto oversized = series(); oversized->frames.resize (100);
+    require (!small.insert ("large", oversized) && small.size() == 2 && small.bytes() == one * 2,
+             "oversized series rejected without evicting or truncating cached facts");
+    auto prefix = series(); prefix->fullScanComplete = false;
+    require (!small.insert ("prefix", prefix), "partial Cue is never a full-series cache entry");
+    require (small.insert ("a", series()) && small.size() == 2 && small.bytes() == one * 2,
+             "replacement does not double-count storage");
 }
 void verifyDirectFallbackAndShortFile()
 {
@@ -277,18 +331,110 @@ void verifyEarlyCuePublication()
     metric::Runtime cancelled (f.root);
     gate->reset();
     cancelled.afterEarlyForTest = runtime.afterEarlyForTest;
+    auto lease = std::make_shared<int> (1);
+    const std::weak_ptr<void> weakLease = lease;
+    cancelled.setPublisherLease (lease); lease.reset();
     cancelled.service (f.source, 8000, 2, 9, cue);
     require (gate->awaitEntry(), "second independent job reaches early publication");
-    cancelled.clear();
+    cancelled.setPublisherLease ({});
+    require (!weakLease.expired(), "cancelled detached selected scan retains publisher lease");
     require (!cancelled.snapshot(), "clear immediately removes old prefix and reasons");
     cancelled.service (f.source, 0, 2, 10, cue);
     gate->open(); cancelled.waitForTest();
+    require (weakLease.expired(), "selected scan publisher lease releases after Work teardown");
     require (cancelled.snapshot()->selectionGeneration == 10 && cancelled.snapshot()->reason == "unsupported_format"
         && !cancelled.snapshot()->series, "cancelled old job cannot replace the new generation or its reason");
 }
+int benchmarkLateCue()
+{
+    constexpr std::uint32_t rate = 48000;
+    constexpr std::uint64_t total = rate * 180;
+    constexpr double tolerance = 1e-4;
+    const metric::Cue cue { rate * 120, rate * 140 };
+    Fixture f (rate, 2, static_cast<int> (total));
+    const auto copy = revision::snapshotCache().get (*f.source);
+    require (copy->hasPrivateCopy(), "late Cue benchmark requires private snapshot");
+    std::atomic<bool> cancelled {false};
+    const auto measured = [&] (unsigned warmup, const std::optional<metric::CueScanRequest>& request) {
+        const auto wallStart = std::chrono::steady_clock::now();
+        const auto cpuStart = std::clock();
+        const auto result = metric::scanPreparedSource (f.source, f.root, rate, 2, false, 36000,
+                                                       cancelled, {}, {}, request);
+        const auto cpuEnd = std::clock();
+        const double wall = std::chrono::duration<double> (std::chrono::steady_clock::now() - wallStart).count();
+        require (cpuStart != static_cast<std::clock_t> (-1) && cpuEnd != static_cast<std::clock_t> (-1)
+                 && cpuEnd >= cpuStart && wall > 0, "process CPU clock unavailable");
+        const double cpu = static_cast<double> (cpuEnd - cpuStart) / CLOCKS_PER_SEC;
+        std::cout << "LATE_CUE_COST warmup_seconds=" << warmup << " wall_seconds=" << wall
+                  << " process_cpu_seconds=" << cpu << " one_core_percent=" << (100 * cpu / wall)
+                  << " source_frames=" << result.scan.sourceFrames << " scanned_from=" << result.scan.scannedFrom
+                  << " scanned_through=" << result.scan.scannedThrough << " retained_frames=" << result.scan.frames.size()
+                  << " whole_source=" << result.scan.wholeSource << std::endl;
+        require (result.scan.state == metric::ScanState::complete && result.scan.sourceFrames == total,
+                 "late Cue benchmark scan incomplete");
+        return result.scan;
+    };
+    // Exactly one uninterrupted full scan; both candidates compare against these raw observations.
+    const auto full = measured (0, {});
+    require (full.wholeSource && full.frames.size() == 1800, "full baseline covers real EOF");
+    std::vector<KirinReferenceMetricFrame> expected;
+    for (const auto& frame : full.frames)
+        if (frame.end_sample > cue.start && frame.end_sample <= cue.end) expected.push_back (frame);
+    require (expected.size() == 200, "baseline Cue has every absolute 100ms endpoint");
+    bool accepted[2][3] {};
+    const char* names[] { "PSR", "CREST", "SHARP" };
+    const auto value = [] (const KirinReferenceMetricFrame& f, int metricIndex) {
+        return metricIndex == 0 ? f.psr_db : metricIndex == 1 ? f.crest_db : f.sharpness_acum;
+    };
+    bool allMatch = true;
+    for (int candidate = 0; candidate < 2; ++candidate) {
+        const unsigned warmup = candidate == 0 ? 5 : 10;
+        // Test-only bypass: expose raw values for strict comparison, not production approval.
+        const auto window = metric::cueScanWindow (rate, total, cue, warmup, 7);
+        require (window.has_value(), "valid late Cue window");
+        const auto actual = measured (warmup, metric::CueScanRequest { cue, warmup, 7 });
+        require (!actual.wholeSource && actual.completeMetricMask == 7
+            && actual.completeCue.start == cue.start && actual.completeCue.end == cue.end
+            && actual.scannedFrom == window->start && actual.scannedThrough == window->stop,
+            "late Cue scan preserves precise partial coverage");
+        for (int m = 0; m < 3; ++m) {
+            bool endpoints = actual.frames.size() == expected.size();
+            std::size_t validityMismatches = 0, finitePairs = 0;
+            double maximumDifference = 0;
+            for (std::size_t i = 0; i < std::min (actual.frames.size(), expected.size()); ++i) {
+                endpoints = endpoints && actual.frames[i].end_sample == expected[i].end_sample;
+                const double a = value (actual.frames[i], m), b = value (expected[i], m);
+                if (std::isfinite (a) != std::isfinite (b) || std::isinf (a) || std::isinf (b)) ++validityMismatches;
+                if (std::isfinite (a) && std::isfinite (b)) {
+                    ++finitePairs; maximumDifference = std::max (maximumDifference, std::abs (a - b));
+                }
+            }
+            accepted[candidate][m] = endpoints && validityMismatches == 0 && finitePairs > 0
+                                      && maximumDifference <= tolerance;
+            allMatch = allMatch && accepted[candidate][m];
+            std::cout << "LATE_CUE_COMPARE warmup_seconds=" << warmup << " metric=" << names[m]
+                      << " endpoints_match=" << endpoints << " validity_mismatches=" << validityMismatches
+                      << " finite_pairs=" << finitePairs << " max_abs=" << maximumDifference
+                      << " tolerance=" << tolerance << " result=" << (accepted[candidate][m] ? "PASS" : "FAIL") << std::endl;
+        }
+    }
+    for (int m = 0; m < 3; ++m)
+        std::cout << "LATE_CUE_FALLBACK metric=" << names[m] << " selected_origin="
+                  << (accepted[0][m] ? "cue_minus_5s" : accepted[1][m] ? "cue_minus_10s" : "zero")
+                  << " fixture_only=true" << std::endl;
+    std::cout << "LATE_CUE_RESULT " << (allMatch ? "PASS" : "FAIL: mismatched candidates require fallback") << std::endl;
+    return allMatch ? 0 : 1;
+}
+#include "ReferenceMetricSharedCacheTest.h"
+#include "ReferenceMetricContentCacheTest.h"
+#include "ReferenceMetricFocusedRuntimeTest.h"
 }
 int main (int argc, char** argv)
 {
+    if (argc == 2 && std::string (argv[1]) == "--benchmark-late-cue") {
+        try { return benchmarkLateCue(); }
+        catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
+    }
     if (argc == 2 && (std::string (argv[1]) == "--benchmark" || std::string (argv[1]) == "--benchmark-cue"))
     {
         try {
@@ -330,7 +476,7 @@ int main (int argc, char** argv)
         } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     }
 
-    try { verifyPreparedScan(); verifyDirectFallbackAndShortFile(); verifyRuntimeCache(); verifyFailureReasons(); verifyEarlyCuePublication(); }
+    try { verifyContentCacheFormatSeparation(); verifyAuthenticatedContentCache(); verifyFocusedRuntimeTransition(); verifySharedRoleCache(); verifyMetricCueCoverage(); verifySeriesLru(); verifyPreparedScan(); verifyDirectFallbackAndShortFile(); verifyRuntimeCache(); verifyFailureReasons(); verifyEarlyCuePublication(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "metric private source scan PASS\n";
 }

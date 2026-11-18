@@ -161,6 +161,9 @@ void cancellationAndIdentity()
         sawCancellation->store (cancel.load());
         return measured (member);
     };
+    auto lease = std::make_shared<int> (1);
+    const std::weak_ptr<void> weakLease = lease;
+    runtime.setPublisherLease (lease); lease.reset();
     runtime.service (r);
     const auto completed = runtime.completionForTest();
     {
@@ -168,7 +171,10 @@ void cancellationAndIdentity()
         require (gate->changed.wait_for (lock, std::chrono::seconds (5), [&] { return gate->entered; }),
                  "cancellable job entered");
     }
-    runtime.clear(); gate->open(); completed();
+    runtime.setPublisherLease ({});
+    require (!weakLease.expired(), "cancelled detached set Work retains publisher lease");
+    gate->open(); completed();
+    require (weakLease.expired(), "set publisher lease releases only after Work teardown");
     require (sawCancellation->load() && !runtime.snapshot(), "clear cancels without publishing old results");
     runtime.testWork = [] (const auto& member, const auto&) { return measured (member); };
     r.generation = 8;

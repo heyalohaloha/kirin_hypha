@@ -31,12 +31,25 @@ pub struct ReferenceMetrics {
 
 impl ReferenceMetrics {
     pub fn new(sample_rate: u32, channels: usize) -> Result<Self, String> {
+        Self::new_at(sample_rate, channels, 0)
+    }
+
+    /// Independent continuous-state scan beginning at an absolute 100 ms boundary.
+    /// Caller must warm up and discard earlier observations before comparing a Cue.
+    pub fn new_at(sample_rate: u32, channels: usize, start_sample: u64) -> Result<Self, String> {
+        if !(8000..=384000).contains(&sample_rate)
+            || !sample_rate.is_multiple_of(10)
+            || start_sample > i64::MAX as u64
+            || !start_sample.is_multiple_of(u64::from(sample_rate / 10))
+        {
+            return Err("Reference start must be an absolute 100 ms boundary".into());
+        }
         let layout = ChannelLayout::mono_or_stereo_by_count(channels)
             .ok_or("Reference metrics require mono or stereo")?;
         let mut sharpness = SharpnessContinuousAnalyzer::new(sample_rate, channels)
             .map_err(|error| error.to_string())?;
         sharpness
-            .reset_at_epoch(0)
+            .reset_at_epoch(start_sample as i64)
             .map_err(|error| error.to_string())?;
         let aperture_frames = sharpness.aperture_samples();
         Ok(Self {
@@ -45,7 +58,7 @@ impl ReferenceMetrics {
             pcm: Vec::with_capacity(aperture_frames * channels),
             aperture_frames,
             channels,
-            end_sample: 0,
+            end_sample: start_sample,
             pending: VecDeque::with_capacity(4),
             failed: false,
             finished: false,
@@ -135,3 +148,7 @@ impl ReferenceMetrics {
 #[cfg(test)]
 #[path = "reference_metrics_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "reference_metrics_warmup_tests.rs"]
+mod warmup_tests;

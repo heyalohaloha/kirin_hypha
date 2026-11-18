@@ -1,4 +1,5 @@
-//! PRE's own sharpness only. Existing POST-only perceptual/delta entry points are unchanged.
+//! Reserved unsupported PRE-own-SHARP ABI. The prototype exceeded its CPU budget.
+//! No runtime/lease/IO access. Existing POST-only perceptual/delta APIs are unchanged.
 use super::*;
 
 #[repr(C)]
@@ -15,103 +16,101 @@ pub struct KirinPreSharpFrame {
     pub reserved: u32,
     pub sharpness_acum: f64,
 }
-fn allowed(engine: &KirinHyphaEngine) -> bool {
-    engine.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Pre)
-        && engine.supports_optional_analysis()
-}
-/// UI/non-RT only. 0 obtains a token, nonzero renews its own live token for 1.5 seconds.
+/// Unsupported: always returns zero and does not inspect the handle or acquire demand.
 /// # Safety
-/// handle must be null or live. Caller must not destroy it concurrently.
+/// This reserved entry does not dereference its pointer arguments.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_request_pre_sharp(
-    handle: *mut KirinHyphaEngine,
-    token: u64,
+    _handle: *mut KirinHyphaEngine,
+    _token: u64,
 ) -> u64 {
-    catch_unwind(AssertUnwindSafe(|| {
-        let Some(engine) = (unsafe { handle.as_ref() }) else {
-            return 0;
-        };
-        if !allowed(engine) || engine.signal_state_abi() != KIRIN_SIGNAL_STATE_ACTIVE {
-            return 0;
-        }
-        engine.spectrum.request_pre_sharp(token)
-    }))
-    .unwrap_or(0)
+    std::panic::catch_unwind(|| 0).unwrap_or(0)
 }
-/// Poll does not renew demand. Output is unchanged on false.
+
+/// Unsupported: always false, leaving output completely unchanged.
 /// # Safety
-/// handle must be null or live, out null or writable for one complete frame.
+/// This reserved entry does not dereference its pointer arguments.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_poll_pre_sharp(
-    handle: *mut KirinHyphaEngine,
-    token: u64,
-    out: *mut KirinPreSharpFrame,
+    _handle: *mut KirinHyphaEngine,
+    _token: u64,
+    _out: *mut KirinPreSharpFrame,
 ) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        let Some(engine) = (unsafe { handle.as_ref() }) else {
-            return false;
-        };
-        if out.is_null()
-            || !allowed(engine)
-            || engine.signal_state_abi() != KIRIN_SIGNAL_STATE_ACTIVE
-        {
-            return false;
-        }
-        let Some((generation, frame)) = engine.spectrum.poll_pre_sharp(token) else {
-            return false;
-        };
-        unsafe {
-            out.write(KirinPreSharpFrame {
-                version: 1,
-                struct_size: std::mem::size_of::<KirinPreSharpFrame>() as u32,
-                owner_generation: generation,
-                analysis_generation: frame.generation,
-                state_epoch_samples: frame.state_epoch_samples,
-                presentation_end_samples: frame.presentation_end_samples,
-                sample_rate: frame.sample_rate,
-                aperture_samples: frame.aperture_samples,
-                channels: u32::from(frame.channels),
-                reserved: 0,
-                sharpness_acum: frame.sharpness,
-            });
-        }
-        true
-    }))
-    .unwrap_or(false)
+    std::panic::catch_unwind(|| false).unwrap_or(false)
 }
-/// UI/non-RT. False means busy or foreign; retry a busy release or let its lease expire.
+
+/// Unsupported: always false; no PRE-local demand can be acquired in this build.
 /// # Safety
-/// handle must be null or live.
+/// This reserved entry does not dereference its pointer arguments.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_release_pre_sharp(
-    handle: *mut KirinHyphaEngine,
-    token: u64,
+    _handle: *mut KirinHyphaEngine,
+    _token: u64,
 ) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        let Some(engine) = (unsafe { handle.as_ref() }) else {
-            return false;
-        };
-        if !allowed(engine) {
-            return false;
-        }
-        engine.spectrum.release_pre_sharp(token)
-    }))
-    .unwrap_or(false)
+    std::panic::catch_unwind(|| false).unwrap_or(false)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn pre_sharp_ffi_null_and_layout_contract() {
+    fn pre_sharp_reserved_abi_is_inert_and_preserves_output() {
         assert_eq!(std::mem::size_of::<KirinPreSharpFrame>(), 64);
+        assert_eq!(
+            std::mem::offset_of!(KirinPreSharpFrame, owner_generation),
+            8
+        );
+        assert_eq!(std::mem::offset_of!(KirinPreSharpFrame, sharpness_acum), 56);
+        let mut output = KirinPreSharpFrame {
+            version: 77,
+            struct_size: 78,
+            owner_generation: 79,
+            analysis_generation: 80,
+            state_epoch_samples: 81,
+            presentation_end_samples: 82,
+            sample_rate: 83,
+            aperture_samples: 84,
+            channels: 85,
+            reserved: 86,
+            sharpness_acum: 87.0,
+        };
         unsafe {
-            assert_eq!(kirin_hypha_request_pre_sharp(std::ptr::null_mut(), 0), 0);
-            assert!(!kirin_hypha_release_pre_sharp(std::ptr::null_mut(), 1));
-            assert!(!kirin_hypha_poll_pre_sharp(
-                std::ptr::null_mut(),
-                1,
-                std::ptr::null_mut()
-            ));
+            for token in [0, 1, u64::MAX] {
+                assert_eq!(
+                    kirin_hypha_request_pre_sharp(std::ptr::null_mut(), token),
+                    0
+                );
+                assert!(!kirin_hypha_release_pre_sharp(std::ptr::null_mut(), token));
+                assert!(!kirin_hypha_poll_pre_sharp(
+                    std::ptr::null_mut(),
+                    token,
+                    &mut output
+                ));
+                assert!(!kirin_hypha_poll_pre_sharp(
+                    std::ptr::null_mut(),
+                    token,
+                    std::ptr::null_mut()
+                ));
+            }
         }
+        assert_eq!((output.version, output.struct_size), (77, 78));
+        assert_eq!(
+            (output.owner_generation, output.analysis_generation),
+            (79, 80)
+        );
+        assert_eq!(
+            (output.state_epoch_samples, output.presentation_end_samples),
+            (81, 82)
+        );
+        assert_eq!(
+            (
+                output.sample_rate,
+                output.aperture_samples,
+                output.channels,
+                output.reserved
+            ),
+            (83, 84, 85, 86)
+        );
+        assert_eq!(output.sharpness_acum, 87.0);
     }
 }

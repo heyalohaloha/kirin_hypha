@@ -100,6 +100,36 @@ int main()
         require (thrown.state == ScanState::readFailed && thrown.frames.empty(), "reader exception stays unavailable");
         const auto unwritten = scan (48000, 1, 4800, 1, [] (auto, auto*, auto) { return ReadState::rendered; }, cancel);
         require (unwritten.state == ScanState::analysisFailed && unwritten.frames.empty(), "never reuse unfilled PCM");
+        // Cue range: absolute aligned read start, non-aligned Cue endpoints, real EOF only.
+        const std::uint32_t rangeRate = 8000;
+        const std::uint64_t rangeLength = 7 * rangeRate + 1777;
+        const Cue rangeCue { 7 * rangeRate + 37, rangeLength };
+        const auto window = cueScanWindow (rangeRate, rangeLength, rangeCue, 5);
+        require (window.has_value() && window->start == 2 * rangeRate, "five-second floor-aligned warmup");
+        std::vector<std::uint64_t> reads;
+        const auto range = scan (rangeRate, 1, rangeLength, 100, [&] (auto at, auto* samples, auto count) {
+            reads.push_back (at); std::fill (samples, samples + count, 0.0f); return ReadState::rendered;
+        }, cancel, {}, window);
+        require (range.state == ScanState::complete && !range.wholeSource, "Cue completion is never full-source completion");
+        require (range.completeCue.start == rangeCue.start && range.completeCue.end == rangeCue.end
+            && range.completeMetricMask == 0, "unverified warmed metrics require zero-origin fallback");
+        require (std::all_of (range.frames.begin(), range.frames.end(), [] (const auto& f) {
+            return std::isnan (f.psr_db) && std::isnan (f.crest_db) && std::isnan (f.sharpness_acum);
+        }), "unverified warmup never leaks approximate values");
+        require (range.scannedFrom == window->start && range.scannedThrough == window->stop, "explicit coverage");
+        require (reads.front() == 2 * rangeRate && reads.back() + 800 <= rangeLength, "seek warmup and no EOF padding");
+        require (range.frames.size() == 2 && range.frames.front().end_sample == 56800
+            && range.frames.back().end_sample == 57600, "only absolute Cue endpoints survive warmup/EOF");
+        require (scan (rangeRate, 1, rangeLength, 1, silence, cancel, {}, window).state == ScanState::capacityExceeded, "range capacity enforced");
+        auto unaligned = *window; ++unaligned.start;
+        require (scan (rangeRate, 1, rangeLength, 100, silence, cancel, {}, unaligned).state == ScanState::invalidFormat, "unaligned native origin rejected");
+        unsigned rangeCalls = 0;
+        const auto stoppedRange = scan (rangeRate, 1, rangeLength, 100, [&] (auto, auto* samples, auto count) {
+            std::fill (samples, samples + count, 0.0f); if (++rangeCalls == 2) cancel = true;
+            return ReadState::rendered;
+        }, cancel, {}, window);
+        require (stoppedRange.state == ScanState::cancelled && stoppedRange.frames.empty(), "cancel during warmup has no partial publication");
+        cancel = false;
         std::cout << "Reference metric scan contracts passed\n";
         return 0;
     }

@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferenceMetricLeaseEpoch.h"
 
 #include <atomic>
 #include <deque>
@@ -35,7 +36,7 @@
 
 namespace hypha::reference_audition
 {
-    namespace metrics { class Runtime; class SetRuntime; }
+    namespace metrics { class Runtime; class SetRuntime; class SeriesCache; }
     class RuntimeV2Controller final : private juce::Thread
     {
     public:
@@ -51,6 +52,8 @@ namespace hypha::reference_audition
         // Control demand only; audio processing never reads this publication or starts work.
         void setMetricObservationEnabled (bool enabled) noexcept
         { metricObservationEnabled.store (enabled, std::memory_order_release); notify(); }
+        void setMetricOwnershipLease (std::shared_ptr<void> lease);
+        void setMetricSeriesCache (std::shared_ptr<metrics::SeriesCache> cache);
         void setMetricContext (bool enabled, const juce::String& setId, std::uint64_t generation);
         ReferenceChoice savedChoice() const;
         void restoreChoice (const ReferenceChoice&);
@@ -299,6 +302,10 @@ namespace hypha::reference_audition
         std::unique_ptr<metrics::SetRuntime> metricSetRuntime;
         juce::String metricSetId; // stateLock; the upper controller chooses the set and priority role.
         std::uint64_t metricContextGeneration = 0; // stateLock
+        std::shared_ptr<metrics::SeriesCache> metricSeriesCache; // stateLock mailbox; shared B/C LRU
+        std::shared_ptr<void> metricOwnershipLease; // stateLock mailbox; applied only by worker
+        metrics::LeaseEpoch metricOwnershipEpoch; // stateLock; rejects old publication before worker applies lease
+        bool metricOwnershipManaged = false; // stateLock; legacy isolated tests may omit leases
         std::atomic<bool> metricObservationEnabled {false};
         std::shared_ptr<const RuntimeSource> workerSource;
         std::uint64_t workerSourceGeneration = 0;

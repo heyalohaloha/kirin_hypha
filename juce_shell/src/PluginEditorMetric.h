@@ -3,47 +3,10 @@
 #include "HyphaLuReferenceFacts.h"
 #include "reference_audition/ReferenceMetricPublication.h"
 #include "PluginProcessor.h"
+#include "HyphaMetricReferenceZero.h"
 
 namespace hypha::metric_editor
 {
-inline void shareReference (KirinHyphaProcessorBase& processor,
-                            const reference_audition::Snapshot& runtime, bool readable)
-{
-    using namespace reference_audition;
-    const auto* role = lu_needle::zeroRole (runtime);
-    const auto measured = role ? role->nativeMetrics : nullptr;
-    for (std::size_t i = 0; i < 3; ++i)
-    {
-        metric_needle::SharedReferenceZero zero;
-        zero.face = static_cast<metric_needle::Face> (i + 2);
-        const auto hostRate = processor.getSampleRate();
-        zero.rate = std::isfinite (hostRate) && hostRate >= 8000 && hostRate <= 384000
-            ? static_cast<std::uint32_t> (hostRate) : 0u;
-        zero.channels = static_cast<std::uint32_t> (processor.getTotalNumInputChannels());
-        if (readable && role)
-        { zero.song = role->candidateName; zero.status = metric_needle::Status::measuring; zero.reason = "preparing"; }
-        if (readable && role && measured && measured->selectionGeneration == role->selectionGeneration)
-        {
-            zero.status = metric_needle::Status::unavailable;
-            zero.reason = (measured->cueReasons[i].isNotEmpty() ? measured->cueReasons[i] : measured->reason).toStdString();
-            zero.generation = measured->selectionGeneration;
-            zero.song = role->candidateName;
-            if (measured->state == metrics::Availability::measuring)
-            { zero.status = metric_needle::Status::measuring; if (zero.reason.empty()) zero.reason = "preparing"; }
-            if (measured->series)
-            {
-                zero.rate = measured->series->rate; zero.channels = measured->series->channels;
-                const auto& cue = measured->cue[i];
-                if (measured->state == metrics::Availability::ready && cue.complete && cue.observations > 0
-                    && std::isfinite (cue.median))
-                { zero.status = metric_needle::Status::ready; zero.median = cue.median;
-                    if (measured->setComplete) zero.band = {measured->bands[i].low, measured->bands[i].high}; }
-            }
-        }
-        if (zero.status == metric_needle::Status::unavailable && zero.reason.empty()) zero.reason = "no_valid_value";
-        processor.shareMetricZero (zero);
-    }
-}
 inline metric_needle::Frame preFacts (KirinHyphaProcessorBase& processor, metric_needle::Face face, bool readable)
 {
     metric_needle::Frame result;
@@ -51,6 +14,7 @@ inline metric_needle::Frame preFacts (KirinHyphaProcessorBase& processor, metric
     const auto zero = processor.sharedMetricZero (face, readable);
     result.status = zero.status; result.median = zero.median; result.band = zero.band;
     result.song = zero.song.toStdString(); result.reason = zero.reason;
+    if (result.reason.empty() && result.status == metric_needle::Status::unavailable) result.reason = "select_reference_post";
     if (result.status == metric_needle::Status::ready && processor.isPlaying() && processor.hasLiveInput()
         && (face == metric_needle::Face::psr || face == metric_needle::Face::crest))
     {
