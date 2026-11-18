@@ -17,7 +17,7 @@ bool Screen::operator== (const Screen& other) const noexcept
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle, screen.guessShown, screen.guessOpen, screen.guessRight,
-                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown);
+                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.detailsShown, screen.detailsOpen, screen.detailsText, screen.preferenceResultText, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
     };
     return key (*this) == key (other);
 }
@@ -67,6 +67,38 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     guessOne.onClick = [this] { if (shown.guessOpen && onGuess) onGuess (1); };
     guessTwo.onClick = [this] { if (shown.guessOpen && onGuess) onGuess (2); };
     saveImage.onClick = [this] { if (shown.saveImageShown && onSaveImage) onSaveImage(); };
+    roundsLabel.setComponentID (idPrefix + "-rounds-label");
+    roundsLabel.setColour (juce::Label::textColourId, COL_NORMAL);
+    roundsLabel.setMinimumHorizontalScale (1.0f);
+    roundsLabel.setJustificationType (juce::Justification::centred);
+    addChildComponent (roundsLabel);
+    int roundIndex = 0;
+    for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
+    {
+        const int values[] { 1, 5, 10 }; const int value = values[roundIndex++];
+        button->setComponentID (idPrefix + "-rounds-" + juce::String (value));
+        button->onClick = [this, value] { if (shown.roundsShown && shown.roundsEnabled && onRounds) onRounds (value); };
+        addChildComponent (button);
+    }
+    detailsToggle.setComponentID (idPrefix + "-details");
+    detailsToggle.onClick = [this] { if (shown.detailsShown && onDetails) onDetails(); };
+    addChildComponent (detailsToggle);
+    detailsBody.setComponentID (idPrefix + "-details-body");
+    detailsBody.setMultiLine (true); detailsBody.setReadOnly (true);
+    detailsBody.setScrollbarsShown (true);
+    detailsBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
+    addChildComponent (detailsBody);
+    preferenceResultBody.setComponentID (idPrefix + "-preference-result");
+    preferenceResultBody.setMultiLine (true); preferenceResultBody.setReadOnly (true);
+    preferenceResultBody.setScrollbarsShown (true);
+    preferenceResultBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
+    addChildComponent (preferenceResultBody);
+    for (auto* body : { &detailsBody, &preferenceResultBody })
+    {
+        body->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        body->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        body->setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+    }
     apply();
 }
 
@@ -172,6 +204,15 @@ void ScreenComponent::apply()
         button->setDescription (button->getTitle());
         button->setTooltip (button->getTitle());
     }
+    const bool preferenceResult = shown.preferenceResultText.isNotEmpty();
+    preferenceResultBody.setVisible (preferenceResult && !shown.detailsOpen);
+    const auto resultText = shown.preferenceResultText + "\n" + text_style::shownText (shown.instruction)
+        + "\n" + text_style::shownText (shown.detail);
+    if (preferenceResultBody.getText() != resultText) preferenceResultBody.setText (resultText, false);
+    detailsToggle.setVisible (shown.detailsShown);
+    detailsToggle.setButtonText (shown.detailsOpen ? "Back" : "Details");
+    detailsBody.setVisible (shown.detailsShown && shown.detailsOpen);
+    if (detailsBody.getText() != shown.detailsText) detailsBody.setText (shown.detailsText, false);
     saveImage.setVisible (shown.saveImageShown);
     saveImage.setTitle ("Save the result as an image");
     saveImage.setDescription (saveImage.getTitle());
@@ -181,9 +222,14 @@ void ScreenComponent::apply()
     end.setDescription (shown.endTitle + " / " + shown.detail);
     end.setTooltip (end.getDescription());
     for (auto* always : std::initializer_list<juce::Component*> { &title, &detail, &end }) always->setVisible (true);
+    if (preferenceResult) { status.setVisible (false); detail.setVisible (false); }
+    if (shown.detailsShown && shown.detailsOpen)
+        for (juce::Component* own : std::initializer_list<juce::Component*> { &status, &detail, &cause, &recovery,
+                &question, &outcome, &one, &two, &reveal, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
+            own->setVisible (false);
     if (covered)
         for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
-                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
+                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &detailsToggle, &detailsBody, &preferenceResultBody })
             own->setVisible (false);
     repaint();
 }
@@ -199,8 +245,57 @@ void ScreenComponent::resized()
 {
     context = presentation::forEditor (getWidth(), getHeight());
     const bool compact = getWidth() < 450;
+    const bool showRounds = !covered && shown.roundsShown && !shown.detailsOpen
+        && shown.preferenceResultText.isEmpty() && getWidth() >= 450 && getHeight() >= 300;
+    roundsLabel.setVisible (showRounds);
+    outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !showRounds);
+    roundsLabel.setText (shown.roundsEnabled ? i18n::tr ("ROUNDS") : shown.roundsProgress, juce::dontSendNotification);
+    roundsLabel.setFont (juce::Font (juce::jmax (12.0f, getWidth() / 50.0f)));
+    int roundIndex = 0;
+    for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
+    {
+        const int values[] { 1, 5, 10 }; const int value = values[roundIndex++];
+        button->setPresentationContext (context);
+        button->setVisible (showRounds && shown.roundsEnabled);
+        button->setEnabled (shown.roundsEnabled);
+        button->setToggleState (shown.roundsValue == value, juce::dontSendNotification);
+    }
+
+    detailsToggle.setPresentationContext (context);
+    for (auto* body : { &detailsBody, &preferenceResultBody })
+    {
+        auto font = juce::Font (juce::jmax (12.0f, getWidth() / 50.0f));
+        if (requiresJapaneseGlyphs (body->getText())) font = nativeTextFontLike (font);
+        body->setFont (font);
+        body->applyFontToAllText (font);
+    }
+    if (shown.detailsShown && shown.detailsOpen)
+    {
+        auto panel = getLocalBounds().reduced (compact ? 12 : 24);
+        title.setBounds (panel.removeFromTop (compact ? 24 : 40));
+        auto actions = panel.removeFromBottom (compact ? 28 : 40);
+        detailsToggle.setBounds (actions.removeFromLeft (actions.getWidth() / 2).reduced (3, 0));
+        end.setBounds (actions.reduced (3, 0));
+        detailsBody.setBounds (panel.reduced (0, 5));
+        return;
+    }
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
         button->setPresentationContext (context);
+    if (shown.preferenceResultText.isNotEmpty())
+    {
+        auto panel = getLocalBounds().reduced (compact ? 12 : 24);
+        title.setBounds (panel.removeFromTop (compact ? 24 : 40));
+        auto actions = panel.removeFromBottom (compact ? 28 : 40);
+        const auto third = actions.getWidth() / 3;
+        detailsToggle.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        saveImage.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        end.setBounds (actions.reduced (3, 0));
+        auto sources = panel.removeFromBottom (compact ? 28 : 40);
+        one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
+        two.setBounds (sources.reduced (3, 0));
+        preferenceResultBody.setBounds (panel.reduced (0, 4));
+        return;
+    }
     for (auto* label : { &question, &outcome })
         label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
@@ -232,7 +327,14 @@ void ScreenComponent::resized()
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
     detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
-    if (shown.saveImageShown && shown.alignOffShown)
+    if (shown.detailsShown)
+    {
+        const auto third = actions.getWidth() / 3;
+        detailsToggle.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        saveImage.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        end.setBounds (actions.reduced (3, 0));
+    }
+    else if (shown.saveImageShown && shown.alignOffShown)
     {
         const auto third = actions.getWidth() / 3;
         alignOff.setBounds (actions.removeFromLeft (third).reduced (3, 0));
@@ -245,6 +347,15 @@ void ScreenComponent::resized()
         reveal.setBounds (actions.reduced (3, 0));
         alignOff.setBounds (reveal.getBounds());
         saveImage.setBounds (reveal.getBounds());
+    }
+    if (showRounds)
+    {
+        auto row = area.removeFromBottom (32).reduced (0, 2);
+        row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), 270), row.getHeight());
+        roundsLabel.setBounds (row.removeFromLeft (120));
+        roundsOne.setBounds (row.removeFromLeft (50).reduced (2, 0));
+        roundsFive.setBounds (row.removeFromLeft (50).reduced (2, 0));
+        roundsTen.setBounds (row.reduced (2, 0));
     }
     if (shown.guessShown)
     {

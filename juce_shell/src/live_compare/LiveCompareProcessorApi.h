@@ -66,6 +66,11 @@ bool approveLiveBlindMatch (std::uint64_t generation);
 hypha::live_compare::LiveBlindStatus liveBlindStatus() const;
 bool selectLiveBlind (int stimulus);
 bool revealLiveBlind();
+// Accepted choice: true=PRE/A, false=POST/B, nullopt=not accepted. Non-RT only.
+std::optional<bool> acceptLiveBlindPreference (int source, std::uint64_t generation, std::uint32_t epoch);
+bool nextLiveBlindPreferenceRound (std::uint64_t generation, std::uint32_t epoch);
+bool revealLiveBlindPreference (std::uint64_t generation, std::uint32_t epoch);
+std::optional<hypha::live_compare::GainSnapshot> liveBlindApprovedPreferenceGain (std::uint64_t generation, std::uint32_t epoch) const;
 void closeLiveBlind();
 
 // Explicit, unsaved A/B selection; the normal PRE pair is never changed.

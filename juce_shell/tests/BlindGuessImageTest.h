@@ -1,3 +1,4 @@
+#include "BlindRoundsPreferenceTest.h"
 #pragma once
 
 // 2026-11-11：Blind の GUESS（当てる、既定 OFF）と BLIND RESULT の SAVE IMAGE。
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <iostream>
 #include <set>
+#include "BlindPreferenceComponentTest.h"
 
 namespace hypha::tests
 {
@@ -423,6 +425,10 @@ void verifyBlindGuessAndImage (Require check)
             }
         }
     }
+    hypha::tests::runBlindRoundsPreferenceTests (root);
+    verifyBlindPreferenceComponent (require, [&] (juce::Component& view, const juce::String& where) {
+        requireScreenFits(view,require,where);
+    }, root, preview);
     i18n::observeMisses (nullptr);
     require (misses().isEmpty(), "every new Japanese line is in the catalog: " + misses().joinIntoString (" | "));
     require (hypha::tests::removeFixtureDirectory (root), "remove the isolated image fixture");

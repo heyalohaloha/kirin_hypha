@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "HyphaLanguage.h"
+#include "HyphaBlindPreferenceText.h"
 #include "HyphaObservatoryWorld.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -27,6 +28,7 @@ struct Facts
     bool candidate = false;  // A/B Blind (A and B), otherwise PRE/POST Blind
     bool firstPre = false;   // SOURCE 1 was A (PRE)
     int selected = 0;        // the source selected on the RESULT, 1 or 2
+    blind_preference::Summary preference;
     int guess = 0;           // the GUESS answer, 1 or 2; 0 when none was given
     double loweredDb = 0.0;  // both sources played this much lower to avoid clipping
     juce::String note;       // the RESULT's own note: a source that stood in, an audio estimate
@@ -54,6 +56,17 @@ inline juce::File preferenceFile()
     if (const auto test = storage::testPluginDataRoot())
         return test->getParentDirectory().getParentDirectory().getChildFile ("Kirin/Kirin Hypha/ui-preferences.txt");
     return ui_preferences::defaultFile();
+}
+// New round setting takes precedence; legacy GUESS is read only as a migration fallback.
+inline int preferenceRounds (const juce::File& file)
+{
+    const auto value = ui_preferences::read (file, "blind-rounds");
+    if (value.isNotEmpty()) return value == "5" ? 5 : value == "10" ? 10 : 1;
+    return ui_preferences::read (file, "blind-guess") == "on" ? 5 : 1;
+}
+inline bool preferRounds (const juce::File& file, int rounds)
+{
+    return ui_preferences::write (file, "blind-rounds", juce::String (rounds == 5 || rounds == 10 ? rounds : 1));
 }
 inline bool guessPreferred (const juce::File& file) { return ui_preferences::read (file, "blind-guess") == "on"; }
 inline bool preferGuess (const juce::File& file, bool on) { return ui_preferences::write (file, "blind-guess", on ? "on" : "off"); }
@@ -242,7 +255,21 @@ inline Layout layoutFor (const Facts& facts)
     }
     y = layout.cardOne.getBottom() + 18.0f;
 
-    if (facts.guess == 1 || facts.guess == 2)
+    if (facts.preference.total() > 0)
+    {
+        for (const auto& text : { blind_preference::summaryLine (facts.preference, facts.candidate),
+                                  blind_preference::probabilityLine (facts.preference) })
+        {
+            if (text.isEmpty()) continue;
+            for (const auto& line : wrap (text, shownFont (text, imageFont (ImageText::caption)), body.getWidth()))
+            {
+                addLine (layout, line, { body.getX(), y, body.getWidth(), 21.0f }, ImageText::caption, COL_NORMAL);
+                y += 21.0f;
+            }
+            y += 4.0f;
+        }
+    }
+    else if (facts.guess == 1 || facts.guess == 2)
     {
         const auto b = facts.nameB;
         addLine (layout, around ("Which one is %1?", b), { body.getX(), y, body.getWidth(), 24.0f }, ImageText::question, COL_NORMAL);
@@ -276,7 +303,10 @@ inline Layout layoutFor (const Facts& facts)
     // The closing: one sentence, then the address, at the foot of the panel.
     const auto foot = layout.panel.getBottom() - 20.0f;
     layout.rule = foot - 62.0f;
-    addLine (layout, i18n::tr (closingSentence), { body.getX(), foot - 50.0f, body.getWidth(), 24.0f }, ImageText::closing, COL_NORMAL);
+    const auto closing = facts.preference.total() >= 2
+        ? i18n::tr ("%1 blind rounds at matched level.").replace ("%1", juce::String (facts.preference.total()))
+        : i18n::tr (closingSentence);
+    addLine (layout, closing, { body.getX(), foot - 50.0f, body.getWidth(), 24.0f }, ImageText::closing, COL_NORMAL);
     addLine (layout, address, { body.getX(), foot - 22.0f, body.getWidth(), 22.0f }, ImageText::address, COL_SPECTRUM_DELTA_BR,
              juce::Justification::centred, 0.06f);
     return layout;

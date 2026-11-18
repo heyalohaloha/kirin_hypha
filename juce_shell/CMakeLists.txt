@@ -310,6 +310,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorLiveCompare.cpp
         src/PluginProcessorLiveCompareRealtime.cpp
         src/PluginProcessorLiveBlind.cpp
+        src/PluginProcessorBlindPreference.cpp
         src/PluginProcessorLiveComparePin.cpp
         src/live_compare/LiveCompareSharedRing.cpp
         src/live_compare/LiveCompareMatch.cpp
@@ -404,6 +405,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             ${KIRIN_HYPHA_SHORTCUT_POST_SOURCES}
             src/HyphaBlindScreen.cpp
             src/HyphaLiveBlindComponent.cpp
+        src/HyphaLiveBlindPreference.cpp
             src/HyphaVersionBlindScreen.cpp
             src/PluginEditorLiveCompare.cpp
             src/PluginEditorLiveCompareAuto.cpp
@@ -716,6 +718,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/ReferenceAuditionComponentContractTest.cpp
         src/HyphaBlindScreen.cpp
         src/HyphaLiveBlindComponent.cpp
+        src/HyphaLiveBlindPreference.cpp
         src/HyphaVersionBlindScreen.cpp
         src/HyphaLocalBlindComponent.cpp
         src/HyphaLocalBlindSteps.cpp

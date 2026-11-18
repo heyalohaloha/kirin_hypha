@@ -32,6 +32,11 @@ struct Screen
     bool guessShown = false, guessOpen = false, guessRight = false;
     int guessAnswer = 0;
     juce::String guessQuestion, guessOutcome;
+    bool roundsShown = false, roundsEnabled = false;
+    int roundsValue = 1;
+    juce::String roundsProgress;
+    bool detailsShown = false, detailsOpen = false;
+    juce::String detailsText, preferenceResultText;
     bool saveImageShown = false;  // SAVE IMAGE on the RESULT, where REVEAL stood
 
     bool operator== (const Screen&) const noexcept;
@@ -45,8 +50,8 @@ public:
     explicit ScreenComponent (const juce::String& idPrefix);
     ~ScreenComponent() override;
     std::function<void(int)> onSelect;
-    std::function<void()> onReveal, onEnd, onApprove, onAlignOff, onSaveImage;
-    std::function<void(int)> onGuess;
+    std::function<void()> onReveal, onEnd, onApprove, onAlignOff, onSaveImage, onDetails;
+    std::function<void(int)> onGuess, onRounds;
     bool requestSource (int);
     bool requestReveal();
     bool requestEnd();
@@ -77,7 +82,10 @@ private:
     HyphaTextButton alignOff { "ALIGN OFF", true, text_style::LabelPolicy::fixed };
     HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST" };
     HyphaTextButton guessOne { "1", true, text_style::LabelPolicy::fixed }, guessTwo { "2", true, text_style::LabelPolicy::fixed };
-    HyphaTextButton saveImage { "SAVE IMAGE" };
+    HyphaTextButton saveImage { "SAVE IMAGE" }, detailsToggle { "Details" };
+    juce::Label roundsLabel;
+    HyphaTextButton roundsOne { "1", true, text_style::LabelPolicy::fixed }, roundsFive { "5", true, text_style::LabelPolicy::fixed }, roundsTen { "10", true, text_style::LabelPolicy::fixed };
+    juce::TextEditor detailsBody, preferenceResultBody;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)
 };
 }

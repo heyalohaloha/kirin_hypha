@@ -17,8 +17,13 @@ The diagram is a placement confirmation, not automatic routing detection. Differ
 are shown as a hint. In another arrangement, the sound can change during comparison. When timing
 or the replacement range cannot be confirmed, the actual chain output is used temporarily;
 BLIND keeps its assignment and resumes automatically. That interval is not counted as B heard.
-In A/B, BLIND's GUESS asks **Which one is B?**, and SAVE IMAGE names the sources A and B until you
-type other names ([Blind](blind.md)).
+In A/B, **ROUNDS → 5 / 10** asks **Which do you prefer?**, just as in
+PRE/POST BLIND. Each round independently hides A and B behind SOURCE 1 and SOURCE 2. The default **1** keeps
+the existing BLIND flow without a question. The screen and MENU share the same count; use MENU
+at small sizes where the screen switch does not fit. Change it before the first answer, not during
+a partially answered trial. REVEAL summarizes the choices; Details shows the round-by-round choices
+without unavailable measurement values. SAVE IMAGE uses A and B as the default source names and
+includes the preference summary, not Details ([Preference rounds](blind.md#preference-rounds)).
 An A that arrives later than B, or whose position the audio cannot confirm, plays as it is and the
 footer says so; comparison continues. When an earlier A/B of the same candidate confirmed how early A
 was, and the host reports the same latencies, insert chain and delay compensation, the next start of
