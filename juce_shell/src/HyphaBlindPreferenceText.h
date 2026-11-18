@@ -39,16 +39,4 @@ inline juce::String probabilityLine (const Summary& summary)
     return i18n::tr ("Picking one side this often at random happens about %1 in 100 times.")
         .replace ("%1", juce::String (summary.chance.roundedPerHundred()));
 }
-inline juce::String historyText (const Trial& trial, bool candidate, const juce::String& nameA = {}, const juce::String& nameB = {})
-{
-    juce::String result;
-    for (unsigned i = 0; i < trial.answered(); ++i) {
-        const auto* answer = trial.answerAt(i);
-        if (!answer) continue;
-        if (result.isNotEmpty()) result += "\n";
-        result += i18n::tr ("Round %1: %2").replace ("%1", juce::String (i+1)).replace ("%2",
-            sideName(answer->choseA,candidate,nameA,nameB));
-    }
-    return result;
-}
 }

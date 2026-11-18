@@ -17,7 +17,7 @@ bool Screen::operator== (const Screen& other) const noexcept
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle, screen.guessShown, screen.guessOpen, screen.guessRight,
-                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.detailsShown, screen.detailsOpen, screen.detailsText, screen.frequencyDetails, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
+                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.matchedGainText, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
     };
     return key (*this) == key (other);
 }
@@ -80,20 +80,11 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
         button->onClick = [this, value] { if (shown.roundsShown && shown.roundsEnabled && onRounds) onRounds (value); };
         addChildComponent (button);
     }
-    detailsToggle.setComponentID (idPrefix + "-details");
-    detailsToggle.onClick = [this] { if (shown.detailsShown && onDetails) onDetails(); };
-    addChildComponent (detailsToggle);
-    detailsBody.setComponentID (idPrefix + "-details-body");
-    detailsBody.setMultiLine (true); detailsBody.setReadOnly (true);
-    detailsBody.setScrollbarsShown (true);
-    detailsBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
-    detailsViewport.setComponentID (idPrefix + "-details-viewport");
-    detailsViewport.setViewedComponent (&detailsContent, false);
-    detailsViewport.setScrollBarsShown (true, false);
-    detailsContent.addAndMakeVisible (detailsBody);
-    frequencyRow.setComponentID (idPrefix + "-frequency-details");
-    detailsContent.addChildComponent (frequencyRow);
-    addChildComponent (detailsViewport);
+    matchedGainBody.setComponentID(idPrefix + "-matched-gain");
+    matchedGainBody.setMultiLine(true); matchedGainBody.setReadOnly(true);
+    matchedGainBody.setScrollbarsShown(true);
+    matchedGainBody.setColour(juce::TextEditor::textColourId,COL_NORMAL);
+    addChildComponent(matchedGainBody);
     preferenceResultBody.setComponentID (idPrefix + "-preference-result");
     preferenceResultBody.setMultiLine (true); preferenceResultBody.setReadOnly (true);
     preferenceResultBody.setScrollbarsShown (true);
@@ -105,7 +96,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     preferenceNoteBody.setScrollbarsShown (true);
     preferenceNoteBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
     addChildComponent (preferenceNoteBody);
-    for (auto* body : { &detailsBody, &preferenceResultBody, &preferenceNoteBody })
+    for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
     {
         body->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         body->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
@@ -114,7 +105,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     apply();
 }
 
-ScreenComponent::~ScreenComponent() { detailsViewport.setViewedComponent (nullptr, false); setLookAndFeel (nullptr); }
+ScreenComponent::~ScreenComponent() { setLookAndFeel (nullptr); }
 
 void ScreenComponent::setActionNotice (const juce::String& notice)
 {
@@ -216,19 +207,15 @@ void ScreenComponent::apply()
         button->setDescription (button->getTitle());
         button->setTooltip (button->getTitle());
     }
-    const bool preferenceResult = shown.preferenceResultText.isNotEmpty();
-    preferenceResultBody.setVisible (preferenceResult && !shown.detailsOpen);
-    const auto& resultText = shown.preferenceResultText;
-    preferenceNoteBody.setVisible (preferenceResult && !shown.detailsOpen);
-    if (preferenceNoteBody.getText() != shown.preferenceResultNote) preferenceNoteBody.setText (shown.preferenceResultNote, false);
+    const bool preferenceResult = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    preferenceResultBody.setVisible (shown.preferenceResultText.isNotEmpty());
+    const auto resultText = shown.preferenceResultText;
+    preferenceNoteBody.setVisible (preferenceResult);
+    const auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText(shown.instruction) + "\n" + text_style::shownText(shown.detail);
+    if (preferenceNoteBody.getText() != noteText) preferenceNoteBody.setText(noteText,false);
     if (preferenceResultBody.getText() != resultText) preferenceResultBody.setText (resultText, false);
-    detailsToggle.setVisible (shown.detailsShown);
-    detailsToggle.setButtonText (shown.detailsOpen ? "Back" : "Details");
-    detailsViewport.setVisible (shown.detailsShown && shown.detailsOpen);
-    detailsBody.setVisible (shown.detailsShown && shown.detailsOpen);
-    frequencyRow.setResult (shown.frequencyDetails);
-    frequencyRow.setVisible (shown.detailsShown && shown.detailsOpen && shown.frequencyDetails != nullptr);
-    if (detailsBody.getText() != shown.detailsText) detailsBody.setText (shown.detailsText, false);
+    matchedGainBody.setVisible(shown.matchedGainText.isNotEmpty());
+    if (matchedGainBody.getText()!=shown.matchedGainText) matchedGainBody.setText(shown.matchedGainText,false);
     saveImage.setVisible (shown.saveImageShown);
     saveImage.setTitle ("Save the result as an image");
     saveImage.setDescription (saveImage.getTitle());
@@ -239,13 +226,9 @@ void ScreenComponent::apply()
     end.setTooltip (end.getDescription());
     for (auto* always : std::initializer_list<juce::Component*> { &title, &detail, &end }) always->setVisible (true);
     if (preferenceResult) { status.setVisible (false); detail.setVisible (false); }
-    if (shown.detailsShown && shown.detailsOpen)
-        for (juce::Component* own : std::initializer_list<juce::Component*> { &status, &detail, &cause, &recovery,
-                &question, &outcome, &one, &two, &reveal, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
-            own->setVisible (false);
     if (covered)
         for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
-                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &detailsToggle, &detailsViewport, &detailsBody, &preferenceResultBody, &preferenceNoteBody })
+                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
             own->setVisible (false);
     repaint();
 }
@@ -265,8 +248,8 @@ void ScreenComponent::resized()
     // The active preference screen uses this row for explicit round progress.
     // The same exit explanation remains on END's accessible description/tooltip.
     const bool compactPreference = compact && shown.roundsShown && shown.guessShown;
-    detail.setVisible (!covered && !compactPreference && !shown.detailsOpen && shown.preferenceResultText.isEmpty());
-    const bool showRounds = !covered && shown.roundsShown && !shown.detailsOpen
+    detail.setVisible (!covered && !compactPreference && shown.preferenceResultText.isEmpty() && shown.matchedGainText.isEmpty());
+    const bool showRounds = !covered && shown.roundsShown
         && shown.preferenceResultText.isEmpty() && getWidth() >= 450 && getHeight() >= 300;
     roundsLabel.setVisible (showRounds);
     outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !showRounds);
@@ -283,52 +266,45 @@ void ScreenComponent::resized()
         button->setToggleState (shown.roundsValue == value, juce::dontSendNotification);
     }
 
-    detailsToggle.setPresentationContext (context);
-    for (auto* body : { &detailsBody, &preferenceResultBody, &preferenceNoteBody })
+    for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
     {
         body->setFont (displayTextFont (body->getText(), context,
                                        body == &preferenceResultBody ? typography::TextRole::primaryValue : typography::TextRole::listenChoice, typography::Composition::information));
         body->applyFontToAllText (body->getFont());
     }
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
-    if (shown.detailsShown && shown.detailsOpen)
-    {
-        auto panel = getLocalBounds().reduced (compact ? 12 : 24);
-        title.setBounds (panel.removeFromTop (compact ? 24 : 40));
-        auto actions = panel.removeFromBottom (compact ? 28 : 40);
-        detailsToggle.setBounds (actions.removeFromLeft (actions.getWidth() / 2).reduced (3, 0));
-        end.setBounds (actions.reduced (3, 0));
-        detailsViewport.setBounds (panel.reduced (0, 5));
-        const int width = juce::jmax (1, detailsViewport.getWidth() - detailsViewport.getScrollBarThickness());
-        detailsBody.setScrollbarsShown (false);
-        detailsBody.setBounds (0, 0, width, 100);
-        const int textHeight = juce::jmax (40, detailsBody.getTextHeight() + 16);
-        detailsBody.setSize (width, textHeight);
-        const int graphHeight = juce::jmax (108, juce::jmin (180, detailsViewport.getHeight()));
-        frequencyRow.setBounds (0, textHeight + 12, width, graphHeight);
-        detailsContent.setSize (width, textHeight + (shown.frequencyDetails ? graphHeight + 12 : 0));
-        return;
-    }
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
         button->setPresentationContext (context);
-    if (shown.preferenceResultText.isNotEmpty())
+    if (shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty())
     {
-        auto panel = getLocalBounds().reduced (compact ? 12 : 24);
-        title.setBounds (panel.removeFromTop (compact ? 24 : 40));
-        auto actions = panel.removeFromBottom (compact ? 28 : 40);
-        const auto third = actions.getWidth() / 3;
-        detailsToggle.setBounds (actions.removeFromLeft (third).reduced (3, 0));
-        saveImage.setBounds (actions.removeFromLeft (third).reduced (3, 0));
+        auto panel = getLocalBounds().reduced (compact ? 6 : 24);
+        title.setBounds (panel.removeFromTop (compact ? 20 : 40));
+        auto actions = panel.removeFromBottom (compact ? 24 : 40);
+        saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
         end.setBounds (actions.reduced (3, 0));
-        auto sources = panel.removeFromBottom (compact ? 28 : 40);
+        auto sources = panel.removeFromBottom (compact ? 24 : 40);
         one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
         two.setBounds (sources.reduced (3, 0));
-        const auto noteHeight = juce::jmin (panel.getHeight() / 3, compact ? 52 : 72);
-        preferenceNoteBody.setBounds (panel.removeFromBottom (noteHeight).reduced (0, 3));
-        const auto textHeight = text_style::shownWrappedHeight (shown.preferenceResultText,
-            preferenceResultBody.getFont(), juce::jmax (1, panel.getWidth() - 12)) + 12.0f;
-        preferenceResultBody.setBounds (panel.withSizeKeepingCentre (panel.getWidth(),
-            juce::jmin (panel.getHeight(), juce::roundToInt (std::ceil (textHeight)))));
+        if (shown.preferenceResultText.isEmpty()) {
+            // One listen has no vote result. Both explanatory sentences belong
+            // below the approved compensation, not in the primary-result pane.
+            matchedGainBody.setBounds(panel.getX(),panel.getY(),panel.getWidth(),40);
+            const int gainHeight=matchedGainBody.getTextHeight()+8;
+            matchedGainBody.setBounds(panel.removeFromTop(gainHeight));
+            preferenceNoteBody.setBounds(panel.reduced(0,3));
+            preferenceResultBody.setBounds({});
+            return;
+        }
+        // Measure the actual editor wrapping at its final width. Main result,
+        // probability and gain must fit; only the explanatory note may scroll.
+        preferenceResultBody.setBounds(panel.getX(),panel.getY(),panel.getWidth(),100);
+        matchedGainBody.setBounds(panel.getX(),panel.getY(),panel.getWidth(),40);
+        const int resultHeight=preferenceResultBody.getTextHeight()+8;
+        const int gainHeight=shown.matchedGainText.isEmpty()?0:matchedGainBody.getTextHeight()+8;
+        const int noteHeight=juce::jmax(18,panel.getHeight()-resultHeight-gainHeight);
+        preferenceNoteBody.setBounds(panel.removeFromBottom(noteHeight));
+        matchedGainBody.setBounds(panel.removeFromBottom(gainHeight));
+        preferenceResultBody.setBounds(panel.withSizeKeepingCentre(panel.getWidth(),juce::jmin(panel.getHeight(),resultHeight)));
         return;
     }
     for (auto* label : { &question, &outcome })
@@ -362,14 +338,7 @@ void ScreenComponent::resized()
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
     detail.setBounds (detail.isVisible() ? area.removeFromBottom (compact ? 34 : 46) : juce::Rectangle<int>());
     auto actions = area.removeFromBottom (compact ? 28 : 40);
-    if (shown.detailsShown)
-    {
-        const auto third = actions.getWidth() / 3;
-        detailsToggle.setBounds (actions.removeFromLeft (third).reduced (3, 0));
-        saveImage.setBounds (actions.removeFromLeft (third).reduced (3, 0));
-        end.setBounds (actions.reduced (3, 0));
-    }
-    else if (shown.saveImageShown && shown.alignOffShown)
+    if (shown.saveImageShown && shown.alignOffShown)
     {
         const auto third = actions.getWidth() / 3;
         alignOff.setBounds (actions.removeFromLeft (third).reduced (3, 0));

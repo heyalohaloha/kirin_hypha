@@ -130,16 +130,6 @@ void KirinHyphaEditor::refreshLiveBlind()
     }
     liveBlindView.setState (blind, processorRef.isPlaying(), status.postActual,
                            processorRef.liveContentTimingObservation().verifySamples);
-    if (!blind.trial.revealed && liveBlindView.preferenceTrial().planned() > 0)
-    {
-        KirinReferenceLiveMetricFrame level {}; KirinPerceptualBatch sharp {}; KirinSpectrumBatch spectrum {};
-        std::uint64_t continuity = 0;
-        const bool hasLevel = processorRef.pollReferenceLiveMetrics (level);
-        const bool hasSharp = processorRef.pollPerceptualBatch (sharp);
-        const bool hasSpectrum = processorRef.pollSpectrumBatch (spectrum, nullptr, &continuity);
-        liveBlindView.observePreferenceDetails (hasLevel ? &level : nullptr, hasSharp ? &sharp : nullptr,
-                                               hasSpectrum ? &spectrum : nullptr, continuity);
-    }
     const auto gain = processorRef.liveBlindApprovedPreferenceGain (blind.generation, blind.trial.epoch);
     liveBlindView.setPreferenceApprovedGains (blind.generation, gain);
 }

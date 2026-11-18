@@ -3,7 +3,6 @@
 #include <memory>
 #include <optional>
 #include "HyphaBlindPreferenceTrial.h"
-#include "HyphaBlindDetailsCollector.h"
 
 #include "HyphaBlindScreen.h"
 #include "live_compare/LiveCompareProcessorState.h"
@@ -47,8 +46,6 @@ public:
     bool setPreferenceRounds (int);
     bool canChangePreferenceRounds() const noexcept;
     std::function<void (int)> onPreferenceRoundsChanged;
-    void observePreferenceDetails (const KirinReferenceLiveMetricFrame*, const KirinPerceptualBatch*,
-                                   const KirinSpectrumBatch*, std::uint64_t deltaContinuity);
     int preferenceRounds() const noexcept { return rounds; }
     int activePreferenceRounds() const noexcept { return activeRounds; }
     const blind_preference::Trial& preferenceTrial() const noexcept { return preference; }
@@ -84,11 +81,8 @@ private:
     void chooseImageFile();
 
     blind_preference::Trial preference;
-    blind_details::Collector detailsMeasurements;
-    blind_details::Result measuredDetails;
-    std::shared_ptr<const blind_details::Result> frequencyDetails;
     int rounds = 1, activeRounds = 0; // configured next trial / captured active trial
-    bool preferenceBusy = false, awaitingEpoch = false, detailsOpen = false;
+    bool preferenceBusy = false, awaitingEpoch = false;
     std::uint32_t expectedEpoch = 0;
     bool preferenceFallback = false, preferenceTimingFallback = false, preferenceCeilingFallback = false;
     double preferenceContentNoticeMs = 0;

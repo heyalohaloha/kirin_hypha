@@ -7,8 +7,7 @@ namespace hypha::live_blind_ui
 void Component::resetPreference()
 {
     preferenceNameA.clear(); preferenceNameB.clear();
-    detailsMeasurements.clear(); measuredDetails = {}; frequencyDetails.reset();
-    preference.reset(); activeRounds = 0; awaitingEpoch = false; expectedEpoch = 0; detailsOpen = false;
+    preference.reset(); activeRounds = 0; awaitingEpoch = false; expectedEpoch = 0;
     preferenceFallback = preferenceTimingFallback = preferenceCeilingFallback = false;
     preferenceContentNoticeMs = 0; approvedGainsValid = false; approvedGainGeneration = 0;
     approvedGainAtStart.reset(); approvedPreDb = approvedPostDb = 0;
@@ -25,9 +24,9 @@ bool Component::setPreferenceRounds (int value)
     rounds = value; guessOn = false; answer = 0;
     if (current.stage == live_compare::BlindStage::active && !current.trial.invalidated) {
         activeRounds = value;
-        // Before any vote, the same assignment/gain/measurement interval remains
-        // valid. Do not restart audio, redraw randomness or discard the interval.
-        preference.reset(); awaitingEpoch = false; detailsOpen = false;
+        // Before any vote, the same assignment and gain remain
+        // valid. Do not restart audio, redraw randomness or replace the captured gain.
+        preference.reset(); awaitingEpoch = false;
         refreshPreference();
     }
     show(); return true;
@@ -38,7 +37,7 @@ void Component::refreshPreference()
     if (activeRounds == 0 || current.stage != live_compare::BlindStage::active || current.trial.invalidated) {
         resetPreference(); return;
     }
-    if (activeRounds == 1) return; // legacy listen: no question, counts or voting gate
+    if (activeRounds == 1) return; // Ordinary listen has no preference votes.
     if (preference.phase() != Phase::off && preference.generation() != current.generation) {
         resetPreference(); return;
     }
@@ -53,7 +52,7 @@ void Component::refreshPreference()
         else { resetPreference(); return; }
     }
     if (current.trial.revealed) {
-        if (preference.canReveal()) { retainPreferenceNotes(); detailsMeasurements.freeze(); measuredDetails = detailsMeasurements.result(); frequencyDetails = std::make_shared<const blind_details::Result> (measuredDetails); preference.reveal(); detailsOpen = false; }
+        if (preference.canReveal()) { retainPreferenceNotes(); preference.reveal(); }
     } else preference.observePlayed (current.generation, current.trial.epoch, current.trial.played);
 }
 void Component::retainPreferenceNotes()
@@ -75,7 +74,7 @@ void Component::choosePreference (int source)
         || !preference.answer (source, *accepted)) {
         preferenceBusy = false; refreshPreference(); show(); return;
     }
-    retainPreferenceNotes(); detailsOpen = false;
+    retainPreferenceNotes();
     if (preference.phase() == blind_preference::Phase::awaitingAssignment) {
         // The existing session refuses epoch exhaustion rather than wrapping.
         expectedEpoch = static_cast<std::uint32_t> (epoch + 1u);
@@ -103,7 +102,7 @@ void Component::setPreferenceApprovedGains (std::uint64_t generation,
     if (valid) {
         // Capture only before the first answer. A later approval must not rewrite
         // the matched level reported for an already answered listening trial.
-        if (!approvedGainAtStart && preference.answered() == 0) {
+        if (!approvedGainAtStart && preference.answered() == 0 && !current.trial.revealed) {
             approvedGainAtStart = gain; approvedGainGeneration = generation;
             approvedPreDb = 20.0 * std::log10 (gain->pre);
             approvedPostDb = 20.0 * std::log10 (gain->post);
@@ -114,15 +113,7 @@ void Component::setPreferenceApprovedGains (std::uint64_t generation,
                 && gain->pre == first.pre && gain->post == first.post && gain->ceiling == first.ceiling;
         }
     }
-    if (detailsOpen) show();
-}
-void Component::observePreferenceDetails (const KirinReferenceLiveMetricFrame* level,
-    const KirinPerceptualBatch* sharp, const KirinSpectrumBatch* spectrum, std::uint64_t continuity)
-{
-    if (!detailsMeasurements.active() || current.trial.revealed) return;
-    if (level) detailsMeasurements.level (*level);
-    if (sharp) detailsMeasurements.perceptual (*sharp);
-    if (spectrum) detailsMeasurements.spectrum (*spectrum, continuity);
+    show();
 }
 void Component::decoratePreference (blind_ui::Screen& screen) const
 {
@@ -134,42 +125,35 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
         if (preference.answered() > 0)
             screen.roundsProgress = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
     }
-    if (preference.planned() == 0) return;
-    const bool revealed = current.trial.revealed && preference.phase() == blind_preference::Phase::revealed;
+    const bool singleListen = activeRounds == 1;
+    if (!singleListen && preference.planned() == 0) return;
+    const bool revealed = current.trial.revealed
+        && (singleListen || preference.phase() == blind_preference::Phase::revealed);
     if (revealed) {
-        screen.guessShown = false; screen.guessOpen = false; screen.guessAnswer = 0; screen.guessRight = false;
-        screen.guessQuestion.clear(); screen.guessOutcome.clear();
-        screen.preferenceResultText = blind_preference::summaryLine (preference.summary(), current.candidate, preferenceNameA, preferenceNameB);
-        const auto chance = blind_preference::probabilityLine (preference.summary());
-        if (chance.isNotEmpty()) screen.preferenceResultText += "\n" + chance;
         const auto nameA = blind_preference::sideName(true,current.candidate,preferenceNameA,preferenceNameB);
         const auto nameB = blind_preference::sideName(false,current.candidate,preferenceNameA,preferenceNameB);
-        screen.sourceOne = "1: " + (current.trial.firstPre ? nameA : nameB);
-        screen.sourceTwo = "2: " + (current.trial.firstPre ? nameB : nameA);
-        screen.preferenceResultNote = text_style::shownText(screen.instruction) + "\n" + text_style::shownText(screen.detail);
-        screen.detailsShown = preference.answered() > 0; screen.detailsOpen = detailsOpen;
-        if (detailsOpen) {
-            screen.detailsText = blind_preference::historyText (preference, current.candidate, preferenceNameA, preferenceNameB);
-            if (!current.candidate) {
-                screen.frequencyDetails = frequencyDetails;
-                screen.detailsText += "\n\n" + i18n::tr ("Measured during this blind") + " (" + nameB + juce::String::fromUTF8(u8" − ") + nameA + ")";
-                const auto line = [&] (const char* name, const blind_details::Summary& value, const char* unit) {
-                    return juce::String ("\n") + name + ": " + (value.sufficient
-                        ? juce::String (value.median, 2) + " " + unit
-                        : i18n::tr (value.capacityExceeded ? "Measurement capacity reached; value not shown"
-                            : "Not shown because the measured time is too short"));
-                };
-                screen.detailsText += line ("PSR", measuredDetails.psr, "dB")
-                    + line ("CREST", measuredDetails.crest, "dB") + line ("SHARP", measuredDetails.sharp, "acum");
-            }
-            if (!current.candidate && approvedGainsValid && approvedGainGeneration == current.generation) {
-                screen.detailsText += "\n" + i18n::tr ("Matched level: %1 %2 dB; %3 %4 dB")
-                    .replace ("%1", nameA).replace ("%2", blind_preference::signedDb(approvedPreDb))
-                    .replace ("%3", nameB).replace ("%4", blind_preference::signedDb(approvedPostDb));
-            }
+        if (!singleListen) {
+            screen.guessShown = false; screen.guessOpen = false; screen.guessAnswer = 0; screen.guessRight = false;
+            screen.guessQuestion.clear(); screen.guessOutcome.clear();
+            screen.preferenceResultText = blind_preference::summaryLine (preference.summary(), current.candidate, preferenceNameA, preferenceNameB);
+            const auto chance = blind_preference::probabilityLine (preference.summary());
+            if (chance.isNotEmpty()) screen.preferenceResultText += "\n" + chance;
+            screen.sourceOne = "1: " + (current.trial.firstPre ? nameA : nameB);
+            screen.sourceTwo = "2: " + (current.trial.firstPre ? nameB : nameA);
+            screen.preferenceResultNote = text_style::shownText(screen.instruction) + "\n" + text_style::shownText(screen.detail);
+        }
+        if (approvedGainsValid && approvedGainGeneration == current.generation) {
+            const auto signedGain=[](double value) {
+                const auto rounded=std::round(value*10.0)/10.0;
+                return rounded==0.0 ? juce::String("0.0") : blind_preference::signedDb(value);
+            };
+            screen.matchedGainText = i18n::tr("Matched level: %1 %2 dB; %3 %4 dB")
+                .replace("%1",nameA).replace("%2",signedGain(approvedPreDb))
+                .replace("%3",nameB).replace("%4",signedGain(approvedPostDb));
         }
         return;
     }
+    if (singleListen) return; // Preserve the ordinary listen/reveal surface.
     screen.guessShown = true; screen.guessOpen = preference.canAnswer(); screen.guessAnswer = 0;
     screen.guessQuestion = i18n::tr ("Which do you prefer?");
     screen.guessOutcome = blind_preference::roundProgress(preference.roundNumber(),preference.planned());

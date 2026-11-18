@@ -3,7 +3,6 @@
 #include "../src/HyphaBlindResultImage.h"
 #include "../src/HyphaBlindPreferenceText.h"
 #include "../src/HyphaCapturePngFile.h"
-#include "BlindFrequencyRowTest.h"
 #include <stdexcept>
 #include <cmath>
 namespace hypha::tests::blind_preference_component_test
@@ -48,44 +47,9 @@ namespace hypha::tests
 template <typename Require, typename Fits>
 void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::File& root, const juce::String& preview)
 {
-    verifyBlindFrequencyRow (preview);
     using namespace blind_preference_component_test;
     const auto file = root.getChildFile("preference-memory-only");
     const auto filesBefore = root.findChildFiles(juce::File::findFilesAndDirectories,true).size();
-    {
-        Harness h(5,false,file);
-        KirinSpectrumBatch batch{}; auto& frame=batch.latest;
-        frame.status=KIRIN_SPECTRUM_ACTIVE; frame.has_data=frame.post_has_data=1;
-        frame.sample_rate=48000; frame.channels=2; frame.channel_mode=KIRIN_SPECTRUM_CHANNEL_LR;
-        frame.aperture_samples=4800; frame.presentation_end_samples=48000; frame.min_hz=20; frame.max_hz=20000;
-        for(size_t i=0;i<KIRIN_SPECTRUM_BAND_COUNT;++i) {frame.pre_dbfs[i]=-60;frame.post_dbfs[i]=-50;frame.display_db[i]=2;}
-        h.view.observePreferenceDetails(nullptr,nullptr,&batch,7);
-        for(int n=0;n<30;++n) {
-            for(auto& value:frame.display_db) value=n<20?2.0f:n<29?8.0f:14.0f;
-            frame.presentation_end_samples+=4800; h.view.observePreferenceDetails(nullptr,nullptr,&batch,7);
-        }
-        require(!h.view.screen().frequencyDetails,"unrevealed live component exposes no frequency result");
-        h.heard(3); h.choose(1); h.reveal(); h.view.onDetails();
-        const auto frozen=h.view.screen().frequencyDetails;
-        require(frozen && frozen->frequency[0].sufficient && frozen->frequency[0].median==2,
-            "component freezes time median, distinct from mean and last frame");
-        frame.presentation_end_samples+=4800; for(auto& value:frame.display_db) value=-20;
-        h.view.observePreferenceDetails(nullptr,nullptr,&batch,7);
-        require(h.view.screen().frequencyDetails==frozen && frozen->frequency[0].median==2,"frequency freeze rejects later frames");
-        auto* viewport=h.view.findChildWithID("live-blind-details-viewport");
-        require(viewport && viewport->isVisible(),"live frequency details viewport visible");
-        h.view.setCovered(true); require(!viewport->isVisible(),"covered live details hides frequency");
-        h.view.setCovered(false); require(viewport->isVisible(),"uncover preserves frozen details");
-        h.status.stage=live_compare::BlindStage::idle; h.status.trial.revealed=false; h.publish();
-        require(!h.view.screen().frequencyDetails,"END removes frequency result");
-        ++h.status.generation; ++h.status.trial.epoch; h.status.stage=live_compare::BlindStage::active; h.publish();
-        h.heard(3); h.choose(1); h.reveal(); h.view.onDetails();
-        require(h.view.screen().frequencyDetails && !h.view.screen().frequencyDetails->hasFrequency,
-            "new generation cannot reuse old frequency interval");
-        Harness candidate(5,true,file); candidate.heard(3); candidate.choose(1); candidate.reveal(); candidate.view.onDetails();
-        require(!candidate.view.screen().frequencyDetails,"A/B candidate details never expose PRE/POST frequency");
-    }
-
     for (int rounds : {5,10}) for (bool candidate : {false,true}) {
         Harness h(rounds,candidate,file);
         for (int i=0; i<rounds; ++i) {
@@ -107,10 +71,8 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
         h.reveal();
         require(!h.view.screen().guessShown && h.view.screen().preferenceResultText.isNotEmpty(),"result uses independent pane not old answer row");
         require(h.view.resultFacts().preference.total()==unsigned(rounds),"SAVE IMAGE gets exact answered count");
-        require(h.view.screen().detailsShown && !h.view.screen().detailsOpen,"details starts closed");
-        h.view.onDetails(); require(h.view.screen().detailsOpen && h.view.screen().detailsText.isNotEmpty(),"explicit details shows history");
         h.status.stage=live_compare::BlindStage::idle; h.publish();
-        require(h.view.trialSummary().total()==0 && !h.view.screen().detailsShown,"END clears memory and details");
+        require(h.view.trialSummary().total()==0,"END clears memory and details");
     }
     {
         Harness h(5,false,file); h.heard(3); h.choose(2); h.heard(1); h.reveal();
@@ -139,7 +101,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
     {
         Harness h(5,false,file); h.heard(3); h.choose(1);
         h.status.trial.epoch+=4; h.publish();
-        require(h.view.trialSummary().total()==0 && !h.view.screen().detailsShown,"unexpected epoch clears history");
+        require(h.view.trialSummary().total()==0,"unexpected epoch clears history");
         ++h.status.generation; h.publish(); h.heard(3); h.randomFails=true; h.choose(2);
         require(h.nextCalls==2 && h.view.trialSummary().total()==0 && !h.view.screen().guessOpen,"random failure ends without fabricated assignment or restored history");
     }
@@ -150,37 +112,6 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
         require(one==legacy,"one round preserves legacy no-question screen except the new selector");
     }
     require(!file.exists() && root.findChildFiles(juce::File::findFilesAndDirectories,true).size()==filesBefore,"rounds/answers/mappings never write preferences or history files");
-    {
-        const i18n::ScopedLanguage english(i18n::Language::english);
-        Harness h(1,false,file);
-        KirinReferenceLiveMetricFrame frame{};
-        frame.version=1; frame.struct_size=sizeof frame; frame.sample_rate=48000; frame.channels=2;
-        frame.measurement_epoch=10; frame.generation=20; frame.observed_frames=480000;
-        frame.own_crest_db=8; frame.pre_crest_db=5; frame.own_psr_db=12; frame.pre_psr_db=10; frame.valid_mask=15;
-        h.view.observePreferenceDetails(&frame,nullptr,nullptr,0); // BLIND-start baseline while set to 1
-        require(h.view.setPreferenceRounds(5),"pre-answer 1 to 5 retains measurement interval");
-        for(int i=1;i<=30;++i) {
-            frame.observed_frames=480000+i*4800;
-            h.view.observePreferenceDetails(&frame,nullptr,nullptr,0);
-            h.view.observePreferenceDetails(&frame,nullptr,nullptr,0); // duplicate is not extra time
-            if(i==15) { h.heard(3); h.choose(1); }
-        }
-        h.reveal(); h.view.onDetails();
-        const auto frozen=h.view.screen().detailsText;
-        require(frozen.contains("PSR: 2.00 dB") && frozen.contains("CREST: 3.00 dB"),
-            "baseline plus thirty actual apertures survives count change and round boundary");
-        require(frozen.contains("SHARP: Not shown because the measured time is too short"),"unobserved metric stays unavailable independently");
-        frame.observed_frames+=4800; frame.own_psr_db=99;
-        h.view.observePreferenceDetails(&frame,nullptr,nullptr,0);
-        h.view.onDetails(); h.view.onDetails();
-        require(h.view.screen().detailsText==frozen,"post-reveal observations cannot change frozen details");
-        h.status.stage=live_compare::BlindStage::idle; h.status.trial.revealed=false; h.publish();
-        ++h.status.generation; ++h.status.trial.epoch; h.status.stage=live_compare::BlindStage::active; h.publish();
-        h.heard(3); h.choose(1); h.reveal(); h.view.onDetails();
-        require(!h.view.screen().detailsText.contains("PSR: 2.00 dB")
-            && h.view.screen().detailsText.contains("PSR: Not shown because the measured time is too short"),
-            "END clears previous measured interval before next trial");
-    }
     for (auto language : {i18n::Language::english,i18n::Language::japanese}) {
         const i18n::ScopedLanguage shown(language);
         const auto lang = language==i18n::Language::english ? "en" : "ja";
@@ -199,8 +130,6 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             require(named.view.screen().preferenceResultText.contains(a)
                 && named.view.screen().sourceOne.contains(b) && named.view.screen().sourceTwo.contains(a),
                 "named revealed cards and preference summary use the same names");
-            named.view.onDetails();
-            require(named.view.screen().detailsText.contains(a),"named history preserves chosen card name");
             require(namesFile.deleteFile(),"named fixture settings removed");
         }
         for (bool candidate : {false,true}) for (int width : {300,600,900}) {
@@ -267,90 +196,6 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
                 require(label->getFont().getHeight()>=12.0f,"progress text remains at least 12px");
             verifyCoverRoundTrip(true);
             save("round3"); h.reveal(); save("result");
-            h.view.setPreferenceApprovedGains(h.status.generation,gain);
-            h.view.onDetails(); save("details");
-            auto* detailsEditor=dynamic_cast<juce::TextEditor*>(childById("live-blind-details-body"));
-            require(detailsEditor && detailsEditor->isReadOnly(),"details scroll preview uses the read-only body");
-            if (detailsEditor) {
-                const auto originalText=detailsEditor->getText();
-                detailsEditor->moveCaretToEnd();
-                require(detailsEditor->getCaretPosition()==originalText.length()
-                    && detailsEditor->getText()==originalText,"scrolling to details end preserves all text");
-                auto* viewport = [&]() -> juce::Viewport* {
-                    for (int i=0;i<detailsEditor->getNumChildComponents();++i)
-                        if (auto* v=dynamic_cast<juce::Viewport*>(detailsEditor->getChildComponent(i))) return v;
-                    return nullptr;
-                }();
-                require(viewport && viewport->getViewedComponent(),"details has a measurable text viewport");
-                if (viewport && viewport->getViewedComponent()) {
-                    const auto last=detailsEditor->getCaretRectangleForCharIndex(juce::jmax(0,originalText.length()-1));
-                    const auto visible=detailsEditor->getLocalArea(viewport,viewport->getLocalBounds());
-                    require(last.getY()>=visible.getY() && last.getBottom()<=visible.getBottom(),
-                        "details final character is vertically visible after moving caret to end");
-                    const int bottom=viewport->getViewedComponent()->getHeight();
-                    require(viewport->getViewPositionY()+viewport->getViewHeight()>=bottom-2,
-                        "details viewport reaches content bottom, or all text fits without scrolling");
-                }
-                // The outer viewport's final position now shows the frequency row. Retain
-                // a separate actual text-tail image for the compact SHARP/gain evidence.
-                if (!candidate && width==300) {
-                    auto* outer=dynamic_cast<juce::Viewport*>(childById("live-blind-details-viewport"));
-                    require(outer && outer->getViewedComponent(),"compact text tail has outer viewport");
-                    if (outer && outer->getViewedComponent()) {
-                        auto* content=outer->getViewedComponent();
-                        const auto textBounds=content->getLocalArea(detailsEditor,detailsEditor->getLocalBounds());
-                        outer->setViewPosition(0,juce::jmax(0,textBounds.getBottom()-outer->getViewHeight()));
-                        const int sharpIndex=originalText.indexOf("SHARP:");
-                        require(sharpIndex>=0 && originalText.contains("1.2")
-                            && originalText.contains(juce::String::fromUTF8(u8"−2.3")),
-                            "compact text tail includes SHARP and signed approved gains");
-                        if (sharpIndex>=0) {
-                            const auto first=content->getLocalArea(detailsEditor,
-                                detailsEditor->getCaretRectangleForCharIndex(sharpIndex));
-                            const auto last=content->getLocalArea(detailsEditor,
-                                detailsEditor->getCaretRectangleForCharIndex(juce::jmax(0,originalText.length()-1)));
-                            const auto visible=outer->getViewArea();
-                            require(first.getY()>=visible.getY() && last.getBottom()<=visible.getBottom(),
-                                "SHARP through final gain line is visible in compact outer viewport");
-                            const auto viewInHost=h.view.getLocalArea(outer,outer->getLocalBounds());
-                            require(h.view.getLocalBounds().contains(viewInHost),"text-tail viewport remains inside BLIND");
-                        }
-                        require(detailsEditor->getText()==originalText && detailsEditor->isReadOnly(),
-                            "text-tail scroll changes neither data nor read-only state");
-                        save("details-text-tail");
-                    }
-                }
-                if (auto* outer=dynamic_cast<juce::Viewport*>(childById("live-blind-details-viewport")))
-                    outer->setViewPosition(0,outer->getViewedComponent()->getHeight());
-                save("details-end");
-            }
-            if (!candidate) require(h.view.screen().detailsText.contains("PSR")
-                && h.view.screen().detailsText.contains(i18n::tr("Not shown because the measured time is too short")),
-                "unmeasured details give explicit insufficient-time reason, not invented values");
-            if (candidate) require(!h.view.screen().detailsText.contains("dB"),"A/B details contains no unsupported measured values");
-            else {
-                require(h.view.screen().detailsText.contains("1.2") && h.view.screen().detailsText.contains(juce::String::fromUTF8(u8"−2.3")),"validated approved gain displayed");
-                const auto hasGain = [&] { return h.view.screen().detailsText.contains("1.2") && h.view.screen().detailsText.contains(juce::String::fromUTF8(u8"−2.3")); };
-                auto changed=gain; ++changed.revision;
-                h.view.setPreferenceApprovedGains(h.status.generation,changed);
-                require(!hasGain(),"new revision cannot replace initial captured gain");
-                changed=gain; ++changed.identity.ownerA;
-                h.view.setPreferenceApprovedGains(h.status.generation,changed);
-                require(!hasGain(),"new owner identity withdraws gain");
-                h.view.setPreferenceApprovedGains(h.status.generation,gain);
-                require(hasGain(),"same original tuple can revalidate");
-                h.view.setPreferenceApprovedGains(h.status.generation+1,gain);
-                require(!hasGain(),"foreign generation withdraws gain details");
-                h.view.setPreferenceApprovedGains(h.status.generation,std::nullopt);
-                require(!hasGain(),"missing receipt withdraws gain");
-                h.status.stage=live_compare::BlindStage::idle; h.publish();
-                ++h.status.generation; ++h.status.trial.epoch; h.status.trial.revealed=false;
-                h.status.stage=live_compare::BlindStage::active; h.publish();
-                changed=gain; changed.pre=1.0f; changed.post=1.0f; ++changed.revision;
-                h.view.setPreferenceApprovedGains(h.status.generation,changed);
-                h.heard(3); h.choose(1); h.reveal(); h.view.onDetails();
-                require(!hasGain() && h.view.screen().detailsText.contains("0.0"),"END clears stored tuple so new trial captures new gain");
-            }
             // A fresh generation gives five accepted A votes without exposing hidden mapping.
             h.status.stage=live_compare::BlindStage::idle; h.publish();
             ++h.status.generation; ++h.status.trial.epoch; h.status.trial.revealed=false;

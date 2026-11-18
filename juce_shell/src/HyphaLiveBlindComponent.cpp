@@ -158,7 +158,6 @@ Component::Component() : blind_ui::ScreenComponent ("live-blind"), preferences (
     onRounds = [this] (int value) {
         if (setPreferenceRounds (value) && onPreferenceRoundsChanged) onPreferenceRoundsChanged (rounds);
     };
-    onDetails = [this] { if (screen().detailsShown) { detailsOpen = !detailsOpen; show(); } };
     onSaveImage = [this] { openImageSheet(); };
     sheet->onSave = [this] { chooseImageFile(); };
     sheet->onBack = [this] { closeImageSheet(); };
@@ -179,7 +178,7 @@ void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPl
     const bool startsTrial = next.stage == Stage::active && !next.trial.invalidated && !next.trial.revealed
         && (current.stage != Stage::active || current.trial.invalidated || current.generation != next.generation);
     current = next;
-    if (startsTrial && !preferenceBusy) { resetPreference(); activeRounds = rounds; detailsMeasurements.begin();
+    if (startsTrial && !preferenceBusy) { resetPreference(); activeRounds = rounds;
         preferenceNameA = blind_image::rememberedName(preferences,current.candidate,false);
         preferenceNameB = blind_image::rememberedName(preferences,current.candidate,true); }
     playing = hostPlaying;

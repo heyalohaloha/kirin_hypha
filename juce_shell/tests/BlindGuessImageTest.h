@@ -16,6 +16,7 @@
 #include <iostream>
 #include <set>
 #include "BlindPreferenceComponentTest.h"
+#include "BlindGainResultTest.h"
 
 namespace hypha::tests
 {
@@ -427,6 +428,9 @@ void verifyBlindGuessAndImage (Require check)
     }
     hypha::tests::runBlindRoundsPreferenceTests (root);
     verifyBlindPreferenceComponent (require, [&] (juce::Component& view, const juce::String& where) {
+        requireScreenFits(view,require,where,true);
+    }, root, preview);
+    verifyBlindGainResult (require, [&] (juce::Component& view, const juce::String& where) {
         requireScreenFits(view,require,where,true);
     }, root, preview);
     i18n::observeMisses (nullptr);

@@ -44,24 +44,7 @@ resume a trial. Answers are not automatically written to disk, learned from, or 
 The round-count setting is remembered separately. A previous GUESS-on setting is read as five rounds
 when no new preference setting has been saved.
 
-**Details** opens the round-by-round choices. For PRE/POST, it also shows the approved level adjustment
-when that adjustment is available. A/B shows the choices without inventing unavailable measurement
-values. Details starts closed for each trial and is not included in the saved image.
-
-**Measured during this blind** describes PRE-to-POST changes measured from the time BLIND starts
-on the message thread until REVEAL. Only newly advanced measurement frames in that interval are
-eligible. These are not records of the blocks you heard, or proof that you listened to a particular
-source. PSR, CREST and SHARP differences use the accepted observation time for each value; values
-with less than three seconds of usable observation are withheld with an explanation. Screen refresh
-counts are not observation time.
-
-For PRE/POST, Details also includes a scrollable **Frequency difference (POST - PRE)** graph.
-It freezes the existing 256-bin display differences at REVEAL and shows each bin's median across
-eligible observations, not a fresh measurement or a record of the audio you heard. Bins with less
-than three seconds of usable observation are omitted, and the line does not bridge missing bins.
-The horizontal zero line marks no change; move the pointer over the graph to read frequency in Hz
-and the signed difference in dB. When no bin has enough evidence, Details explains why no graph is
-shown. The graph stays hidden during blind listening and is not added to A/B results or saved images.
+The result shows the approved level adjustment applied to each source, including a one-round comparison. This line is not included in the saved image.
 
 ## Save an image
 
