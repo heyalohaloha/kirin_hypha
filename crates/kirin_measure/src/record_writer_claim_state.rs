@@ -32,6 +32,7 @@ impl WriterClaimGuard {
         // Do not let a failed transition leak through a later plain heartbeat.
         self.claim.heartbeat_at_ms = now;
         self.claim.ready_at_ms = Some(now);
+        crate::record_entry_lock::finish_ready_preparation(&self.path);
         Ok(())
     }
 

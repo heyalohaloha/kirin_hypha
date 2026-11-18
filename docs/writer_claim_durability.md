@@ -32,7 +32,27 @@ and actual claim replacement without fabricated readiness. Permission-error
 injection is deliberate so privileged test runners cannot silently bypass chmod;
 it is not a real-device permission or power-loss test.
 
-Entry preparation progress remains asynchronous. Its samples-only schema has no
-four-way terminal state; completion/abort evidence in existing separate lifecycle
-records must not be represented as a newly implemented preparation terminal. That
-remaining mapping requires explicit resolution before claiming complete coverage.
+Entry preparation progress remains asynchronous. Completion is the existing writer
+ready fact; failure/cancellation is the existing AllStop/DropCommitted/Aborted
+lifecycle fact. After those successful endpoints, the process rewrites only its
+own registered entry's last samples once with the same schema using the durable
+atomic writer. Readiness/lifecycle facts, not progress, remain terminal authority.
+No-progress entries are not populated with invented samples, and abandoned owners
+are not written on their behalf.
+
+Entry acquisition registers the exact owner token in process memory. Progress and
+final samples publication share an IO/control-only mutex; no Audio Thread work,
+JSON field or ABI is added. Each write rechecks owner, PID, session, role, instance,
+and preparation generation. A terminal observation stops further plain publication
+before attempting final synchronization. Ordinary write failure leaves that entry
+stopped and retryable through a repeated endpoint or progress observation; it does
+not invalidate an already committed terminal fact. Such failures are logged.
+Best-effort synchronization failure retains the durable helper's existing contract,
+so one attempted synchronization is not proof against power loss.
+
+The bookkeeping is per entry path in process memory, replaced on a newly acquired
+owner, and is not persisted across process death. It serializes this process's
+cooperating writers, not arbitrary external modifications or stale cross-process
+compare/unlink races. It records only ownership and the last published progress,
+not PCM. A later process cannot adopt that memory as permission to finalize an old
+owner. Successful endpoints and delayed progress use the same serialization.

@@ -146,28 +146,38 @@ pub fn mark_generation_terminal_by_identity(
     {
         return Err(GenerationLifecycleError::Invalid);
     }
-    with_generation_lifecycle_lock(base_dir, capture_generation_id, || {
-        if let Some(existing) = read_generation_terminal_or_quarantine_locked(
-            base_dir,
-            capture_generation_id,
-            generation_started_at_ms,
-        )? {
-            return Ok(existing);
-        }
-        let terminal = CaptureGenerationTerminal {
-            schema_version: GENERATION_TERMINAL_SCHEMA.to_string(),
-            capture_generation_id: capture_generation_id.to_string(),
-            generation_started_at_ms,
-            terminal_reason: reason,
-            terminal_at_ms: chrono::Utc::now().timestamp_millis(),
-        };
-        let json = serde_json::to_vec(&terminal)?;
-        crate::atomic_file::write_bytes_atomic_durable(
-            &generation_terminal_path(base_dir, capture_generation_id),
-            &json,
-        )?;
-        Ok(terminal)
-    })
+    let terminal = with_generation_lifecycle_lock(
+        base_dir,
+        capture_generation_id,
+        || -> Result<_, GenerationLifecycleError> {
+            if let Some(existing) = read_generation_terminal_or_quarantine_locked(
+                base_dir,
+                capture_generation_id,
+                generation_started_at_ms,
+            )? {
+                return Ok(existing);
+            }
+            let terminal = CaptureGenerationTerminal {
+                schema_version: GENERATION_TERMINAL_SCHEMA.to_string(),
+                capture_generation_id: capture_generation_id.to_string(),
+                generation_started_at_ms,
+                terminal_reason: reason,
+                terminal_at_ms: chrono::Utc::now().timestamp_millis(),
+            };
+            let json = serde_json::to_vec(&terminal)?;
+            crate::atomic_file::write_bytes_atomic_durable(
+                &generation_terminal_path(base_dir, capture_generation_id),
+                &json,
+            )?;
+            Ok(terminal)
+        },
+    )?;
+    crate::record_entry_lock::finish_terminal_preparations(
+        base_dir,
+        capture_generation_id,
+        generation_started_at_ms,
+    );
+    Ok(terminal)
 }
 
 /// Reads one terminal fact while holding its lifecycle lock. Malformed JSON is not execution

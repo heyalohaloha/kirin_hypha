@@ -114,6 +114,7 @@ pub(crate) fn claim_record_entry(
         return Err(RecordEntryLockError::InvalidSession);
     }
 
+    let mut owners = preparation::terminal::owners()?;
     let dir = entry_lock_dir(base_dir, project_hash, session_id);
     crate::atomic_file::durable::create_dir_all(&dir)?;
     let path = entry_lock_path(base_dir, project_hash, session_id, role, instance_id);
@@ -132,10 +133,16 @@ pub(crate) fn claim_record_entry(
     };
     let bytes = serde_json::to_vec(&lock)?;
 
-    match link_entry_claim(&dir, &path, role, instance_id, &bytes)? {
+    let result = match link_entry_claim(&dir, &path, role, instance_id, &bytes)? {
         LinkOutcome::Created => Ok(()),
-        LinkOutcome::AlreadyExists => reclaim_or_reject_existing(path, role, instance_id, &bytes),
+        LinkOutcome::AlreadyExists => {
+            reclaim_or_reject_existing(path.clone(), role, instance_id, &bytes)
+        }
+    };
+    if result.is_ok() {
+        preparation::terminal::register(&mut owners, base_dir, path, lock);
     }
+    result
 }
 
 fn reclaim_or_reject_existing(
@@ -258,3 +265,5 @@ mod tests;
 #[path = "record_entry_preparation.rs"]
 mod preparation;
 pub(crate) use preparation::{measure_preparation_samples, publish_measure_preparation};
+
+pub(crate) use preparation::terminal::{finish_ready_preparation, finish_terminal_preparations};
