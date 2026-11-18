@@ -82,18 +82,19 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     }
     matchedGainBody.setComponentID(idPrefix + "-matched-gain");
     matchedGainBody.setMultiLine(true); matchedGainBody.setReadOnly(true);
-    matchedGainBody.setScrollbarsShown(true);
+    matchedGainBody.setJustification(juce::Justification::centredTop);
+    matchedGainBody.setScrollbarsShown(false);
     matchedGainBody.setColour(juce::TextEditor::textColourId,COL_NORMAL);
     addChildComponent(matchedGainBody);
     preferenceResultBody.setComponentID (idPrefix + "-preference-result");
     preferenceResultBody.setMultiLine (true); preferenceResultBody.setReadOnly (true);
-    preferenceResultBody.setScrollbarsShown (true);
+    preferenceResultBody.setScrollbarsShown (false);
     preferenceResultBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
     addChildComponent (preferenceResultBody);
-    preferenceResultBody.setJustification (juce::Justification::centred);
+    preferenceResultBody.setJustification (juce::Justification::centredTop);
     preferenceNoteBody.setComponentID (idPrefix + "-preference-note");
     preferenceNoteBody.setMultiLine (true); preferenceNoteBody.setReadOnly (true);
-    preferenceNoteBody.setScrollbarsShown (true);
+    preferenceNoteBody.setScrollbarsShown (false);
     preferenceNoteBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
     addChildComponent (preferenceNoteBody);
     for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
@@ -277,34 +278,40 @@ void ScreenComponent::resized()
         button->setPresentationContext (context);
     if (shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty())
     {
-        auto panel = getLocalBounds().reduced (compact ? 6 : 24);
-        title.setBounds (panel.removeFromTop (compact ? 20 : 40));
+        auto panel = getLocalBounds().reduced (compact ? 4 : 24);
+        title.setBounds (panel.removeFromTop (compact ? 18 : 40));
         auto actions = panel.removeFromBottom (compact ? 24 : 40);
-        saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
-        end.setBounds (actions.reduced (3, 0));
-        auto sources = panel.removeFromBottom (compact ? 24 : 40);
-        one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
-        two.setBounds (sources.reduced (3, 0));
-        if (shown.preferenceResultText.isEmpty()) {
-            // One listen has no vote result. Both explanatory sentences belong
-            // below the approved compensation, not in the primary-result pane.
-            matchedGainBody.setBounds(panel.getX(),panel.getY(),panel.getWidth(),40);
-            const int gainHeight=matchedGainBody.getTextHeight()+8;
-            matchedGainBody.setBounds(panel.removeFromTop(gainHeight));
-            preferenceNoteBody.setBounds(panel.reduced(0,3));
-            preferenceResultBody.setBounds({});
-            return;
+        if (compact)
+        {
+            // Keep all four actions available without spending two rows on them.
+            const int cell = actions.getWidth() / 4;
+            one.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            two.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            saveImage.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            end.setBounds (actions.reduced (2, 0));
         }
-        // Measure the actual editor wrapping at its final width. Main result,
-        // probability and gain must fit; only the explanatory note may scroll.
-        preferenceResultBody.setBounds(panel.getX(),panel.getY(),panel.getWidth(),100);
-        matchedGainBody.setBounds(panel.getX(),panel.getY(),panel.getWidth(),40);
-        const int resultHeight=preferenceResultBody.getTextHeight()+8;
-        const int gainHeight=shown.matchedGainText.isEmpty()?0:matchedGainBody.getTextHeight()+8;
-        const int noteHeight=juce::jmax(18,panel.getHeight()-resultHeight-gainHeight);
+        else
+        {
+            saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
+            end.setBounds (actions.reduced (3, 0));
+            auto sources = panel.removeFromBottom (40);
+            one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
+            two.setBounds (sources.reduced (3, 0));
+        }
+        // Size every wrapped body at its final width, with no hidden overflow.
+        // Notes stay at the bottom; the primary result and its smaller gain line
+        // form a centred group in the remaining space at 600/900 as well as 300.
+        for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
+            body->setBounds(panel.getX(),panel.getY(),panel.getWidth(),100);
+        const int padding = compact ? 4 : 8;
+        const int resultHeight=shown.preferenceResultText.isEmpty()?0:preferenceResultBody.getTextHeight()+padding;
+        const int gainHeight=shown.matchedGainText.isEmpty()?0:matchedGainBody.getTextHeight()+padding;
+        const int noteHeight=preferenceNoteBody.getTextHeight()+padding;
         preferenceNoteBody.setBounds(panel.removeFromBottom(noteHeight));
-        matchedGainBody.setBounds(panel.removeFromBottom(gainHeight));
-        preferenceResultBody.setBounds(panel.withSizeKeepingCentre(panel.getWidth(),juce::jmin(panel.getHeight(),resultHeight)));
+        const int groupHeight=resultHeight+gainHeight;
+        auto centred=panel.withSizeKeepingCentre(panel.getWidth(),groupHeight);
+        preferenceResultBody.setBounds(centred.removeFromTop(resultHeight));
+        matchedGainBody.setBounds(centred);
         return;
     }
     for (auto* label : { &question, &outcome })

@@ -5,8 +5,24 @@
 #include "../src/HyphaCapturePngFile.h"
 #include <stdexcept>
 #include <cmath>
+#include <iostream>
 namespace hypha::tests::blind_preference_component_test
 {
+inline void printResultGeometry(juce::Component& view,const juce::String& phase)
+{
+    std::cout << "BLIND_RESULT_GEOMETRY " << phase << " view=" << view.getBounds().toString() << std::endl;
+    int textHeight=0, allocated=0;
+    for(auto* child:view.getChildren()) if(child->isVisible()) {
+        std::cout << "  " << child->getComponentID() << " bounds=" << child->getBounds().toString();
+        if(auto* editor=dynamic_cast<juce::TextEditor*>(child)) {
+            textHeight+=editor->getTextHeight()+4; allocated+=editor->getHeight();
+            std::cout << " font=" << editor->getFont().getHeight() << " textHeight=" << editor->getTextHeight()
+                << " text=" << editor->getText().replaceCharacter('\n','|');
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "  requiredTextWithPadding=" << textHeight << " allocatedBodies=" << allocated << std::endl;
+}
 struct Harness
 {
     live_blind_ui::Component view;
@@ -141,7 +157,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             gain.ceiling=0.9f; gain.identity={1,2,3,4,48000};
             h.view.setPreferenceApprovedGains(h.status.generation,gain); // before the first answer
             const auto save = [&] (const char* phase) {
-                fits(h.view,juce::String("PREFERENCE ")+lang+" "+phase+" "+juce::String(width));
+                printResultGeometry(h.view,juce::String("PREFERENCE ")+lang+" "+phase+" "+juce::String(width));
                 for (int i=0;i<h.view.getNumChildComponents();++i) {
                     auto* child=h.view.getChildComponent(i);
                     if (child->isVisible()) if (auto* editor=dynamic_cast<juce::TextEditor*>(child)) {
@@ -157,6 +173,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
                     png.deleteFile();
                     require(capture::writePng(h.view.createComponentSnapshot(h.view.getLocalBounds()),png)==capture::PngSave::saved,"preference component preview saved");
                 }
+                fits(h.view,juce::String("PREFERENCE ")+lang+" "+phase+" "+juce::String(width));
             };
             const auto childById = [&] (const char* id) -> juce::Component* {
                 const auto find = [&] (auto&& self, juce::Component& parent) -> juce::Component* {
