@@ -203,6 +203,7 @@ namespace hypha::reference_audition
 
     struct RuntimeLibrarySets
     {
+        std::int64_t manifestRevision = 0; // 採用元。carry しても新しい manifest に付け替えない
         std::int64_t revision = 0;
         juce::String hash;
         std::vector<RuntimeSongSet> songSets;

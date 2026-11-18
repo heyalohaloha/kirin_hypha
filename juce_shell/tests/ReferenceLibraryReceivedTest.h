@@ -195,10 +195,12 @@ void testLibraryReceivedCleanup (const juce::File& sandbox)
 
 #include "ReferenceLibraryReceivedRuntimeTest.h"
 
+#include "ReferenceLibrarySetsReceivedTest.h"
 namespace
 {
 void testLibraryReceived (const juce::File& sandbox)
 {
+    testLibrarySetsReceived (sandbox);
     testLibraryReceivedWriter (sandbox);
     testLibraryReceivedBehindWorker (sandbox);
     testLibraryReceivedCleanup (sandbox);

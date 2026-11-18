@@ -20,7 +20,8 @@ juce::var receivedRow (const RuntimeSkippedItem& item)
 }
 
 juce::String receivedJson (const RuntimeIdentity& identity, std::int64_t revision,
-                           const std::vector<RuntimeSkippedItem>& skipped, std::int64_t nowMs)
+                           const std::vector<RuntimeSkippedItem>& skipped, std::int64_t nowMs,
+                           std::int64_t setsRevision, const juce::String& setsHash)
 {
     juce::Array<juce::var> rows;
     auto* object = new juce::DynamicObject();
@@ -29,6 +30,11 @@ juce::String receivedJson (const RuntimeIdentity& identity, std::int64_t revisio
     object->setProperty ("version", "1.0");
     object->setProperty ("runtime_instance_id", identity.runtimeInstanceId);
     object->setProperty ("manifest_revision", static_cast<juce::int64> (revision));
+    if (setsRevision > 0)
+    {
+        object->setProperty ("sets_revision", static_cast<juce::int64> (setsRevision));
+        object->setProperty ("sets_sha256", setsHash);
+    }
     object->setProperty ("received_at_ms", static_cast<juce::int64> (nowMs));
     object->setProperty ("hypha_version", identity.hyphaVersion);
     object->setProperty ("skipped", rows);
@@ -88,14 +94,23 @@ void LibraryReceivedWriter::observe (const RuntimeIdentity& identity, const Runt
     auto skipped = workspace.librarySkipped;
     skipped.insert (skipped.end(), workspace.setsSkipped.begin(), workspace.setsSkipped.end());
     const auto revision = workspace.manifest.revision;
+    const auto* sets = workspace.librarySets ? &*workspace.librarySets : nullptr;
+    const bool setsBound = sets && sets->manifestRevision == revision
+        && sets->revision >= 1 && sets->revision <= 9007199254740991LL
+        && runtime_repository_parsing::sha256 (sets->hash);
+    const auto setsRevision = setsBound ? sets->revision : 0;
+    const auto setsHash = setsBound ? sets->hash : juce::String {};
     auto& highest = highestRevisions[id];
-    if (revision >= highest && (id != latestId || revision != latestRevision || skipped != latestSkipped))
+    if (revision >= highest && (id != latestId || revision != latestRevision || skipped != latestSkipped
+        || setsRevision != latestSetsRevision || setsHash != latestSetsHash))
     {
         highest = revision;
         latestId = id;
         latestRevision = revision;
         latestSkipped = std::move (skipped);
-        latestText = receivedJson (identity, revision, latestSkipped, nowMs);
+        latestSetsRevision = setsRevision;
+        latestSetsHash = setsHash;
+        latestText = receivedJson (identity, revision, latestSkipped, nowMs, setsRevision, setsHash);
         writePending = latestText.isNotEmpty();
         latestStored = false;
     }
