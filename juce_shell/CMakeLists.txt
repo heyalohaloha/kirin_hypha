@@ -855,13 +855,18 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin Appearance Contract Tests")
     target_sources(KirinAppearanceContractTests PRIVATE
         tests/appearance_contract_test.cpp
+        src/appearance/AppearanceTestWriteGuard.cpp
         src/appearance/AppearanceContract.cpp
         src/appearance/AppearanceFileLock.cpp
         src/appearance/AppearanceStorage.cpp
         src/appearance/AppearanceService.cpp)
     target_compile_definitions(KirinAppearanceContractTests PRIVATE
+        KIRIN_APPEARANCE_TEST_WRITE_GUARD=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
+    if(WIN32)
+        target_link_libraries(KirinAppearanceContractTests PRIVATE shell32 ole32)
+    endif()
     target_compile_options(KirinAppearanceContractTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
     target_link_libraries(KirinAppearanceContractTests PRIVATE

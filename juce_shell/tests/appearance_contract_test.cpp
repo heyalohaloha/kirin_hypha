@@ -8,6 +8,7 @@
 #include <iostream>
 #include <thread>
 #include "TestPathBudget.h"
+#include "AppearanceWriteGuardTest.h"
 namespace
 {
 constexpr auto activationId = "123e4567-e89b-42d3-a456-426614174000";
@@ -270,6 +271,11 @@ int main (int argc, char** argv)
 {
     if (argc == 3 && juce::String (argv[1]) == "--lock-child")
         return runLockChild (juce::String (argv[2]));
+    KIRIN_APPEARANCE_REQUIRE(hypha::appearance::test_write_guard::permitMutation(
+        hypha::tests::temporaryParent().getChildFile("guard-startup-preflight")));
+    const auto guardRoot=makeRoot();
+    hypha::tests::verifyAppearanceWriteGuard(guardRoot,[](bool ok,const char* message) { require(ok,message,__LINE__); });
+    KIRIN_APPEARANCE_REQUIRE(hypha::tests::removeFixtureDirectory(guardRoot));
     verifyDecoding();
     verifyStorageAndRecovery();
     verifyConcurrentFieldUpdates();

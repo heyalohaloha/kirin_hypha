@@ -115,3 +115,31 @@ child verifies cancellation and shutdown. Its short deadline tests the whole-con
 not response latency. Config atomic replacement, in-progress temporary files, excluded-only
 ancestor creation/removal, unsupported literal spellings and linked source folders have explicit
 regression controls.
+
+## Phase 1: Appearance standalone test write-entry guard
+
+Only `KirinAppearanceContractTests` compiles `KIRIN_APPEARANCE_TEST_WRITE_GUARD`.
+Its Appearance preference parent creation, primary/backup atomic-write entry and
+lock creation/removal (including stale cleanup and destruction) reject mutations
+outside an existing absolute `KIRIN_HYPHA_TEST_STORAGE_ROOT`. Shipping targets,
+class layouts and ABI are unchanged. This is not a guard for all native writers;
+shared runtime, activation/startup and plugin writers still need their own phase.
+
+The protected root list is intended as a superset of the Node snapshot guard:
+OS-account Documents/Kirin OS and platform application-data roots remain protected.
+Windows additionally includes redirected Known Folder Documents, LocalAppData and
+RoamingAppData, the conventional Profile/AppData/Local and Roaming paths, and any
+absolute APPDATA/LOCALAPPDATA environment paths. Unix also protects .config/Kirin OS.
+Invalid root discovery fails closed. The Node snapshot implementation is unchanged.
+Mac and Windows path components compare case-insensitively, deliberately rejecting
+case-only alternate names even on case-sensitive Mac volumes. Existing descendant
+symlinks/reparse points are rejected. This is preflight validation, not a TOCTOU
+barrier or a guarantee against all filesystem aliases (such as Windows short names
+or alternate volume identities). Atomic staging/cleanup uses the checked parent;
+it is not independently intercepted at each syscall.
+
+Disposable fixtures exercise denied writes/locks, stale cleanup, policy revocation,
+case aliases and normal isolated persistence. They do not attempt writes to real
+storage. Windows Known Folder redirection, reparse points and Windows execution
+remain unverified on real hardware; a Mac pass must not be reported as Windows
+validation. Mutation-entry counts are permitted guard entries, not syscall counts.
