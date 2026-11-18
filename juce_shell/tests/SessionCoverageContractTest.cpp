@@ -1,4 +1,6 @@
 #include "SessionCoverageContractTest.h"
+#include "SessionPresentationContractTest.h"
+#include "SessionPresentationViewContract.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaTextStyle.h"
@@ -250,6 +252,8 @@ void verifyNumericCoverageBoundary (KirinObservatoryFrame frame)
 }
 void verifySessionCoverageContract()
 {
+    verifySessionPresentationContract (require);
+    verifySessionPresentationViewContract (require);
     KirinObservatoryFrame frame {};
     frame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
     frame.signal_state = KIRIN_SIGNAL_STATE_INACTIVE;

@@ -154,6 +154,7 @@ void View::setDomain (Domain value)
     if (selectedDomain == value)
         return;
     retireTimePresentation (true);
+    invalidateSessionPresentation();
     selectedDomain = value;
     if (value != Domain::reference) lastMeasurementDomain = value;
     levelInspection.clear();
@@ -170,6 +171,7 @@ void View::setTimeRange (TimeRange value)
     if (timeRange == value)
         return;
     retireTimePresentation (true);
+    invalidateSessionPresentation();
     timeRange = value;
     history.clear();
     runSummary = {};
@@ -185,6 +187,7 @@ void View::setTarget (ObservationTarget value)
         return;
     timePresentation.selectMainTarget (static_cast<std::uint8_t> (value == ObservationTarget::delta ? KIRIN_TIME_DELTA
         : role == Role::pre ? KIRIN_TIME_PRE : KIRIN_TIME_POST));
+    invalidateSessionPresentation();
     selectedTarget = value;
     levelInspection.clear();
     history.clear();
@@ -324,6 +327,7 @@ void View::cycleDomain()
 
 void View::cycleTimeRange()
 {
+    invalidateSessionPresentation();
     timeRange = timeRange == TimeRange::seconds30 ? TimeRange::minutes2
               : timeRange == TimeRange::minutes2 ? TimeRange::minutes10
               : timeRange == TimeRange::minutes10 ? TimeRange::hours2

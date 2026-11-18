@@ -29,6 +29,7 @@ void KirinHyphaEditor::requestMeterSessionReset()
 
 void KirinHyphaEditor::performMeterSessionReset()
 {
+    observatoryView.invalidateSessionPresentation();
     if (! processorRef.resetMeterSession())
     {
         showToast ("Meter Session could not be reset");
