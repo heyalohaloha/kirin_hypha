@@ -95,17 +95,27 @@ function checkGateCase(kind, r) {
     const [verify]=operations(r,'verify'), [extract]=operations(r,'extract');
     assert.equal(operations(r,'verify').length,1); assert.equal(operations(r,'extract').length,1);
     assert.equal(verify.archive,extract.archive); assert.notEqual(verify.archive,r.cachePath);
+    assert.ok(verify.archive.startsWith(r.tempRoot+'/'), 'verified archive must be in private temporary root');
     assert.equal(verify.sha256,r.goodSha256); assert.equal(extract.sha256,r.goodSha256);
     assert.equal(operations(r,'verified')[0].status,0);
     assert.equal(operations(r,'execute').length,2); assert.equal(operations(r,'bundle-check').length,1);
-    if (kind==='cache-swap') {
+    for(const execution of operations(r,'execute'))
+      assert.equal(execution.executable,join(extract.stage,'pluginval.app','Contents','MacOS','pluginval'));
+    assert.deepEqual(operations(r,'execute').map(e=>e.bundle.split('/').at(-1)).sort(),['POST.vst3','PRE.vst3']);
+    if(kind==='cache-directory'||kind==='cache-symlink') {
+      assert.match(r.stderr,/skipping cache publication/);
+      assert.equal(r.cacheSha256,null);
+      assert.equal(r.cacheIsDirectory,kind==='cache-directory');
+      assert.equal(r.cacheIsSymlink,kind==='cache-symlink');
+    } else if (kind==='cache-swap') {
       assert.equal(operations(r,'shared-cache-replaced').length,1); assert.equal(r.cacheSha256,r.badSha256);
     } else assert.equal(r.cacheSha256,r.goodSha256);
   }
-  assert.equal(operations(r,'download').length,['download','bad-download'].includes(kind)?1:0);
+  assert.equal(operations(r,'download').length,['download','bad-download','cache-directory','cache-symlink'].includes(kind)?1:0);
+  for(const download of operations(r,'download')) assert.equal(download.url,'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip');
   assert.deepEqual(r.cacheEntries,kind==='bad-download'?[]:['pluginval_macOS.zip']);
 }
-for (const kind of ['ci-override','local-override','bad-cache','bad-download','cached','download','cache-swap'])
+for (const kind of ['ci-override','local-override','bad-cache','bad-download','cached','download','cache-swap','cache-directory','cache-symlink'])
   test('macOS gate behavior: '+kind,shellFixture,()=>checkGateCase(kind,runGateFixture(kind)));
 
 test('macOS fixtures reject a missing CI exit, formal local override and ignored verification',shellFixture,()=>{
@@ -127,4 +137,18 @@ test('macOS fixture detects a return to shared ZIP after successful verification
   const r=runGateFixture('cache-swap',{script:original.replace(before,'  unzip -q "$CACHE_ZIP" -d "$VERIFIED_STAGE"')});
   assert.equal(r.status,0); assert.equal(operations(r,'extract')[0].sha256,r.badSha256);
   assert.throws(()=>checkGateCase('cache-swap',r));
+});
+
+test('macOS fixtures reject a different download URL or executable path',shellFixture,()=>{
+  const original=gateSource();
+  const url='  URL="$(node scripts/pluginval_archive.mjs url "$PLUGINVAL_VERSION" macOS)"';
+  assert.equal(original.split(url).length,2);
+  const wrongURL=runGateFixture('download',{script:original.replace(url,'  URL="https://invalid.example/fixture.zip"')});
+  assert.equal(wrongURL.status,1);assert.match(wrongURL.stderr,/unexpected download URL/);
+  assert.equal(operations(wrongURL,'extract').length,0);assert.equal(operations(wrongURL,'execute').length,0);
+  const executable='  PLUGINVAL_EXE="$VERIFIED_STAGE/pluginval.app/Contents/MacOS/pluginval"';
+  assert.equal(original.split(executable).length,2);
+  const wrongPath=runGateFixture('download',{script:original.replace(executable,'  PLUGINVAL_EXE="$FIXTURE_ROOT/bin/pluginval"')});
+  assert.equal(wrongPath.status,0);assert.equal(operations(wrongPath,'execute').length,2);
+  assert.throws(()=>checkGateCase('download',wrongPath));
 });

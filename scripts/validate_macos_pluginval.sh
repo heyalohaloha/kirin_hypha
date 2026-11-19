@@ -99,7 +99,7 @@ if [[ -n "${PLUGINVAL_BIN:-}" ]]; then
 else
   URL="$(node scripts/pluginval_archive.mjs url "$PLUGINVAL_VERSION" macOS)"
   CACHE_ZIP="$CACHE_DIR/pluginval_macOS.zip"
-  ARCHIVE_WORK="$(mktemp -d "$CACHE_DIR/archive.XXXXXX")"
+  ARCHIVE_WORK="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hypha-pluginval.XXXXXX")"
   ZIP="$ARCHIVE_WORK/pluginval_macOS.zip"
   DOWNLOADED=0
   if [[ -f "$CACHE_ZIP" ]]; then
@@ -116,10 +116,14 @@ else
   node scripts/pluginval_archive.mjs verify "$PLUGINVAL_VERSION" macOS "$ZIP" > "$OUTPUT_DIR/pluginval-tool.json"
   if [[ "$DOWNLOADED" == 1 ]]; then
     # Publish verified bytes atomically, without making the shared name our input again.
-    CACHE_PART="$(mktemp "$CACHE_DIR/publish.XXXXXX")"
-    cp "$ZIP" "$CACHE_PART"
-    mv "$CACHE_PART" "$CACHE_ZIP"
-    CACHE_PART=""
+    if [[ -d "$CACHE_ZIP" || -L "$CACHE_ZIP" ]]; then
+      echo "WARNING: cache destination is a directory or symlink; skipping cache publication." >&2
+    else
+      CACHE_PART="$(mktemp "$CACHE_DIR/publish.XXXXXX")"
+      cp "$ZIP" "$CACHE_PART"
+      mv "$CACHE_PART" "$CACHE_ZIP"
+      CACHE_PART=""
+    fi
   fi
   # Never trust an old expanded app, nor overlay a new archive onto one.
   VERIFIED_STAGE="$ARCHIVE_WORK/expanded"
