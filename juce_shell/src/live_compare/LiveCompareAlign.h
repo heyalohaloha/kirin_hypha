@@ -219,6 +219,11 @@ public:
     { return ! started || enabled != wasEnabled || ! haveK || k != previousK; }
     void provisionalClockFor (std::uint64_t target) const noexcept
     { provisionalRevision.store (target, std::memory_order_release); }
+    void retryClockFor (std::uint64_t target) const noexcept
+    { retryRevision.store (target, std::memory_order_release); provisionalRevision.store (0, std::memory_order_release); }
+    // A same-revision receipt stays readable; a current answer ends its effect, not an owner clear.
+    bool retryClockIs (std::uint64_t target) const noexcept
+    { return target != 0 && retryRevision.load (std::memory_order_acquire) == target; }
     bool provisionalClockIs (std::uint64_t target) const noexcept
     { return target != 0 && provisionalRevision.load (std::memory_order_acquire) == target; }
     bool takeoverCheckedFor (std::uint64_t target) const noexcept
@@ -250,7 +255,7 @@ public:
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
     std::atomic<std::uint64_t> takeoverChecked { 0 };
-    mutable std::atomic<std::uint64_t> provisionalRevision { 0 };
+    mutable std::atomic<std::uint64_t> provisionalRevision { 0 }, retryRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
     mutable AlignWatch watch;
     mutable std::atomic<std::int64_t> keptAgreement { 0 };
@@ -306,6 +311,8 @@ public:
         reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;
         result.revision = readiness.generation();
+        fallbackAtRead = readiness.provisionalClockIs (result.revision) ? result.revision : 0;
+        if (readiness.retryClockIs (result.revision)) fallbackAtRead = result.revision;
         releasing = reached = provisionalRead = false;
         if (!expired) spentKnown = false;
         else if (!spentKnown) { spentKnown = true; spentMoves = readiness.moves(); }
@@ -377,8 +384,10 @@ public:
         if (!checks) return applied;
         const bool revised = readiness.revises (true, k);
         releasing = releasing || (readiness.movesTo (k) && expired && spentKnown && !answered);
-        provisionalRead = expired && !requestCurrent && unconfirmed && !revised
-            && readiness.provisionalClockIs (readiness.generation());
+        const bool unchecked = readiness.provisionalClockIs (readiness.generation());
+        const bool retry = readiness.retryClockIs (readiness.generation());
+        provisionalRead = expired && !requestCurrent && unconfirmed && !revised && (unchecked || retry
+            || (fallbackAtRead != 0 && fallbackAtRead == readiness.generation()));
         if (provisionalRead && applied != AlignValue {}) { weight = 0.0f; adopt ({}); }
         if ((answered || releasing) && (revised || unconfirmed) && applied != AlignValue {})
         { weight = 0.0f; adopt ({}); }
@@ -456,7 +465,7 @@ private:
         shown.publishDisplay ({}, context); // nothing is claimed until this address is accepted
     }
     AlignRequest requested, shown;
-    std::uint64_t appliedRevision = 0; // Audio Thread: contention never grants a new address
+    std::uint64_t appliedRevision = 0, fallbackAtRead = 0; // RT: fallback receipt precedes the request snapshot
     AlignContext context; // Audio Thread only
     AlignValue applied, blindRequest; // Audio Thread only
     // Audio Thread only. held: frames of counted playback without PRE since PRE last played at its
