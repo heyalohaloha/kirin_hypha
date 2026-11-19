@@ -107,6 +107,14 @@ public:
                 break;
             case PreAlignEvent::tick:
             {
+                if (checked && in.clock != nullptr)
+                {
+                    const bool reread = usable (in) && kept.value.frames != 0
+                        && in.reach == std::numeric_limits<std::int64_t>::max();
+                    const bool handing = in.clock->provisionalClockIs (in.revision) || in.clock->retryClockIs (in.revision);
+                    if ((in.pending && in.spent && reread) || handing) in.clock->retryClockFor (in.revision);
+                    else in.clock->provisionalClockFor (0);
+                }
                 if (checked && usable (in) && in.releasedAt != consumedRelease)
                 {
                     consumedRelease = in.releasedAt;

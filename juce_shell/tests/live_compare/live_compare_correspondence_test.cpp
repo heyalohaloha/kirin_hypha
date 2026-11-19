@@ -49,6 +49,7 @@ static void print (const char* name, const Tally& t)
 #include "LiveCompareSpentClockTest.h"
 #include "LiveCompareReleaseResendTest.h"
 #include "LiveCompareTakeoverFenceTest.h"
+#include "LiveCompareRetryHandoffTest.h"
 #include "LiveCompareAlignUnrestrictedStormTest.h"
 
 // The G1 protocol: loops, seeks, stop and play, a backward seek within one pass, a forward seek into
@@ -273,6 +274,9 @@ int main()
     takeoverIsKnownByItsOwnStepOfK();
     takeoverDuringPromotion();
     alignWatchRaces();
+    live_compare_retry_handoff_test::retiresUncheckedMarker();
+    live_compare_retry_handoff_test::holdsFallbackAcrossRequestPublication();
+    live_compare_retry_handoff_test::twoEarlyOwnerTicksPreserveTheFallback();
     takeoverReceiptCompletesBeforeFallback();
     blindUnappliedNoticeIsSymmetric();
     comparisonContinuesAfterWatchExhaustion();
