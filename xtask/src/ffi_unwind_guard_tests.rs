@@ -250,9 +250,9 @@ use crate::local_entry;
 local_entry!();
 thread_local! { static CELL: u8 = const { 0 }; }
 const _: () = assert!(true);
-const TEXT: &str = "#[macro_use] extern crate external; use external::*;";
 // #[macro_use] mod external;
 /* use external::*; */
+const TEXT: &str = "#[macro_use] extern crate external; use external::*;";
 "##;
     let (_, problems) = summary(source);
     assert!(problems.is_empty(), "false positive: {problems:?}");
