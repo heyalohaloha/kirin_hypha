@@ -61,7 +61,7 @@ inline void verifyLookup()
 
     // Values carried by the English stay where Japanese needs them; one that is itself catalog
     // prose is shown translated; the most specific pattern wins.
-    KIRIN_LANGUAGE_REQUIRE (japanese ("WARMING 12 S") == utf8 (u8"準備中 12 S"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("Preparing 12 s") == utf8 (u8"準備中 12 秒"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("20 to 250 Hz") == utf8 (u8"20〜250 Hz"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("Drum Attack. Click to switch view.")
                             == utf8 (u8"ドラムのAttack。クリックで表示を切り替えます。"));

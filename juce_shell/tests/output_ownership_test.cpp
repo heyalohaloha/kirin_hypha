@@ -132,7 +132,7 @@ void decisionsCombineStates()
     {
         // A waiting press names what it waits for: stopped first, then the return, then the A/B tail.
         using namespace hypha::live_compare_ui;
-        require (std::string (realtimeBounceNotice) == "Before realtime bounce, press END and wait for normal level",
+        require (std::string (realtimeBounceNotice) == "Before a realtime bounce, press END and wait for the level to return",
                  "bounce guidance says what END must precede and when the level is ready");
         require (std::string (hypha::output_owner::refusalText (Reason::liveComparison))
                      == "Press END to finish the current comparison, then try again",

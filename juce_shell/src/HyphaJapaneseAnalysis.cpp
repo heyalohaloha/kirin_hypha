@@ -137,7 +137,6 @@ const Entry entries[] = {
     { "NONE", u8"音なし" },
     { "LONG", u8"長い" },
     { "UPDATE", u8"要更新" },
-    { "MEASURING", u8"計測中" },
     { "PLAY TO MEASURE", u8"再生すると測ります" },
     { "PLAY TO MEASURE %1", u8"再生すると%1を測ります" },
     { "ALL: every hit measured on the whole signal, as DRUM always has. No audio is kept for the bands while ALL is chosen.",
