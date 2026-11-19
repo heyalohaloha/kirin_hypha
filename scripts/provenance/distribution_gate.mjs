@@ -138,10 +138,17 @@ export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts
   const components = report.components;
   validateComponentInventory(components, inventory, entries);
   const channels = ['macos-pkg', 'macos-zip', 'windows-exe'];
-  if (!Array.isArray(report.payloads) || report.payloads.length !== channels.length) throw new Error('All three actual distribution payloads required');
+  const waiting = () => new Checkpoint('A5 extraction evidence for all three distribution payloads is not recorded yet; run A5, then run the distribution stages again');
+  if (!Array.isArray(report.payloads)) throw waiting();
+  if (report.payloads.length > channels.length || report.payloads.some(p => !channels.includes(p?.channel))
+      || new Set(report.payloads.map(p => p.channel)).size !== report.payloads.length) {
+    throw new Error('Duplicate, unknown or excess distribution payload channels');
+  }
   const facts = [sourceFact]; const aliases = [];
+  // Validate retained rows before waiting for absent channels: corruption is still a failure.
   for (const channel of channels) {
     const payload = report.payloads.find(p => p.channel === channel);
+    if (!payload) continue;
     const artifact = artifacts[channels.indexOf(channel)];
     if (!payload || payload.artifactSha256 !== artifact.sha256 || !payload.extractionEvidence
         || payload.extractionResult !== 'PASS' || !payload.extractor?.trim()) throw new Error('Missing exact-artifact extraction evidence');
@@ -194,6 +201,7 @@ export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts
     }
     rejectHeldBytes(registry, walked.files.map(p => [p, fs.readFileSync(regular(payloadRoot, p))]), 'binary');
   }
+  if (report.payloads.length < channels.length) throw waiting();
   return { facts, publicFacts: [sourceFact], aliases };
 }
 
