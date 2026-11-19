@@ -452,25 +452,25 @@ include("${cmakePath(cmakeGuard)}")
   const invoke = (command, args) => spawnSync(command, args, { encoding: 'utf8' });
   const configured = invoke('cmake', ['-S', source, '-B', build]);
   assert.equal(configured.status, 0, configured.stderr);
-  const inventory = invoke('ctest', ['--test-dir', build, '--show-only=json-v1', '-R', '^native_ok$']);
+  const inventory = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--show-only=json-v1', '-R', '^native_ok$']);
   assert.equal(inventory.status, 0, inventory.stderr);
   assert.deepEqual(JSON.parse(inventory.stdout).tests.map(item => item.name).sort(),
     ['kirin_native_path_budget_cleanup', 'kirin_native_path_budget_setup',
       'kirin_native_storage_guard_cleanup', 'kirin_native_storage_guard_setup', 'native_ok']);
-  const contract = invoke('ctest', ['--test-dir', build, '--show-only=json-v1', '-R', '^kirin_native_storage_guard_contract$']);
+  const contract = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--show-only=json-v1', '-R', '^kirin_native_storage_guard_contract$']);
   const timeout = JSON.parse(contract.stdout).tests.find(item => item.name === 'kirin_native_storage_guard_contract')
     .properties.find(item => item.name === 'TIMEOUT').value;
   assert.equal(timeout, 60); assert.ok(contractTimeoutMs < timeout * 1000);
-  const pass = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_ok$']);
+  const pass = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', '^native_ok$']);
   assert.equal(pass.status, 0, pass.stdout + pass.stderr);
-  const fail = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_failure$']);
+  const fail = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', '^native_failure$']);
   assert.notEqual(fail.status, 0);
   assert.match(fail.stdout, /kirin_native_storage_guard_cleanup[^\n]*Failed/);
   assert.match(fail.stdout, /native_failure[^\n]*Failed/);
   // A failed setup must prevent the native body from starting, not silently disable protection.
   fs.unlinkSync(path.join(f.protectedRoot, 'lease'));
   fs.writeFileSync(path.join(scripts, 'native_storage_guard.mjs'), 'process.exit(3);');
-  const blocked = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_failure$']);
+  const blocked = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', '^native_failure$']);
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stdout, /native_failure[^\n]*Not Run/);
   assert.equal(fs.existsSync(path.join(f.protectedRoot, 'lease')), false);
