@@ -6,7 +6,7 @@ fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
-fn summary(source: &str) -> (Vec<(String, bool)>, Vec<String>) {
+pub(super) fn summary(source: &str) -> (Vec<(String, bool)>, Vec<String>) {
     let scan = scan(source);
     let entries = scan
         .entries
@@ -31,6 +31,7 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
     let crate_names: Vec<_> = crates.iter().map(|c| c.name.as_str()).collect();
     let mut names = Vec::new();
     let mut failures = Vec::new();
+    let mut all_sources = Vec::new();
     for dir in crates.iter().map(|c| &c.dir) {
         let mut files = Vec::new();
         rust_sources(&dir.join("src"), &mut files);
@@ -38,6 +39,7 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
             .iter()
             .map(|file| std::fs::read_to_string(file).expect("UTF-8 source"))
             .collect();
+        all_sources.extend(sources.iter().cloned());
         let macros: Vec<String> = sources.iter().flat_map(|s| defined_macros(s)).collect();
         for (file, source) in files.iter().zip(&sources) {
             let scan = scan_with(source, &macros, &crate_names);
@@ -52,6 +54,22 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
                     .into_iter()
                     .map(|p| format!("{} {p}", file.display())),
             );
+        }
+    }
+    // Checked over every owned source, not just the file using a super/crate glob.
+    let used_roots: Vec<_> = ["std", "core"]
+        .into_iter()
+        .filter(|root| {
+            all_sources
+                .iter()
+                .any(|source| fallback::uses_pointer_root(root, &tokens(source)))
+        })
+        .collect();
+    for source in &all_sources {
+        for root in &used_roots {
+            if !fallback::standard_root_unshadowed(root, &tokens(source)) {
+                failures.push(format!("unverified standard namespace binding: {root}"));
+            }
         }
     }
     assert!(
@@ -385,5 +403,32 @@ fn function_argument_construction_must_not_execute_outside_the_guard() {
             let (entries, _) = summary(&source);
             assert_eq!(entries, [("entry".into(), false)], "{wrapped}");
         }
+    }
+}
+
+#[test]
+fn shipping_dependencies_cannot_impersonate_standard_namespaces() {
+    for root in ["std", "core"] {
+        let mut metadata = third_party_feature_graph(serde_json::Value::Null, false);
+        metadata["packages"][0]["dependencies"][0]["rename"] = root.into();
+        assert!(shipping_crates(&metadata)
+            .unwrap_err()
+            .contains("standard namespace"));
+    }
+}
+
+#[test]
+fn resolved_library_names_cannot_shadow_std_even_when_the_package_name_differs() {
+    for root in ["std", "core"] {
+        let mut metadata = third_party_feature_graph(serde_json::Value::Null, false);
+        metadata["resolve"]["nodes"][0]["deps"][0]["name"] = root.into();
+        assert!(shipping_crates(&metadata)
+            .unwrap_err()
+            .contains("standard namespace"));
+        metadata["resolve"]["nodes"][0]["deps"][0]["dep_kinds"][0]["kind"] = "dev".into();
+        assert!(
+            shipping_crates(&metadata).is_ok(),
+            "non-shipping edge must remain outside scope"
+        );
     }
 }

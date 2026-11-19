@@ -12,11 +12,17 @@
 //! is neither a local `macro_rules!` nor a std allowlisted one, an import that puts another macro
 //! under one of those names, or a shadowed `catch_unwind`.
 
+#[path = "ffi_unwind_fallback.rs"]
+mod fallback;
 #[path = "ffi_unwind_scope.rs"]
 mod scope;
 #[cfg(test)]
 #[path = "ffi_unwind_guard_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ffi_unwind_fallback_tests.rs"]
+mod fallback_tests;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Kind {
@@ -207,7 +213,7 @@ fn after_path<'t, 'a>(tokens: &'t [Token<'a>], name: &str) -> Option<&'t [Token<
 }
 
 /// The whole body is `[let _ =] catch_unwind(<closure or path>)` plus `;` or a constant fallback.
-fn body_is_guarded(body: &[Token]) -> bool {
+fn body_is_guarded(body: &[Token], source: &[Token]) -> bool {
     let (rest, discarded) = if starts_with(body, &["let", "_", "="]) {
         (&body[3..], true)
     } else {
@@ -230,7 +236,7 @@ fn body_is_guarded(body: &[Token]) -> bool {
     tail.is_empty()
         || (starts_with(tail, &[".", "unwrap_or", "("])
             && closing(tail, 2) == Some(tail.len() - 1)
-            && constant(&tail[3..tail.len() - 1]))
+            && fallback::constant(&tail[3..tail.len() - 1], source))
 }
 
 fn guarded_argument(argument: &[Token]) -> bool {
@@ -264,23 +270,6 @@ fn guarded_argument(argument: &[Token]) -> bool {
     wrapped.first().is_some_and(|t| t.is("("))
         && closing(wrapped, 0) == Some(wrapped.len() - 1)
         && (closure(&wrapped[1..wrapped.len() - 1]) || path(&wrapped[1..wrapped.len() - 1]))
-}
-
-/// A fallback evaluated after the guard returns: names, literals and casts only, or a null pointer.
-fn constant(tokens: &[Token]) -> bool {
-    !tokens.is_empty()
-        && tokens
-            .iter()
-            .enumerate()
-            .all(|(index, token)| match token.kind {
-                Kind::Literal | Kind::Ident => true,
-                Kind::Punct => match token.text {
-                    "::" | "-" => true,
-                    "(" => index > 0 && matches!(tokens[index - 1].text, "null" | "null_mut"),
-                    ")" => index > 0 && tokens[index - 1].is("("),
-                    _ => false,
-                },
-            })
 }
 
 #[cfg(test)]
@@ -327,7 +316,7 @@ fn scan_with(source: &str, crate_macros: &[String], owned_crates: &[&str]) -> Sc
         scan.entries.push(Entry {
             name: name.text.to_string(),
             line: line(token.start),
-            guarded: body_is_guarded(&tokens[open..close]),
+            guarded: body_is_guarded(&tokens[open..close], &tokens),
         });
     }
     let mut macros: Vec<&str> = tokens

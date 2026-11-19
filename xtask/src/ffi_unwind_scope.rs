@@ -141,6 +141,12 @@ fn reject_transitive_capi(metadata: &Value, root: &Value) -> Result<(), String> 
                 .as_array()
                 .ok_or("missing dependency kinds")?;
             if kinds.iter().any(|kind| kind["kind"].is_null()) {
+                if dependency["name"]
+                    .as_str()
+                    .is_some_and(|name| matches!(name, "std" | "core"))
+                {
+                    return Err("resolved shipping dependency shadows a standard namespace".into());
+                }
                 pending.push(&dependency["pkg"]);
             }
         }
@@ -186,6 +192,12 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
                 continue; // dev and build dependencies are not linked into the product
             }
             let dependency_name = dependency["name"].as_str().unwrap_or_default();
+            let visible_name = dependency["rename"].as_str().unwrap_or(dependency_name);
+            if matches!(visible_name, "std" | "core") {
+                return Err(format!(
+                    "{name} shadows a standard namespace with dependency {visible_name}"
+                ));
+            }
             if dependency_name.starts_with("nih_plug") {
                 return Err(format!(
                     "{name} links the legacy nih-plug path ({dependency_name})"
