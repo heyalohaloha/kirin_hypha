@@ -1,6 +1,7 @@
 #pragma once
 #include "LiveCompareRing.h"
 #include "LiveCompareAlignWatch.h"
+#include "LiveCompareAlignConditions.h"
 
 #include <cstdint>
 #include <cmath>
@@ -84,47 +85,51 @@ inline void (*duringAlignPublicationForTest) (std::int64_t) = nullptr;
 class AlignRequest
 {
 public:
-    void publish (AlignValue value, AlignContext context, std::uint64_t measuredRevision = 0) noexcept
+    void publish (AlignValue value, AlignContext context, std::uint64_t measuredRevision = 0, bool resend = false) noexcept
     {
         sequence.fetch_add (1);
        #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
         if (duringAlignPublicationForTest != nullptr) duringAlignPublicationForTest (value.frames);
        #endif
-        store (value, context, measuredRevision);
+        store (value, context, measuredRevision, resend);
         sequence.fetch_add (1);
     }
     // The Audio Thread's display copy: the same snapshot, without the non-RT publication window.
     void publishDisplay (AlignValue value, AlignContext context) noexcept
     {
         sequence.fetch_add (1);
-        store (value, context, 0);
+        store (value, context, 0, false);
         sequence.fetch_add (1);
     }
     AlignValue read (AlignContext context, AlignValue unchanged = AlignValue(),
                      std::uint64_t expectedRevision = 0, bool* current = nullptr,
-                     bool retainedCurrent = false) const noexcept
+                     bool retainedCurrent = false, bool* resentOut = nullptr, AlignValue* mirrored = nullptr) const noexcept
     {
         if (current != nullptr) *current = retainedCurrent;
         const auto before = sequence.load();
         if ((before & 1u) != 0) return unchanged;
         const AlignValue value { frames.load(), verifySamples.load() };
+        const bool again = resent.load();
         const auto measuredRevision = revision.load();
         const AlignContext measured { authority.load(), format.load(), ownerA.load(), ownerB.load() };
         if (before != sequence.load()) return unchanged;
+        if (resentOut != nullptr) *resentOut = again;
         if (current != nullptr) *current = measured == context && measuredRevision == expectedRevision;
         if (measured == context && measuredRevision != expectedRevision) return unchanged;
-        return measured == context ? value : AlignValue {};
+        const auto accepted = measured == context ? value : AlignValue {};
+        if (mirrored != nullptr) *mirrored = accepted;
+        return accepted;
     }
 private:
-    void store (AlignValue value, AlignContext context, std::uint64_t measuredRevision) noexcept
+    void store (AlignValue value, AlignContext context, std::uint64_t measuredRevision, bool resend) noexcept
     {
-        frames.store (value.frames); verifySamples.store (value.verifySamples); revision.store (measuredRevision);
+        resent.store (resend); frames.store (value.frames); verifySamples.store (value.verifySamples); revision.store (measuredRevision);
         authority.store (context.authority); format.store (context.format);
         ownerA.store (context.ownerA); ownerB.store (context.ownerB);
     }
     std::atomic<std::uint64_t> sequence { 0 }, revision { 0 }, authority { 0 }, format { 0 }, ownerA { 0 }, ownerB { 0 };
     std::atomic<std::int64_t> frames { 0 };
-    std::atomic<bool> verifySamples { false };
+    std::atomic<bool> verifySamples { false }, resent { false };
 };
 
 // A repeated pattern can be compared without claiming its absolute position. The same
@@ -161,6 +166,8 @@ inline bool matchingScaledBlock (float* const* post, float* const* pre, int chan
 class AlignReadiness;
 #ifdef KIRIN_ALIGN_WATCH_TEST
 inline void (*afterAlignWatchReadForTest) (const AlignReadiness&) = nullptr;
+inline void (*afterAlignWatchKeptForTest) (const AlignReadiness&) = nullptr;
+inline void (*afterAlignRequestedReadForTest)() = nullptr;
 #endif
 class AlignReadiness
 {
@@ -185,6 +192,7 @@ public:
         if (validK)
         {
             const bool stepped = everK && k != previousK;
+            if (haveK && k != previousK) ++clockMoves;
             if (! haveK || k != previousK)
                 revision.fetch_add (1);
             // After the revision: the owner reads the revision again once it has handed an estimate down.
@@ -195,13 +203,28 @@ public:
                 if (afterAlignWatchReadForTest) afterAlignWatchReadForTest (*this);
                #endif
                 const auto agreement = keptAgreement.load();
-                if (hostTookOver ({ amounts.kept }, previousK, k, agreement)) watch.recordKept (amounts.epoch);
-                if (hostTookOver ({ amounts.next }, previousK, k, agreement)) watch.recordNext (amounts.epoch);
+                if (hostTookOver ({ AlignWatch::frames (amounts.kept) }, previousK, k, agreement)) watch.record (amounts.kept);
+               #ifdef KIRIN_ALIGN_WATCH_TEST
+                if (afterAlignWatchKeptForTest) afterAlignWatchKeptForTest (*this);
+               #endif
+                if (amounts.next != amounts.kept && hostTookOver ({ AlignWatch::frames (amounts.next) }, previousK, k, agreement)) watch.record (amounts.next);
             }
             previousK = k;
             haveK = everK = true;
         }
+        takeoverChecked.store (revision.load(), std::memory_order_release);
     }
+    // Keep this pure prediction in step with observe()'s mapping invalidation conditions.
+    bool revises (bool enabled, std::int64_t k) const noexcept
+    { return ! started || enabled != wasEnabled || ! haveK || k != previousK; }
+    void provisionalClockFor (std::uint64_t target) const noexcept
+    { provisionalRevision.store (target, std::memory_order_release); }
+    bool provisionalClockIs (std::uint64_t target) const noexcept
+    { return target != 0 && provisionalRevision.load (std::memory_order_acquire) == target; }
+    bool takeoverCheckedFor (std::uint64_t target) const noexcept
+    { return takeoverChecked.load (std::memory_order_acquire) == target; }
+    std::uint64_t moves() const noexcept { return clockMoves; }
+    bool movesTo (std::int64_t k) const noexcept { return haveK && k != previousK; }
     std::int64_t clockK() const noexcept { return observedK.load(); }
     // INV-LC28, the owner of PRE's alignment state (non-RT): the kept amount to watch for from now on
     // (0: none). The Audio Thread compares each step of K, from one proven mapping to the next under
@@ -215,6 +238,9 @@ public:
     { keptAgreement.store (agreement); watch.watchKept (frames); }
     // The watched amount K stepped by since the last call; 0 when it did not.
     std::int64_t takenOver() const noexcept { return watch.takenOver(); }
+   #ifdef KIRIN_ALIGN_WATCH_TEST
+    void watchIdentityNearLimitForTest() noexcept { watch.identityNearLimitForTest(); }
+   #endif
     std::uint64_t generation() const noexcept { return revision.load(); }
     bool pending() const noexcept { return confirmed.load() != revision.load(); }
     void recheck() noexcept { if (! pending()) revision.fetch_add (1); }
@@ -223,12 +249,15 @@ public:
     bool ambiguous() const noexcept { return pending() && revision.load() != 0 && ambiguousRevision.load() == revision.load(); }
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
+    std::atomic<std::uint64_t> takeoverChecked { 0 };
+    mutable std::atomic<std::uint64_t> provisionalRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
     mutable AlignWatch watch;
     mutable std::atomic<std::int64_t> keptAgreement { 0 };
     mutable std::atomic<std::uint64_t> carried { 0 }; // the format a candidate restart announced
     bool started = false, haveK = false, everK = false, wasEnabled = true; // Audio Thread only
     std::int64_t previousK = 0;
+    std::uint64_t clockMoves = 0; // Audio Thread only
 };
 
 struct AlignUpdate
@@ -243,8 +272,8 @@ struct AlignUpdate
 class RendererAlignment
 {
 public:
-    void request (AlignValue value, AlignContext forContext, std::uint64_t measured = 0) noexcept
-    { requested.publish (value, forContext, measured); readiness.confirm (measured); }
+    void request (AlignValue value, AlignContext forContext, std::uint64_t measured = 0, bool resend = false) noexcept
+    { requested.publish (value, forContext, measured, resend); readiness.confirm (measured); }
     AlignValue requestFor (AlignContext forContext) const noexcept { return requested.read (forContext, {}, readiness.generation()); }
     std::int64_t displayed (AlignContext forContext) const noexcept { return shown.read (forContext).frames; }
     // A new address may not jump under PRE: it waits for PRE to be silent, which LISTEN brings
@@ -277,12 +306,23 @@ public:
         reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;
         result.revision = readiness.generation();
+        releasing = reached = provisionalRead = false;
+        if (!expired) spentKnown = false;
+        else if (!spentKnown) { spentKnown = true; spentMoves = readiness.moves(); }
+        const bool moved = expired && spentKnown && !answered && readiness.moves() != spentMoves;
+        bool resent = false;
         auto wanted = playback.enabled
             ? requested.read (context, applied, result.revision, &result.current,
-                              appliedRevision == result.revision) : AlignValue {};
+                              appliedRevision == result.revision, &resent, blind ? &blindRequest : nullptr) : AlignValue {};
+       #ifdef KIRIN_ALIGN_WATCH_TEST
+        if (afterAlignRequestedReadForTest) afterAlignRequestedReadForTest();
+       #endif
+        const bool refused = resent && result.current
+            && (moved || result.revision <= dropped.load (std::memory_order_relaxed));
+        if (refused) { wanted = {}; result.current = false; }
         // BLIND: the hold and what it tells follow the requested correction and PRE's path, never the
         // applied address or the selection, which differ between the two anonymous sources.
-        if (blind) blindRequest = playback.enabled ? requested.read (context, blindRequest, result.revision) : AlignValue {};
+        if (blind && (!playback.enabled || refused)) blindRequest = {};
         const auto path = blind ? blindRequest : wanted;
         const bool beyond = playback.enabled && wanted.frames > 0 && wanted.frames > readableFrames;
         const bool pathBeyond = playback.enabled && path.frames > 0 && path.frames > readableFrames;
@@ -310,6 +350,10 @@ public:
         // A spent budget the service has answered waits for no content check again: at a new clock
         // mapping PRE goes on at K at once (awaits() below) until PRE plays at its address.
         answered = expired && (answered || result.current);
+        // A changed revision proposes release; only a clock-proven block may notify its owner.
+        releasing = moved && !result.current;
+        unconfirmed = readiness.pending() || ! result.current;
+        requestCurrent = result.current;
         if (answered && checks && (readiness.pending() || ! result.current) && weight <= 0.0f) adopt ({});
         if (path.frames == 0) unserved.store (false);
         corrected = path.frames > 0;
@@ -325,10 +369,27 @@ public:
         spent.store (false); renew();
         reach.store (std::numeric_limits<std::int64_t>::max());
     }
+    // This block's proven K, before any PCM read. No publication or generation changes here.
+    // A spent answered budget, or a later mapping moving past its unanswered budget, uses K.
+    AlignValue resolve (std::int64_t k, float& weight) noexcept
+    {
+        reached = true;
+        if (!checks) return applied;
+        const bool revised = readiness.revises (true, k);
+        releasing = releasing || (readiness.movesTo (k) && expired && spentKnown && !answered);
+        provisionalRead = expired && !requestCurrent && unconfirmed && !revised
+            && readiness.provisionalClockIs (readiness.generation());
+        if (provisionalRead && applied != AlignValue {}) { weight = 0.0f; adopt ({}); }
+        if ((answered || releasing) && (revised || unconfirmed) && applied != AlignValue {})
+        { weight = 0.0f; adopt ({}); }
+        return applied;
+    }
     // The largest correction PRE's run served at POST's latest block; the maximum while unknown.
     std::int64_t servable() const noexcept { return reach.load (std::memory_order_relaxed); }
     // The hold ended before PRE's run served the correction: PRE plays at K until it does.
     bool unservedCorrection() const noexcept { return unserved.load(); }
+    // Owner: this budget dropped its retained correction after the clock moved unanswered.
+    std::uint64_t releasedAt() const noexcept { return dropped.load (std::memory_order_relaxed); }
     AlignValue value() const noexcept { return applied; }
     // The block's clock verdict. accepted: at the applied address; pathClock: the clocks alone prove
     // PRE's path (alignClockProven below), whatever address this assignment applied. BLIND takes
@@ -341,6 +402,9 @@ public:
     // calibrates, spend it at once.
     void observed (bool accepted, bool pathClock, const AlignUpdate& update) noexcept
     {
+        if (releasing && reached && pathClock)
+        { answered = true; dropped.store (readiness.generation(), std::memory_order_relaxed); }
+        releasing = false;
         if (accepted) shown.publishDisplay (applied, context);
         const bool path = blindPath ? pathClock : accepted;
         proven.store (path && ! update.deferred, std::memory_order_relaxed);
@@ -363,7 +427,7 @@ public:
     {
         if (! (readiness.pending() || ! update.current || update.revision != readiness.generation())) return update.deferred;
         serves = false;
-        return update.deferred || ! (answered && applied == AlignValue {});
+        return update.deferred || ! ((answered || provisionalRead) && applied == AlignValue {});
     }
     // The content service (non-RT) has seen the present budget waiting for a content check.
     void arm() const noexcept { armed.store (budget.load (std::memory_order_relaxed), std::memory_order_relaxed); }
@@ -378,6 +442,10 @@ public:
         if (serves && (corrected || ! holdEnded)) { held = 0; expired = holdEnded = false; unserved.store (false); renew(); }
     }
     void confirmApplied (std::uint64_t revision) noexcept { appliedRevision = revision; }
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    bool requestIsResendForTest (AlignContext c) const noexcept
+    { bool resend = false; requested.read (c, {}, readiness.generation(), nullptr, false, &resend); return resend; }
+   #endif
     AlignReadiness readiness;
 private:
     void renew() noexcept { budget.store (budget.load (std::memory_order_relaxed) + 1, std::memory_order_relaxed); } // whole again
@@ -397,74 +465,23 @@ private:
     // its address (corrected: a correction); answered: the service has answered the spent budget.
     std::int64_t held = 0, stake = 0, played = 0, bound = 0;
     bool expired = false, answered = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
+    bool spentKnown = false, releasing = false, reached = false, provisionalRead = false;
+    std::uint64_t spentMoves = 0;
+    std::atomic<std::uint64_t> dropped { 0 }; // last mapping where an unanswered spent budget was released
+    bool requestCurrent = false;
+    bool unconfirmed = false; // the content check does not cover the mapping read by update()
     std::atomic<bool> unserved { false }, proven { false }, spent { false };
     std::atomic<std::uint64_t> budget { 1 }; // written by the Audio Thread: which budget is running
     mutable std::atomic<std::uint64_t> armed { 0 }; // written by the content service only
     std::atomic<std::int64_t> reach { std::numeric_limits<std::int64_t>::max() };
 };
 
-// The last valid host identities survive gaps and repeated observations. This is only an
-// invalidation witness, never a PCM or timing permission.
-class AlignmentConditions
+// Settle the address at the point where this block's K is known, never by reading twice.
+struct AlignLate
 {
-    struct Side
-    {
-        bool presentationKnown = false, chainKnown = false;
-        std::uint8_t presentationSource = 0;
-        std::uint32_t presentation = 0, delay = 0;
-        std::uint64_t chainA = 0, chainB = 0;
-        bool observe (const BlockClock& block) noexcept
-        {
-            bool changed = false;
-            if (block.outputPresentationValid)
-            {
-                changed = changed || (presentationKnown && (presentationSource != block.presentationSource
-                    || presentation != block.outputPresentationSamples));
-                presentationKnown = true; presentationSource = block.presentationSource;
-                presentation = block.outputPresentationSamples;
-            }
-            if ((block.runtimeChainA != 0 || block.runtimeChainB != 0) && !block.runtimeExpired)
-            {
-                changed = changed || (chainKnown && (chainA != block.runtimeChainA
-                    || chainB != block.runtimeChainB || delay != block.maximumDelaySamples));
-                chainKnown = true; chainA = block.runtimeChainA; chainB = block.runtimeChainB;
-                delay = block.maximumDelaySamples;
-            }
-            return changed;
-        }
-    };
-public:
-    bool observe (std::uint64_t token, const Ring& ring, const BlockClock& post,
-                  bool compensationChanged) noexcept
-    {
-        if (token != session) { *this = {}; session = token; }
-        bool changed = compensationChanged;
-        if (post.playing && post.clockValid) changed = postSide.observe (post) || changed;
-        TimingSnapshot peer;
-        if (readTiming (ring.header.timing, peer) && peer.active)
-        {
-            if (ownerKnown && (ownerA != peer.ownerA || ownerB != peer.ownerB)) changed = true;
-            ownerKnown = true; ownerA = peer.ownerA; ownerB = peer.ownerB;
-            changed = preSide.observe (peer.block) || changed;
-        }
-        return changed;
-    }
-    // The conditions a kept A/B correction was confirmed under (INV-LC28): equal or not, nothing more.
-    std::uint64_t fingerprint() const noexcept
-    {
-        std::uint64_t hash = 1469598103934665603ull;
-        const auto mix = [&hash] (std::uint64_t value) noexcept { hash = (hash ^ value) * 1099511628211ull; };
-        for (const auto* side : { &preSide, &postSide })
-        {
-            mix (side->presentationKnown); mix (side->presentationSource); mix (side->presentation);
-            mix (side->chainKnown); mix (side->chainA); mix (side->chainB); mix (side->delay);
-        }
-        return hash;
-    }
-private:
-    std::uint64_t session = 0, ownerA = 0, ownerB = 0;
-    bool ownerKnown = false;
-    Side preSide, postSide;
+    RendererAlignment* alignment = nullptr; float* weight = nullptr;
+    AlignValue at (std::int64_t k, AlignValue fixed) const noexcept
+    { return alignment != nullptr && weight != nullptr ? alignment->resolve (k, *weight) : fixed; }
 };
 
 #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK

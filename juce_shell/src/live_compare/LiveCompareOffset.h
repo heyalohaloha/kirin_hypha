@@ -26,6 +26,7 @@ struct OffsetWindow
 #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
 inline void (*beforeOffsetWindowForTest)() = nullptr;
 inline void (*beforeContentEstimateForTest)() = nullptr;
+inline void (*beforeAlignFallbackForTest)() = nullptr;
 inline bool (*keptViewMissForTest)() = nullptr; // true: the kept correction's reach is not known yet
 #endif
 

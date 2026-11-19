@@ -1,6 +1,7 @@
 # Product fixtures must compile the processor with the test clock too. An executable-only
 # definition would leave the shipping static library on steady_clock (and violate the ODR).
 set(_clock_fixtures
+    KirinContentTimingProductTests
     KirinContentAnalysisProductTests KirinAaxAnalysisProductTests KirinReaperListenProductTests
     KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLocalBlindProductTests
     KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests

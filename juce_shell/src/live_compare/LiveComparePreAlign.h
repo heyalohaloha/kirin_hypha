@@ -52,6 +52,7 @@ struct PreAlignInput
     std::uint64_t measuredRevision = 0;
     std::int64_t measuredK = 0;
     // tick
+    std::uint64_t releasedAt = 0; // tick: spent unanswered budget left for a later proven clock mapping
     bool pending = false, spent = false; // a content check is awaited; the Audio Thread's budget is spent
     std::int64_t reach = std::numeric_limits<std::int64_t>::max(); // what PRE's run serves; the maximum while unknown
     std::int64_t agreement = 0; // the estimates' agreement in frames
@@ -63,6 +64,7 @@ struct PreAlignOutput
     bool request = false; // publish `value` for `revision`
     AlignValue value;
     std::uint64_t revision = 0;
+    bool resend = false;
 };
 
 class PreAlignState
@@ -71,6 +73,8 @@ public:
     PreAlignOutput transition (const PreAlignInput& in) noexcept
     {
         PreAlignOutput out;
+        // Acquire completion before consuming receipts; otherwise a just-arrived hit could be missed.
+        const bool checked = in.clock == nullptr || in.clock->takeoverCheckedFor (in.revision);
         observeClock (in);
         if (! in.blind) unapplied.store (false, std::memory_order_release); // LISTEN and A/B fade PRE to it
         switch (in.event)
@@ -98,11 +102,20 @@ public:
                     in.clock->watchNext (in.value.frames, in.agreement);
                     if (in.clock->generation() != in.revision) { in.clock->watchNext (0, in.agreement); out = {}; break; }
                 }
-                kept = { in.value, in.measuredK, in.context, in.host };
+                kept = { in.value, in.measuredK, in.context, in.host }; keptMeasured = in.measuredRevision;
                 if (in.clock != nullptr) in.clock->watchKept (watched = kept.value.frames, in.agreement);
                 break;
             case PreAlignEvent::tick:
             {
+                if (checked && usable (in) && in.releasedAt != consumedRelease)
+                {
+                    consumedRelease = in.releasedAt;
+                    if (usable (in) && keptMeasured < in.releasedAt)
+                    {
+                        kept = { {}, in.k, in.context, in.host }; missSince = 0;
+                        out = { true, {}, in.revision }; tell (!in.host.candidate, false); break;
+                    }
+                }
                 const bool known = in.reach != std::numeric_limits<std::int64_t>::max();
                 if (! (in.pending && in.spent))
                 {
@@ -110,6 +123,11 @@ public:
                     // PRE's new run has written as far as the kept correction: it plays from here on.
                     if (awaited && usable (in) && known && in.reach >= kept.value.frames) tell (false, true);
                     break;
+                }
+                if (!checked)
+                {
+                    in.clock->provisionalClockFor (in.revision);
+                    break; // K only for this unchecked revision; no confirmation or retained-value change
                 }
                 // The budget ended without a confirmed position: the kept correction of this very
                 // pair, format, owner and host conditions plays, told as not re-measured; else K.
@@ -125,7 +143,7 @@ public:
                 // requested. The Audio Thread plays PRE at K until the run serves it, told as unmeasured.
                 const bool waits = use.frames != 0 && in.reach < use.frames;
                 kept = { use, in.k, in.context, in.host }; // played under this K from here on
-                out = { true, use, in.revision };
+                out = { true, use, in.revision, use.frames != 0 };
                 tell (waits || (use.frames == 0 && ! in.host.candidate), use.frames != 0 && ! waits);
                 awaited = waits;
                 break;
@@ -183,6 +201,7 @@ private:
         awaited = false;
     }
     Kept kept;
+    std::uint64_t keptMeasured = 0, consumedRelease = 0;
     std::int64_t watched = 0; // the amount handed to the Audio Thread
     std::uint64_t missSince = 0; // the first read of the kept position that missed
     bool awaited = false; // the kept correction is requested and waits for PRE's new run to reach it

@@ -5,6 +5,7 @@
 #include "TestProcessorStorage.h"
 #include "AutoAlignStateProductTest.h"
 #include "LuChoiceStateProductTest.h"
+#include "AlignReleaseServiceProductTest.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -19,6 +20,7 @@ int main()
     hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     juce::ScopedJuceInitialiser_GUI initialise;
+    hypha::tests::align_release_product::verify (require);
     const auto availabilityCases = verifyTimingAvailability (require);
     using Processor = KirinHyphaProcessorBase;
     using namespace hypha::live_compare;

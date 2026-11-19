@@ -275,7 +275,7 @@ public:
             checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
         const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),
                                           block.playing ? block.frames : 0);
-        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
+        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value(), { &alignment, &weight });
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
         alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
@@ -428,8 +428,8 @@ public:
     }
 
     // Message thread (INV-LC28): the content value for later blocks; 0 reads PRE at K alone.
-    void requestAlign (AlignValue value, AlignContext context = {}, std::uint64_t measured = 0) noexcept
-    { alignment.request (value, context, measured); }
+    void requestAlign (AlignValue value, AlignContext context = {}, std::uint64_t measured = 0, bool resend = false) noexcept
+    { alignment.request (value, context, measured, resend); }
     std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }
