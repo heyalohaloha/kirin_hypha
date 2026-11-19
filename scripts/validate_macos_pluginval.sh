@@ -76,6 +76,16 @@ fi
 
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR" "$RUN_HOME" "$RUN_TMP"
 
+# Each invocation owns its archive bytes through verification and extraction.
+# The shared cache is only an acquisition hint, never the verified execution input.
+ARCHIVE_WORK=""
+CACHE_PART=""
+cleanup_archive() {
+  if [[ -n "$CACHE_PART" ]]; then rm -f "$CACHE_PART"; fi
+  if [[ -n "$ARCHIVE_WORK" ]]; then rm -rf "$ARCHIVE_WORK"; fi
+}
+trap cleanup_archive EXIT
+
 PINNED_TOOL=1
 if [[ -n "${PLUGINVAL_BIN:-}" ]]; then
   if [[ "${CI:-}" == "true" ]]; then
@@ -88,20 +98,32 @@ if [[ -n "${PLUGINVAL_BIN:-}" ]]; then
   echo "WARNING: explicit unpinned tool; diagnostic only, not a formal qualification." >&2
 else
   URL="$(node scripts/pluginval_archive.mjs url "$PLUGINVAL_VERSION" macOS)"
-  ZIP="$CACHE_DIR/pluginval_macOS.zip"
-  if [[ ! -f "$ZIP" ]]; then
-    # Retry transport failures only. A completed but corrupt download must fail verification below.
-    PART="$(mktemp "$CACHE_DIR/download.XXXXXX")"
+  CACHE_ZIP="$CACHE_DIR/pluginval_macOS.zip"
+  ARCHIVE_WORK="$(mktemp -d "$CACHE_DIR/archive.XXXXXX")"
+  ZIP="$ARCHIVE_WORK/pluginval_macOS.zip"
+  DOWNLOADED=0
+  if [[ -f "$CACHE_ZIP" ]]; then
+    cp "$CACHE_ZIP" "$ZIP"
+  else
+    # Retry transport failures only. Completed corrupt bytes fail below, without retry.
     for attempt in 1 2 3 4 5 6; do
-      if curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 "$URL" -o "$PART"; then break; fi
-      if [[ "$attempt" == 6 ]]; then rm -f "$PART"; echo "ERROR: pluginval download failed" >&2; exit 1; fi
+      if curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 "$URL" -o "$ZIP"; then break; fi
+      if [[ "$attempt" == 6 ]]; then echo "ERROR: pluginval download failed" >&2; exit 1; fi
       sleep $((attempt * 10))
     done
-    mv "$PART" "$ZIP"
+    DOWNLOADED=1
   fi
   node scripts/pluginval_archive.mjs verify "$PLUGINVAL_VERSION" macOS "$ZIP" > "$OUTPUT_DIR/pluginval-tool.json"
+  if [[ "$DOWNLOADED" == 1 ]]; then
+    # Publish verified bytes atomically, without making the shared name our input again.
+    CACHE_PART="$(mktemp "$CACHE_DIR/publish.XXXXXX")"
+    cp "$ZIP" "$CACHE_PART"
+    mv "$CACHE_PART" "$CACHE_ZIP"
+    CACHE_PART=""
+  fi
   # Never trust an old expanded app, nor overlay a new archive onto one.
-  VERIFIED_STAGE="$(mktemp -d "$CACHE_DIR/verified.XXXXXX")"
+  VERIFIED_STAGE="$ARCHIVE_WORK/expanded"
+  mkdir "$VERIFIED_STAGE"
   unzip -q "$ZIP" -d "$VERIFIED_STAGE"
   PLUGINVAL_EXE="$VERIFIED_STAGE/pluginval.app/Contents/MacOS/pluginval"
 fi

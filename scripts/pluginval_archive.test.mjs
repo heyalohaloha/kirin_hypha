@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolvePin, verifyArchive } from './pluginval_archive.mjs';
+import { runGateFixture } from './macos_pluginval_fixture.mjs';
 
 function fixture(run) {
   const dir = mkdtempSync(join(tmpdir(), 'pluginval-pin-'));
@@ -19,6 +20,8 @@ function fixture(run) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 test('reviewed pins name exact official assets and executables', () => {
+  assert.equal(resolvePin('v1.0.4', 'macOS').url,
+    'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip');
   for (const os of ['macOS', 'Windows']) {
     const p = resolvePin('v1.0.4', os);
     assert.match(p.url, /^https:\/\/github\.com\/Tracktion\/pluginval\/releases\/download\/v1\.0\.4\//);
@@ -57,18 +60,6 @@ test('environment SHA cannot override reviewed CLI pin', () => fixture(({ path, 
     'verify', 'v1.0.4', 'macOS', path], { encoding: 'utf8', env: { ...process.env, PLUGINVAL_SHA256: pin.sha256 } });
   assert.equal(r.status, 1); assert.match(r.stderr, /integrity mismatch/);
 }));
-test('macOS verifies cached archive before fresh extraction, not old app reuse', () => {
-  const s = readFileSync(new URL('./validate_macos_pluginval.sh', import.meta.url), 'utf8');
-  const verify = s.indexOf('node scripts/pluginval_archive.mjs verify');
-  assert.ok(verify > s.indexOf('for attempt in'));
-  assert.ok(verify < s.indexOf('VERIFIED_STAGE='));
-  assert.ok(s.indexOf('VERIFIED_STAGE=') < s.indexOf('unzip -q'));
-  assert.ok(s.includes('mktemp -d "$CACHE_DIR/verified.XXXXXX"'));
-  assert.ok(!s.includes('PLUGINVAL_EXE="$CACHE_DIR/pluginval.app'));
-  assert.ok(!s.includes('releases/latest/'));
-  assert.ok(s.includes('CI requires a pinned archive'));
-  assert.ok(s.includes('exit 2')); // Explicit override remains diagnostic, never formal success.
-});
 test('Windows integrity failure is outside retry and extraction is a fresh exact stage', () => {
   const s = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const start = s.indexOf('# Exact reviewed official archive;');
@@ -82,4 +73,58 @@ test('Windows integrity failure is outside retry and extraction is a fresh exact
   assert.ok(section.includes('[guid]::NewGuid()'));
   assert.ok(section.includes('$exe = Join-Path $stage $pin.executable'));
   assert.ok(!section.includes('-Force')); assert.ok(!section.includes('Select-Object -First'));
+});
+
+// New behavioral fixtures require a POSIX shell; the macOS gate never ships on Windows.
+const shellFixture = { skip: process.platform === 'win32' };
+const operations = (r, name) => r.events.filter(e => e.operation === name);
+const gateSource = () => readFileSync(new URL('./validate_macos_pluginval.sh', import.meta.url), 'utf8');
+function checkGateCase(kind, r) {
+  assert.equal(r.status, kind === 'ci-override' || kind.startsWith('bad-') ? 1 : kind === 'local-override' ? 2 : 0, r.stderr);
+  if (kind === 'ci-override') {
+    assert.match(r.stderr, /CI requires a pinned archive/); assert.deepEqual(r.events, []);
+  } else if (kind === 'local-override') {
+    assert.equal(operations(r,'execute').length,2); assert.equal(operations(r,'extract').length,0);
+    assert.equal(operations(r,'verify').length,0); assert.match(r.stderr,/NOT a formal qualification/);
+  } else if (kind.startsWith('bad-')) {
+    assert.match(r.stderr,/integrity mismatch/); assert.equal(operations(r,'verify').length,1);
+    assert.equal(operations(r,'verified')[0].status,1);
+    assert.equal(operations(r,'extract').length,0); assert.equal(operations(r,'execute').length,0);
+    assert.equal(operations(r,'bundle-check').length,0);
+  } else {
+    const [verify]=operations(r,'verify'), [extract]=operations(r,'extract');
+    assert.equal(operations(r,'verify').length,1); assert.equal(operations(r,'extract').length,1);
+    assert.equal(verify.archive,extract.archive); assert.notEqual(verify.archive,r.cachePath);
+    assert.equal(verify.sha256,r.goodSha256); assert.equal(extract.sha256,r.goodSha256);
+    assert.equal(operations(r,'verified')[0].status,0);
+    assert.equal(operations(r,'execute').length,2); assert.equal(operations(r,'bundle-check').length,1);
+    if (kind==='cache-swap') {
+      assert.equal(operations(r,'shared-cache-replaced').length,1); assert.equal(r.cacheSha256,r.badSha256);
+    } else assert.equal(r.cacheSha256,r.goodSha256);
+  }
+  assert.equal(operations(r,'download').length,['download','bad-download'].includes(kind)?1:0);
+  assert.deepEqual(r.cacheEntries,kind==='bad-download'?[]:['pluginval_macOS.zip']);
+}
+for (const kind of ['ci-override','local-override','bad-cache','bad-download','cached','download','cache-swap'])
+  test('macOS gate behavior: '+kind,shellFixture,()=>checkGateCase(kind,runGateFixture(kind)));
+
+test('macOS fixtures reject a missing CI exit, formal local override and ignored verification',shellFixture,()=>{
+  const original=gateSource();
+  const changes=[
+    ['ci-override','    exit 1\n  fi\n  PINNED_TOOL=0','    :\n  fi\n  PINNED_TOOL=0'],
+    ['local-override','  PINNED_TOOL=0','  PINNED_TOOL=1'],
+    ['bad-cache','macOS "$ZIP" > "$OUTPUT_DIR/pluginval-tool.json"','macOS "$ZIP" > "$OUTPUT_DIR/pluginval-tool.json" || true'],
+  ];
+  for (const [kind,before,after] of changes) {
+    assert.equal(original.split(before).length,2,'mutation must select exactly one boundary');
+    const r=runGateFixture(kind,{script:original.replace(before,after)});
+    assert.throws(()=>checkGateCase(kind,r),undefined,'fixture must reject '+kind+' regression');
+  }
+});
+test('macOS fixture detects a return to shared ZIP after successful verification',shellFixture,()=>{
+  const original=gateSource(),before='  unzip -q "$ZIP" -d "$VERIFIED_STAGE"';
+  assert.equal(original.split(before).length,2);
+  const r=runGateFixture('cache-swap',{script:original.replace(before,'  unzip -q "$CACHE_ZIP" -d "$VERIFIED_STAGE"')});
+  assert.equal(r.status,0); assert.equal(operations(r,'extract')[0].sha256,r.badSha256);
+  assert.throws(()=>checkGateCase('cache-swap',r));
 });
