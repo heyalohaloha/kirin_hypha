@@ -1,5 +1,6 @@
 #pragma once
 #include "NameSelectAllContract.h"
+#include "FooterShortNoticeBoundaryContract.h"
 #include "Look239VisualContract.h"
 #include "FreqFrameDeliveryTest.h"
 #include "VisualReadabilityContract.h"
@@ -64,6 +65,8 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--footer-short-notice-only")
+    { verifyFooterShortNoticeBoundary(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--name-select-all-only")
     { verifyNameSelectAll(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--look239-notices-only")
@@ -212,6 +215,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         return true;
     }
     verifyNameSelectAll();
+    verifyFooterShortNoticeBoundary();
     verifyNoteDialog();
     verifyReferenceReachability();
     verifyObservationPageContract();
