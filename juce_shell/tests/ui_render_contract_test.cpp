@@ -1,3 +1,4 @@
+#include "PriorFreqFixture.h"
 #include "TestTemporaryDirectory.h"
 #include "SpectrumBenchmarkDispatch.h"
 #include "../src/HyphaWidgets.h"
@@ -139,7 +140,6 @@ namespace
                     ++count;
         return count;
     }
-
 }
 namespace hypha::tests { void verifyMetricFaceContract(); } using hypha::tests::renderSpectrumAtSize;
 using hypha::tests::renderMidSideSpectrumAtSize;
@@ -147,6 +147,7 @@ int main (int argc, char** argv)
 {
     if (const auto child = hypha::tests::shell_repairs::preferenceWriter (argc, argv); child >= 0) return child;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 3 && std::string_view(argv[1]) == "--prior-freq") return hypha::tests::prior_freq::run(juce::File(argv[2]));
     if (const auto result=hypha::tests::dispatchSpectrumBenchmark(argc,argv); result>=0) return result;
     hypha::tests::verifyMetricFaceContract(); if (std::getenv ("HYPHA_METRIC_FACE_ONLY") != nullptr) return 0;
     hypha::tests::verifyChainClockPolicy();
@@ -182,7 +183,6 @@ int main (int argc, char** argv)
         KIRIN_REQUIRE (first.isEnabled()); // missing file keeps the discoverable default
         KIRIN_REQUIRE (first.setEnabled (false));
         KIRIN_REQUIRE (! first.isEnabled());
-
         hypha::HoverHelpPreference second (preferenceFile);
         KIRIN_REQUIRE (! second.isEnabled()); // PRE/POST module recreation sees the same setting
         KIRIN_REQUIRE (second.setEnabled (true));

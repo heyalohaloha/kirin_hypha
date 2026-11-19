@@ -1,0 +1,26 @@
+{
+  "source": "07c18f84f3feeedcfe89a5df091966bd09dbf5fc",
+  "binary_sha256": "5559ec9c8a75468500618b673d0ff8e4c62894dc2efc22722393ff87debc4872",
+  "fixture_sha256": "64258a002ab84451840b42b30a23ce589efb39c757a98550dbbcd010a31bc632",
+  "backend": "JUCE ARGB/CoreGraphics bitmap; paintEntireComponent; scale1",
+  "scale": 1,
+  "os": "Mac OSX 15.7.7",
+  "juce": "JUCE v7.0.12",
+  "png_sha256": {
+    "300-en.png": "07e88a02df070f2fa185e2552fb5ecff3f65dfbd36f0a470ac14e6b5639bde0f",
+    "300-ja.png": "07e88a02df070f2fa185e2552fb5ecff3f65dfbd36f0a470ac14e6b5639bde0f",
+    "900-ja.png": "acd2cb508eb3119e25465961833960ced7be8b11af7e91cd6c158f33d6c4a703",
+    "900-en.png": "acd2cb508eb3119e25465961833960ced7be8b11af7e91cd6c158f33d6c4a703",
+    "600-ja.png": "555c6650b728c9dd364dca7bd4a2b02a4c513d133220eabf869c9d7bb1617d82",
+    "600-en.png": "555c6650b728c9dd364dca7bd4a2b02a4c513d133220eabf869c9d7bb1617d82"
+  },
+  "test_overlay": {
+    "base": "07c18f84f3feeedcfe89a5df091966bd09dbf5fc",
+    "overlay_commit": "024d89baac60870b124daf70e0761d1b6a1e8486",
+    "patch_sha256": "4ac2aae6f747d4e3e96f7f5fff6634c07d1b13293d9f7fa71d669ad05f168c10",
+    "file": "xtask/src/ffi_unwind_guard_tests.rs",
+    "before_sha256": "a88c1b323923b337de1b20a8e14e480f0f9b08b3ff9aadf5a5eb691a79a8ba9d",
+    "after_sha256": "4eae413f1f04e2befff24cee409b3191a9cf40cda3aa7b77d2abd08db8020e76",
+    "binary_sha256": "5559ec9c8a75468500618b673d0ff8e4c62894dc2efc22722393ff87debc4872"
+  }
+}
