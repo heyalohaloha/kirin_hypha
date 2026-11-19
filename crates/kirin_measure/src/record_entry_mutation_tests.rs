@@ -276,19 +276,30 @@ fn busy_progress_is_skipped_and_lock_inode_is_retained() {
     );
     let before = fs::read(&path).unwrap();
     let guard = mutation::try_acquire(&path).unwrap();
-    publish_measure_preparation(
-        temp.path(),
-        "project",
-        Role::Post,
-        "post",
-        &signal,
-        2,
-        100,
-        &owner,
-    )
-    .unwrap();
-    assert_eq!(fs::read(&path).unwrap(), before);
-    drop(guard);
+    let (tx, rx) = mpsc::sync_channel(1);
+    std::thread::scope(|scope| {
+        let task = scope.spawn(|| {
+            let result = publish_measure_preparation(
+                temp.path(),
+                "project",
+                Role::Post,
+                "post",
+                &signal,
+                2,
+                100,
+                &owner,
+            );
+            let unchanged = fs::read(&path).unwrap() == before;
+            let _ = tx.send((result, unchanged));
+        });
+        let outcome = rx.recv_timeout(LIMIT);
+        // Release even on timeout, so a blocking regression can unwind rather than hang CI.
+        drop(guard);
+        task.join().unwrap();
+        let (result, unchanged) = outcome.expect("busy progress did not return without waiting");
+        result.unwrap();
+        assert!(unchanged);
+    });
     let sibling = path.with_file_name("post__post.json.lock");
     assert!(sibling.is_file());
     publish_measure_preparation(
