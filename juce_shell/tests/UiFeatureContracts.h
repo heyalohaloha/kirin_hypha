@@ -1,5 +1,6 @@
 #pragma once
 #include "FreqFrameDeliveryTest.h"
+#include "VisualReadabilityContract.h"
 #include "SpectrumProductCadenceTest.h"
 #include "SpectrumSettingsQa.h"
 #include "ReferenceLibraryFormatUiTest.h"
@@ -60,6 +61,8 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--visual-readability-only")
+    { visual_readability::verify(); return true; }
     if (argc >= 2 && std::string_view(argv[1]) == "--freq-settings-qa")
     { std::exit(settings_qa::main(argc, argv)); }
     if (argc == 2 && std::string_view (argv[1]) == "--low-playback-only")
@@ -215,6 +218,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyLuNeedleContract();
     verifyObservatoryViewContract();
     verifyCaptureHistoryContract();
+    visual_readability::verify();
     verifyTimeHistoryContract();
     verifySpaceFieldContract();
     return false;
