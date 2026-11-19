@@ -29,6 +29,8 @@ pub struct Budget<'a> {
     started: Instant,
     batch: Instant,
     yielded: Duration,
+    #[cfg(test)]
+    clock: Option<&'a dyn Fn() -> Instant>,
     batch_entries: usize,
     batch_ops: usize,
     batch_bytes: usize,
@@ -42,16 +44,37 @@ impl<'a> Budget<'a> {
             started: now,
             batch: now,
             yielded: Duration::ZERO,
+            #[cfg(test)]
+            clock: None,
             batch_entries: 0,
             batch_ops: 0,
             batch_bytes: 0,
         }
     }
+    #[cfg(test)]
+    pub(super) fn with_clock(cancel: &'a dyn Fn() -> bool, clock: &'a dyn Fn() -> Instant) -> Self {
+        let mut budget = Self::new(cancel);
+        let now = clock();
+        budget.started = now;
+        budget.batch = now;
+        budget.clock = Some(clock);
+        budget
+    }
+    fn now(&self) -> Instant {
+        #[cfg(test)]
+        if let Some(clock) = self.clock {
+            return clock();
+        }
+        Instant::now()
+    }
+    fn elapsed_since(&self, start: Instant) -> Duration {
+        self.now().saturating_duration_since(start)
+    }
     pub fn check(&self) -> Result<(), Stop> {
         if (self.cancel)() {
             return Err(Stop::Cancelled);
         }
-        let elapsed = self.started.elapsed();
+        let elapsed = self.elapsed_since(self.started);
         if elapsed >= Duration::from_millis(250)
             || elapsed.saturating_sub(self.yielded) >= Duration::from_millis(30)
         {
@@ -64,12 +87,12 @@ impl<'a> Budget<'a> {
         if self.batch_entries >= 32
             || self.batch_ops >= 8
             || self.batch_bytes + bytes > 65536
-            || self.batch.elapsed() >= Duration::from_millis(2)
+            || self.elapsed_since(self.batch) >= Duration::from_millis(2)
         {
-            let before = Instant::now();
+            let before = self.now();
             std::thread::yield_now();
-            self.yielded += before.elapsed();
-            self.batch = Instant::now();
+            self.yielded += self.elapsed_since(before);
+            self.batch = self.now();
             self.batch_entries = 0;
             self.batch_ops = 0;
             self.batch_bytes = 0;
@@ -171,7 +194,35 @@ impl<'a> Budget<'a> {
         }
     }
     pub fn finish(mut self) -> Statistics {
-        self.stats.elapsed_us = self.started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        self.stats.elapsed_us = self
+            .elapsed_since(self.started)
+            .as_micros()
+            .min(u64::MAX as u128) as u64;
         self.stats
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn injected_clock_keeps_active_and_wall_deadline_boundaries() {
+        assert!(Budget::new(&|| false).clock.is_none());
+        let start = Instant::now();
+        let elapsed = Cell::new(Duration::ZERO);
+        let clock = || start + elapsed.get();
+        let mut budget = Budget::with_clock(&|| false, &clock);
+        elapsed.set(Duration::from_millis(29));
+        assert_eq!(budget.check(), Ok(()));
+        elapsed.set(Duration::from_millis(30));
+        assert_eq!(budget.check(), Err(Stop::Limit));
+        // Model time already yielded; the independent wall limit still applies.
+        budget.yielded = Duration::from_millis(240);
+        elapsed.set(Duration::from_millis(249));
+        assert_eq!(budget.check(), Ok(()));
+        elapsed.set(Duration::from_millis(250));
+        assert_eq!(budget.check(), Err(Stop::Limit));
     }
 }
