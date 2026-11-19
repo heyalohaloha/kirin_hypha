@@ -16,6 +16,7 @@ run() {
 # This is the source-only contract shared by local verification, every CI event, and the
 # full release-source gate. Keep it independent of JUCE builds, signing material, and hardware.
 run cargo fmt --all -- --check
+run node --test scripts/check_freq_baseline.test.mjs
 run node --test scripts/check_platform_header_boundary.test.mjs
 run node scripts/check_platform_header_boundary.mjs
 run node --test scripts/structural_repair_detection.test.mjs scripts/watch_snapshot_runtime.test.mjs
