@@ -29,7 +29,7 @@ fn preparation_for_role(role: Role) {
     )
     .unwrap();
     let signal = crate::record_signal::read_signal(temp.path(), "project", "post").unwrap();
-    claim_record_entry(
+    let owner = claim_record_entry(
         temp.path(),
         "project",
         &member.record_session_id,
@@ -40,8 +40,17 @@ fn preparation_for_role(role: Role) {
     let read = || measure_preparation_samples(temp.path(), &generation, member, role);
     assert_eq!(read(), 0);
     let publish = |samples| {
-        publish_measure_preparation(temp.path(), "project", role, instance, &signal, 2, samples)
-            .unwrap()
+        publish_measure_preparation(
+            temp.path(),
+            "project",
+            role,
+            instance,
+            &signal,
+            2,
+            samples,
+            &owner,
+        )
+        .unwrap()
     };
     publish(9_600);
     assert_eq!(read(), 9_600);

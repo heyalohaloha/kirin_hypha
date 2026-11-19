@@ -16,7 +16,7 @@ pub(super) fn reserve(path: &Path) -> Result<Reservation, RecordEntryLockError> 
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::other("entry name missing"))?;
-    let key = fs::canonicalize(parent)?.join(name);
+    let key = fs::canonicalize(parent)?.join(name.to_string_lossy().to_lowercase());
     let mut acquiring = ACQUIRING
         .get_or_init(Default::default)
         .lock()

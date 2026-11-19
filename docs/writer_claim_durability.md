@@ -39,10 +39,32 @@ facts remain the durable terminal authority under the contract above. No termina
 samples rewrite or process-lifetime owner registry is retained. Existing on-disk
 entry schemas and samples are still readable; no data migration or deletion occurs.
 
-Entry acquisition reserves its normalized entry path in a process-local set before
-disk ownership checks or replacement. The global mutex protects only insertion and
-removal, never disk I/O. A concurrent acquisition for that path is rejected; the
-reservation is released on every return path after disk publication or failure.
-After success, the fresh disk claim provides ownership. This serializes cooperating
-same-process acquisitions, not arbitrary external modifications or cross-process
-compare/unlink races. No Audio Thread work, schema or ABI is added.
+Entry acquisition reserves its canonical-parent, lowercase-filename key in a
+binary-local set before disk ownership checks or replacement. The global mutex
+protects only insertion and removal, never disk I/O. This remains a secondary guard:
+a sibling `.json.lock` file supplies non-waiting OS exclusion across independently
+linked plugin binaries and processes. Acquisition holds it from before publication
+through the stale-entry reread, age check, removal and link. Contention returns
+AlreadyActive; it never waits for an entry mutation. The existing 15-minute deadline
+and durable link/removal operations are unchanged.
+
+Progress publication takes the same sibling lock before reading, verifies the exact
+owner token returned to its IO caller at claim time, then writes the plain atomic
+checkpoint under the lock. A busy lock skips that checkpoint; a later chunk may
+retry. A stale owner cannot adopt a replacement token from disk. Tokens use UUIDs
+rather than PID plus a binary-local sequence, since separate plugin binaries in the
+same process can otherwise generate equal tokens. The JSON fields are unchanged.
+
+The IO caller retains one token bound to its session and Record generation. An
+unrelated session/generation cannot use it; the next successful claim replaces it.
+Audio, Measure and Stop do not access or clear this private slot. Access by IO is
+also non-waiting. This slot is neither a durable registry nor a new writer-readiness
+fact. A restarted state without its token does not recover authority by reading an
+entry file.
+
+The sibling inode is not unlinked on release: unlinking a held lock could allow a
+second opener to lock a different inode at the same name. It is an empty, retained
+session artifact. This serializes cooperating entry mutations, not arbitrary file
+edits or older binaries which do not take the lock. The separate writer-claim
+recovery limitation above remains unchanged. No Audio Thread work, schema or ABI
+is added.

@@ -146,7 +146,9 @@ pub(super) fn poll_record_signal_ack_with_base(
             PluginDataRole::Post,
             instance_id,
         ) {
-            Ok(()) => {}
+            Ok(owner) => {
+                record_sm.remember_io_entry_owner(&signal.session_id, next_generation, owner);
+            }
             Err(crate::record_entry_lock::RecordEntryLockError::AlreadyActive { .. }) => {
                 log::warn!(
                     "[IOThread POST] ACK ignored: record entry already owned \
@@ -229,16 +231,19 @@ fn publish_post_preparation(
 ) {
     let generation = sm.generation();
     if sm.is_recording() && sm.record_session_id().as_deref() == Some(signal.session_id.as_str()) {
-        if let Err(error) = crate::record_entry_lock::publish_measure_preparation(
-            base,
-            project,
-            PluginDataRole::Post,
-            instance,
-            signal,
-            generation,
-            sm.measure_preparation_samples(generation),
-        ) {
-            log::warn!("POST preparation progress could not be published: {error}");
+        if let Some(owner) = sm.io_entry_owner(&signal.session_id, generation) {
+            if let Err(error) = crate::record_entry_lock::publish_measure_preparation(
+                base,
+                project,
+                PluginDataRole::Post,
+                instance,
+                signal,
+                generation,
+                sm.measure_preparation_samples(generation),
+                &owner,
+            ) {
+                log::warn!("POST preparation progress could not be published: {error}");
+            }
         }
     }
 }
