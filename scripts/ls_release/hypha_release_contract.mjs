@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { validateLightHostRuns } from './hypha_release_light_evidence.mjs';
 import { releaseComplete } from './release_stages.mjs';
 import { verifyReaperEvidenceForState } from '../acceptance/reaper_run.mjs';
@@ -151,10 +152,13 @@ export function reportTemplate(state, gate, binding, ids) {
       expected: state.expected?.[id] || { passed: true }, measured: null, oracle: '', evidence: [] })) };
 }
 
-function compareExpected(expected, measured) {
+function compareExpected(expected, measured, strictArrays = false) {
+  if (strictArrays && Array.isArray(expected)) return Array.isArray(measured) && expected.length === measured.length
+    && expected.every((value, index) => compareExpected(value, measured[index], true));
+  if (strictArrays && Array.isArray(measured)) return false;
   if (expected && typeof expected === 'object') {
     return measured && typeof measured === 'object'
-      && Object.entries(expected).every(([key, value]) => compareExpected(value, measured[key]));
+      && Object.entries(expected).every(([key, value]) => compareExpected(value, measured[key], strictArrays));
   }
   return expected === measured;
 }
@@ -165,13 +169,22 @@ export function validateReport(state, reportPath, gate, binding, ids) {
   }
   const file = resolveInput(state, reportPath);
   const report = readJson(file);
+  const light = state.fixRows?.schema === 'hypha-release-fix-rows-light-v1';
+  const equal = (a, b) => light ? isDeepStrictEqual(a, b) : digest(a) === digest(b);
   if (report.schema !== 'kirin-hypha-release-evidence-v1' || report.gate !== gate
-      || digest(report.candidate) !== digest(state.candidate) || report.bindingSha256 !== binding) {
+      || !equal(report.candidate, state.candidate) || report.bindingSha256 !== binding) {
     throw new Error(`${gate}: report candidate/payload binding mismatch`);
   }
   const facts = [fileFact(file)];
   if (!Array.isArray(report.tests) || new Set(report.tests.map(t => t.id)).size !== report.tests.length) {
     throw new Error(`${gate}: missing or duplicate test records`);
+  }
+  for (const test of report.tests) {
+    if (test.evidence?.some(item => item.kind === 'host-run') && (!light || gate !== 'A4'
+      || !ids.includes(test.id) || test.result !== 'PASS'
+      || !state.fixRows.rows.some(plan => plan.id === test.id && plan.kind === 'host'))) {
+      throw new Error('host-run needs a verified planned A4 row');
+    }
   }
   for (const id of ids) {
     const row = report.tests.find(t => t.id === id);
@@ -187,12 +200,12 @@ export function validateReport(state, reportPath, gate, binding, ids) {
         || !Array.isArray(row.evidence) || row.evidence.length === 0) {
       throw new Error(`${gate}: ${id} needs expected/measured, independent oracle and retained evidence`);
     }
-    if (state.expected?.[id] && digest(row.expected) !== digest(state.expected[id])) {
+    if (state.expected?.[id] && !equal(row.expected, state.expected[id])) {
       throw new Error(`${gate}: ${id} expected values differ from the frozen contract`);
     }
-    if (!compareExpected(row.expected, row.measured)) throw new Error(`${gate}: ${id} measured values fail expected conditions`);
+    if (!compareExpected(row.expected, row.measured, light)) throw new Error(`${gate}: ${id} measured values fail expected conditions`);
     if (gate === 'A4') facts.push(...validateLightHostRuns(state, row, binding,
-      { resolveInput, fileFact, digest, compareExpected }));
+      { resolveInput, fileFact, digest, compareExpected: (a, b) => compareExpected(a, b, true) }));
     const method = acceptanceCriteria(state).evidenceMethods[id] || 'manual';
     if (!['manual', 'reaper'].includes(method)) throw new Error(`${gate}: unknown evidence method`);
     if (gate === 'A4' && state.freeze?.criteriaSha256 !== digest(acceptanceCriteria(state))) throw new Error(`${gate}: frozen criteria changed`);

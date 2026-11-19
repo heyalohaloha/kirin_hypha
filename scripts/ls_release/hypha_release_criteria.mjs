@@ -134,6 +134,7 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       }
       if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
       if (daw === 'Cakewalk' && row.os !== 'windows') throw new Error(`Fix row ${row.id}: Cakewalk requires windows`);
+      if (light && new Set(row.hosts).size !== row.hosts.length) throw new Error('Duplicate light host format');
       if (light && row.hosts.some(host => !/^(macOS\/x86_64|Windows\/x64)\/(AU|VST3|AAX)$/.test(host)
           || !applicableHost(daw, row.os, host.split('/')[2]))) {
         throw new Error('Light host rows need known shipping platform and format');

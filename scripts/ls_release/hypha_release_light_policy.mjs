@@ -17,10 +17,17 @@ export function applicableHost(daw, os, format) {
   return ['Studio One', 'REAPER', 'Ableton Live'].includes(daw)
     && (format === 'VST3' || (os === 'macos' && format === 'AU'));
 }
-const concrete = value => typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))
-  || (text(value) && !['PENDING', 'UNKNOWN', 'SKIP'].includes(value.toUpperCase()))
-  || (value && typeof value === 'object' && !Array.isArray(value)
-    && Object.keys(value).length > 0 && Object.values(value).every(concrete));
+export function concrete(value) {
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'string') return text(value) && !['PENDING', 'UNKNOWN', 'SKIP'].includes(value.trim().toUpperCase());
+  if (Array.isArray(value)) return value.length > 0 && value.every(concrete);
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value).filter(([key]) => !['passed', 'newIssues', 'transitions'].includes(key));
+    return entries.length > 0 && entries.every(([, item]) => concrete(item));
+  }
+  return false;
+}
 function observedPromise(row, transitions) {
   return Object.entries(row.expected || {}).some(([key, value]) =>
     !['newIssues', 'transitions', 'passed'].includes(key) && concrete(value))

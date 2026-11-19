@@ -43,7 +43,7 @@ test('light A4 rejects CI-only evidence and wrong host run identity',t=> {
   assert.throws(f.run,/one actual DAW run/);
 });
 test('light A4 rejects pending, observation tampering and reused format proofs',t=> {
-  const f=fixture(t); f.row.result='PENDING'; assert.throws(f.run,/not PASS/); f.row.result='PASS';
+  const f=fixture(t); f.row.result='PENDING'; assert.throws(f.run,/not PASS|verified planned A4/); f.row.result='PASS';
   fs.appendFileSync(path.join(f.root,'host1.json'),' '); assert.throws(f.run,/observation hash/);
   f.row.evidence[1]={...f.row.evidence[0],host:'macOS/x86_64/VST3'}; assert.throws(f.run,/hash mismatch or reuse/);
 });
@@ -64,4 +64,44 @@ test('light policy tests are wired into the actual lightweight runner',()=> {
   const runner=fs.readFileSync(new URL('../test_lightweight_contract.sh',import.meta.url),'utf8');
   for(const name of ['hypha_release_light_policy.test.mjs','hypha_release_light_evidence.test.mjs'])
     assert.ok(runner.split('\n').some(line=>line.startsWith('run node --test ') && line.includes(name)));
+});
+
+test('distinct format observations cannot all reuse another run even under a new path',t=> {
+  const f=fixture(t); f.runs[1].observations=structuredClone(f.runs[0].observations);
+  f.row.evidence=f.runs.map(f.ref);assert.throws(f.run,/distinct retained observation/);
+  const copied=path.join(f.root,'copied.json');fs.copyFileSync(path.join(f.root,'host0.json'),copied);
+  f.runs[1].observations=[{kind:'host-log',...fileFact(copied)}];
+  f.row.evidence=f.runs.map(f.ref);assert.throws(f.run,/distinct retained observation/);
+  f.runs[1].observations.push({kind:'host-log',...fileFact(path.join(f.root,'host1.json'))});
+  // Both formats need their own observation, shared auxiliaries are allowed.
+  const unique=path.join(f.root,'unique-au.json');fs.writeFileSync(unique,'AU unique proof');
+  f.runs[0].observations.push({kind:'host-log',...fileFact(unique)});
+  f.row.evidence=f.runs.map(f.ref);assert.ok(f.run());
+});
+test('host-run is forbidden outside verified requested A4 plan rows',t=> {
+  for(const kind of ['unplanned','extra','deferred']) {
+    const f=fixture(t);
+    if(kind==='unplanned') {f.state.fixRows.rows=[];f.state.freeze.criteriaSha256=digest(acceptanceCriteria(f.state));}
+    if(kind==='extra') f.report.tests.push({...f.row,id:'unrequested'});
+    if(kind==='deferred') f.row.result='OWNER_DEFERRED';
+    assert.throws(f.run,/verified planned A4/);
+  }
+  const f=fixture(t);f.report.gate='A5';const p=path.join(f.root,'a5.json');fs.writeFileSync(p,JSON.stringify(f.report));
+  assert.throws(()=>validateReport(f.state,p,'A5',f.report.bindingSha256,['labels']),/verified planned A4/);
+});
+test('BOM and object key order are allowed while values and arrays stay strict',t=> {
+  const f=fixture(t);const expected={restoredRoles:['PRE','POST'],detail:{a:1,b:2}};
+  f.state.fixRows.rows[0].expected=expected;f.state.expected.labels=expected;
+  f.state.freeze.criteriaSha256=digest(acceptanceCriteria(f.state));
+  f.row.expected={detail:{b:2,a:1},restoredRoles:['PRE','POST']};f.row.measured=structuredClone(expected);
+  f.report.candidate={commit:f.state.candidate.commit,version:'1.1.58',id:'fixture-candidate'};
+  for(const r of f.runs) {r.expected=f.row.expected;r.measured=structuredClone(expected);r.candidate=f.report.candidate;}
+  f.row.evidence=f.runs.map(f.ref);
+  for(const ref of f.row.evidence) {fs.writeFileSync(ref.path,'\uFEFF'+fs.readFileSync(ref.path,'utf8'));ref.sha256=fileFact(ref.path).sha256;}
+  assert.ok(f.run());
+  for(const bad of [['POST','PRE'],['PRE','POST','EXTRA'],{'0':'PRE','1':'POST'},['PRE',7]]) {
+    f.row.measured.restoredRoles=bad;assert.throws(f.run,/measured values/);
+  }
+  f.row.measured=structuredClone(expected);f.runs[1].measured.restoredRoles=['POST','PRE'];
+  f.row.evidence=f.runs.map(f.ref);assert.throws(f.run,/observed expectations/);
 });

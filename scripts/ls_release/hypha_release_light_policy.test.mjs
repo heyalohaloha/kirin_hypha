@@ -132,3 +132,18 @@ test('baseline and deep rows share the DAW format compatibility contract', t => 
     assert.throws(() => f.run(bad), /shipping platform/);
   }
 });
+
+test('deep observations reject nested verdict-only and trimmed pending values', t => {
+  const f=fixture(t);
+  for (const expected of [{check:{passed:true}}, {check:{newIssues:0}}, {readable:' PENDING '}, {check:{state:' UNKNOWN '}}]) {
+    const spec=structuredClone(f.spec); spec.rows.at(-1).expected={newIssues:0,...expected};
+    assert.throws(()=>f.run(spec),/deep host evidence/);
+  }
+  const spec=structuredClone(f.spec);spec.rows.at(-1).expected={newIssues:0,restoredRoles:['PRE','POST']};
+  assert.ok(f.run(spec));
+  spec.rows.at(-1).expected={newIssues:0,restoredRoles:[]};assert.throws(()=>f.run(spec),/deep host evidence/);
+});
+test('light duplicate host formats are rejected before freezing',t=> {
+  const f=fixture(t);f.spec.rows.at(-1).hosts.push(f.spec.rows.at(-1).hosts[0]);
+  assert.throws(()=>f.run(f.spec),/Duplicate light host/);
+});
