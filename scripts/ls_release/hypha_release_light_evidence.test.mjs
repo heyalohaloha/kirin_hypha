@@ -105,3 +105,64 @@ test('BOM and object key order are allowed while values and arrays stay strict',
   f.row.measured=structuredClone(expected);f.runs[1].measured.restoredRoles=['POST','PRE'];
   f.row.evidence=f.runs.map(f.ref);assert.throws(f.run,/observed expectations/);
 });
+
+test('A4 separates observations across planned rows and allows shared auxiliaries', t => {
+  const f = fixture(t), first = f.state.fixRows.rows[0];
+  first.daw = 'Logic Pro'; first.hosts = [f.runs[0].host];
+  const second = {...structuredClone(first), id:'labels-vst', daw:'REAPER', hosts:[f.runs[1].host]};
+  f.state.fixRows.rows.push(second); f.state.expected[second.id] = second.expected;
+  f.state.freeze.criteriaSha256 = digest(acceptanceCriteria(f.state));
+  f.runs[0].daw = first.daw; f.runs[1].rowId = second.id;
+  const rows = [f.row, {...structuredClone(f.row), id:second.id}];
+  f.report.tests = rows;
+  const run = () => {
+    rows.forEach((row, i) => { row.evidence = [f.ref(f.runs[i], i)]; });
+    const p = path.join(f.root, 'cross-row-report.json'); fs.writeFileSync(p, JSON.stringify(f.report));
+    return validateReport(f.state, p, 'A4', f.report.bindingSha256, rows.map(row => row.id));
+  };
+  assert.ok(run());
+  f.runs[1].observations = structuredClone(f.runs[0].observations);
+  assert.throws(run, /distinct retained observation across A4/);
+  const copied = path.join(f.root, 'copied-au.json'); fs.copyFileSync(path.join(f.root, 'host0.json'), copied);
+  f.runs[1].observations = [{kind:'host-log', ...fileFact(copied)}];
+  assert.throws(run, /distinct retained observation across A4/);
+  f.runs[1].observations.push({kind:'host-log', ...fileFact(path.join(f.root, 'host1.json'))});
+  const unique = path.join(f.root, 'unique-logic.json'); fs.writeFileSync(unique, 'distinct Logic observation');
+  f.runs[0].observations.push({kind:'host-log', ...fileFact(unique)});
+  assert.ok(run());
+  // Same DAW/format on a different OS is still a different observed host identity.
+  first.daw = second.daw = 'REAPER'; second.os = 'windows';
+  first.hosts = [second.hosts[0]];
+  f.runs[0].daw = 'REAPER'; f.runs[0].host = first.hosts[0]; f.runs[1].os = second.os;
+  f.state.freeze.criteriaSha256 = digest(acceptanceCriteria(f.state));
+  f.runs[1].observations = structuredClone(f.runs[0].observations);
+  assert.throws(run, /distinct retained observation across A4/);
+});
+
+test('real DAW schema cannot hide as ordinary evidence in safety or A5 rows, including BOM', t => {
+  for (const gate of ['A4', 'A5']) for (const bom of ['', '\uFEFF']) {
+    const f = fixture(t); f.state.fixRows.rows = [];
+    f.state.freeze.criteriaSha256 = digest(acceptanceCriteria(f.state));
+    f.report.gate = gate;
+    const file = path.join(f.root, 'mislabelled.json');
+    fs.writeFileSync(file, bom + JSON.stringify({...f.runs[0], result:'PENDING', candidate:{id:'wrong'}}));
+    f.row.evidence = [{kind:'attachment', ...fileFact(file)}];
+    const report = path.join(f.root, 'ordinary-report.json');
+    const run = () => {fs.writeFileSync(report, JSON.stringify(f.report));
+      return validateReport(f.state, report, gate, f.report.bindingSha256, ['labels']);};
+    assert.throws(run, /Real DAW run schema requires verified planned A4/);
+    fs.writeFileSync(file, bom + JSON.stringify({schema:'ordinary-observation-v1', measured:'retained value'}));
+    f.row.evidence = [{kind:'attachment', ...fileFact(file)}];
+    assert.ok(run());
+  }
+});
+
+test('schema classification also rejects unrequested and deferred ordinary run attachments', t => {
+  for (const result of ['PASS', 'OWNER_DEFERRED']) {
+    const f = fixture(t), file = path.join(f.root, 'hidden-run.json');
+    fs.writeFileSync(file, '\uFEFF' + JSON.stringify(f.runs[0]));
+    f.report.tests.push({...structuredClone(f.row), id:'extra', result,
+      evidence:[{kind:'attachment', ...fileFact(file)}]});
+    assert.throws(f.run, /Real DAW run schema requires verified planned A4/);
+  }
+});

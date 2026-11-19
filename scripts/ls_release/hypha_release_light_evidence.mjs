@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { LIGHT_FIX_ROWS_SCHEMA } from './hypha_release_light_policy.mjs';
 const text = value => typeof value === 'string' && value.trim().length > 0;
-export function validateLightHostRuns(state, reportRow, binding, tools) {
+export function validateLightHostRuns(state, reportRow, binding, tools, allObservations = []) {
   if (state.fixRows?.schema !== LIGHT_FIX_ROWS_SCHEMA) return [];
   const plan = state.fixRows.rows.find(row => row.id === reportRow.id && row.kind === 'host');
   if (!plan) {
@@ -50,6 +50,7 @@ export function validateLightHostRuns(state, reportRow, binding, tools) {
       observedHashes.add(proof.sha256); facts.push(proof);
     }
     observationSets.push(observedHashes);
+    allObservations.push({ identity: JSON.stringify([run.daw, run.os, run.host]), hashes: observedHashes });
     ids.add(run.runId); hashes.add(fact.sha256); facts.push(fact);
   }
   for (const [index, observed] of observationSets.entries()) {
@@ -57,4 +58,15 @@ export function validateLightHostRuns(state, reportRow, binding, tools) {
     if (![...observed].some(hash => !other.has(hash))) throw new Error('Light format run needs a distinct retained observation');
   }
   return facts;
+}
+
+// Compare across the whole A4 report, not only formats within one planned row.
+export function validateDistinctHostObservations(observations) {
+  for (const observed of observations) {
+    const other = new Set(observations.filter(item => item.identity !== observed.identity)
+      .flatMap(item => [...item.hashes]));
+    if (![...observed.hashes].some(hash => !other.has(hash))) {
+      throw new Error('Light DAW/OS/format run needs a distinct retained observation across A4');
+    }
+  }
 }
