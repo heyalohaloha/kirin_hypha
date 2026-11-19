@@ -208,7 +208,7 @@ static void alignPublicationIncludesTheRecheckGeneration()
              "changed waveform requests one new content check without changing the clock proof");
     AlignRequest request;
     const AlignContext context { 4, 6, 8, 10 };
-    request.publish ({ 1024 }, context, 7);
+    request.publish ({ 1024, true }, context, 7);
     bool current = false;
     require (request.read (context, {}, 7, &current).frames == 1024 && current,
              "the read address and recheck generation are one publication");
@@ -216,8 +216,10 @@ static void alignPublicationIncludesTheRecheckGeneration()
     require (request.read (context, { 256 }, 8, &current).frames == 256 && !current,
              "an old correction cannot confirm a newer recheck");
     current = false;
-    require (request.read ({ 5, 6, 8, 10 }, { 256 }, 8, &current).frames == 0 && !current,
-             "a foreign context is rejected even when the generation also differs");
+    AlignValue mirrored { 2048, true };
+    require (request.read ({ 5, 6, 8, 10 }, { 256 }, 8, &current, false, nullptr, &mirrored) == AlignValue{}
+             && mirrored == AlignValue{} && !current,
+             "a foreign context is rejected for both the returned address and BLIND mirror");
     request.publish ({ 0 }, context, 8);
     current = false;
     require (request.read (context, { 1024 }, 8, &current).frames == 0 && current,
