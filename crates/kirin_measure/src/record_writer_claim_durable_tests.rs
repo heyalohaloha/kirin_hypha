@@ -90,7 +90,7 @@ fn transition_write_failure_does_not_publish_ready_or_closed() {
 }
 
 #[test]
-fn damaged_sidecar_uses_only_original_heartbeat_and_never_readiness() {
+fn damaged_sidecar_preserves_active_owner_without_inventing_readiness() {
     for bytes in [b"".as_slice(), b"{\"owner_id\":".as_slice()] {
         let root = tempfile::tempdir().unwrap();
         let mut guard =
@@ -106,6 +106,30 @@ fn damaged_sidecar_uses_only_original_heartbeat_and_never_readiness() {
         ));
         guard.claim.heartbeat_at_ms = now_epoch_ms() - WRITER_CLAIM_STALE_MS - 1;
         fs::write(&guard.path, serde_json::to_vec(&guard.claim).unwrap()).unwrap();
+        assert!(matches!(
+            claim_writer(root.path(), "project", "session", Role::Post, "post"),
+            Err(WriterClaimError::AlreadyActive { .. })
+        ));
+        // The owner repairs its own sidecar on the next heartbeat, not a second writer.
+        guard.heartbeat().unwrap();
+        assert_eq!(
+            read_claim_snapshot(&guard.path).unwrap().unwrap().owner_id,
+            guard.claim.owner_id
+        );
+        fs::write(claim_state_path(&guard.path), bytes).unwrap();
+        let old = now_epoch_ms() - WRITER_CLAIM_STALE_MS - 10_000;
+        guard.claim.heartbeat_at_ms = old;
+        fs::write(&guard.path, serde_json::to_vec(&guard.claim).unwrap()).unwrap();
+        for path in [&guard.path, &claim_state_path(&guard.path)] {
+            std::fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(
+                    std::time::UNIX_EPOCH + std::time::Duration::from_millis(old as u64),
+                ))
+                .unwrap();
+        }
         let replacement =
             claim_writer(root.path(), "project", "session", Role::Post, "post").unwrap();
         assert_ne!(replacement.claim.owner_id, guard.claim.owner_id);

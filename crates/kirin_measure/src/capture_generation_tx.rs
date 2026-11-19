@@ -477,3 +477,7 @@ mod ready_tests;
 #[cfg(test)]
 #[path = "capture_generation_tx_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "capture_generation_tx_durable_tests.rs"]
+mod durable_tests;

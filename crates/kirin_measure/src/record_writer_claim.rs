@@ -58,7 +58,7 @@ struct WriterClaimStateFile {
     closed_at_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct WriterClaimSnapshot {
     project_hash: String,
     record_session_id: String,

@@ -126,9 +126,9 @@ pub(super) fn read_claim_snapshot(
         return Ok(None);
     };
     // A damaged/unreadable mutable sidecar is not fresh execution/readiness.
-    // Retain only the immutable owner's original heartbeat and existing lease
-    // rules. Damaged ownership still errors here; acquisition alone may apply
-    // the separate timestamp-based recovery gate without inventing a snapshot.
+    // Retain only the immutable owner's original heartbeat for execution/readiness.
+    // Acquisition separately considers body/sidecar mtimes for recovery, including
+    // a readable body with a damaged sidecar; that does not invent a fresh snapshot.
     let state = read_existing_state(path).ok().flatten().filter(|state| {
         state.owner_id == claim.owner_id && state.schema_version == WRITER_CLAIM_SCHEMA
     });

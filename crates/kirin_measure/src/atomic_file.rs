@@ -11,9 +11,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 use std::sync::{Condvar, Mutex, OnceLock};
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -44,7 +44,7 @@ fn write_bytes_atomic_inspect<T>(
     durable: bool,
     inspect: impl Fn(&fs::File) -> io::Result<T>,
 ) -> io::Result<T> {
-    #[cfg(all(test, not(windows)))]
+    #[cfg(test)]
     pause_atomic_write_if_requested(path);
     // The steady-state write proves the directory exists. Avoid a recursive directory
     // operation on every 100 ms heartbeat; recreate once only if the open reports absence.
@@ -103,7 +103,7 @@ fn write_bytes_atomic_inspect<T>(
     }))
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 #[derive(Default)]
 struct AtomicWritePauseState {
     path: Option<PathBuf>,
@@ -111,19 +111,19 @@ struct AtomicWritePauseState {
     released: bool,
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 fn atomic_write_pause_state() -> &'static (Mutex<AtomicWritePauseState>, Condvar) {
     static STATE: OnceLock<(Mutex<AtomicWritePauseState>, Condvar)> = OnceLock::new();
     STATE.get_or_init(|| (Mutex::new(AtomicWritePauseState::default()), Condvar::new()))
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 pub(crate) struct AtomicWritePause {
     path: PathBuf,
     _exclusive: std::sync::MutexGuard<'static, ()>,
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 impl AtomicWritePause {
     pub(crate) fn install(path: PathBuf) -> Self {
         // Multiple independent fault-injection tests share this one process-global hook.
@@ -184,14 +184,14 @@ impl AtomicWritePause {
     }
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 impl Drop for AtomicWritePause {
     fn drop(&mut self) {
         self.release();
     }
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 fn pause_atomic_write_if_requested(path: &Path) {
     let (lock, wake) = atomic_write_pause_state();
     let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

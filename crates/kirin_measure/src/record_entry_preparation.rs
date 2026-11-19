@@ -55,7 +55,15 @@ pub(crate) fn publish_measure_preparation(
         return Ok(());
     }
     let path = entry_lock_path(base, project, &signal.session_id, role, instance);
-    let mut owners = terminal::owners()?;
+    let incoming = EntryPreparation {
+        capture_generation_id: signal.capture_generation_id.clone(),
+        generation_started_at_ms: signal.generation_started_at_ms,
+        record_generation,
+        samples,
+    };
+    let Some(mut work) = terminal::acquire(&path, Some(&incoming))? else {
+        return Ok(());
+    };
     let mut lock: RecordEntryLockFile = serde_json::from_slice(&fs::read(&path)?)?;
     if !matches(
         &lock,
@@ -75,13 +83,7 @@ pub(crate) fn publish_measure_preparation(
             return Ok(());
         }
     }
-    let incoming = EntryPreparation {
-        capture_generation_id: signal.capture_generation_id.clone(),
-        generation_started_at_ms: signal.generation_started_at_ms,
-        record_generation,
-        samples,
-    };
-    if !terminal::before_progress(&mut owners, &path, &lock, &incoming)? {
+    if !work.before_progress(&lock, &incoming)? {
         return Ok(());
     }
     if lock
@@ -93,7 +95,7 @@ pub(crate) fn publish_measure_preparation(
     }
     lock.measure_preparation = Some(incoming.clone());
     crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&lock)?)?;
-    terminal::published(&mut owners, &path, incoming);
+    work.published(incoming)?;
     Ok(())
 }
 

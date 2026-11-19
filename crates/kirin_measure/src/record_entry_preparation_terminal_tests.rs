@@ -285,7 +285,6 @@ fn sync_failure_preserves_existing_best_effort_contract_and_one_attempt() {
     assert_eq!(f.sync_count(|| f.publish(19_200)), 0);
 }
 
-#[cfg(not(windows))]
 #[test]
 fn in_flight_plain_publication_finishes_before_terminal_sync() {
     let f = Fixture::new();
@@ -313,4 +312,135 @@ fn in_flight_plain_publication_finishes_before_terminal_sync() {
     assert_eq!(f.samples(), 19_200);
     assert_eq!(f.sync_count(|| f.publish(28_800)), 0);
     assert_eq!(f.samples(), 19_200);
+}
+
+#[test]
+fn stalled_entry_does_not_block_other_claim_or_stop() {
+    let a = Fixture::new();
+    a.publish(9_600);
+    let pause = crate::atomic_file::AtomicWritePause::install(a.path());
+    std::thread::scope(|scope| {
+        let progress = scope.spawn(|| a.publish(19_200));
+        pause.wait_until_entered();
+        let (send, receive) = std::sync::mpsc::channel();
+        let a = &a;
+        let worker = scope.spawn(move || {
+            let b = Fixture::new();
+            b.publish(9_600);
+            mark_generation_terminal(
+                b.root.path(),
+                &b.generation,
+                GenerationTerminalReason::AllStop,
+            )
+            .unwrap();
+            mark_generation_terminal(
+                a.root.path(),
+                &a.generation,
+                GenerationTerminalReason::AllStop,
+            )
+            .unwrap();
+            send.send(()).unwrap();
+        });
+        let completed_before_release = receive.recv_timeout(std::time::Duration::from_secs(5));
+        // Always unblock before asserting: the regression must fail, not hang a scoped join.
+        pause.release();
+        progress.join().unwrap();
+        worker.join().unwrap();
+        assert!(
+            completed_before_release.is_ok(),
+            "another entry and Stop must finish while IO remains stalled"
+        );
+    });
+    assert_eq!(a.samples(), 19_200);
+    assert!(!terminal::owners().unwrap().contains_key(&a.path()));
+    assert_eq!(a.sync_count(|| a.publish(28_800)), 0);
+    assert_eq!(a.samples(), 19_200);
+}
+
+#[test]
+fn completed_entries_retire_instead_of_accumulating() {
+    for _ in 0..100 {
+        let f = Fixture::new();
+        f.publish(9_600);
+        mark_generation_terminal(
+            f.root.path(),
+            &f.generation,
+            GenerationTerminalReason::AllStop,
+        )
+        .unwrap();
+        assert!(!terminal::owners().unwrap().contains_key(&f.path()));
+        assert_eq!(f.sync_count(|| f.publish(19_200)), 0);
+        assert_eq!(f.samples(), 9_600);
+    }
+}
+
+#[test]
+fn old_work_cannot_release_or_retire_replacement_owner() {
+    let f = Fixture::new();
+    f.publish(9_600);
+    let old = terminal::acquire(&f.path(), None).unwrap().unwrap();
+    let mut replacement: RecordEntryLockFile =
+        serde_json::from_slice(&fs::read(f.path()).unwrap()).unwrap();
+    replacement.owner_id = "new-local-owner".into();
+    terminal::register(
+        &mut terminal::owners().unwrap(),
+        f.root.path(),
+        f.path(),
+        replacement,
+    );
+    let next = terminal::acquire(&f.path(), None).unwrap().unwrap();
+    drop(old);
+    assert!(
+        terminal::acquire(&f.path(), None).unwrap().is_none(),
+        "old token cannot release new owner's IO"
+    );
+    drop(next);
+    terminal::owners().unwrap().remove(&f.path());
+}
+
+#[test]
+fn stalled_terminal_sync_does_not_hold_the_owners_table() {
+    let a = Fixture::new();
+    a.publish(9_600);
+    let pause = crate::atomic_file::AtomicWritePause::install(a.path());
+    std::thread::scope(|scope| {
+        let terminal = scope.spawn(|| {
+            mark_generation_terminal(
+                a.root.path(),
+                &a.generation,
+                GenerationTerminalReason::AllStop,
+            )
+            .unwrap();
+        });
+        pause.wait_until_entered();
+        let (send, receive) = std::sync::mpsc::channel();
+        let a = &a;
+        let independent = scope.spawn(move || {
+            let b = Fixture::new();
+            b.publish(9_600);
+            mark_generation_terminal(
+                b.root.path(),
+                &b.generation,
+                GenerationTerminalReason::AllStop,
+            )
+            .unwrap();
+            // A repeated Stop must not wait for the already-running terminal writer either.
+            terminal::finish_terminal_preparations(
+                a.root.path(),
+                &a.generation.capture_generation_id,
+                a.generation.started_at_ms,
+            );
+            send.send(()).unwrap();
+        });
+        let completed = receive.recv_timeout(std::time::Duration::from_secs(5));
+        pause.release();
+        terminal.join().unwrap();
+        independent.join().unwrap();
+        assert!(
+            completed.is_ok(),
+            "terminal IO cannot hold unrelated claims or repeated Stop"
+        );
+    });
+    assert_eq!(a.samples(), 9_600);
+    assert!(!terminal::owners().unwrap().contains_key(&a.path()));
 }

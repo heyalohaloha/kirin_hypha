@@ -114,10 +114,18 @@ pub(crate) fn claim_record_entry(
         return Err(RecordEntryLockError::InvalidSession);
     }
 
-    let mut owners = preparation::terminal::owners()?;
     let dir = entry_lock_dir(base_dir, project_hash, session_id);
     crate::atomic_file::durable::create_dir_all(&dir)?;
     let path = entry_lock_path(base_dir, project_hash, session_id, role, instance_id);
+    // Existing local IO is never replaced or waited on while claiming this path.
+    let _in_flight = preparation::terminal::acquire(&path, None)?;
+    if _in_flight.is_none() && preparation::terminal::owners()?.contains_key(&path) {
+        return Err(RecordEntryLockError::AlreadyActive {
+            path,
+            owner_id: None,
+            heartbeat_at_ms: None,
+        });
+    }
     let now = now_epoch_ms();
     let lock = RecordEntryLockFile {
         schema_version: RECORD_ENTRY_LOCK_SCHEMA.to_string(),
@@ -140,6 +148,7 @@ pub(crate) fn claim_record_entry(
         }
     };
     if result.is_ok() {
+        let mut owners = preparation::terminal::owners()?;
         preparation::terminal::register(&mut owners, base_dir, path, lock);
     }
     result

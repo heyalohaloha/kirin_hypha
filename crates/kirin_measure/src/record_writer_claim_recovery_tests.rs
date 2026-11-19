@@ -137,3 +137,75 @@ fn repaired_or_refreshed_claim_is_not_removed() {
     ));
     assert_eq!(fs::read(&owner.path).unwrap(), b"{");
 }
+
+#[test]
+fn readable_owner_recovery_uses_all_four_times_without_renewing_readiness() {
+    let old = 1_700_000_000_000;
+    for newest_field in 0..4 {
+        let root = tempfile::tempdir().unwrap();
+        let owner = claim_writer(root.path(), "p", "s", Role::Post, "i").unwrap();
+        let mut body = owner.claim.clone();
+        body.heartbeat_at_ms = old + if newest_field == 0 { 2000 } else { 0 };
+        fs::write(&owner.path, serde_json::to_vec(&body).unwrap()).unwrap();
+        set_mtime(&owner.path, old + if newest_field == 1 { 2000 } else { 0 });
+        sidecar(
+            &owner.path,
+            old + if newest_field == 2 { 2000 } else { 0 },
+            old + if newest_field == 3 { 2000 } else { 0 },
+        );
+        for offset in [-1, 0, 1] {
+            let result =
+                snapshot_for_reclaim(&owner.path, old + 2000 + WRITER_CLAIM_STALE_MS + offset);
+            if offset <= 0 {
+                assert!(matches!(
+                    result,
+                    Err(WriterClaimError::AlreadyActive { .. })
+                ));
+            } else {
+                assert!(result.unwrap().is_some());
+            }
+            let normal = read_claim_snapshot(&owner.path).unwrap().unwrap();
+            assert_eq!(normal.heartbeat_at_ms, body.heartbeat_at_ms);
+            assert!(normal.ready_at_ms.is_none() && normal.closed_at_ms.is_none());
+        }
+    }
+}
+
+#[test]
+fn readable_owner_is_not_reclaimed_after_refresh_replacement_or_read_failure() {
+    for mode in 0..3 {
+        let root = tempfile::tempdir().unwrap();
+        let owner = claim_writer(root.path(), "p", "s", Role::Post, "i").unwrap();
+        let mut body = owner.claim.clone();
+        let old = now_epoch_ms() - WRITER_CLAIM_STALE_MS - 10_000;
+        body.heartbeat_at_ms = old;
+        fs::write(&owner.path, serde_json::to_vec(&body).unwrap()).unwrap();
+        set_mtime(&owner.path, old);
+        let mut reads = 0;
+        let result = snapshot_for_reclaim_with(&owner.path, now_epoch_ms(), |path| {
+            reads += 1;
+            if reads == 2 {
+                match mode {
+                    0 => sidecar(path, now_epoch_ms(), now_epoch_ms()),
+                    1 => {
+                        body.owner_id = "replacement".into();
+                        fs::write(path, serde_json::to_vec(&body).unwrap()).unwrap();
+                        set_mtime(path, old);
+                    }
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "injected read failure",
+                        )
+                        .into())
+                    }
+                }
+            }
+            read_claim_snapshot(path)
+        });
+        assert!(matches!(
+            result,
+            Err(WriterClaimError::AlreadyActive { .. })
+        ));
+    }
+}

@@ -38,6 +38,12 @@ fn evidence(path: &Path) -> io::Result<Evidence> {
         Err(error) => return Err(error),
     };
     let mut latest_ms = epoch_ms(body.0)?;
+    // Only recovery uses these timestamps. They never renew execution/readiness.
+    if let Ok(bytes) = fs::read(path) {
+        if let Ok(value) = serde_json::from_slice::<WriterClaimFile>(&bytes) {
+            latest_ms = latest_ms.max(value.heartbeat_at_ms);
+        }
+    }
     if let Some(value) = state {
         latest_ms = latest_ms.max(epoch_ms(value.0)?);
         // With a damaged body the sidecar cannot attest an owner. Its heartbeat
@@ -76,7 +82,32 @@ fn snapshot_for_reclaim_with(
     mut read: impl FnMut(&Path) -> Result<Option<WriterClaimSnapshot>, WriterClaimError>,
 ) -> Result<Option<WriterClaimSnapshot>, WriterClaimError> {
     match read(path) {
-        Ok(Some(snapshot)) => return Ok(Some(snapshot)),
+        Ok(Some(snapshot)) => {
+            if snapshot.closed_at_ms.is_some() {
+                return Ok(Some(snapshot)); // preserve authoritative closure
+            }
+            let first = evidence(path).map_err(|_| active(path, None))?;
+            let latest = first.latest_ms.max(snapshot.heartbeat_at_ms);
+            if process_is_alive(snapshot.host_process_id)
+                && now.saturating_sub(latest) <= WRITER_CLAIM_STALE_MS
+            {
+                return Err(WriterClaimError::AlreadyActive {
+                    path: path.to_path_buf(),
+                    owner_id: Some(snapshot.owner_id),
+                    heartbeat_at_ms: Some(latest),
+                });
+            }
+            // A readable immutable body must not skip the same replacement/refresh
+            // recheck used for damaged bodies. This is not atomic compare-and-unlink.
+            let Some(again) = read(path).ok().flatten() else {
+                return Err(active(path, None));
+            };
+            let second = evidence(path).map_err(|_| active(path, None))?;
+            if snapshot != again || first != second {
+                return Err(active(path, Some(second.latest_ms)));
+            }
+            return Ok(Some(snapshot));
+        }
         Ok(None) if !path.try_exists()? => return Ok(None),
         _ => {}
     }
