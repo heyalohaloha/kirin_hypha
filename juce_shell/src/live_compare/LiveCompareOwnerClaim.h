@@ -3,15 +3,7 @@
 #include <cstdio>
 #include <string>
 
-#if defined (_WIN32)
- #ifndef NOMINMAX
-  #define NOMINMAX
- #endif
- #ifndef WIN32_LEAN_AND_MEAN
-  #define WIN32_LEAN_AND_MEAN
- #endif
- #include <windows.h>
-#else
+#if ! defined (_WIN32)
  #include <fcntl.h>
  #include <sys/file.h>
  #include <sys/stat.h>
@@ -20,6 +12,9 @@
 
 namespace hypha::live_compare
 {
+#if defined (_WIN32)
+namespace windows_detail { void* acquire (const std::wstring&); void close (void*) noexcept; }
+#endif
 // PRE-only, non-RT lifetime ownership. Readers never hold this claim. Process death releases
 // it, unlike a POSIX name or a Windows PCM section retained by a POST reader.
 // A Windows section has no owning-thread constraint; BSD flock follows the open file, not
@@ -30,7 +25,7 @@ public:
     ~OwnerClaim()
     {
        #if defined (_WIN32)
-        if (handle != nullptr) CloseHandle (handle);
+        windows_detail::close (handle);
        #else
         if (fd >= 0) ::close (fd);
        #endif
@@ -46,10 +41,8 @@ public:
        #if defined (_WIN32)
         const std::string narrow = std::string ("Local\\kh-lc12-owner-") + suffix;
         const std::wstring name (narrow.begin(), narrow.end());
-        auto candidate = CreateFileMappingW (INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 1, name.c_str());
+        auto candidate = windows_detail::acquire (name);
         if (candidate == nullptr) return false;
-        const bool fresh = GetLastError() != ERROR_ALREADY_EXISTS;
-        if (! fresh) { CloseHandle (candidate); return false; }
         handle = candidate;
        #else
         // Darwin POSIX shm descriptors do not support flock (ENOTSUP). Use a zero-byte,
@@ -69,7 +62,7 @@ public:
     }
 private:
    #if defined (_WIN32)
-    HANDLE handle = nullptr;
+    void* handle = nullptr;
    #else
     int fd = -1;
    #endif

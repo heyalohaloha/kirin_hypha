@@ -1,5 +1,6 @@
 #pragma once
 #include "StorageWriteGuardStartup.h"
+#include "ShippingDisabledGuardTest.h"
 #include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "TestPathBudget.h"
@@ -57,9 +58,11 @@ template<class Require> std::optional<int> preDisplayGuardStartup(int argc,char*
     const auto configured=juce::SystemStats::getEnvironmentVariable("KIRIN_HYPHA_TEST_STORAGE_ROOT",{});
     if(mode=="--guard-shipping-disabled") {
         if(!storage::write_guard::validRoot(configured)) return 78;
-        const auto root=juce::File(configured).getNonexistentChildFile("pdg",{},false);
+        const auto root=shippingDisabledFixture(require).getNonexistentChildFile("pdg",{},false);
+        const auto before=storage::write_guard::permittedMutationEntries();
         require(root.createDirectory().wasOk(),"disabled guard fixture root");
         verifyPreDisplayWrites(root,require,false);
+        require(before==storage::write_guard::permittedMutationEntries(),"disabled PRE writes do not enter guarded mutations");
         require(removeFixtureDirectory(root),"disabled guard fixture cleanup"); return 0;
     }
     if(!initializeStorageWriteGuard()) return 78;
