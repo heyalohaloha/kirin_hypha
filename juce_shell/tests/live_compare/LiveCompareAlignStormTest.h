@@ -88,6 +88,8 @@ struct World
         in.event = event; in.context = context; in.host = host; in.active = true; in.agreement = agreement;
         in.revision = l.alignment.readiness.generation(); in.k = l.alignment.readiness.clockK();
         in.clock = &l.alignment.readiness;
+        in.blind = mode == Mode::blind; in.requested = l.alignment.requestFor (context);
+        in.pending = l.alignment.readiness.pending(); in.spent = l.alignment.budgetSpent();
         return in;
     }
 
@@ -216,7 +218,7 @@ struct World
             check (x.pathOpen == y.pathOpen && x.alignment.pathProven() == y.alignment.pathProven()
                      && x.alignment.readiness.pending() == y.alignment.readiness.pending()
                      && x.alignment.budgetSpent() == y.alignment.budgetSpent() && toldX.unmeasured == toldY.unmeasured
-                     && toldX.notRemeasured == toldY.notRemeasured, "both BLIND assignments wait and are told alike at every block");
+                     && toldX.notRemeasured == toldY.notRemeasured && toldX.unapplied == toldY.unapplied, "both BLIND assignments wait and are told alike at every block");
         }
         wasValid = stopped == 0 && calibrating == 0;
         if (wasValid) takeoverUnheard = false; // the Audio Thread has seen that step of K by itself

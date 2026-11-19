@@ -47,6 +47,7 @@ static void print (const char* name, const Tally& t)
 #include "LiveCompareKeptAlignTest.h"
 #include "LiveCompareLateAlignTest.h"
 #include "LiveCompareSpentClockTest.h"
+#include "LiveCompareTakeoverFenceTest.h"
 #include "LiveCompareAlignUnrestrictedStormTest.h"
 
 // The G1 protocol: loops, seeks, stop and play, a backward seek within one pass, a forward seek into
@@ -271,6 +272,9 @@ int main()
     takeoverIsKnownByItsOwnStepOfK();
     takeoverDuringPromotion();
     alignWatchRaces();
+    takeoverReceiptCompletesBeforeFallback();
+    blindUnappliedNoticeIsSymmetric();
+    comparisonContinuesAfterWatchExhaustion();
     takeoverOfBothWatchSlots();
     spentBudgetNeverWaitsAgainInTheRenderer();
     clockChangeInsideABlockCostsNoPostBlock();

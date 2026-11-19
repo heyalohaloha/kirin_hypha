@@ -206,10 +206,17 @@ public:
             previousK = k;
             haveK = everK = true;
         }
+        takeoverChecked.store (revision.load(), std::memory_order_release);
     }
     // Keep this pure prediction in step with observe()'s mapping invalidation conditions.
     bool revises (bool enabled, std::int64_t k) const noexcept
     { return ! started || enabled != wasEnabled || ! haveK || k != previousK; }
+    void provisionalClockFor (std::uint64_t target) const noexcept
+    { provisionalRevision.store (target, std::memory_order_release); }
+    bool provisionalClockIs (std::uint64_t target) const noexcept
+    { return target != 0 && provisionalRevision.load (std::memory_order_acquire) == target; }
+    bool takeoverCheckedFor (std::uint64_t target) const noexcept
+    { return takeoverChecked.load (std::memory_order_acquire) == target; }
     std::int64_t clockK() const noexcept { return observedK.load(); }
     // INV-LC28, the owner of PRE's alignment state (non-RT): the kept amount to watch for from now on
     // (0: none). The Audio Thread compares each step of K, from one proven mapping to the next under
@@ -223,6 +230,9 @@ public:
     { keptAgreement.store (agreement); watch.watchKept (frames); }
     // The watched amount K stepped by since the last call; 0 when it did not.
     std::int64_t takenOver() const noexcept { return watch.takenOver(); }
+   #ifdef KIRIN_ALIGN_WATCH_TEST
+    void watchIdentityNearLimitForTest() noexcept { watch.identityNearLimitForTest(); }
+   #endif
     std::uint64_t generation() const noexcept { return revision.load(); }
     bool pending() const noexcept { return confirmed.load() != revision.load(); }
     void recheck() noexcept { if (! pending()) revision.fetch_add (1); }
@@ -231,6 +241,8 @@ public:
     bool ambiguous() const noexcept { return pending() && revision.load() != 0 && ambiguousRevision.load() == revision.load(); }
 private:
     std::atomic<std::uint64_t> revision { 0 }, confirmed { 0 }, ambiguousRevision { 0 };
+    std::atomic<std::uint64_t> takeoverChecked { 0 };
+    mutable std::atomic<std::uint64_t> provisionalRevision { 0 };
     std::atomic<std::int64_t> observedK { 0 };
     mutable AlignWatch watch;
     mutable std::atomic<std::int64_t> keptAgreement { 0 };
@@ -285,7 +297,7 @@ public:
         reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;
         result.revision = readiness.generation();
-        releasing = false;
+        releasing = provisionalRead = false;
         if (!expired) spentKnown = false;
         else if (!spentKnown) { spentKnown = true; spentRevision = result.revision; }
         auto wanted = playback.enabled
@@ -324,6 +336,7 @@ public:
         // A changed revision proposes release; only a clock-proven block may notify its owner.
         releasing = expired && spentKnown && !answered && result.revision != spentRevision;
         unconfirmed = readiness.pending() || ! result.current;
+        requestCurrent = result.current;
         if (answered && checks && (readiness.pending() || ! result.current) && weight <= 0.0f) adopt ({});
         if (path.frames == 0) unserved.store (false);
         corrected = path.frames > 0;
@@ -346,6 +359,9 @@ public:
         if (!checks) return applied;
         const bool revised = readiness.revises (true, k);
         releasing = releasing || (revised && expired && spentKnown && !answered);
+        provisionalRead = expired && !requestCurrent && unconfirmed && !revised
+            && readiness.provisionalClockIs (readiness.generation());
+        if (provisionalRead && applied != AlignValue {}) { weight = 0.0f; adopt ({}); }
         if ((answered || releasing) && (revised || unconfirmed) && applied != AlignValue {})
         { weight = 0.0f; adopt ({}); }
         return applied;
@@ -394,7 +410,7 @@ public:
     {
         if (! (readiness.pending() || ! update.current || update.revision != readiness.generation())) return update.deferred;
         serves = false;
-        return update.deferred || ! (answered && applied == AlignValue {});
+        return update.deferred || ! ((answered || provisionalRead) && applied == AlignValue {});
     }
     // The content service (non-RT) has seen the present budget waiting for a content check.
     void arm() const noexcept { armed.store (budget.load (std::memory_order_relaxed), std::memory_order_relaxed); }
@@ -428,9 +444,10 @@ private:
     // its address (corrected: a correction); answered: the service has answered the spent budget.
     std::int64_t held = 0, stake = 0, played = 0, bound = 0;
     bool expired = false, answered = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
-    bool spentKnown = false, releasing = false;
+    bool spentKnown = false, releasing = false, provisionalRead = false;
     std::uint64_t spentRevision = 0;
     std::atomic<std::uint64_t> dropped { 0 }; // an unanswered spent budget released at a moved mapping
+    bool requestCurrent = false;
     bool unconfirmed = false; // the content check does not cover the mapping read by update()
     std::atomic<bool> unserved { false }, proven { false }, spent { false };
     std::atomic<std::uint64_t> budget { 1 }; // written by the Audio Thread: which budget is running

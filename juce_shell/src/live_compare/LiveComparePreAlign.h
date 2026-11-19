@@ -72,6 +72,8 @@ public:
     PreAlignOutput transition (const PreAlignInput& in) noexcept
     {
         PreAlignOutput out;
+        // Acquire completion before consuming receipts; otherwise a just-arrived hit could be missed.
+        const bool checked = in.clock == nullptr || in.clock->takeoverCheckedFor (in.revision);
         observeClock (in);
         if (! in.blind) unapplied.store (false, std::memory_order_release); // LISTEN and A/B fade PRE to it
         switch (in.event)
@@ -111,6 +113,11 @@ public:
                     // PRE's new run has written as far as the kept correction: it plays from here on.
                     if (awaited && usable (in) && known && in.reach >= kept.value.frames) tell (false, true);
                     break;
+                }
+                if (!checked)
+                {
+                    in.clock->provisionalClockFor (in.revision);
+                    break; // K only for this unchecked revision; no confirmation or retained-value change
                 }
                 // The budget ended without a confirmed position: the kept correction of this very
                 // pair, format, owner and host conditions plays, told as not re-measured; else K.

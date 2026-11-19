@@ -7,6 +7,7 @@ namespace hypha::live_compare
 static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
 #ifdef KIRIN_ALIGN_WATCH_TEST
 inline void (*betweenAlignWatchLoadsForTest)() = nullptr;
+inline void (*betweenAlignWatchStoresForTest)() = nullptr;
 #endif
 // One owner, one Audio Thread. Identity is 39 bits, never recycled during this object lifetime.
 // At 100 new amounts/second, the identity space lasts more than 170 years.
@@ -50,6 +51,9 @@ public:
         else { keptId = identity(); if (keptId == 0) value = 0; cells[keptLane].store (keptId << 1); }
         kept = value; pending = 0; pendingId = 0;
         keptWord.store (value != 0 ? word (kept, keptLane, keptId) : 0); // kept first,
+       #ifdef KIRIN_ALIGN_WATCH_TEST
+        if (betweenAlignWatchStoresForTest) betweenAlignWatchStoresForTest();
+       #endif
         nextWord.store (0);                                              // then next
     }
     std::int64_t takenOver() noexcept
@@ -58,6 +62,9 @@ public:
         auto hit = (keptId << 1) | 1u;
         return cells[keptLane].compare_exchange_strong (hit, keptId << 1) ? kept : 0;
     }
+  #ifdef KIRIN_ALIGN_WATCH_TEST
+    void identityNearLimitForTest() noexcept { lastId = (std::uint64_t { 1 } << 39) - 2; }
+  #endif
 private:
     // Exhaustion disables new watches, never aliases a historic receipt.
     std::uint64_t identity() noexcept { return lastId < ((std::uint64_t { 1 } << 39) - 1) ? ++lastId : 0; }

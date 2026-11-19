@@ -29,6 +29,32 @@ inline void alignWatchRaces()
         if (delayed) w.record (seen);
         require (w.takenOver() == 1000, "kept identity survives unrelated publications without epoch wrap");
     }
+    {
+        AlignWatch w; w.watchKept (1000);
+        for (int i = 0; i < 32767; ++i) { w.watchNext (2000); w.watchNext (0); }
+        w.record (w.snapshot().kept);
+        w.watchNext (2000); w.watchNext (0);
+        require (w.takenOver() == 1000 && w.takenOver() == 0, "receipt spanning the old epoch wrap is consumed exactly once");
+    }
+    {
+        using namespace hypha::live_compare;
+        AlignReadiness readiness; readiness.observe (true, true, true, 0);
+        readiness.watchKept (1000, 2); readiness.watchNext (2000, 2);
+        static AlignReadiness* clock = nullptr; clock = &readiness;
+        betweenAlignWatchStoresForTest = [] { clock->observe (true, true, true, 2000); };
+        readiness.watchKept (2000, 2);
+        betweenAlignWatchStoresForTest = nullptr; clock = nullptr;
+        require (readiness.takenOver() == 2000 && readiness.takenOver() == 0,
+                 "audio between promotion stores records the promoted identity once");
+    }
+    {
+        AlignWatch w; w.identityNearLimitForTest(); w.watchNext (1000);
+        const auto last = w.snapshot().next; w.watchKept (1000); w.record (last);
+        require (w.takenOver() == 1000 && w.takenOver() == 0, "last legitimate identity is recovered once");
+        w.watchNext (2000); require (w.snapshot().next == 0, "exhaustion never recycles a historic identity");
+        w.watchKept (2000); w.record (last);
+        require (w.takenOver() == 0, "exhausted watch refuses a stale final receipt");
+    }
     for (bool legitimate : { false, true })
     {
         AlignWatch w; w.watchKept (1000); w.watchNext (2000);
