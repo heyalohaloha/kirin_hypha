@@ -16,15 +16,17 @@ inline void verifySpectrumProductCadence()
     { if (! ok) throw std::runtime_error (what); };
     using spectrum_display::FrameCadence;
     FrameCadence cadence;
+    constexpr auto interval = FrameCadence::intervalMs;
+    static_assert (interval == 1000.0 / 30.0);
     check (cadence.due (0), "first spectrum presentation is immediate");
-    check (! cadence.due (49.999), "no spectrum frame before 50 ms");
-    check (cadence.due (50), "spectrum frame at 50 ms");
-    check (! cadence.due (50), "no duplicate frame at one timestamp");
-    check (cadence.due (100), "next spectrum frame at 100 ms");
+    check (! cadence.due (interval - 0.001), "no spectrum frame before one interval");
+    check (cadence.due (interval), "spectrum frame at one interval");
+    check (! cadence.due (interval), "no duplicate frame at one timestamp");
+    check (cadence.due (2 * interval), "next spectrum frame at two intervals");
     check (cadence.due (10'125), "stalled presentation resumes once");
-    check (! cadence.due (10'125) && ! cadence.due (10'149), "no catch-up burst");
-    check (cadence.due (10'150), "deadline phase survives stall");
-    check (cadence.due (5) && ! cadence.due (54), "clock rewind restarts cadence");
+    check (! cadence.due (10'125) && ! cadence.due (304 * interval - 0.001), "no catch-up burst");
+    check (cadence.due (304 * interval), "deadline phase survives stall");
+    check (cadence.due (5) && ! cadence.due (5 + interval - 0.001), "clock rewind restarts cadence");
     cadence.reset();
     check (cadence.due (6), "hide or disable reset permits immediate show");
     check (! cadence.due (std::numeric_limits<double>::quiet_NaN()), "invalid clock rejected");
@@ -36,7 +38,7 @@ inline void verifySpectrumProductCadence()
         int ticks = 0;
         for (int frame = 0; frame <= displayHz * 10; ++frame)
             ticks += display.due (1'000.0 * frame / displayHz) ? 1 : 0;
-        check (ticks == 201, "ten seconds has 200 intervals plus first frame at every display rate");
+        check (ticks == 301, "ten seconds has 300 intervals plus first frame at every display rate");
     }
 }
 

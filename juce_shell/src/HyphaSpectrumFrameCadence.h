@@ -7,7 +7,7 @@ namespace hypha::spectrum_display
 class FrameCadence
 {
 public:
-    static constexpr double intervalMs = 50.0;
+    static constexpr double intervalMs = 1000.0 / 30.0;
     void reset() noexcept { started = false; }
     bool due (double nowMs) noexcept
     {
@@ -18,7 +18,7 @@ public:
             return true;
         }
         lastMs = nowMs;
-        // Keep the deadline's phase: rounding at 60 Hz must not turn 20 fps into 15.
+        // Keep the deadline's phase: display-clock rounding must preserve the selected 30 fps rate.
         constexpr double epsilonMs = 0.000001;
         if (nowMs + epsilonMs < nextMs) return false;
         const auto missed = std::floor ((nowMs - nextMs + epsilonMs) / intervalMs);
