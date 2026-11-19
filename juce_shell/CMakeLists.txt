@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.22)
-
 if(APPLE)
     # B-092: minimum macOS deployment target for the shipped JUCE bundles (judgment A-1: next
     # Release = JUCE universal AU+VST3). Set BEFORE project() so compiler/SDK detection uses it.
@@ -20,6 +19,7 @@ if(NOT CMAKE_MATCH_1)
     message(FATAL_ERROR "B-114: failed to parse [package] version from crates/hypha_pre/Cargo.toml")
 endif()
 project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
+include(cmake/CompilerCache.cmake)
 
 # The Windows SDK exposes min/max as function-like macros unless NOMINMAX is
 # defined before any platform header is parsed.  Keep that macro out of every
@@ -1165,8 +1165,8 @@ include(cmake/ContentTimingTests.cmake)
 include(cmake/ProductTestClock.cmake)
 include(cmake/ShortcutTests.cmake)
 include(cmake/NativeTestLibraries.cmake)
-
 include(cmake/ReferenceMetricTests.cmake)
 include(cmake/ReferenceBalanceAlignmentTests.cmake)
 include(cmake/NativeStorageGuard.cmake)
 include(cmake/NativeTestTargets.cmake)
+include(cmake/NativeTestLabels.cmake)
