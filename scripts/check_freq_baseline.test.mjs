@@ -10,6 +10,7 @@ function fixture(fn) {
   try {
     const actual = path.join(tmp, 'render'), binary = path.join(tmp, 'binary');
     fs.cpSync(baseline, actual, { recursive: true }); fs.writeFileSync(binary, 'test executable');
+    edit(actual, d => { d.manifest_writer = 'guarded-atomic-v1'; });
     fn(actual, binary, tmp);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
@@ -20,7 +21,7 @@ function edit(actual, fn) {
 test('exact approved baseline accepts all six cases', () => fixture((a, b) => assert.equal(check(a, b, source).cases, 6)));
 test('baseline directory cannot masquerade as new render', () => fixture((a, b) => assert.throws(() => check(baseline, b, source))));
 for (const [name, mutation] of [
-  ['missing', d => d.cases.pop()], ['duplicate', d => d.cases.push(d.cases[0])],
+  ['old writer', d => { delete d.manifest_writer; }], ['missing', d => d.cases.pop()], ['duplicate', d => d.cases.push(d.cases[0])],
   ['backend', d => { d.backend = 'other'; }], ['os', d => { d.os = 'other'; }],
   ['dimensions', d => { d.cases[0].width++; }],
   ['text', d => { d.cases[0].labels[0].text += 'x'; }],

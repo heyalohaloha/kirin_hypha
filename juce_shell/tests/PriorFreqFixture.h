@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_cryptography/juce_cryptography.h>
+#include "../src/AtomicFile.h"
 #include "SpectrumPerformanceFixture.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaTextStyle.h"
@@ -37,8 +38,9 @@ inline int run(const juce::File& output) {
     }
     auto manifest=new juce::DynamicObject();manifest->setProperty("cases",cases);manifest->setProperty("backend","JUCE ARGB/CoreGraphics bitmap; paintEntireComponent; scale1");
     manifest->setProperty("mode","paired FULL LR AVG LIVE defaults; initial static snapshot; no hover");
+    manifest->setProperty("manifest_writer","guarded-atomic-v1");
     manifest->setProperty("os",juce::SystemStats::getOperatingSystemName());manifest->setProperty("juce",juce::SystemStats::getJUCEVersion());
-    if(!output.getChildFile("render.json").replaceWithText(juce::JSON::toString(juce::var(manifest)))) throw std::runtime_error("manifest write failed");
+    if(!storage::writeText(output.getChildFile("render.json"), juce::JSON::toString(juce::var(manifest)))) throw std::runtime_error("manifest write failed");
     return 0;
 }
 }

@@ -42,3 +42,10 @@ cases without native execution and is included in the lightweight source contrac
 That test does not prove the current product still renders identically. Real native
 render/check remains required for a candidate, using the sequence above. Baseline
 updates require separate visual review and must preserve new provenance.
+
+The manifest-only writer revision is recorded separately in `writer-revision.json`.
+It replaces the target-derived temporary writer with the existing guarded atomic
+helper, preserving paint/PNG/label code. The original baseline fixture and binary
+hashes remain unchanged. The current checker pins the exact new fixture hash,
+not arbitrary future fixture revisions. A new native run is still required to
+validate the revised writer; a recorded old render check does not exercise it.

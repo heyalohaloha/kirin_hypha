@@ -32,9 +32,12 @@ export function check(actual, binary, source, base = baseline) {
     if (!provenance[key]) throw new Error(`missing baseline provenance: ${key}`);
   const fixture = Buffer.concat(['PriorFreqFixture.h', 'SpectrumPerformanceFixture.h']
     .map(name => fs.readFileSync(path.join(root, 'juce_shell/tests', name))));
-  requireEqual(hash(fixture), provenance.fixture_sha256, 'fixture changed; review required');
+  const revision = read(path.join(base, 'writer-revision.json'));
+  requireEqual(revision.baseline_fixture_sha256, provenance.fixture_sha256, 'baseline fixture revision');
+  requireEqual(hash(fixture), revision.writer_revision_fixture_sha256, 'fixture changed; review required');
   const before = read(path.join(base, 'render.json'));
   const after = read(path.join(actual, 'render.json'));
+  requireEqual(after.manifest_writer, 'guarded-atomic-v1', 'old manifest writer; rerender required');
   for (const key of ['backend', 'os', 'juce', 'mode'])
     requireEqual(after[key], before[key], `incompatible ${key}`);
   const reference = cases(before), rendered = cases(after);
@@ -50,7 +53,7 @@ export function check(actual, binary, source, base = baseline) {
   }
   return { status: 'PASS', cases: expected.length, source,
     binary_sha256: hash(fs.readFileSync(binary)), baseline_source: provenance.source,
-    fixture_sha256: provenance.fixture_sha256 };
+    fixture_sha256: hash(fixture), baseline_fixture_sha256: provenance.fixture_sha256 };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
