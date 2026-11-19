@@ -16,3 +16,6 @@ add_test(NAME kirin_snapshot_abi_contract COMMAND KirinSnapshotAbiContractTests)
 
 # Product-native synthetic before/after evidence for the 1.1.58 readability fixes.
 add_test(NAME kirin_look239_visual COMMAND KirinUiRenderContractTests --look239-only)
+
+# Keep Session coverage independently diagnosable without unrelated paint timing gates.
+add_test(NAME kirin_session_coverage_diagnostic COMMAND KirinUiRenderContractTests --time-snapshot-only)

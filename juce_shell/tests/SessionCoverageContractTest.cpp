@@ -3,6 +3,7 @@
 #include "SessionPresentationViewContract.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaCaptureHistoryGeometry.h"
 #include "../src/HyphaTextStyle.h"
 #include <cmath>
 #include <cstdlib>
@@ -92,11 +93,20 @@ void verifyHeldCoverage (KirinObservatoryFrame frame)
         view.paintEntireComponent (graphics, true);
         const auto* live = view.findChildWithID ("history-live");
         require (live != nullptr && live->isVisible(), "actual LEVEL inspection controls are available");
-        const juce::Point<float> point (200.0f, static_cast<float> (live->getBottom() + 60));
+        const auto plot = capture_history::layoutFor (view.levelHistoryBoundsForTest()).sharedPlot;
+        require (! plot.isEmpty(), "actual LEVEL data plot is available");
+        const auto point = plot.getCentre();
         const auto now = juce::Time::getCurrentTime();
         const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(),
             point, juce::ModifierKeys::leftButtonModifier, 0, 0, 0, 0, 0,
             &view, &view, now, point, now, 1, false);
+        const auto* hitComponent = view.getComponentAt (point.toInt());
+        std::cerr << "SESSION_CLICK_DIAGNOSTIC pending=" << pending << " point=" << point.toString()
+                  << " hit=" << (hitComponent ? hitComponent->getComponentID() : "<null>")
+                  << " hitName=" << (hitComponent ? hitComponent->getName() : "<null>")
+                  << " live=" << live->getBounds().toString()
+                  << " historyArea=" << view.levelHistoryBoundsForTest().toString()
+                  << " sharedPlot=" << plot.toString() << '\n';
         view.mouseDown (click);
         require (view.historyHeldForTest(), "real plot click freezes the adopted Session coverage");
         const auto capture = [&view]
