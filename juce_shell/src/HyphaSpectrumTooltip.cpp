@@ -43,7 +43,7 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
         if (nextBand >= 0) tip = juce::String (nextBand * 1.2, 1) + "-"
             + juce::String ((nextBand + 1) * 1.2, 1) + " Bark / LR specific-loudness share";
         if (tip != getTooltip()) setTooltip (tip);
-        if (psbHoverBand != nextBand) { psbHoverBand = nextBand; repaint(); }
+        if (psbHoverBand != nextBand) { psbHoverBand = nextBand; requestInteractionRepaint(); }
         return;
     }
 
@@ -128,7 +128,7 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
     if (! juce::approximatelyEqual (next, hoverNormalisedX))
     {
         hoverNormalisedX = next;
-        hoverNeedsRepaint = true;
+        requestInteractionRepaint();
     }
 }
 
@@ -139,8 +139,8 @@ void SpectrumComponent::mouseExit (const juce::MouseEvent&)
     if (hoverNormalisedX >= 0.0f)
     {
         hoverNormalisedX = -1.0f;
-        hoverNeedsRepaint = true;
+        requestInteractionRepaint();
     }
-    if (psbHoverBand >= 0) { psbHoverBand = -1; repaint(); }
+    if (psbHoverBand >= 0) { psbHoverBand = -1; requestInteractionRepaint(); }
 }
 }

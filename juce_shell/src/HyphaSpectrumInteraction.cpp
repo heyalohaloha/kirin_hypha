@@ -51,6 +51,7 @@ void SpectrumComponent::resized()
         : spectrum_geometry::averageBoundsFor (spectrum_geometry::plotBoundsFor (bounds), scale);
     averageButton.setBounds (control.toNearestInt());
     averageButton.setVisible (! control.isEmpty());
+    requestInteractionRepaint();
 }
 
 void SpectrumComponent::showAverageMenu()
@@ -80,7 +81,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         hoverNormalisedX = -1.0f;
         setTooltip (psbObservation ? analysis_ui::psbOverviewTooltip (absoluteObservation)
                                    : "Spectrum: frequency level and difference");
-        repaint();
+        requestInteractionRepaint();
         return;
     }
     if (psbObservation) return;
@@ -121,7 +122,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
                 : inputChannels != 2u ? (midSide ? "M/S: stereo only" : "SIDE: stereo only")
                 : "M/S: select POST";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
-            repaint();
+            requestInteractionRepaint();
             return;
         }
         snapshot = {};
@@ -145,7 +146,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         numericDirty = false;
         channelMode = requestedMode;
         midSideObservation = requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
-        repaint();
+        requestInteractionRepaint();
         return;
     }
 
@@ -160,7 +161,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         {
             focusFrequencyHz = -1.0f;
             hoverNormalisedX = -1.0f;
-            repaint();
+            requestInteractionRepaint();
             return;
         }
     }
@@ -179,7 +180,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
                 haveSnapshot = false;
                 havePendingSnapshot = false;
                 if (restore) setSnapshot (latest);
-                else repaint();
+                else requestInteractionRepaint();
             }
             return;
         }
@@ -210,7 +211,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
             modeActionNotice = "MARK --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
         }
-        repaint();
+        requestInteractionRepaint();
         return;
     }
 
@@ -226,6 +227,6 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     focusFrequencyHz = spectrum_geometry::frequencyForProbeNormalisedX (
         normalised, snapshot.min_hz, snapshot.max_hz);
     hoverNormalisedX = normalised;
-    repaint();
+    requestInteractionRepaint();
 }
 }

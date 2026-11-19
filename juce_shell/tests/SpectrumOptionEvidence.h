@@ -12,8 +12,12 @@ inline void prepare(SpectrumComponent& view,int width) {
 inline void paint(SpectrumComponent& view,juce::Image& image) {
     image.clear(image.getBounds(),BG);juce::Graphics g(image);view.paintEntireComponent(g,true);
 }
-inline juce::var cpuRun(int width,int rate,int repetition,const juce::String& source) {
-    SpectrumComponent view;prepare(view,width);juce::Image image(juce::Image::ARGB,width,width*2/3,true);
+inline juce::var cpuRun(int width,int rate,int repetition,const juce::String& source,
+        display_settings::Values settings = {},
+        spectrum_average::Choice average = spectrum_average::Choice::live) {
+    SpectrumComponent view;prepare(view,width);
+    view.setDisplaySettings(settings); view.setAverageChoice(average);
+    juce::Image image(juce::Image::ARGB,width,width*2/3,true);
     const auto input=makeInput();const int paintStep=60/rate;
     const auto period=std::chrono::duration<double>(1.0/60);const auto warm=Clock::now();
     for(int i=0;i<120;++i) {

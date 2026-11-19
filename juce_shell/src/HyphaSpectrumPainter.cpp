@@ -1,4 +1,5 @@
 #include "HyphaSpectrumPainter.h"
+#include "HyphaSpectrumGlowLayers.h"
 #include "HyphaSpectrumPhaseProfile.h"
 
 #include "HyphaSpectrumGeometry.h"
@@ -211,7 +212,7 @@ void paintCurves (juce::Graphics& g,
             ++last;
         if (bucket > 0u)
         {
-            for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
+            for (const auto layer : glowLayers)
             {
                 auto& tip = paths.path (PathWorkspace::tipBase + layer * kIntensityLevelCount + bucket,
                                         ribbonCapacity);
@@ -275,7 +276,7 @@ void paintCurves (juce::Graphics& g,
     KIRIN_FREQ_SCOPE(profileTipRibbons, delta_tip_ribbons);
     // A measurement-derived tip ribbon adds density beside the live presentation edge, never
     // across the whole body. Numeric readout, MARK and Focus Trail retain their unsmoothed facts.
-    for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
+    for (const auto layer : glowLayers)
     {
         for (size_t bucket = 1; bucket < kIntensityLevelCount; ++bucket)
         {

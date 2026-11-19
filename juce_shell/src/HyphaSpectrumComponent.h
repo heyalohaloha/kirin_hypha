@@ -90,6 +90,7 @@ public:
     uint64_t curvePathAllocationsForTest() const noexcept { return spectrumPaths.allocations(); }
     void setAnimationVisible (bool shown) { animationVisible = shown; frames.setEnabled (shown && signalActive); }
     bool frameDriverActiveForTest() const noexcept { return frames.active(); }
+    uint64_t interactionRepaintsForTest() const noexcept { return interactionRepaints; }
     double displayedPsbForTest (size_t band) const noexcept { return psbMotion.shown[band]; }
     const spectrum_peaks::Peaks& peakLabelsForTest() const noexcept { return peakReadout.peaks; }
     void setSnapshot (const KirinSpectrumView& next);
@@ -268,6 +269,8 @@ private:
     int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
+    uint64_t interactionRepaints = 0;
+    void requestInteractionRepaint() { ++interactionRepaints; repaint(); }
     presentation::Context presentationContext = presentation::defaultContext();
     double lastCurvePresentationMs = 0.0;
     double lastCurveUpdateMs = 0.0;

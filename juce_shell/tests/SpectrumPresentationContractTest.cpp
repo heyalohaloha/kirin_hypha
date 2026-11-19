@@ -1,4 +1,5 @@
 #include "SpectrumPresentationContractTest.h"
+#include "SpectrumProductCadenceTest.h"
 #include "SpectrumLowScopeContract.h"
 #include "SpectrumAverageContract.h"
 #include "FreqDisplayContract.h"
@@ -86,6 +87,9 @@ namespace
 
 void verifySpectrumPresentationContract()
 {
+    verifySpectrumProductCadence();
+    verifySpectrumProductGlowLayers();
+    verifySpectrumImmediateInteraction();
     verifySpectrumLowScopeContract();
     verifySpectrumAverageContract();
     verifyFreqDisplayContract();

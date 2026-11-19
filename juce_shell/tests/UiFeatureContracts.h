@@ -1,5 +1,7 @@
 #pragma once
 #include "FreqFrameDeliveryTest.h"
+#include "SpectrumProductCadenceTest.h"
+#include "SpectrumSettingsQa.h"
 #include "ReferenceLibraryFormatUiTest.h"
 #include "ReferenceMonoVisualTest.h"
 
@@ -58,6 +60,8 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc >= 2 && std::string_view(argv[1]) == "--freq-settings-qa")
+    { std::exit(settings_qa::main(argc, argv)); }
     if (argc == 2 && std::string_view (argv[1]) == "--low-playback-only")
     { verifyLowPlaybackLoad(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-vblank-only")
@@ -74,6 +78,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { verifyVuLayerParity(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-frame-trace-only")
     { verifyVuFrameTrace(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--freq-product-cadence-only")
+    { verifySpectrumProductCadence(); verifySpectrumProductGlowLayers(); verifySpectrumImmediateInteraction(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-path-reuse-only")
     { verifySpectrumPathReuse(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-paint-cost-only")
