@@ -108,6 +108,6 @@ template<class Require> void verify (Require require)
         "next real service consumes release and reports unmeasured");
     callbackOnly();
     require (post.liveCompareAlignFrames() == 0, "owner zero survives the next real callback");
-    std::cout << "A3 product service/callback LISTEN: PASS (mapping preparation injected; PCM oracle separate)\n";
+    std::cout << "release-notice product service/callback LISTEN: PASS (mapping preparation injected; PCM oracle separate)\n";
 }
 }

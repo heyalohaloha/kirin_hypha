@@ -348,17 +348,17 @@ qualify distribution payloads or authorize publication.
 ### 2026-11-18 BLIND preference and BALANCE test build-contract review
 
 The implementation coordinator and a separate read-only reviewer inspected the complete
-CMake difference from B-9091 (`498e2814`). It adds four registrations only:
+CMake difference from the preceding reviewed revision. It adds four registrations only:
 `PluginProcessorBlindPreference.cpp` once, `HyphaLiveBlindPreference.cpp` twice,
 and `include(cmake/ReferenceBalanceAlignmentTests.cmake)`. Removing those four lines
-restores the B-9091 CMake bytes exactly. The included BALANCE module registers seven
+restores the preceding reviewed CMake bytes exactly. The included BALANCE module registers seven
 existing-component test invocations and their timeout; the related `LiveCompare.cmake`
 change registers the original preference-trial and details-collector native fixtures.
 Neither module adds embedded materials, fonts or new external dependencies.
 
 The embedded DATA_SOURCES declaration, optional licensed-font conditions, BinaryData
-handling and `ObservatoryMaterial.cmake` retain their B-9091 bytes. All three embedded
-PNG files and the verified documentation alias remain byte-identical to B-9091 and
+handling and `ObservatoryMaterial.cmake` retain their preceding reviewed bytes. All three embedded
+PNG files and the verified documentation alias remain byte-identical to the preceding reviewed revision and
 match their existing registry hashes. Asset hashes, rights evidence, allowed uses,
 individual holds and license/NOTICE files are unchanged. This is a technical code
 review by the two implementation reviewers, not a new material approval by the owner.
@@ -370,3 +370,22 @@ The whole-file fail-closed check and its tests remain unchanged. This bounded so
 review does not establish test execution, actual payload linkage, new material rights,
 release acceptance or permission to distribute. Exact-candidate provenance, source
 delivery, signing and publication gates remain required separately.
+
+
+### 1.1.58 build-contract review (build options, Windows platform sources and test registrations)
+
+After the BLIND preference and BALANCE review above, `juce_shell/CMakeLists.txt` changed only in
+build and test registration: an opt-in compiler-cache option (`cmake/CompilerCache.cmake`, off by
+default), a Windows-only static library that moves existing Windows implementation sources out of
+headers (`cmake/WindowsPlatform.cmake`), test-only sources and Windows system libraries for two
+existing test executables, the reference component test registrations moved into
+`cmake/ReferenceComponentTests.cmake` with one added UI test, and CTest labels
+(`cmake/NativeTestLabels.cmake`). The embedded DATA_SOURCES declaration, optional licensed-font
+conditions, BinaryData handling and `ObservatoryMaterial.cmake` are unchanged, and all three
+embedded PNG files keep their registry hashes, rights evidence and allowed uses.
+
+Only `embedContractSha256` advances from
+`8b97d9d83ea53c2f1e3852aa0b1404e271e0c4f85e362ffac0341509e7ccef63` to
+`5204e8a4897c8038bdcc8d57f12ac42284f66849b73d28f266710be627288823`.
+This bounded source review does not establish test execution, payload linkage, release
+acceptance or permission to distribute.

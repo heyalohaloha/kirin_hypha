@@ -32,7 +32,7 @@ static void alignClockStormAfterTheBudget()
                 if (i % 4 == 0)
                 {
                     // Exercise the unanswered branch: at 128/256 frames expiry coincides with the
-                    // regular tick. Delay that one service, rather than testing the answered A4 path.
+                    // regular tick. Delay that one service, rather than testing the answered path.
                     if (!delayedDeadlineAnswer && world.listeners[0].alignment.budgetSpent()
                         && !world.listeners[0].alignment.releasedAt()) delayedDeadlineAnswer = true;
                     else world.tick();

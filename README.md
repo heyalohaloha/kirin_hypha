@@ -239,7 +239,7 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 When Kirin OS provides a Reference, the VU meter can switch to LU, PSR, CREST or SHARP, with 0 on the
 scale at the selected Reference song's value. BLIND can run 5 or 10 rounds with the sources shuffled
-between rounds, and the result shows how often that answer would occur at random. The True Peak scale
+between rounds, and the result shows how often a result at least this uneven would occur at random. The True Peak scale
 now reaches +3 dBTP. The
 [release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58) list all changes. To update, download the installer for your platform above, close your
 DAW, run the installer and reopen the DAW.
