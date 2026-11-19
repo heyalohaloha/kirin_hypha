@@ -349,7 +349,7 @@ const Entry entries[] = {
     { "Which do you prefer?", u8"好みの方" },
     { "Details", u8"詳しく" },
     { "You chose %1 in %2 of %3 rounds.", u8"%3回中%2回、%1を選びました。" },
-    { "%1 each.", u8"選んだ回数は同数でした。" },
+    { "%1 each.", u8"どちらも%1回ずつ選びました。" },
     { "fewer than 1 in 100", u8"100回に1回より少ない" },
     { "%1 blind rounds at matched level.", u8"音量をそろえた%1回のブラインド比較" },
     // GUESS and SAVE IMAGE (2026-11-11). The answer and the image never name a song or a track.
