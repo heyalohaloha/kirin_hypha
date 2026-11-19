@@ -83,7 +83,12 @@ ReferenceTestCaptureResetFacts referenceTestCaptureResetFacts (const void*) noex
  #define KIRIN_REFERENCE_BINDING_VALUES_FOR_TEST(...) ((void) 0)
  #define KIRIN_REFERENCE_BINDING_ACCEPT_FOR_TEST() ((void) 0)
  #define KIRIN_REFERENCE_BEFORE_CAPTURE_FOR_TEST(controller) ((void) 0)
- #define KIRIN_REFERENCE_COMMIT_FOR_TEST() ((void) 0)
+ #if defined(KIRIN_HYPHA_TEST_WALL_CLOCK)
+  #include "ReferenceProductTestNotification.h"
+  #define KIRIN_REFERENCE_COMMIT_FOR_TEST() ::hypha::reference_audition::notifyReferenceProductTest()
+ #else
+  #define KIRIN_REFERENCE_COMMIT_FOR_TEST() ((void) 0)
+ #endif
  #define KIRIN_REFERENCE_REFRESH_FOR_TEST(controller) false
  #define KIRIN_REFERENCE_CANCEL_REFRESH_FOR_TEST(controller) ((void) 0)
  #define KIRIN_REFERENCE_AUTHORITY_FOR_TEST(...) ((void) 0)
