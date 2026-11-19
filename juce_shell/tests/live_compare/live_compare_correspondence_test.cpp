@@ -291,6 +291,7 @@ int main()
     live_compare_release_resend_test::unreachedBlockNeverReleases();
     live_compare_release_resend_test::settingChangeIsNoClockMove();
     live_compare_release_resend_test::blindPathUsesTheSameRequestSnapshot();
+    live_compare_release_resend_test::releaseSurvivesAnEndedContext();
     alignTransportStormWithoutHostStability();
     std::printf ("live compare correspondence: all checks passed\n");
     return 0;

@@ -107,7 +107,7 @@ public:
                 break;
             case PreAlignEvent::tick:
             {
-                if (checked && in.releasedAt != consumedRelease)
+                if (checked && usable (in) && in.releasedAt != consumedRelease)
                 {
                     consumedRelease = in.releasedAt;
                     if (usable (in) && keptMeasured < in.releasedAt)

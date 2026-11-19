@@ -92,6 +92,27 @@ inline void staleResendAfterReleaseIsRefused()
     }
 }
 
+inline void releaseSurvivesAnEndedContext()
+{
+    for (bool candidate : { false, true })
+    {
+        ClockCase c (false, true, candidate);
+        c.movedWithoutProof(); c.mustReadK (c.block (true, true));
+        const auto release = c.r.releasedAt();
+        auto ended = c.input (PreAlignEvent::tick);
+        ended.context.ownerA = 0; ended.active = false; ended.pending = false;
+        c.send (ended);
+        require (c.owner.keptValue().frames == 1000, "unmatched END context cannot consume the held-value receipt");
+        c.r.newSession(); c.r.readiness.recheck();
+        auto restarted = c.input (PreAlignEvent::tick);
+        restarted.pending = restarted.spent = true; restarted.reach = 48000;
+        require (restarted.releasedAt == release, "release receipt survives session restart");
+        const auto answer = c.send (restarted);
+        require (answer.request && answer.value.frames == 0 && c.owner.keptValue().frames == 0,
+                 "same context restart consumes release before any retained resend");
+    }
+}
+
 inline void resendBeforeProofKeepsTheRelease()
 {
     ClockCase x (true, true, false), y (true, false, false);
