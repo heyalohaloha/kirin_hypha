@@ -234,11 +234,17 @@ void testLibraryReceiptPreparedMaintenance (const juce::File& sandbox, bool queu
     if (!queued) require (file.deleteFile(), "delete the accepted receipt during C's measurement wait");
     require (((juce::Thread&) runtime).startThread (juce::Thread::Priority::low), "run the real worker while C waits for MATCH");
     barrier.release();
-    const bool maintained = barrier.awaitCompleted (queued ? 3 : 2);
+    const auto expectedReceipt = [&] (const juce::String& text) {
+        return queued ? juce::JSON::parse (text)["manifest_revision"] == juce::var (3) : text == receipt;
+    };
+    const bool maintained = barrier.awaitCompleted (queued ? 3 : 2, expectedReceipt);
     require (control::stopFor (runtime, {}), "stop servicing before reading writer-owned state");
     writer.finish();
-    require (maintained && runtime.awaitingPreparedLevel() && runtime.normalSelectionTicket() == ticket,
-        "receipt recovery and pending submission progress without releasing the C measurement wait or selection");
+    const auto context = juce::String (queued ? "queued receipt: " : "deleted receipt: ");
+    require (maintained, (context + "successful expected store notification within five seconds; "
+                         + barrier.diagnostics()).toRawUTF8());
+    require (runtime.awaitingPreparedLevel(), (context + "maintenance preserves the C measurement wait").toRawUTF8());
+    require (runtime.normalSelectionTicket() == ticket, (context + "maintenance preserves the C selection ticket").toRawUTF8());
     require (queued ? juce::JSON::parse (file)["manifest_revision"] == juce::var (3) : file.loadFileAsString() == receipt,
         "the worker restores the exact receipt or submits the coalesced latest revision during preparation");
     const auto state = runtime.snapshot();

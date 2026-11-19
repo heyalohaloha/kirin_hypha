@@ -1,6 +1,7 @@
 #pragma once
 #include "../src/reference_audition/ReferenceLibraryReceived.h"
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <stdexcept>
 
@@ -19,6 +20,8 @@ struct ReceiptStoreBarrier
     std::condition_variable changed;
     bool entered = false, released = false;
     int calls = 0, completed = 0, active = 0, maximumActive = 0;
+    juce::String completedText;
+    bool completedWritten = false;
     bool store (const juce::File& file, const juce::String& text)
     {
         {
@@ -28,7 +31,11 @@ struct ReceiptStoreBarrier
             changed.wait (lock, [&] { return released; });
         }
         const bool written = hypha::storage::writeText (file, text, false, false, "\n");
-        { const std::lock_guard<std::mutex> lock (mutex); --active; ++completed; changed.notify_all(); }
+        {
+            const std::lock_guard<std::mutex> lock (mutex);
+            --active; ++completed; completedText = text; completedWritten = written;
+            changed.notify_all();
+        }
         return written;
     }
     void awaitEntry()
@@ -41,10 +48,21 @@ struct ReceiptStoreBarrier
     { const std::lock_guard<std::mutex> lock (mutex); released = true; changed.notify_all(); }
     void hold()
     { const std::lock_guard<std::mutex> lock (mutex); released = false; entered = false; }
-    bool awaitCompleted (int count)
+    // A count alone is not a receipt: bind the notification to the successful payload.
+    // Keep the existing five-second deadline and let only the real worker advance it.
+    bool awaitCompleted (int count, const std::function<bool (const juce::String&)>& accepts)
     {
         std::unique_lock<std::mutex> lock (mutex);
-        return changed.wait_for (lock, std::chrono::seconds (5), [&] { return completed >= count; });
+        return changed.wait_for (lock, std::chrono::seconds (5), [&] {
+            return completed >= count && completedWritten && accepts (completedText);
+        });
+    }
+    juce::String diagnostics()
+    {
+        const std::lock_guard<std::mutex> lock (mutex);
+        return "calls=" + juce::String (calls) + " completed=" + juce::String (completed)
+            + " written=" + juce::String (static_cast<int> (completedWritten))
+            + " revision=" + juce::JSON::parse (completedText)["manifest_revision"].toString();
     }
 };
 
