@@ -13,3 +13,6 @@ if(TARGET KirinHyphaRustFFI)
     add_dependencies(KirinSnapshotAbiContractTests KirinHyphaRustFFI)
 endif()
 add_test(NAME kirin_snapshot_abi_contract COMMAND KirinSnapshotAbiContractTests)
+
+# Product-native synthetic before/after evidence for the 1.1.58 readability fixes.
+add_test(NAME kirin_look239_visual COMMAND KirinUiRenderContractTests --look239-only)

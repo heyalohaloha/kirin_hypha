@@ -12,8 +12,8 @@ inline void verify (KirinObservatoryFrame frame)
     {
         const i18n::ScopedLanguage scoped (language);
         const auto expected = language == i18n::Language::japanese
-            ? juce::String::fromUTF8 (u8"準備中 4 秒") : juce::String ("WARMING 4 S");
-        if (i18n::tr ("WARMING 4 S") != expected) std::exit (1);
+            ? juce::String::fromUTF8 (u8"準備中 4 秒") : juce::String ("Preparing 4 s");
+        if (i18n::tr ("Preparing 4 s") != expected) std::exit (1);
         for (const auto role : { observatory::Role::pre, observatory::Role::post })
             for (const auto size : observatory::sizePresets)
             {

@@ -1,4 +1,5 @@
 #pragma once
+#include "Look239VisualContract.h"
 #include "FreqFrameDeliveryTest.h"
 #include "VisualReadabilityContract.h"
 #include "SpectrumProductCadenceTest.h"
@@ -62,6 +63,10 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--look239-notices-only")
+    { verifyAllListenText (visual_readability::require); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--look239-only")
+    { look239::verify(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--visual-readability-only")
     { visual_readability::verify(); return true; }
     if (argc >= 2 && std::string_view(argv[1]) == "--freq-settings-qa")

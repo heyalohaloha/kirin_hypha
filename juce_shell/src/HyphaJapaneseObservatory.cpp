@@ -106,7 +106,7 @@ const Entry entries[] = {
     { "RECORD RESULT", u8"Recordの結果" },
     { "LIVE / TRACE: FIRST PASS ONLY", u8"LIVE / 時系列は最初の1周" },
     { "TRACE: 1ST PASS", u8"時系列は最初の1周" },
-    { "WARMING %1 S", u8"準備中 %1 秒" },
+    { "Preparing %1 s", u8"準備中 %1 秒" },
     { "One row per playback, from play to stop", u8"再生1回ごとに1行（再生から停止まで）" },
     { "Play audio to collect run facts in this history range",
       u8"再生すると、この履歴の範囲で再生ごとの値が集まります" },
