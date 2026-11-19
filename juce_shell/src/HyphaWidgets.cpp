@@ -1,3 +1,4 @@
+#include "HyphaNameTextEditor.h"
 #include "HyphaWidgets.h"
 #include "HyphaPairLabels.h"
 #include "HyphaKeyLight.h"
@@ -146,7 +147,7 @@ namespace hypha
         setTitle ("PRE name");
         setDescription ("Press Return to edit the PRE name");
 
-        editor = std::make_unique<juce::TextEditor>();
+        editor = std::make_unique<NameTextEditor>();
         editor->setWantsKeyboardFocus (true);
         editor->setMultiLine (false);
         editor->setReturnKeyStartsNewLine (false);

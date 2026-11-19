@@ -1,4 +1,5 @@
 #pragma once
+#include "NameSelectAllContract.h"
 #include "Look239VisualContract.h"
 #include "FreqFrameDeliveryTest.h"
 #include "VisualReadabilityContract.h"
@@ -63,6 +64,8 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--name-select-all-only")
+    { verifyNameSelectAll(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--look239-notices-only")
     { verifyAllListenText (visual_readability::require); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--look239-only")
@@ -208,6 +211,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         std::cout << "Product entry: PASS (82 role/size layouts, 41 Reference layouts, update dispatch, DRUM navigation)\n";
         return true;
     }
+    verifyNameSelectAll();
     verifyNoteDialog();
     verifyReferenceReachability();
     verifyObservationPageContract();
