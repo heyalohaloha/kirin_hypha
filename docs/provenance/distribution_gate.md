@@ -380,12 +380,13 @@ default), a Windows-only static library that moves existing Windows implementati
 headers (`cmake/WindowsPlatform.cmake`), test-only sources and Windows system libraries for two
 existing test executables, the reference component test registrations moved into
 `cmake/ReferenceComponentTests.cmake` with one added UI test, and CTest labels
-(`cmake/NativeTestLabels.cmake`). The embedded DATA_SOURCES declaration, optional licensed-font
+(`cmake/NativeTestLabels.cmake`), and the reference metric test registrations moved before the shared
+native test libraries so that their product sources are compiled once in the shared archives. The embedded DATA_SOURCES declaration, optional licensed-font
 conditions, BinaryData handling and `ObservatoryMaterial.cmake` are unchanged, and all three
 embedded PNG files keep their registry hashes, rights evidence and allowed uses.
 
 Only `embedContractSha256` advances from
 `8b97d9d83ea53c2f1e3852aa0b1404e271e0c4f85e362ffac0341509e7ccef63` to
-`5204e8a4897c8038bdcc8d57f12ac42284f66849b73d28f266710be627288823`.
+`81917b5ac4c5c2595558dbd5506862673f5b391fbc1fa395ca4991b616f331af`.
 This bounded source review does not establish test execution, payload linkage, release
 acceptance or permission to distribute.
