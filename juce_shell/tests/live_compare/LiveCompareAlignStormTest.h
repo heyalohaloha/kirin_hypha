@@ -98,6 +98,7 @@ struct World
         AlignPlayback playback; playback.context = context; playback.verify = true;
         // As in the renderer, the run's reach is known from the block after the one that calibrates.
         const auto update = l.alignment.update (playback, blind, pre, l.weight, kValid && wasValid ? run : unknown, rate, playing ? frames : 0);
+        if (kValid) l.alignment.resolve (k, l.weight);
         l.address = l.alignment.value().frames;
         const bool accepted = kValid && l.address <= run;
         l.alignment.readiness.observe (true, playing, kValid, k);

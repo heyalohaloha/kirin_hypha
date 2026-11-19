@@ -18,7 +18,7 @@ struct Listener
     RendererAlignment alignment;
     PreAlignState owner;
     float weight = 0.0f;
-    bool pre = false, playsPre = false;
+    bool pre = false, playsPre = false, waiting = false;
     std::uint64_t seenRevision = 0;
     AlignNotice told() const noexcept { return owner.notice (alignment.unservedCorrection()); }
     std::int64_t address() const noexcept { return alignment.value().frames; }
@@ -49,10 +49,11 @@ struct Session
     {
         AlignPlayback playback; playback.context = context; playback.verify = true;
         const auto update = l.alignment.update (playback, blind, l.pre, l.weight, wasValid ? run : unknown, rate, frames);
+        l.alignment.resolve (k, l.weight);
         const bool accepted = l.address() <= run;
         l.alignment.readiness.observe (true, true, true, k);
         l.alignment.observed (accepted, true, update);
-        const bool waits = l.alignment.awaits (update);
+        const bool waits = l.alignment.awaits (update); l.waiting = waits;
         l.playsPre = false;
         if (! accepted || waits) { l.weight = 0.0f; return; }
         if (update.current) l.alignment.confirmApplied (update.revision);

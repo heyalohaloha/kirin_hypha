@@ -207,6 +207,9 @@ public:
             haveK = everK = true;
         }
     }
+    // Keep this pure prediction in step with observe()'s mapping invalidation conditions.
+    bool revises (bool enabled, std::int64_t k) const noexcept
+    { return ! started || enabled != wasEnabled || ! haveK || k != previousK; }
     std::int64_t clockK() const noexcept { return observedK.load(); }
     // INV-LC28, the owner of PRE's alignment state (non-RT): the kept amount to watch for from now on
     // (0: none). The Audio Thread compares each step of K, from one proven mapping to the next under
@@ -315,6 +318,7 @@ public:
         // A spent budget the service has answered waits for no content check again: at a new clock
         // mapping PRE goes on at K at once (awaits() below) until PRE plays at its address.
         answered = expired && (answered || result.current);
+        unconfirmed = readiness.pending() || ! result.current;
         if (answered && checks && (readiness.pending() || ! result.current) && weight <= 0.0f) adopt ({});
         if (path.frames == 0) unserved.store (false);
         corrected = path.frames > 0;
@@ -329,6 +333,16 @@ public:
         readiness.newContext(); held = stake = 0; expired = holdEnded = false; blindRequest = {}; unserved.store (false);
         spent.store (false); renew();
         reach.store (std::numeric_limits<std::int64_t>::max());
+    }
+    // This block's proven K, before any PCM read. No publication or generation changes here.
+    // Only a spent budget already answered by the service may use its K fallback.
+    AlignValue resolve (std::int64_t k, float& weight) noexcept
+    {
+        if (!checks) return applied;
+        const bool revised = readiness.revises (true, k);
+        if (answered && (revised || unconfirmed) && applied != AlignValue {})
+        { weight = 0.0f; adopt ({}); }
+        return applied;
     }
     // The largest correction PRE's run served at POST's latest block; the maximum while unknown.
     std::int64_t servable() const noexcept { return reach.load (std::memory_order_relaxed); }
@@ -402,10 +416,19 @@ private:
     // its address (corrected: a correction); answered: the service has answered the spent budget.
     std::int64_t held = 0, stake = 0, played = 0, bound = 0;
     bool expired = false, answered = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
+    bool unconfirmed = false; // the content check does not cover the mapping read by update()
     std::atomic<bool> unserved { false }, proven { false }, spent { false };
     std::atomic<std::uint64_t> budget { 1 }; // written by the Audio Thread: which budget is running
     mutable std::atomic<std::uint64_t> armed { 0 }; // written by the content service only
     std::atomic<std::int64_t> reach { std::numeric_limits<std::int64_t>::max() };
+};
+
+// Settle the address at the point where this block's K is known, never by reading twice.
+struct AlignLate
+{
+    RendererAlignment* alignment = nullptr; float* weight = nullptr;
+    AlignValue at (std::int64_t k, AlignValue fixed) const noexcept
+    { return alignment != nullptr && weight != nullptr ? alignment->resolve (k, *weight) : fixed; }
 };
 
 #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK

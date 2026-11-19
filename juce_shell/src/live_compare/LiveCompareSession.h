@@ -275,7 +275,7 @@ public:
             checkedClockSubtract (mapped, ring.header.runStart.load (std::memory_order_acquire), readable);
         const auto aligned = alignment.update (align, blind, preSelected, weight, readable, static_cast<std::int64_t> (sampleRate),
                                           block.playing ? block.frames : 0);
-        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value());
+        const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value(), { &alignment, &weight });
         if (align.verify) alignment.readiness.observe (align.enabled, block.playing, decision.kValid, decision.k);
         alignment.observed (decision.verdict == Verdict::accepted, alignClockProven (decision), aligned);
         if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
