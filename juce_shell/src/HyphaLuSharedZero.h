@@ -3,6 +3,7 @@
 #include "HyphaLuNeedle.h"
 #include "HyphaUiPreferences.h"
 #include "HyphaVuCalibrationFile.h"
+#include <memory>
 
 #include <utility>
 
@@ -18,37 +19,50 @@ public:
     explicit SharedZero (juce::File directory = ui_preferences::defaultFile().getSiblingFile ("lu-reference"))
         : root (std::move (directory)) {}
 
-    // POST: publishes when the shared part changed. A failed write is tried again on the next change.
-    void publish (const juce::String& scope, const Facts& facts)
+    // Publication requires the same retained chain lease as PSR/CREST. This
+    // class never elects a second owner. Non-RT processor service only.
+    void publish (const juce::String& scope, const Facts& facts, const std::shared_ptr<void>& lease,
+                  juce::int64 now = juce::Time::currentTimeMillis())
     {
-        if (! validScope (scope)) return;
-        const auto text = encoded (scope, facts);
-        if (scope == writtenScope && text == writtenText) return;
-        if (root.createDirectory().failed()) return;
-        if (! vu_calibration::writeAtomicText (root.getChildFile (scope + ".txt"), text)) return;
-        writtenScope = scope;
-        writtenText = text;
+        if (!lease || !validScope (scope) || now <= 0) return;
+        if (scope != writtenScope) { writtenScope = scope; writtenAt = 0; }
+        if (writtenAt > 0 && now >= writtenAt && now - writtenAt < refreshMs) return;
+        if (revision >= 999999999999999999ULL) return;
+        const auto prefix = juce::String (leaseHeader) + "\n" + owner + " "
+            + juce::String (++revision) + " " + juce::String (now) + "\n";
+        const auto text = prefix + encoded (scope, facts, 250 - static_cast<int> (prefix.getNumBytesAsUTF8()));
+        if (root.isSymbolicLink() || root.createDirectory().failed()) return;
+        if (vu_calibration::writeAtomicText (root.getChildFile (scope + ".txt"), text)) writtenAt = now;
     }
 
-    // PRE: the shared 0, read at most four times a second. No file, another chain's file or a
-    // damaged one all read as "Reference cannot be read", which keeps the VU face.
-    Facts read (const juce::String& scope, juce::uint32 now)
+    Facts read (const juce::String& scope, juce::int64 now = juce::Time::currentTimeMillis())
     {
-        if (scope.isEmpty()) return cached; // the chain is still being resolved: keep what was read
-        if (scope == readScope && haveRead && now - readAt < refreshMs) return cached;
-        readScope = scope;
-        readAt = now;
-        haveRead = true;
-        cached = {};
-        if (! validScope (scope)) return cached;
+        if (! validScope (scope)) { cached = {}; readScope.clear(); haveRead = false; return {}; }
+        if (scope != readScope) { cached = {}; readScope = scope; readOwner.clear(); readRevision = 0; cachedAt = 0; haveRead = false; }
+        if (haveRead && now >= readAt && now - readAt < refreshMs)
+            return fresh (cachedAt, now) ? cached : Facts {};
+        readAt = now; haveRead = true; cached = {};
         const auto file = root.getChildFile (scope + ".txt");
         const auto size = file.getSize();
-        if (! file.existsAsFile() || size <= 0 || size > 256) return cached;
-        cached = decoded (scope, file.loadFileAsString());
+        if (root.isSymbolicLink() || file.isSymbolicLink() || !file.existsAsFile() || size <= 0 || size > 256) return {};
+        const auto text = file.loadFileAsString();
+        const auto lines = juce::StringArray::fromLines (text);
+        if (lines.size() < 6 || lines[0] != leaseHeader) return {}; // unleased V1 cannot stay alive forever
+        const auto fields = juce::StringArray::fromTokens (lines[1], " ", {});
+        if (fields.size() != 3 || fields[0].length() != 32 || !fields[0].containsOnly ("0123456789abcdef")
+            || fields[1].isEmpty() || fields[1].length() > 18 || !fields[1].containsOnly ("0123456789")
+            || fields[2].isEmpty() || fields[2].length() > 18 || !fields[2].containsOnly ("0123456789")) return {};
+        const auto generation = fields[1].getLargeIntValue(), at = fields[2].getLargeIntValue();
+        if (generation <= 0 || !fresh (at, now)) return {};
+        if (readOwner == fields[0] && (generation < readRevision || at < cachedAt)) return {};
+        if (cachedAt > 0 && at < cachedAt) return {};
+        readOwner = fields[0]; readRevision = generation; cachedAt = at;
+        cached = decoded (scope, text.fromFirstOccurrenceOf ("\n", false, false)
+                                     .fromFirstOccurrenceOf ("\n", false, false));
         return cached;
     }
 
-    static juce::String encoded (const juce::String& scope, const Facts& facts)
+    static juce::String encoded (const juce::String& scope, const Facts& facts, int maxBytes = 250)
     {
         const auto milli = [] (double value)
         { return std::isfinite (value) ? juce::String (juce::roundToInt (value * 1000.0)) : juce::String ("-"); };
@@ -60,7 +74,7 @@ public:
             + milli (facts.readable ? facts.band.highLufs : nan) + "\n";
         // The whole file stays within the atomic writer's 256 bytes: a long name is cut for sharing.
         auto name = facts.readable ? facts.song.replaceCharacters ("\r\n", "  ") : juce::String();
-        while (name.isNotEmpty() && text.getNumBytesAsUTF8() + name.getNumBytesAsUTF8() + 1 > 250)
+        while (name.isNotEmpty() && text.getNumBytesAsUTF8() + name.getNumBytesAsUTF8() + 1 > maxBytes)
             name = name.dropLastCharacters (1);
         return text + name + "\n";
     }
@@ -93,14 +107,19 @@ public:
 
 private:
     static constexpr const char* header = "KIRIN_HYPHA_LU_ZERO_V1";
-    static constexpr juce::uint32 refreshMs = 250;
+    static constexpr const char* leaseHeader = "KIRIN_HYPHA_LU_LEASE_V2";
+    static constexpr juce::int64 refreshMs = 250, leaseMs = 1500;
+    static bool fresh (juce::int64 at, juce::int64 now) { return at > 0 && now >= at && now - at < leaseMs; }
     static bool validScope (const juce::String& scope)
     { return scope.length() == 64 && scope.containsOnly ("0123456789abcdef"); }
 
     juce::File root;
-    juce::String writtenScope, writtenText, readScope;
+    juce::String writtenScope, readScope, readOwner;
+    juce::String owner = juce::Uuid().toString().removeCharacters ("-");
+    std::uint64_t revision = 0;
+    juce::int64 writtenAt = 0, cachedAt = 0, readRevision = 0;
     Facts cached;
-    juce::uint32 readAt = 0;
+    juce::int64 readAt = 0;
     bool haveRead = false;
 };
 }

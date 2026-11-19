@@ -5,6 +5,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaLuReferenceFacts.h"
 #include "../src/HyphaLuSharedZero.h"
+#include "../src/HyphaMetricChainDemand.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -227,8 +228,11 @@ void verifySharedZero()
     facts.samePlace = SamePlace::shown; facts.samePlaceLufs = -8.0; // POST's own, never shared
     {
         lu_needle::SharedZero post (directory), pre (directory);
+        metric_needle::ChainDemand owner (directory.getChildFile ("demand"));
+        auto lease = owner.ownership (scope);
+        KIRIN_LU_REQUIRE (lease != nullptr);
         KIRIN_LU_REQUIRE (! pre.read (scope, 1000).readable); // nothing shared yet: PRE keeps the VU
-        post.publish (scope, facts);
+        post.publish (scope, facts, lease, 1900);
         const auto read = pre.read (scope, 2000);
         KIRIN_LU_REQUIRE (read.readable && read.zero == Zero::ready && read.song == facts.song);
         KIRIN_LU_REQUIRE (near (read.zeroLufs, -9.8) && near (read.playedOffsetLu, 3.01) && read.band == facts.band);
@@ -236,12 +240,26 @@ void verifySharedZero()
         KIRIN_LU_REQUIRE (! pre.read (otherScope, 3000).readable); // another chain reads nothing
         auto next = facts;
         next.zero = Zero::noSong; next.song.clear(); next.zeroLufs = lu_needle::nan; next.band = {};
-        post.publish (scope, next);
+        post.publish (scope, next, lease, 3900);
         const auto later = pre.read (scope, 4000);
         KIRIN_LU_REQUIRE (later.readable && later.zero == Zero::noSong && later.song.isEmpty() && ! later.band.valid());
-        post.publish (scope, Facts {});
+        post.publish (scope, Facts {}, lease, 4200);
         KIRIN_LU_REQUIRE (pre.read (scope, 4100).readable); // the file is read at most four times a second
         KIRIN_LU_REQUIRE (! pre.read (scope, 4300).readable);
+        post.publish (scope, facts, lease, 4500);
+        KIRIN_LU_REQUIRE (pre.read (scope, 4600).readable);
+        KIRIN_LU_REQUIRE (!pre.read ({}, 4650).readable); // no stale chain fallback
+        KIRIN_LU_REQUIRE (!pre.read (scope, 6000).readable); // crash/owner death expires
+        lu_needle::SharedZero other (directory);
+        metric_needle::ChainDemand otherOwner (directory.getChildFile ("demand"));
+        const auto denied = otherOwner.ownership (scope);
+        KIRIN_LU_REQUIRE (!denied); // A second POST cannot elect an independent LU owner.
+        other.publish (scope, next, denied, 6100);
+        KIRIN_LU_REQUIRE (!pre.read (scope, 6200).readable);
+        post.publish (scope, facts, lease, 6300);
+        KIRIN_LU_REQUIRE (pre.read (scope, 6400).zero == Zero::ready);
+        post.publish (scope, next, lease, 6600);
+        KIRIN_LU_REQUIRE (pre.read (scope, 6700).zero == Zero::noSong);
     }
     facts.song = juce::String::repeatedString (juce::String::fromUTF8 (u8"長い名前 "), 60);
     const auto encoded = lu_needle::SharedZero::encoded (scope, facts);

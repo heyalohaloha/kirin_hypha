@@ -278,10 +278,22 @@ void ScreenComponent::resized()
         button->setPresentationContext (context);
     if (shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty())
     {
-        auto panel = getLocalBounds().reduced (compact ? 4 : 24);
-        title.setBounds (panel.removeFromTop (compact ? 18 : 40));
-        auto actions = panel.removeFromBottom (compact ? 24 : 40);
-        if (compact)
+        // Try the normal two-row actions first, using the actual wrapped text
+        // at its final width. A narrow width alone does not select dense mode.
+        auto normal = getLocalBounds().reduced (24);
+        normal.removeFromTop (40); normal.removeFromBottom (80);
+        int neededHeight = 0;
+        for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
+        {
+            body->setBounds (normal.getX(), normal.getY(), normal.getWidth(), 100);
+            if (body->getText().isNotEmpty()) neededHeight += body->getTextHeight() + 8;
+        }
+        const bool denseResult = neededHeight > normal.getHeight();
+        auto panel = getLocalBounds().reduced (denseResult ? 4 : 24);
+        if (denseResult) panel.removeFromTop (20); // same 24px top inset as normal
+        title.setBounds (panel.removeFromTop (denseResult ? 18 : 40));
+        auto actions = panel.removeFromBottom (denseResult ? 24 : 40);
+        if (denseResult)
         {
             // Keep all four actions available without spending two rows on them.
             const int cell = actions.getWidth() / 4;
@@ -303,7 +315,7 @@ void ScreenComponent::resized()
         // form a centred group in the remaining space at 600/900 as well as 300.
         for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
             body->setBounds(panel.getX(),panel.getY(),panel.getWidth(),100);
-        const int padding = compact ? 4 : 8;
+        const int padding = denseResult ? 4 : 8;
         const int resultHeight=shown.preferenceResultText.isEmpty()?0:preferenceResultBody.getTextHeight()+padding;
         const int gainHeight=shown.matchedGainText.isEmpty()?0:matchedGainBody.getTextHeight()+padding;
         const int noteHeight=preferenceNoteBody.getTextHeight()+padding;

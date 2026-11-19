@@ -24,6 +24,8 @@ public:
         }
         return owner;
     }
+    std::shared_ptr<void> currentOwnership (const juce::String& scope) const
+    { return scope == ownedScope ? owner : nullptr; }
     // Callers revoke the controller lease before releasing an ineligible owner.
     // Detached work keeps its own lease until cancellation has really completed.
     std::shared_ptr<void> selectionOwnership (const juce::String& scope, bool selected, bool wanted)
