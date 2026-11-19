@@ -259,6 +259,33 @@ reportで事後に期待値を変更して通すことはできない。
 }
 ```
 
+### 軽い型の欠けを拒否する条件
+
+- 英語の箇条書きの約束と `impact` はともに1件以上。本文だけで箇条書きが無い場合も拒否する。
+- 深い行は `newIssues: 0` や `passed: true` だけでは足りない。約束の成否に対応する具体的な
+  観測値（例 `readable: true`）、または影響表に宣言した非空の遷移の結果が必要。
+  観測名の意味・影響表の妥当性は引き続き人が差分監査する。
+- 通しと深い行は同じ形式対応を使う。Logic Pro は macOS AU、Pro Tools は AAX、
+  Cubase は VST3、Cakewalk は Windows VST3。Studio One・REAPER・Ableton Live は VST3、
+  macOS では AU も選べる。1行に複数形式を載せても実測を共有したことにはならない。
+- `scope: platform` の約束は同じ DAW の別 OS の深い行を許す。重複した同一 OS の行は拒否する。
+
+A4 の light-v1 の各 host 行は、`evidence` に対象 `hosts` の**各要素ごと**の
+`{ kind: "host-run", host, path, sha256 }` を必ず持つ。通常通しにも同じ条件を適用する。
+参照先は独立した実機実行の記録 `schema: hypha-real-daw-run-v1` とし、次を保持する：
+
+- `execution: real-daw`、実際の `result`、形式ごとに別の `runId`、同一候補 `candidate` と
+  `bindingSha256`、計画と同じ `rowId / daw / os / host / chain`。
+- 実際の `processId / hostVersion / observer / oracle / startedAt / finishedAt`。
+- 凍結計画と同じ `expected` と、その形式を実際に観測した `measured`。
+- 非空の `observations`：実機から保存した `screen / audio / host-log` の `kind / path / sha256`。
+  ファイルとハッシュを保持し、実機で取得した証拠であることを人が監査する。
+
+この記録は実行の証明を担当者が署名なしで申告する形式であり、台本が画面を観測したり、
+申告の真実性を自動認定する機能ではない。CIログだけの添付、実行していない形式の代用、
+欠け・PENDING・候補/形式不一致・実測不一致は拒否する。実行前に成功記録を作らない。
+旧 v2 の証拠形式・凍結条件・安全3行・timing 条件は変更しない。
+
 以下は変更せず保持する **従来の v2 の条件**。新しい軽い型と混同しない。
 
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。

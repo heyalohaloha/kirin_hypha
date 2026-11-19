@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, readJson, fileFact, checkFacts, digest, Checkpoint } from './hypha_release_contract.mjs';
 import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
-import { LIGHT_FIX_ROWS_SCHEMA, BASELINE_SCOPE, lightPolicy, checkBaseline } from './hypha_release_light_policy.mjs';
+import { LIGHT_FIX_ROWS_SCHEMA, BASELINE_SCOPE, lightPolicy, checkBaseline, applicableHost } from './hypha_release_light_policy.mjs';
 export { LIGHT_FIX_ROWS_SCHEMA } from './hypha_release_light_policy.mjs';
 
 export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v2';
@@ -135,7 +135,7 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
       if (daw === 'Cakewalk' && row.os !== 'windows') throw new Error(`Fix row ${row.id}: Cakewalk requires windows`);
       if (light && row.hosts.some(host => !/^(macOS\/x86_64|Windows\/x64)\/(AU|VST3|AAX)$/.test(host)
-          || (row.os === 'windows' && host.endsWith('/AU')))) {
+          || !applicableHost(daw, row.os, host.split('/')[2]))) {
         throw new Error('Light host rows need known shipping platform and format');
       }
       if (full) checkFullTransitions(row, daw, file);
@@ -144,7 +144,8 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
         const daws = coverage.get(promise);
         if (!daws.has(daw)) daws.set(daw, new Set());
         const systems = daws.get(daw);
-        if (systems.has(row.os) || (systems.size && !sensitive.includes(promise))) {
+        if (systems.has(row.os) || (systems.size && !sensitive.includes(promise)
+            && !(light && spec.impact?.some(item => item.promise === promise && item.scope === 'platform')))) {
           throw new Error(`Promise ${promise} is already verified in ${daw}`);
         }
         systems.add(row.os);
@@ -171,7 +172,7 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   }
   if (light) lightPolicy(spec, candidate, promises, REQUIRED_DAWS, canonicalDaw, sensitive);
   if (!light && fullTransitions !== 1) throw new Error('Fix rows need exactly one Pro Tools full-transitions row');
-  return { rows: spec.rows, decision: fileFact(file) };
+  return { rows: spec.rows, decision: fileFact(file), ...(light ? { schema: spec.schema } : {}) };
 }
 
 // Re-read on every stage and on --bind-publication: the current notes may not promise anything

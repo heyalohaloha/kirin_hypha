@@ -8,7 +8,24 @@ const text = value => typeof value === 'string' && value.trim().length > 0;
 const unique = values => new Set(values).size === values.length;
 const keys = (value, wanted) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).sort().join() === [...wanted].sort().join();
-const formats = ['AU', 'VST3', 'AAX'];
+export function applicableHost(daw, os, format) {
+  if (!['macos', 'windows'].includes(os)) return false;
+  if (daw === 'Logic Pro') return os === 'macos' && format === 'AU';
+  if (daw === 'Pro Tools') return format === 'AAX';
+  if (daw === 'Cakewalk') return os === 'windows' && format === 'VST3';
+  if (daw === 'Cubase') return format === 'VST3';
+  return ['Studio One', 'REAPER', 'Ableton Live'].includes(daw)
+    && (format === 'VST3' || (os === 'macos' && format === 'AU'));
+}
+const concrete = value => typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))
+  || (text(value) && !['PENDING', 'UNKNOWN', 'SKIP'].includes(value.toUpperCase()))
+  || (value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length > 0 && Object.values(value).every(concrete));
+function observedPromise(row, transitions) {
+  return Object.entries(row.expected || {}).some(([key, value]) =>
+    !['newIssues', 'transitions', 'passed'].includes(key) && concrete(value))
+    || (transitions.length > 0 && transitions.every(t => row.expected?.transitions?.[t] === true));
+}
 export function lightPolicy(spec, candidate, promises, daws, canonicalDaw, sensitive) {
   if (!/^\d+\.\d+\.\d+$/.test(candidate.version)
       || candidate.version.split('.').map(Number).some((n, i, a) =>
@@ -17,7 +34,7 @@ export function lightPolicy(spec, candidate, promises, daws, canonicalDaw, sensi
     throw new Error('Light acceptance is available only for new candidates from 1.1.58');
   }
   const plan = spec.impact;
-  if (!Array.isArray(plan) || plan.length !== promises.length || !unique(plan.map(item => item?.promise))) {
+  if (!promises.length || !Array.isArray(plan) || !plan.length || plan.length !== promises.length || !unique(plan.map(item => item?.promise))) {
     throw new Error('Light impact plan must cover each release-note promise exactly once');
   }
   for (const item of plan) {
@@ -32,7 +49,7 @@ export function lightPolicy(spec, candidate, promises, daws, canonicalDaw, sensi
     for (const target of item.targets) {
       if (!keys(target, ['daw', 'os', 'formats']) || !canonicalDaw(target.daw)
           || !['macos', 'windows'].includes(target.os) || !Array.isArray(target.formats)
-          || !target.formats.length || !unique(target.formats) || target.formats.some(f => !formats.includes(f))
+          || !target.formats.length || !unique(target.formats) || target.formats.some(f => !applicableHost(canonicalDaw(target.daw), target.os, f))
           || (target.os === 'windows' && target.formats.includes('AU'))
           || (canonicalDaw(target.daw) === 'Logic Pro' && target.os !== 'macos')
           || (canonicalDaw(target.daw) === 'Cakewalk' && target.os !== 'windows')) {
@@ -44,7 +61,8 @@ export function lightPolicy(spec, candidate, promises, daws, canonicalDaw, sensi
           && (row.promise === item.promise || row.promises?.includes(item.promise))
           && canonicalDaw(row.daw) === canonicalDaw(target.daw) && row.os === target.os
           && row.hosts?.some(host => host.split('/')[2] === format));
-        if (!rows.length || !rows.some(row => item.transitions.every(t => row.expected?.transitions?.[t] === true))) {
+        if (!rows.length || !rows.some(row => observedPromise(row, item.transitions)
+          && item.transitions.every(t => row.expected?.transitions?.[t] === true))) {
           throw new Error(`Light impact lacks deep host evidence for ${item.promise}: ${target.daw}/${target.os}/${format}`);
         }
       }

@@ -16,7 +16,7 @@ function fixture(t) {
   const promise = 'Labels remain readable.';
   const rows = REQUIRED_DAWS.map((daw, i) => ({ id: `baseline-${i}`, kind: 'host', scope: 'ordinary-pass',
     depth: 'baseline', daw, os: daw === 'Cakewalk' ? 'windows' : 'macos',
-    hosts: [daw === 'Cakewalk' ? 'Windows/x64/VST3' : 'macOS/x86_64/VST3'],
+    hosts: [daw === 'Cakewalk' ? 'Windows/x64/VST3' : daw === 'Logic Pro' ? 'macOS/x86_64/AU' : daw === 'Pro Tools' ? 'macOS/x86_64/AAX' : 'macOS/x86_64/VST3'],
     chain: 'PRE -> POST', oracle: 'retained ordinary host run', expected: { ...BASELINE_EXPECTED } }));
   rows.push({ id: 'changed-labels', kind: 'host', depth: 'deep', promise, daw: 'REAPER', os: 'macos',
     hosts: ['macOS/x86_64/VST3'], chain: 'PRE -> POST', oracle: 'real host label observation',
@@ -73,7 +73,6 @@ test('light impact rejects incomplete, unknown, unsupported or unproved targets'
 
 test('platform differences and changed transitions need explicit deep host rows', t => {
   const f = fixture(t), spec = structuredClone(f.spec);
-  spec.platformSensitive = [spec.impact[0].promise];
   spec.impact[0].scope = 'platform';
   assert.throws(() => f.run(spec), /windows|operating systems/);
   spec.impact[0].targets.push({ daw: 'REAPER', os: 'windows', formats: ['VST3'] });
@@ -107,4 +106,29 @@ test('new policy passes real initialization without changing safety or frozen bo
   }
   state.expected['baseline-0'].saved = false;
   assert.throws(() => assertState(state), /expected|changed/);
+});
+
+test('light rejects prose-only notes and deep rows with no observed promise', t => {
+  const f = fixture(t), empty = structuredClone(f.spec);
+  fs.writeFileSync(f.notes, 'Labels remain readable.\n'); empty.impact = []; empty.rows.pop();
+  assert.throws(() => f.run(empty), /each release-note/);
+  fs.writeFileSync(f.notes, '- Labels remain readable.\n');
+  for (const expected of [{newIssues: 0}, {newIssues: 0, passed: true},
+    {newIssues: 0, readable: null}, {newIssues: 0, readable: {}}, {newIssues: 0, readable: 'PENDING'}]) {
+    const bad = structuredClone(f.spec); bad.rows[7].expected = expected;
+    assert.throws(() => f.run(bad), /deep host evidence/);
+  }
+  const ci = structuredClone(f.spec); ci.rows[7].kind = 'ci'; ci.rows[7].oracle = 'editor-reachability';
+  assert.throws(() => f.run(ci), /real-host/);
+});
+test('baseline and deep rows share the DAW format compatibility contract', t => {
+  const f = fixture(t);
+  for (const daw of ['Logic Pro', 'Pro Tools', 'Cubase']) {
+    const bad = structuredClone(f.spec), row = bad.rows.find(r => r.daw === daw);
+    row.hosts = ['macOS/x86_64/' + (daw === 'Cubase' ? 'AU' : 'VST3')];
+    assert.throws(() => f.run(bad), /shipping platform/);
+    bad.rows = structuredClone(f.spec.rows); bad.rows[7].daw = daw;
+    bad.rows[7].hosts = row.hosts; bad.impact[0].targets[0] = {daw, os:'macos', formats:[row.hosts[0].split('/')[2]]};
+    assert.throws(() => f.run(bad), /shipping platform/);
+  }
 });

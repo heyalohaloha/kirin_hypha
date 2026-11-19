@@ -1,3 +1,4 @@
+import { validateLightHostRuns } from './hypha_release_light_evidence.mjs';
 import { releaseComplete } from './release_stages.mjs';
 import { verifyReaperEvidenceForState } from '../acceptance/reaper_run.mjs';
 // Candidate-bound evidence. Reports are attestations backed by retained files, never auto-PASS.
@@ -190,6 +191,8 @@ export function validateReport(state, reportPath, gate, binding, ids) {
       throw new Error(`${gate}: ${id} expected values differ from the frozen contract`);
     }
     if (!compareExpected(row.expected, row.measured)) throw new Error(`${gate}: ${id} measured values fail expected conditions`);
+    if (gate === 'A4') facts.push(...validateLightHostRuns(state, row, binding,
+      { resolveInput, fileFact, digest, compareExpected }));
     const method = acceptanceCriteria(state).evidenceMethods[id] || 'manual';
     if (!['manual', 'reaper'].includes(method)) throw new Error(`${gate}: unknown evidence method`);
     if (gate === 'A4' && state.freeze?.criteriaSha256 !== digest(acceptanceCriteria(state))) throw new Error(`${gate}: frozen criteria changed`);
@@ -199,7 +202,8 @@ export function validateReport(state, reportPath, gate, binding, ids) {
     const lacking = missingEvidenceKind(state, id, row.evidence);
     if (lacking) throw new Error(`${gate}: ${id} needs retained ${lacking} evidence with path and sha256`);
     for (const evidence of row.evidence) {
-      if (evidence.kind && !['attachment', 'reaper', 'host-identity', ...EVIDENCE_KINDS].includes(evidence.kind)) throw new Error(`${gate}: unknown evidence kind`);
+      if (evidence.kind && !['attachment', 'reaper', 'host-identity',
+        ...(state.fixRows?.schema === 'hypha-release-fix-rows-light-v1' ? ['host-run'] : []), ...EVIDENCE_KINDS].includes(evidence.kind)) throw new Error(`${gate}: unknown evidence kind`);
       const actual = fileFact(resolveInput(state, evidence.path));
       if (actual.sha256 !== evidence.sha256) throw new Error(`${gate}: evidence hash mismatch`);
       facts.push(actual);
