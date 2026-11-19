@@ -42,6 +42,7 @@ run node --test scripts/ls_release/pkg_staple.test.mjs scripts/ls_release/pkg_co
 run node --test scripts/acceptance/aax_swap_preflight.test.mjs scripts/acceptance/aax_swap_hash_interop.test.mjs
 run node --test scripts/acceptance/aax_swap_shell.test.mjs scripts/acceptance/aax_swap_session.test.mjs scripts/acceptance/aax_swap_command.test.mjs scripts/acceptance/aax_swap_transport.test.mjs scripts/acceptance/aax_swap.test.mjs
 run env PYTHONDONTWRITEBYTECODE=1 python3 scripts/acceptance/aax_swap_source_test.py
+run env PYTHONDONTWRITEBYTECODE=1 python3 scripts/acceptance/macos_install_compare_test.py
 run node --test scripts/acceptance/chain_trace_window.test.mjs scripts/acceptance/host_preflight.test.mjs
 run node --test scripts/acceptance/acceptance_tools.test.mjs scripts/acceptance/reaper_run.test.mjs scripts/acceptance/reaper_operation_log.test.mjs scripts/acceptance/reaper_record_quality.test.mjs scripts/acceptance/reaper_capture_binding.test.mjs scripts/acceptance/reaper_policy.test.mjs scripts/acceptance/reaper_private_acl.test.mjs scripts/acceptance/reaper_audit_regression.test.mjs
 run node --test scripts/ls_release/ls_api_readback.test.mjs scripts/ls_release/hypha_release_ls.test.mjs scripts/ls_release/release_preflight.test.mjs
