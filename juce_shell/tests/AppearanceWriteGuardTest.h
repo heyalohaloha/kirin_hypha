@@ -61,7 +61,11 @@ template<class Require> void verifyAppearanceWriteGuard (const juce::File& fixtu
     }
     const auto stale=protectedRoot.getChildFile("stale.lock");
     check(stale.createDirectory().wasOk(),"fixture creates synthetic protected stale lock");
-    check(stale.setLastModificationTime(juce::Time::getCurrentTime()-juce::RelativeTime::seconds(60)),"fixture dates stale lock");
+    std::error_code staleTimeError;
+    std::filesystem::last_write_time(std::filesystem::u8path(stale.getFullPathName().toStdString()),
+        std::filesystem::file_time_type::clock::now()-std::chrono::seconds(60),staleTimeError);
+    check(!staleTimeError && stale.getLastModificationTime()<juce::Time::getCurrentTime()-juce::RelativeTime::seconds(50),
+          "fixture dates stale lock");
     {
         ScopedFixturePolicy scoped({allowed.getFullPathName(),{protectedRoot}});
         const auto before=permittedMutationEntries();
