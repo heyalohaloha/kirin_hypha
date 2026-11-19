@@ -1,8 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
-#if JUCE_WINDOWS
- #include <windows.h>
-#else
+#if ! JUCE_WINDOWS
  #include <fcntl.h>
  #include <sys/file.h>
  #include <sys/stat.h>
@@ -11,6 +9,9 @@
 
 namespace hypha::metric_needle
 {
+#if JUCE_WINDOWS
+namespace windows_detail { void* openOwner (const juce::File&, bool&); void closeOwner (void*) noexcept; }
+#endif
 // Nonblocking stable-inode claim, including between plugin images in one process.
 // Workers retain this shared lease until their cancelled work is really finished.
 // Do not unlink a live/stale lock file: replacing its inode would split ownership.
@@ -24,12 +25,7 @@ public:
             || parent.createDirectory().failed() || parent.isSymbolicLink()
             || parent.getParentDirectory().isSymbolicLink() || file.isSymbolicLink()) return;
        #if JUCE_WINDOWS
-        handle = CreateFileW (file.getFullPathName().toWideCharPointer(), GENERIC_READ | GENERIC_WRITE,
-            0, nullptr, OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-        if (handle == INVALID_HANDLE_VALUE) return;
-        BY_HANDLE_FILE_INFORMATION info {};
-        held = GetFileInformationByHandle (handle, &info)
-            && !(info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
+        handle = windows_detail::openOwner (file, held);
        #else
         handle = ::open (file.getFullPathName().toRawUTF8(), O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
         if (handle < 0) return;
@@ -45,7 +41,7 @@ private:
     void close() noexcept
     {
        #if JUCE_WINDOWS
-        if (handle != INVALID_HANDLE_VALUE) { CloseHandle (handle); handle = INVALID_HANDLE_VALUE; }
+        windows_detail::closeOwner (handle); handle = nullptr;
        #else
         if (handle >= 0) { ::close (handle); handle = -1; }
        #endif
@@ -53,7 +49,7 @@ private:
     }
     bool held = false;
    #if JUCE_WINDOWS
-    HANDLE handle = INVALID_HANDLE_VALUE;
+    void* handle = nullptr;
    #else
     int handle = -1;
    #endif

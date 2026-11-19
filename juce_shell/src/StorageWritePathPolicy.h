@@ -2,13 +2,7 @@
 #include <juce_core/juce_core.h>
 #include <filesystem>
 #include <vector>
-#if JUCE_WINDOWS
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <shlobj.h>
-#else
+#if ! JUCE_WINDOWS
 #include <pwd.h>
 #include <unistd.h>
 #endif
@@ -16,6 +10,10 @@ namespace hypha::storage::write_guard {
 struct FixturePolicy { juce::String allowedRoot; std::vector<juce::File> additionalProtectedRoots; };
 namespace detail {
 namespace fs = std::filesystem;
+#if JUCE_WINDOWS
+bool windowsProtectedRoots (std::vector<fs::path>&);
+bool windowsReparsePoint (const fs::path&);
+#endif
 inline fs::path pathOf (const juce::File& file)
 {
 #if JUCE_WINDOWS
@@ -47,24 +45,7 @@ inline bool contains (const fs::path& parent, const fs::path& child)
 inline bool realProtectedRoots (std::vector<fs::path>& roots)
 {
 #if JUCE_WINDOWS
-    const auto known = [](REFKNOWNFOLDERID id, fs::path& out) {
-        PWSTR raw=nullptr; const auto hr=SHGetKnownFolderPath(id,KF_FLAG_DONT_VERIFY,nullptr,&raw);
-        if (FAILED(hr) || raw==nullptr) { if(raw) CoTaskMemFree(raw); return false; }
-        out=raw; CoTaskMemFree(raw); return true;
-    };
-    fs::path home,local,roaming,documents;
-    if (!known(FOLDERID_Profile,home)||!known(FOLDERID_LocalAppData,local)||!known(FOLDERID_RoamingAppData,roaming)
-        ||!known(FOLDERID_Documents,documents)) return false;
-    roots={home/L"Documents"/L"Kirin OS",documents/L"Kirin OS",
-           home/L"AppData"/L"Local"/L"Kirin OS",home/L"AppData"/L"Roaming"/L"Kirin OS",
-           local/L"Kirin OS",roaming/L"Kirin OS"};
-    for (const auto* name : {"APPDATA", "LOCALAPPDATA"}) {
-        const auto value=juce::SystemStats::getEnvironmentVariable(name,{});
-        if(value.isNotEmpty()) {
-            if(!juce::File::isAbsolutePath(value)) return false;
-            roots.push_back(pathOf(juce::File(value).getChildFile("Kirin OS")));
-        }
-    }
+    return windowsProtectedRoots (roots);
 #else
     passwd user {}, *result=nullptr;
     std::vector<char> buffer(65536);
@@ -97,8 +78,7 @@ inline bool safeChildren (const fs::path& root, const fs::path& candidate)
         if (error && error!=std::errc::no_such_file_or_directory) return false;
         if (fs::is_symlink(status)) return false;
 #if JUCE_WINDOWS
-        const auto attributes=GetFileAttributesW(walk.c_str());
-        if (attributes!=INVALID_FILE_ATTRIBUTES && (attributes&FILE_ATTRIBUTE_REPARSE_POINT)!=0) return false;
+        if (windowsReparsePoint (walk)) return false;
 #endif
     }
     return true;

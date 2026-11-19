@@ -36,7 +36,7 @@ test('PRE requests the shared worker without constructing a second native scan',
   assert.match(demand, /fields\[0\] != juce::String \(rate\)/);
   assert.match(demand, /fields\[1\] != juce::String \(channels\)/);
   assert.doesNotMatch(demand, /kirin_reference_metrics_create|scanPreparedSource|metrics::Runtime/);
-  const owner = source('HyphaMetricChainOwner.h');
+  const owner = source('HyphaMetricChainOwner.h') + source('HyphaMetricChainOwner.cpp');
   assert.match(owner, /LOCK_EX \| LOCK_NB/);
   assert.match(owner, /OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT/);
   // Match calls, not prose explaining why a stable lock inode must remain.
