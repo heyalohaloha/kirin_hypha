@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -104,4 +104,13 @@ set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED storage)
     assert.equal(excluded.status, 0, excluded.stderr);
     assert.match(excluded.stdout, /4 registered, 3 selected, 1 reasoned exclusions/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('release selection includes the added native contracts, including renamed readability diagnostics', () => {
+  const source = readFileSync(new URL('./test_release_source.sh', import.meta.url), 'utf8');
+  const selection = new RegExp(source.match(/JUCE_TEST_REGEX='([^']+)'/)[1]);
+  const added = ["kirin_blind_preference_trial", "kirin_reference_balance_alignment", "kirin_reference_balance_overlay", "kirin_reference_balance_approval", "kirin_reference_balance_target_sizes", "kirin_reference_balance_compact_fit", "kirin_reference_balance_follow", "kirin_reference_balance_range_label", "kirin_reference_change_notes_ui", "kirin_reference_metric_series", "kirin_reference_metric_scan", "kirin_reference_metric_job", "kirin_reference_metric_page_reader", "kirin_reference_metric_source_scan", "kirin_metric_needle", "kirin_metric_shared_zero", "kirin_reference_metric_set_runtime", "kirin_metric_face_contract", "kirin_reference_metric_set_source", "kirin_reference_change_notes", "kirin_readability_fixes_visual", "kirin_session_coverage_diagnostic", "kirin_storage_write_guard_startup", "kirin_pre_display_write_guard_startup"];
+  for (const name of added) assert.ok(selection.test(name), `release selection omitted ${name}`);
+  assert.equal(selection.test('kirin_look239_visual'), false);
+  assert.equal(selection.test('kirin_unregistered_future_contract'), false);
 });
