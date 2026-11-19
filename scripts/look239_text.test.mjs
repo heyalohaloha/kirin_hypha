@@ -11,7 +11,7 @@ test('F13 product state expression, translation key and normal colour change tog
 })
 test('F14 complete requested sentences share the existing readable wrapping contract', () => {
   const english = 'Before a realtime bounce, press END and wait for the level to return'
-  const japanese = '書き出す前は END を押し、音量が戻るのを待ってください'
+  const japanese = 'リアルタイムで書き出す前は END を押し、音量が戻るのを待ってください'
   assert.ok(read('src/HyphaComparisonNotices.h').includes(`beforeRealtimeBounce = "${english}"`))
   assert.ok(read('src/HyphaJapaneseNotices.cpp').includes(`{ "${english}", u8"${japanese}" }`))
   assert.match(read('src/HyphaFooterNoticeFont.h'), /text == comparison_ui::beforeRealtimeBounce/)
