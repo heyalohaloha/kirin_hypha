@@ -42,6 +42,7 @@ static void print (const char* name, const Tally& t)
 #include "LiveCompareClockProvenanceTest.h"
 #include "AaxChunkChainTest.h"
 #include "LiveCompareAlignTest.h"
+#include "LiveCompareAlignWatchTest.h"
 #include "LiveCompareAlignStormTest.h"
 #include "LiveCompareKeptAlignTest.h"
 
@@ -266,6 +267,7 @@ int main()
     keptCorrectionWaitsForPresNewRun();
     takeoverIsKnownByItsOwnStepOfK();
     takeoverDuringPromotion();
+    alignWatchRaces();
     takeoverOfBothWatchSlots();
     spentBudgetNeverWaitsAgainInTheRenderer();
     alignTransportStorm();

@@ -46,6 +46,7 @@ struct World
     int frames = 256, calibrating = 0, stopped = 0, tickEvery = 2, sinceTick = 0, burst = 0;
     bool selectedPre = true, content = true, raceNext = false, unseenK = false, wasValid = false, sameStart = false;
     bool takeoverUnheard = false; // the host took the delay over and no block has been proven at that K yet
+    bool allowClockChangesBeforeAnswer = false;
     bool confirmedCandidate = false; std::uint64_t confirmedConditions = 0;
     Listener listeners[2];
     long blocks = 0, substituted = 0, notices = 0, events = 0, staleEstimates = 0, fallbacks = 0, blindBlocks = 0, races = 0, burstBlocks = 0;
@@ -204,6 +205,8 @@ struct World
         {
             ++blindBlocks;
             auto& x = listeners[0]; auto& y = listeners[1];
+            if (x.pathOpen && x.alignment.readiness.pending())
+                check (x.address == 0 && y.address == 0, "unconfirmed BLIND paths both use the clock address");
             const auto toldX = x.owner.notice (x.alignment.unservedCorrection()), toldY = y.owner.notice (y.alignment.unservedCorrection());
             check (x.gateOpen == y.gateOpen && x.slotPre == y.slotPre,
                    "both BLIND assignments sound PRE or its substitute at the same blocks");
@@ -222,6 +225,7 @@ struct World
     // until the service's answer has played (K does not move between the two). Before that K moves freely.
     bool answering() const noexcept
     {
+        if (allowClockChangesBeforeAnswer) return false; // diagnostic only; normal fixture keeps its assumption
         for (const auto& l : listeners) if (l.alignment.budgetSpent() && l.waited > 0) return true;
         return false;
     }

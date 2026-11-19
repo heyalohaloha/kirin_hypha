@@ -162,6 +162,7 @@ inline bool matchingScaledBlock (float* const* post, float* const* pre, int chan
 class AlignReadiness;
 #ifdef KIRIN_ALIGN_WATCH_TEST
 inline void (*afterAlignWatchReadForTest) (const AlignReadiness&) = nullptr;
+inline void (*afterAlignWatchKeptForTest) (const AlignReadiness&) = nullptr;
 #endif
 class AlignReadiness
 {
@@ -196,8 +197,11 @@ public:
                 if (afterAlignWatchReadForTest) afterAlignWatchReadForTest (*this);
                #endif
                 const auto agreement = keptAgreement.load();
-                if (hostTookOver ({ amounts.kept }, previousK, k, agreement)) watch.recordKept (amounts.epoch);
-                if (hostTookOver ({ amounts.next }, previousK, k, agreement)) watch.recordNext (amounts.epoch);
+                if (hostTookOver ({ AlignWatch::frames (amounts.kept) }, previousK, k, agreement)) watch.record (amounts.kept);
+               #ifdef KIRIN_ALIGN_WATCH_TEST
+                if (afterAlignWatchKeptForTest) afterAlignWatchKeptForTest (*this);
+               #endif
+                if (amounts.next != amounts.kept && hostTookOver ({ AlignWatch::frames (amounts.next) }, previousK, k, agreement)) watch.record (amounts.next);
             }
             previousK = k;
             haveK = everK = true;
