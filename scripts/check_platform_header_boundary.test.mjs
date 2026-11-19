@@ -19,7 +19,7 @@ test('private SDK translation units are linked for Windows shipping and native t
   const root = new URL('../', import.meta.url);
   const cmake = fs.readFileSync(new URL('juce_shell/cmake/WindowsPlatform.cmake', root), 'utf8');
   const files = [...cmake.matchAll(/src\/[^\s)]+\.cpp/g)].map(m => m[0]);
-  assert.equal(files.length, 6);
+  assert.equal(files.length, 9);
   for (const file of files) {
     const text = fs.readFileSync(new URL('juce_shell/' + file, root), 'utf8');
     const include = text.indexOf('#include <windows.h>');
@@ -28,4 +28,18 @@ test('private SDK translation units are linked for Windows shipping and native t
   }
   assert.match(cmake, /if\(WIN32\)/);
   assert.match(cmake, /link_libraries\(KirinWindowsPlatform\)/);
+});
+
+test('indirect SDK use is rejected; comments, strings and only the documented portable ABI symbol are allowed', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-sdk-tokens-'));
+  try {
+    const dir = path.join(root, 'juce_shell/src/live_compare'); fs.mkdirSync(dir, { recursive: true });
+    const timing = path.join(dir, 'LiveCompareChainTiming.h');
+    fs.writeFileSync(timing, 'extern "C" unsigned long GetCurrentThreadId();');
+    fs.writeFileSync(path.join(dir, 'safe.h'), '// HANDLE\nconst char* text = "FILETIME INVALID_HANDLE_VALUE";');
+    assert.deepEqual(violations(root), []);
+    fs.writeFileSync(path.join(dir, 'bad.h'), 'HANDLE h = INVALID_HANDLE_VALUE; GetThreadTimes();');
+    fs.appendFileSync(timing, '\nFILETIME value;');
+    assert.deepEqual(violations(root), ['juce_shell/src/live_compare/LiveCompareChainTiming.h', 'juce_shell/src/live_compare/bad.h']);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

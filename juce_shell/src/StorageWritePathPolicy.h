@@ -59,8 +59,8 @@ inline bool realProtectedRoots (std::vector<fs::path>& roots)
     roots.push_back(home/".config"/"Kirin OS");
     roots.push_back(home/"Library"/"Application Support"/"Kirin OS");
 #endif
-#endif
     return true;
+#endif
 }
 inline bool safeChildren (const fs::path& root, const fs::path& candidate)
 {

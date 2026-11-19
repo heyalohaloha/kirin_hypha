@@ -9,7 +9,15 @@ export function violations(root) {
       if (entry.isDirectory()) walk(file);
       else if (entry.isFile() && file.endsWith('.h')) {
         const text = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-        if (/^\s*#\s*include\s*[<"](?:windows|shlobj)\.h[>"]/im.test(text)) found.push(path.relative(root, file));
+        const relative = path.relative(root, file).split(path.sep).join('/');
+        const sdkInclude = /^\s*#\s*include\s*[<"](?:windows|shlobj)\.h[>"]/im.test(text);
+        let code = text.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '');
+        // Existing ABI-compatible forward declaration does not depend on SDK headers.
+        // Exempt this one symbol, never the entire file or an SDK include.
+        if (relative === 'juce_shell/src/live_compare/LiveCompareChainTiming.h')
+          code = code.replace(/\bGetCurrentThreadId\b/g, '');
+        const sdkToken = /\b(?:HANDLE|HMODULE|HINSTANCE|HWND|HKEY|HDC|HRESULT|BOOL|DWORD|WORD|BYTE|UINT|LONG|LONGLONG|ULONG|FILETIME|LARGE_INTEGER|ULARGE_INTEGER|BY_HANDLE_FILE_INFORMATION|FILE_BASIC_INFO|REFKNOWNFOLDERID|PWSTR|LPCWSTR|INVALID_HANDLE_VALUE|GENERIC_READ|GENERIC_WRITE|FILE_ATTRIBUTE_\w+|FILE_FLAG_\w+|FILE_SHARE_\w+|CREATE_NEW|OPEN_ALWAYS|OPEN_EXISTING|THREAD_PRIORITY_\w+|PAGE_READWRITE|CreateFileW|CloseHandle|GetFileInformationByHandle|GetFileInformationByHandleEx|SetFileTime|ReadFile|SetFilePointerEx|GetFileAttributesW|SHGetKnownFolderPath|CoTaskMemFree|GetModuleHandleExW|CreateFileMappingW|GetLastError|GetThreadTimes|GetCurrentThread|SetThreadPriority|GetCurrentThreadId)\b/;
+        if (sdkInclude || sdkToken.test(code)) found.push(relative);
       }
     }
   }

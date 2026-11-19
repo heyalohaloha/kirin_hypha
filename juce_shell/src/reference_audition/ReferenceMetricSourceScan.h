@@ -9,6 +9,10 @@
 
 namespace hypha::reference_audition::metrics
 {
+#if JUCE_WINDOWS
+namespace windows_detail { bool lowerThreadPriority(); }
+#endif
+
 struct CueScanRequest
 {
     Cue cue;
@@ -37,7 +41,7 @@ inline SourceScanResult scanPreparedSource (std::shared_ptr<const RuntimeSource>
     if (pthread_set_qos_class_self_np (QOS_CLASS_UTILITY, 0) != 0)
         return failed (ScanState::analysisFailed, "reference_metric_priority_unavailable");
    #elif JUCE_WINDOWS
-    if (!SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL))
+    if (!windows_detail::lowerThreadPriority())
         return failed (ScanState::analysisFailed, "reference_metric_priority_unavailable");
    #endif
     if (window && cueRequest) return failed (ScanState::invalidFormat, "reference_metric_range_unsupported");
