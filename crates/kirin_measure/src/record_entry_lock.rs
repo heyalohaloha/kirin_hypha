@@ -117,15 +117,7 @@ pub(crate) fn claim_record_entry(
     let dir = entry_lock_dir(base_dir, project_hash, session_id);
     crate::atomic_file::durable::create_dir_all(&dir)?;
     let path = entry_lock_path(base_dir, project_hash, session_id, role, instance_id);
-    // Existing local IO is never replaced or waited on while claiming this path.
-    let _in_flight = preparation::terminal::acquire(&path, None)?;
-    if _in_flight.is_none() && preparation::terminal::owners()?.contains_key(&path) {
-        return Err(RecordEntryLockError::AlreadyActive {
-            path,
-            owner_id: None,
-            heartbeat_at_ms: None,
-        });
-    }
+    let _reservation = acquisition::reserve(&path)?;
     let now = now_epoch_ms();
     let lock = RecordEntryLockFile {
         schema_version: RECORD_ENTRY_LOCK_SCHEMA.to_string(),
@@ -141,17 +133,10 @@ pub(crate) fn claim_record_entry(
     };
     let bytes = serde_json::to_vec(&lock)?;
 
-    let result = match link_entry_claim(&dir, &path, role, instance_id, &bytes)? {
+    match link_entry_claim(&dir, &path, role, instance_id, &bytes)? {
         LinkOutcome::Created => Ok(()),
-        LinkOutcome::AlreadyExists => {
-            reclaim_or_reject_existing(path.clone(), role, instance_id, &bytes)
-        }
-    };
-    if result.is_ok() {
-        let mut owners = preparation::terminal::owners()?;
-        preparation::terminal::register(&mut owners, base_dir, path, lock);
+        LinkOutcome::AlreadyExists => reclaim_or_reject_existing(path, role, instance_id, &bytes),
     }
-    result
 }
 
 fn reclaim_or_reject_existing(
@@ -275,4 +260,9 @@ mod tests;
 mod preparation;
 pub(crate) use preparation::{measure_preparation_samples, publish_measure_preparation};
 
-pub(crate) use preparation::terminal::{finish_ready_preparation, finish_terminal_preparations};
+#[path = "record_entry_acquisition.rs"]
+mod acquisition;
+
+#[cfg(test)]
+#[path = "record_entry_acquisition_tests.rs"]
+mod acquisition_tests;

@@ -432,7 +432,7 @@ fn writer_claim_dir(base_dir: &Path, project_hash: &str, session_id: &str) -> Pa
     base_dir.join(&*ph).join(WRITER_CLAIM_SUBDIR).join(&*sid)
 }
 
-pub(crate) fn writer_claim_path(
+fn writer_claim_path(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,

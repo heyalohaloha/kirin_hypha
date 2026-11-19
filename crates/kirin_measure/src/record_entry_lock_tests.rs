@@ -3,7 +3,7 @@ use std::sync::{Arc, Barrier, Mutex};
 
 static TEST_SEQ: AtomicU64 = AtomicU64::new(0);
 
-fn isolated_base() -> PathBuf {
+pub(super) fn isolated_base() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "kirin_record_entry_lock_test_{}_{}",
         std::process::id(),

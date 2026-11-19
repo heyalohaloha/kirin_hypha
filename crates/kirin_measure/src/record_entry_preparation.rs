@@ -1,10 +1,7 @@
 //! Preparation progress on an exact-session PRE or POST entry claim.
 use super::*;
 
-#[path = "record_entry_preparation_terminal.rs"]
-pub(super) mod terminal;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct EntryPreparation {
     capture_generation_id: String,
     generation_started_at_ms: i64,
@@ -55,15 +52,6 @@ pub(crate) fn publish_measure_preparation(
         return Ok(());
     }
     let path = entry_lock_path(base, project, &signal.session_id, role, instance);
-    let incoming = EntryPreparation {
-        capture_generation_id: signal.capture_generation_id.clone(),
-        generation_started_at_ms: signal.generation_started_at_ms,
-        record_generation,
-        samples,
-    };
-    let Some(mut work) = terminal::acquire(&path, Some(&incoming))? else {
-        return Ok(());
-    };
     let mut lock: RecordEntryLockFile = serde_json::from_slice(&fs::read(&path)?)?;
     if !matches(
         &lock,
@@ -79,23 +67,18 @@ pub(crate) fn publish_measure_preparation(
         if prior.capture_generation_id != signal.capture_generation_id
             || prior.generation_started_at_ms != signal.generation_started_at_ms
             || prior.record_generation != record_generation
+            || samples <= prior.samples
         {
             return Ok(());
         }
     }
-    if !work.before_progress(&lock, &incoming)? {
-        return Ok(());
-    }
-    if lock
-        .measure_preparation
-        .as_ref()
-        .is_some_and(|prior| samples <= prior.samples)
-    {
-        return Ok(());
-    }
-    lock.measure_preparation = Some(incoming.clone());
+    lock.measure_preparation = Some(EntryPreparation {
+        capture_generation_id: signal.capture_generation_id.clone(),
+        generation_started_at_ms: signal.generation_started_at_ms,
+        record_generation,
+        samples,
+    });
     crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&lock)?)?;
-    work.published(incoming)?;
     Ok(())
 }
 
@@ -142,7 +125,3 @@ pub(crate) fn measure_preparation_samples(
         })
         .map_or(0, |p| usize::try_from(p.samples).unwrap_or(usize::MAX))
 }
-
-#[cfg(test)]
-#[path = "record_entry_preparation_terminal_tests.rs"]
-mod terminal_tests;

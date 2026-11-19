@@ -32,27 +32,17 @@ and actual claim replacement without fabricated readiness. Permission-error
 injection is deliberate so privileged test runners cannot silently bypass chmod;
 it is not a real-device permission or power-loss test.
 
-Entry preparation progress remains asynchronous. Completion is the existing writer
-ready fact; failure/cancellation is the existing AllStop/DropCommitted/Aborted
-lifecycle fact. After those successful endpoints, the process rewrites only its
-own registered entry's last samples once with the same schema using the durable
-atomic writer. Readiness/lifecycle facts, not progress, remain terminal authority.
-No-progress entries are not populated with invented samples, and abandoned owners
-are not written on their behalf.
+Entry preparation progress is a best-effort, plain atomic checkpoint. Neither
+intermediate nor final samples are synchronized. Samples do not authorize readiness
+or completion: the existing writer ready and AllStop/DropCommitted/Aborted lifecycle
+facts remain the durable terminal authority under the contract above. No terminal
+samples rewrite or process-lifetime owner registry is retained. Existing on-disk
+entry schemas and samples are still readable; no data migration or deletion occurs.
 
-Entry acquisition registers the exact owner token in process memory. Progress and
-final samples publication share an IO/control-only mutex; no Audio Thread work,
-JSON field or ABI is added. Each write rechecks owner, PID, session, role, instance,
-and preparation generation. A terminal observation stops further plain publication
-before attempting final synchronization. Ordinary write failure leaves that entry
-stopped and retryable through a repeated endpoint or progress observation; it does
-not invalidate an already committed terminal fact. Such failures are logged.
-Best-effort synchronization failure retains the durable helper's existing contract,
-so one attempted synchronization is not proof against power loss.
-
-The bookkeeping is per entry path in process memory, replaced on a newly acquired
-owner, and is not persisted across process death. It serializes this process's
-cooperating writers, not arbitrary external modifications or stale cross-process
-compare/unlink races. It records only ownership and the last published progress,
-not PCM. A later process cannot adopt that memory as permission to finalize an old
-owner. Successful endpoints and delayed progress use the same serialization.
+Entry acquisition reserves its normalized entry path in a process-local set before
+disk ownership checks or replacement. The global mutex protects only insertion and
+removal, never disk I/O. A concurrent acquisition for that path is rejected; the
+reservation is released on every return path after disk publication or failure.
+After success, the fresh disk claim provides ownership. This serializes cooperating
+same-process acquisitions, not arbitrary external modifications or cross-process
+compare/unlink races. No Audio Thread work, schema or ABI is added.
