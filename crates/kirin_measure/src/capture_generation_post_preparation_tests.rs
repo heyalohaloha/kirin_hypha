@@ -55,8 +55,9 @@ fn post_preparation(
     let mut signal = crate::record_signal::read_signal(temp.path(), "project", "post").unwrap();
     signal.status = crate::record_signal::SignalStatus::Acknowledged;
     crate::record_signal::write_signal(temp.path(), "project", "post", &signal).unwrap();
+    let mut post_owner = String::new();
     for (role, instance) in [(Role::Pre, "pre"), (Role::Post, "post")] {
-        crate::record_entry_lock::claim_record_entry(
+        let owner = crate::record_entry_lock::claim_record_entry(
             temp.path(),
             "project",
             &generation.members[0].record_session_id,
@@ -64,6 +65,9 @@ fn post_preparation(
             instance,
         )
         .unwrap();
+        if role == Role::Post {
+            post_owner = owner;
+        }
     }
     let _pre_writer = (!stall).then(|| writer(temp.path(), &generation, Role::Pre));
     let mut post_writer = None;
@@ -84,6 +88,7 @@ fn post_preparation(
                     &signal,
                     2,
                     seconds / 2 * 9_600,
+                    &post_owner,
                 )
                 .unwrap();
             }

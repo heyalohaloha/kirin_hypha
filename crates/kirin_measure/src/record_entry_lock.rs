@@ -10,15 +10,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::plugin_data::Role;
 
 pub(crate) const RECORD_ENTRY_LOCK_SUBDIR: &str = "record_entry_lock";
 pub(crate) const RECORD_ENTRY_LOCK_SCHEMA: &str = "record_entry_lock.v1";
 pub(crate) const RECORD_ENTRY_LOCK_STALE_MS: i64 = 15 * 60 * 1_000;
-
-static OWNER_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RecordEntryLockFile {
@@ -108,7 +105,18 @@ pub(crate) fn claim_record_entry(
     session_id: &str,
     role: Role,
     instance_id: &str,
-) -> Result<(), RecordEntryLockError> {
+) -> Result<String, RecordEntryLockError> {
+    claim_record_entry_inner(base_dir, project_hash, session_id, role, instance_id, true)
+}
+
+fn claim_record_entry_inner(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+    reserve: bool,
+) -> Result<String, RecordEntryLockError> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
         return Err(RecordEntryLockError::InvalidSession);
@@ -117,7 +125,10 @@ pub(crate) fn claim_record_entry(
     let dir = entry_lock_dir(base_dir, project_hash, session_id);
     crate::atomic_file::durable::create_dir_all(&dir)?;
     let path = entry_lock_path(base_dir, project_hash, session_id, role, instance_id);
-    let _reservation = acquisition::reserve(&path)?;
+    let _reservation = reserve.then(|| acquisition::reserve(&path)).transpose()?;
+    let _disk_guard = mutation::try_acquire(&path)?;
+    #[cfg(test)]
+    mutation_tests::after_claim_lock(&path);
     let now = now_epoch_ms();
     let lock = RecordEntryLockFile {
         schema_version: RECORD_ENTRY_LOCK_SCHEMA.to_string(),
@@ -134,8 +145,11 @@ pub(crate) fn claim_record_entry(
     let bytes = serde_json::to_vec(&lock)?;
 
     match link_entry_claim(&dir, &path, role, instance_id, &bytes)? {
-        LinkOutcome::Created => Ok(()),
-        LinkOutcome::AlreadyExists => reclaim_or_reject_existing(path, role, instance_id, &bytes),
+        LinkOutcome::Created => Ok(lock.owner_id),
+        LinkOutcome::AlreadyExists => {
+            reclaim_or_reject_existing(path, role, instance_id, &bytes)?;
+            Ok(lock.owner_id)
+        }
     }
 }
 
@@ -244,8 +258,8 @@ fn entry_lock_path(
 }
 
 fn next_owner_id() -> String {
-    let seq = OWNER_SEQ.fetch_add(1, Ordering::Relaxed);
-    format!("{}-{seq}", std::process::id())
+    // Separate AU/VST3 binaries have separate statics even inside one DAW.
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn now_epoch_ms() -> i64 {
@@ -266,3 +280,10 @@ mod acquisition;
 #[cfg(test)]
 #[path = "record_entry_acquisition_tests.rs"]
 mod acquisition_tests;
+
+#[path = "record_entry_mutation.rs"]
+mod mutation;
+
+#[cfg(test)]
+#[path = "record_entry_mutation_tests.rs"]
+mod mutation_tests;

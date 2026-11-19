@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::{Arc, Barrier};
 
 #[test]
 fn concurrent_stale_entry_acquisitions_have_one_disk_owner() {
@@ -9,21 +8,18 @@ fn concurrent_stale_entry_acquisitions_have_one_disk_owner() {
     let mut old: RecordEntryLockFile = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     old.heartbeat_at_ms = now_epoch_ms() - RECORD_ENTRY_LOCK_STALE_MS - 10_000;
     crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&old).unwrap()).unwrap();
-    let gate = Arc::new(Barrier::new(2));
     let outcomes = std::thread::scope(|scope| {
-        let jobs: Vec<_> = (0..2)
-            .map(|_| {
-                let gate = gate.clone();
-                let base = &base;
-                scope.spawn(move || {
-                    gate.wait();
-                    claim_record_entry(base, "ph", "stale-race", Role::Post, "post")
-                })
-            })
-            .collect();
-        jobs.into_iter()
-            .map(|job| job.join().unwrap())
-            .collect::<Vec<_>>()
+        let (start, ready) = std::sync::mpsc::sync_channel(1);
+        let base_ref = &base;
+        let other = scope.spawn(move || {
+            ready
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            claim_record_entry(base_ref, "ph", "stale-race", Role::Post, "post")
+        });
+        start.send(()).unwrap();
+        let current = claim_record_entry(&base, "ph", "stale-race", Role::Post, "post");
+        vec![current, other.join().unwrap()]
     });
     assert_eq!(outcomes.iter().filter(|r| r.is_ok()).count(), 1);
     assert!(outcomes

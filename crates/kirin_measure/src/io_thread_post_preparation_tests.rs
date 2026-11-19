@@ -26,7 +26,7 @@ fn the_post_io_poll_publishes_completed_preparation_for_its_exact_session() {
     let mut signal = record_signal::read_signal(temp.path(), "project", "post").unwrap();
     signal.status = SignalStatus::Acknowledged;
     record_signal::write_signal(temp.path(), "project", "post", &signal).unwrap();
-    crate::record_entry_lock::claim_record_entry(
+    let owner = crate::record_entry_lock::claim_record_entry(
         temp.path(),
         "project",
         &member.record_session_id,
@@ -44,6 +44,7 @@ fn the_post_io_poll_publishes_completed_preparation_for_its_exact_session() {
     )
     .unwrap();
     let local_generation = sm.generation();
+    sm.remember_io_entry_owner(&signal.session_id, local_generation, owner);
     sm.begin_measure_preparation(local_generation);
     sm.note_measure_preparation_samples(9_600);
     let ingress = crate::RecordIngress::new(32);

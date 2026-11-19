@@ -31,6 +31,7 @@ fn matches(
 
 /// IO writer only. Heartbeats, retries and idle wakes never increment this counter; only
 /// completed Watch chunks supplied by the exact Record generation do. Never creates a claim.
+#[allow(clippy::too_many_arguments)] // Exact disk identity, generation and claim token stay explicit.
 pub(crate) fn publish_measure_preparation(
     base: &Path,
     project: &str,
@@ -39,6 +40,7 @@ pub(crate) fn publish_measure_preparation(
     signal: &crate::record_signal::RecordSignal,
     record_generation: u64,
     samples: u64,
+    owner_id: &str,
 ) -> Result<(), RecordEntryLockError> {
     if samples == 0
         || record_generation == 0
@@ -52,17 +54,26 @@ pub(crate) fn publish_measure_preparation(
         return Ok(());
     }
     let path = entry_lock_path(base, project, &signal.session_id, role, instance);
+    let _disk_guard = match mutation::try_acquire(&path) {
+        Ok(guard) => guard,
+        Err(RecordEntryLockError::AlreadyActive { .. }) => return Ok(()),
+        Err(error) => return Err(error),
+    };
     let mut lock: RecordEntryLockFile = serde_json::from_slice(&fs::read(&path)?)?;
-    if !matches(
-        &lock,
-        project,
-        &signal.session_id,
-        role,
-        instance,
-        std::process::id(),
-    ) {
+    if lock.owner_id != owner_id
+        || !matches(
+            &lock,
+            project,
+            &signal.session_id,
+            role,
+            instance,
+            std::process::id(),
+        )
+    {
         return Ok(());
     }
+    #[cfg(test)]
+    super::mutation_tests::after_progress_read(&path);
     if let Some(prior) = &lock.measure_preparation {
         if prior.capture_generation_id != signal.capture_generation_id
             || prior.generation_started_at_ms != signal.generation_started_at_ms

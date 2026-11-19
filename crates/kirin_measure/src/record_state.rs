@@ -92,6 +92,7 @@ pub(super) struct SessionSlot {
 /// ```
 #[derive(Debug)]
 pub struct RecordStateMachine {
+    pub(super) io_entry_owner: std::sync::Mutex<Option<(String, u64, String)>>,
     pub(super) measure_preparation: super::measure_preparation::MeasurePreparation,
     pub(super) measure_waker: super::measure_wake::MeasureWakeState,
     pub(super) state: AtomicU64,
