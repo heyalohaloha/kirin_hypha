@@ -117,6 +117,7 @@ fn atomic_write_pause_state() -> &'static (Mutex<AtomicWritePauseState>, Condvar
 #[cfg(test)]
 pub(crate) struct AtomicWritePause {
     path: PathBuf,
+    enter_timeout: Duration,
     _exclusive: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -139,6 +140,7 @@ impl AtomicWritePause {
         state.released = false;
         Self {
             path,
+            enter_timeout: Duration::from_secs(5),
             _exclusive: exclusive,
         }
     }
@@ -146,7 +148,7 @@ impl AtomicWritePause {
     pub(crate) fn wait_until_entered(&self) {
         let (lock, wake) = atomic_write_pause_state();
         let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + self.enter_timeout;
         while state.path.as_ref() == Some(&self.path) && !state.entered {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
