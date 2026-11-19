@@ -4382,7 +4382,7 @@ mod tests {
             None,
             None,
             None,
-            None,
+            Some(&isolated_base()),
         )
         .unwrap();
 
@@ -4490,7 +4490,7 @@ mod tests {
             None,
             None,
             None,
-            None,
+            Some(&base),
         )
         .unwrap();
         let mut ctx = rec
