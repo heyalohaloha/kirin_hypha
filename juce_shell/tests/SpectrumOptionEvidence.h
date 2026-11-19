@@ -14,7 +14,9 @@ inline void paint(SpectrumComponent& view,juce::Image& image) {
 }
 inline juce::var cpuRun(int width,int rate,int repetition,const juce::String& source,
         display_settings::Values settings = {},
-        spectrum_average::Choice average = spectrum_average::Choice::live) {
+        spectrum_average::Choice average = spectrum_average::Choice::live, int durationSeconds = 30) {
+    check(durationSeconds >= 1 && durationSeconds <= 30, "CPU duration must be1..30seconds");
+    check(rate == 15 || rate == 20 || rate == 30, "unsupported presentation rate");
     SpectrumComponent view;prepare(view,width);
     view.setDisplaySettings(settings); view.setAverageChoice(average);
     juce::Image image(juce::Image::ARGB,width,width*2/3,true);
@@ -27,9 +29,9 @@ inline juce::var cpuRun(int width,int rate,int repetition,const juce::String& so
         if(i%paintStep==0){view.presentationTickAt(juce::Time::getMillisecondCounterHiRes());paint(view,image);}
     }
     std::this_thread::sleep_until(warm+std::chrono::seconds(2));
-    std::vector<Slot> slots;slots.reserve(30*rate);ThreadCpu cpu;int missedInput=0;
+    std::vector<Slot> slots;slots.reserve(durationSeconds*rate);ThreadCpu cpu;int missedInput=0;
     const auto cpuBegin=cpu.seconds();const auto begin=Clock::now();
-    for(int i=0;i<1800;++i) {
+    for(int i=0;i<durationSeconds*60;++i) {
         if(i%2 && i%paintStep) continue;
         const auto due=begin+std::chrono::duration_cast<Clock::duration>(i*period);
         const auto next=begin+std::chrono::duration_cast<Clock::duration>((i+paintStep)*period);
@@ -49,15 +51,17 @@ inline juce::var cpuRun(int width,int rate,int repetition,const juce::String& so
         s.queueMs=ms(queued-started);s.tickMs=ms(ticked-queued);s.paintMs=ms(finished-ticked);
         s.workMs=ms(finished-started);s.overrun=finished>next;slots.push_back(s);
     }
-    std::this_thread::sleep_until(begin+std::chrono::seconds(30));const auto end=Clock::now();
+    std::this_thread::sleep_until(begin+std::chrono::seconds(durationSeconds));const auto end=Clock::now();
     const double cpuTime=cpu.seconds()-cpuBegin,wall=ms(end-begin)/1000.0;
     int drops=0,overruns=0;std::vector<double> work,paints;juce::Array<juce::var> records;
     for(const auto& s:slots){records.add(slotJson(s));if(s.dropped){++drops;continue;}overruns+=s.overrun;work.push_back(s.workMs);paints.push_back(s.paintMs);}
     auto result=object();set(result,"schema","hypha-freq-decision-options-v1");set(result,"source_id_caller_supplied",source);
     set(result,"width",width);set(result,"height",width*2/3);set(result,"fps",rate);set(result,"run",repetition);
+    set(result,"measurement_seconds",durationSeconds);set(result,"warmup_seconds",2);
+    set(result,"input_frames_measured",durationSeconds*30);set(result,"fixture_prefix_frames",60+durationSeconds*30);
     set(result,"wall_seconds",wall);set(result,"thread_cpu_seconds",cpuTime);set(result,"cpu_ms_per_second",1000*cpuTime/wall);
-    set(result,"rendered",static_cast<int>(work.size()));set(result,"nominal_frames",30*rate);set(result,"dropped",drops);set(result,"overruns",overruns);
-    set(result,"valid",drops==0&&overruns==0&&missedInput==0&&static_cast<int>(work.size())==30*rate&&wall>=30&&cpuTime>=0);
+    set(result,"rendered",static_cast<int>(work.size()));set(result,"nominal_frames",durationSeconds*rate);set(result,"dropped",drops);set(result,"overruns",overruns);
+    set(result,"valid",drops==0&&overruns==0&&missedInput==0&&static_cast<int>(work.size())==durationSeconds*rate&&wall>=durationSeconds&&cpuTime>=0);
     set(result,"missed_input_deadlines",missedInput);set(result,"input_hz",30);set(result,"fixture_sha256",input.sha256);
     set(result,"work_ms",distribution(work));set(result,"paint_ms",distribution(paints));set(result,"slots",records);
     set(result,"fixture","identical fixed 960-frame dense paired stereo trace at 30 Hz regardless of presentation rate");
