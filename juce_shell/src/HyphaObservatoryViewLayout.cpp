@@ -264,6 +264,7 @@ void View::resized()
     {
         const auto font = feedbackText == "Cannot write to folder. Check access."
                        || feedbackText == "2MIX has no DRUM; showing TIME / HISTORY"
+                       || feedbackText == live_compare_ui::keepTailEndedNotice
                        || feedbackText == record_ui::wavWaiting
                        || feedbackText == live_compare_ui::preProcessingNotice
                        || feedbackText.startsWith ("Waiting up to 10 s, then ")

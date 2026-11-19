@@ -4,6 +4,7 @@
 #include "HyphaRecordBindingNotice.h"
 #include "HyphaPreProcessingNotice.h"
 #include "HyphaComparisonNotices.h"
+#include "HyphaQueuedStartText.h"
 
 namespace hypha::footer_notice_font
 {
@@ -15,7 +16,7 @@ inline typography::TextRole roleForText (const presentation::Context& context,
     const auto action = monoFont (context, typography::TextRole::action);
     const bool compact = text_style::shownWidth (action, text) > static_cast<float> (availableWidth);
     const bool readable = text == "Cannot write to folder. Check access." || text == "2MIX has no DRUM; showing TIME / HISTORY"
-        || text == record_ui::wavWaiting || text == live_compare_ui::preProcessingNotice
+        || text == live_compare_ui::keepTailEndedNotice || text == record_ui::wavWaiting || text == live_compare_ui::preProcessingNotice
         || text.startsWith ("Waiting up to 10 s, then ")
         || text == comparison_ui::beforeRealtimeBounce || text == comparison_ui::endThenRetry;
     if (readable) return compact ? typography::TextRole::noticeCompact : typography::TextRole::noticeBody;

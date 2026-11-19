@@ -31,7 +31,8 @@ inline bool labelPaintsCompletely (juce::Label& label)
 
 inline bool previewNotice (const juce::String& text)
 {
-    return text == "DAW stopped: play to resume (POST)"
+    return text == "Keep cannot start because the A/B tail has not been verified as cleared."
+        || text == "DAW stopped: play to resume (POST)"
         || text == "This DAW has no verified audio clock; PRE is unavailable (POST)"
         || text == "Timing unavailable; check PRE and play (POST)"
         || text == "Check delay compensation"
