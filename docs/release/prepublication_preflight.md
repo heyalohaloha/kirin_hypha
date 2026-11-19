@@ -28,6 +28,32 @@ LS の鍵が読めるかと対象商品を GET できるかを返す。鍵の値
 [組織の予算 API](https://docs.github.com/en/rest/billing/budgets)は組織の管理者／課金権限を要する。
 権限が無ければ課金画面の読み取りで確認し、重い build を残枠確認のために起動しない。
 
+## 製造の入力を先に点検する
+
+private config の `manufacturing` に、採用 checkout の絶対 `root`、予定 `version`、`candidateId`、`date`、
+`notes`、新規 profile の `state`（checkout 内の `release_state/`）、`publicationInput`、
+`ownerOverrides`（不要なら明示的な空配列）、`stages` を置く。path はその checkout を基準にする。
+実際の source と候補 identity を担当者が照合してから点検する。秘密値・管理 URL は記録しない。
+
+- `init-state-not-overwritten`：既存 profile は上書きしない。新規の準備だけを PASS とし、
+  既存 profile があれば CHECKPOINT で既存の inspect/resume 手順へ進む。preflight は profile を作らない。
+- `init-owner-overrides`：既存 `ownerOverride` validator で版・候補・対象行・除外形式を照合し、重複も拒否する。
+  決定書の存在は本人の承認を新しく作ることではない。未承認の例外を作らない。
+- `juce-tracked-patches`：採用 checkout の `scripts/verify_juce_patch_state.sh` をそのまま読取実行する。
+  `KIRIN_JUCE_DIR` の別source指定は使わない。patch適用・submodule取得・製品tree変更はしない。
+  verifier の一時比較用コピーは既存手順の範囲。欠落・不一致・30秒超は CHECKPOINT。
+- `hp-publication-input`：既存 `publicationBinding` で英日のお知らせ・版・日付・notesを照合する。
+  公開文の承認や HP の dependency audit を代用せず、HPへ書き込まない。
+- `ls-stage-order`：`release_stages.mjs` の `stagePlan('complete')` と計画 `stages` が一致することを確かめる。
+  LSはdistribution後、全体の完了にはpostreleaseとLS両方が必要。`--until hp` だけで全体完了としない。
+
+`stages` は同じ checkout で次の読取だけの command から得られる。
+```bash
+node --input-type=module -e "import { stagePlan } from './scripts/ls_release/release_stages.mjs'; console.log(JSON.stringify(stagePlan('complete')))"
+```
+点検の PASS は準備の整合だけ。正式 init の clean/source/ignore/audit、凍結、実機、署名、公開承認は従来の入口が再検査する。
+不足は CHECKPOINT のまま、既存 profile や入力を自動で補正しない。
+
 # LS の upload 後の確認
 
 upload だけは担当者が手動で行う。確認は Chrome の画面操作から JSON:API の GET へ移す。
