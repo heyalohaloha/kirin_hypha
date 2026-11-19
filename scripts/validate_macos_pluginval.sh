@@ -76,42 +76,34 @@ fi
 
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR" "$RUN_HOME" "$RUN_TMP"
 
+PINNED_TOOL=1
 if [[ -n "${PLUGINVAL_BIN:-}" ]]; then
+  if [[ "${CI:-}" == "true" ]]; then
+    echo "ERROR: CI requires a pinned archive, not PLUGINVAL_BIN." >&2
+    exit 1
+  fi
+  PINNED_TOOL=0
   PLUGINVAL_EXE="$PLUGINVAL_BIN"
+  printf '%s\n' '{"qualification":"diagnostic-only","tool":"explicit-unpinned-override"}' > "$OUTPUT_DIR/pluginval-tool.json"
+  echo "WARNING: explicit unpinned tool; diagnostic only, not a formal qualification." >&2
 else
-  PLUGINVAL_EXE="$CACHE_DIR/pluginval.app/Contents/MacOS/pluginval"
-  if [[ ! -x "$PLUGINVAL_EXE" ]]; then
-    ZIP="$CACHE_DIR/pluginval_macOS.zip"
-    if [[ "$PLUGINVAL_VERSION" == "latest" ]]; then
-      URL="https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip"
-    else
-      URL="https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/pluginval_macOS.zip"
-    fi
-    echo "==> download pluginval: $URL"
-    rm -rf "$CACHE_DIR/pluginval.app" "$CACHE_DIR/unpacked"
-    mkdir -p "$CACHE_DIR/unpacked"
-    # GitHub's release download sometimes answers with a short error page or a 5xx. Retry until the
-    # archive itself is whole, so a transient outage does not stop validation.
+  URL="$(node scripts/pluginval_archive.mjs url "$PLUGINVAL_VERSION" macOS)"
+  ZIP="$CACHE_DIR/pluginval_macOS.zip"
+  if [[ ! -f "$ZIP" ]]; then
+    # Retry transport failures only. A completed but corrupt download must fail verification below.
+    PART="$(mktemp "$CACHE_DIR/download.XXXXXX")"
     for attempt in 1 2 3 4 5 6; do
-      if curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 "$URL" -o "$ZIP" && unzip -tq "$ZIP" >/dev/null 2>&1; then
-        break
-      fi
-      if [[ "$attempt" == 6 ]]; then
-        echo "ERROR: pluginval download failed after $attempt attempts: $URL" >&2
-        exit 1
-      fi
-      echo "==> pluginval download attempt $attempt failed; retrying"
-      rm -f "$ZIP"
+      if curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 "$URL" -o "$PART"; then break; fi
+      if [[ "$attempt" == 6 ]]; then rm -f "$PART"; echo "ERROR: pluginval download failed" >&2; exit 1; fi
       sleep $((attempt * 10))
     done
-    unzip -q "$ZIP" -d "$CACHE_DIR/unpacked"
-    APP_PATH="$(find "$CACHE_DIR/unpacked" -maxdepth 3 -type d -name pluginval.app | head -n 1)"
-    if [[ -z "$APP_PATH" ]]; then
-      echo "ERROR: pluginval.app not found in downloaded archive." >&2
-      exit 1
-    fi
-    mv "$APP_PATH" "$CACHE_DIR/pluginval.app"
+    mv "$PART" "$ZIP"
   fi
+  node scripts/pluginval_archive.mjs verify "$PLUGINVAL_VERSION" macOS "$ZIP" > "$OUTPUT_DIR/pluginval-tool.json"
+  # Never trust an old expanded app, nor overlay a new archive onto one.
+  VERIFIED_STAGE="$(mktemp -d "$CACHE_DIR/verified.XXXXXX")"
+  unzip -q "$ZIP" -d "$VERIFIED_STAGE"
+  PLUGINVAL_EXE="$VERIFIED_STAGE/pluginval.app/Contents/MacOS/pluginval"
 fi
 
 if [[ ! -x "$PLUGINVAL_EXE" ]]; then
@@ -188,4 +180,8 @@ while IFS= read -r BUNDLE; do
     "$PLUGINVAL_EXE" "${PLUGINVAL_ARGS[@]}" "$BUNDLE"
 done < <(printf '%s\n' "${BUNDLES[@]}")
 
+if [[ "$PINNED_TOOL" != 1 ]]; then
+  echo "==> pluginval diagnostic finished; unpinned tool is NOT a formal qualification" >&2
+  exit 2
+fi
 echo "==> pluginval OK: ${#BUNDLES[@]} role-first installed-layout VST3 bundles"

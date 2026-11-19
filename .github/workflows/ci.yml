@@ -593,24 +593,28 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Tracktion pluginval v1.0.4 official Windows CLI binary.
-          $url = 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip'
-          # GitHub's release download sometimes answers with a 5xx or a short error page. Retry until
-          # the archive itself expands, so a transient outage does not stop validation.
+          # Exact reviewed official archive; environment SHA overrides are not accepted.
+          $pin = node scripts/pluginval_archive.mjs describe v1.0.4 Windows | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'pluginval pin is unavailable' }
+          $archive = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString() + '.zip')
           for ($attempt = 1; $attempt -le 6; $attempt++) {
             try {
-              Invoke-WebRequest -Uri $url -OutFile pluginval_Windows.zip
-              Expand-Archive -LiteralPath pluginval_Windows.zip -DestinationPath pluginval_bin -Force
+              Invoke-WebRequest -Uri $pin.url -OutFile $archive
               break
             } catch {
               if ($attempt -eq 6) { throw "pluginval download failed after $attempt attempts: $($_.Exception.Message)" }
-              Write-Host "pluginval download attempt $attempt failed: $($_.Exception.Message); retrying"
-              Remove-Item -LiteralPath pluginval_Windows.zip, pluginval_bin -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "pluginval transport attempt $attempt failed; retrying"
               Start-Sleep -Seconds ($attempt * 10)
             }
           }
-          $exe = (Get-ChildItem -Path pluginval_bin -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
-          if (-not $exe) { throw 'pluginval.exe not found in pluginval_Windows.zip' }
+          # Integrity failure is outside the retry loop and precedes any extraction.
+          node scripts/pluginval_archive.mjs verify v1.0.4 Windows $archive
+          if ($LASTEXITCODE -ne 0) { throw 'pluginval archive integrity verification failed' }
+          $stage = Join-Path $env:RUNNER_TEMP ('pluginval-' + [guid]::NewGuid().ToString())
+          if (Test-Path -LiteralPath $stage) { throw 'pluginval staging directory already exists' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $stage
+          $exe = Join-Path $stage $pin.executable
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'pluginval.exe not found in verified archive' }
           $bundles = @(Get-ChildItem -Path $env:HYPHA_WINDOWS_BUILD_DIR -Recurse -Directory -Filter *.vst3)
           if ($bundles.Count -ne 2) { throw "expected exactly 2 VST3 bundles, found $($bundles.Count)" }
           foreach ($b in $bundles) {
