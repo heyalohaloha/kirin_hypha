@@ -109,13 +109,14 @@ void KirinHyphaProcessorBase::setLuChoicePreference (uint8_t packed)
 void KirinHyphaProcessorBase::shareLuZero (const hypha::lu_needle::Facts& facts)
 {
     jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
-    luSharedZero.publish (hybridVuCalibrationScope(), facts);
+    const auto scope = hybridVuCalibrationScope();
+    luSharedZero.publish (scope, facts, metricChainDemand.currentOwnership (scope));
 }
 
 hypha::lu_needle::Facts KirinHyphaProcessorBase::sharedLuZero()
 {
     jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
-    return luSharedZero.read (hybridVuCalibrationScope(), juce::Time::getApproximateMillisecondCounter());
+    return luSharedZero.read (hybridVuCalibrationScope(), juce::Time::currentTimeMillis());
 }
 
 bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
@@ -201,26 +202,38 @@ void KirinHyphaProcessorBase::serviceReferenceMetrics()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
     { const juce::ScopedLock lock (handleLock); controller = referenceAuditionController; }
-    if (!controller) { metricChainDemand.selectionOwnership (scope, false, false); return; }
+    if (!controller)
+    {
+        shareLuZero ({});
+        metricChainDemand.selectionOwnership (scope, false, false);
+        return;
+    }
     const auto selection = controller->snapshot();
     const bool selected = permitted && selection.libraryReceived && hypha::lu_needle::zeroRole (selection) != nullptr;
     const bool wanted = metricChainDemand.local() || metricChainDemand.requested (scope, rate, channels);
-    if (!selected || !wanted)
+    if (!selected)
     {
         // Revoke admission/publication first. Worker-held leases keep the lock
         // alive until cancellation completes, even after this processor yields.
         controller->setMetricObservationEnabled (false);
         controller->setMetricOwnershipLease ({});
-        metricChainDemand.selectionOwnership (scope, selected, wanted);
+        // An unselected POST may publish availability only while no selected
+        // owner holds the common lease. Release immediately, never monopolise it.
+        const auto lease = metricChainDemand.ownership (scope);
+        if (lease) shareLuZero (hypha::lu_needle::referenceFacts (selection,
+            permitted && selection.libraryReceived, hypha::lu_needle::Window::integrated));
+        metricChainDemand.selectionOwnership (scope, false, false);
         return;
     }
-    const auto ownership = metricChainDemand.selectionOwnership (scope, selected, wanted);
-    controller->setMetricOwnershipLease (ownership);
-    controller->setMetricObservationEnabled (ownership != nullptr);
+    const auto ownership = metricChainDemand.selectionOwnership (scope, selected, true);
+    controller->setMetricOwnershipLease (wanted ? ownership : nullptr);
+    controller->setMetricObservationEnabled (wanted && ownership != nullptr);
     if (!ownership) return; // Never overwrite the actual chain owner's publication.
     const auto runtime = controller->snapshot();
     if (scope != hybridVuCalibrationScope()) return;
     const bool readable = permitted && runtime.libraryReceived;
+    shareLuZero (hypha::lu_needle::referenceFacts (runtime, readable, hypha::lu_needle::Window::integrated));
+    if (!wanted) return; // LU zero never starts a metric analysis worker.
     for (std::size_t i = 0; i < 3; ++i)
         shareMetricZero (scope, hypha::metric_needle::referenceZero (runtime, readable, sampleRate, channels, i));
    #endif

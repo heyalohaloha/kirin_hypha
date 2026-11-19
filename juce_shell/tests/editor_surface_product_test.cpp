@@ -19,9 +19,8 @@
 #include "TestProcessorStorage.h"
 #include "SpectrumLowScopeContract.h"
 #include "HeaderReferenceExitTest.h"
-#include "ReferenceSelectionReopenTest.h"
+#include "LuProcessorEditorTest.h"
 #include <thread>
-#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -479,6 +478,7 @@ int main (int argc, char** argv)
         std::cout << "Editor shell repairs: PASS (PRE/POST, 3 Blind screens, host-thread restore)\n";
         return EXIT_SUCCESS;
     }
+    if (argc > 1 && juce::String (argv[1]) == "--lu-processor-only") { hypha::tests::editor_product::verifyLuProcessorEditor (sandbox.directory()); return EXIT_SUCCESS; }
     if (std::getenv ("KIRIN_HYPHA_DISPLAY_SETTINGS_ONLY") != nullptr) { verifyDisplaySettingsProduct(); return EXIT_SUCCESS; }
     verifyVuTapProduct(); hypha::tests::editor_product::verifySpaceLiveProduct(); verifyRecordBodyOwnership(); hypha::tests::editor_product::verifyAutomaticNoticeDelivery(); hypha::tests::editor_product::verifyCompactReferenceNotices();
     hypha::tests::editor_product::verifyHiddenAutoStops();
@@ -489,7 +489,7 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyMagnifiedEditor();
     hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
-    verifySavedReferenceChoices(); verifyDisplayWindowsProduct();
+    verifySavedReferenceChoices(); verifyDisplayWindowsProduct(); hypha::tests::editor_product::verifyLuProcessorEditor (sandbox.directory());
     verifyEditorShellRepairs(); verifyTimeTabGeometry(); hypha::tests::editor_product::verifyHeaderSelectorsProduct(); hypha::tests::editor_product::verifyHeaderReferenceExitProduct (sandbox.directory());
     const auto previews = juce::File (argc > 1 ? juce::String (argv[1]) : juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_UI_REFINEMENT_DIR", {}));
     verifyPairHeaderAtEverySize (previews);

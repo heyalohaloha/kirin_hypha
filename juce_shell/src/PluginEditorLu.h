@@ -32,7 +32,6 @@ inline void refreshPost (observatory::View& view, KirinHyphaProcessorBase& proce
     const bool readable = processor.stereoWorkflowsSupported() && processor.licenseIsOs() && runtime.libraryReceived;
     const auto facts = lu_needle::referenceFacts (runtime, readable, view.lu().window());
     view.lu().setFacts (facts);
-    processor.shareLuZero (facts);
     const auto face = processor.metricFacePreference();
     processor.setReferenceMetricObservationEnabled (readable && metric_needle::metric (face));
     view.setMetricFrame (metric_editor::facts (processor, runtime, face));
@@ -45,9 +44,8 @@ inline void refreshPre (observatory::View& view, KirinHyphaProcessorBase& proces
     processor.setPreSharpObservationEnabled (view.isShowing() && view.metricFaceActive()
         && face == metric_needle::Face::sharp && processor.isPlaying());
     auto shared = processor.sharedLuZero();
-    const bool readable = processor.stereoWorkflowsSupported() && processor.licenseIsOs();
-    // PRE has no independent selection. Keep the metric face available to explain
-    // how to choose its shared Reference even before POST has selected a song.
+    const bool readable = shared.readable && processor.stereoWorkflowsSupported() && processor.licenseIsOs();
+    // The library being readable is distinct from having selected a song.
     shared.readable = readable;
     view.lu().setFacts (shared);
     processor.setReferenceMetricObservationEnabled (readable && view.isShowing()

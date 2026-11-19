@@ -137,3 +137,4 @@ LEVEL / NUM RATE	LEVEL display cadence menu label
 1/6-1/2 oct	FREQ display unit choice
 /oct	FREQ compact tilt unit
 Application Support	OS filesystem directory component in StorageWritePathPolicy protected-root discovery; never displayed UI text
+KIRIN_HYPHA_LU_LEASE_V2	LU shared-zero owner lease file version marker; never displayed UI text
