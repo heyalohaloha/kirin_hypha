@@ -285,6 +285,9 @@ public:
         reach.store (readableFrames, std::memory_order_relaxed); // for the service's kept correction
         AlignUpdate result;
         result.revision = readiness.generation();
+        releasing = false;
+        if (!expired) spentKnown = false;
+        else if (!spentKnown) { spentKnown = true; spentRevision = result.revision; }
         auto wanted = playback.enabled
             ? requested.read (context, applied, result.revision, &result.current,
                               appliedRevision == result.revision) : AlignValue {};
@@ -318,6 +321,8 @@ public:
         // A spent budget the service has answered waits for no content check again: at a new clock
         // mapping PRE goes on at K at once (awaits() below) until PRE plays at its address.
         answered = expired && (answered || result.current);
+        // A changed revision proposes release; only a clock-proven block may notify its owner.
+        releasing = expired && spentKnown && !answered && result.revision != spentRevision;
         unconfirmed = readiness.pending() || ! result.current;
         if (answered && checks && (readiness.pending() || ! result.current) && weight <= 0.0f) adopt ({});
         if (path.frames == 0) unserved.store (false);
@@ -335,12 +340,13 @@ public:
         reach.store (std::numeric_limits<std::int64_t>::max());
     }
     // This block's proven K, before any PCM read. No publication or generation changes here.
-    // Only a spent budget already answered by the service may use its K fallback.
+    // A spent answered budget, or a later mapping moving past its unanswered budget, uses K.
     AlignValue resolve (std::int64_t k, float& weight) noexcept
     {
         if (!checks) return applied;
         const bool revised = readiness.revises (true, k);
-        if (answered && (revised || unconfirmed) && applied != AlignValue {})
+        releasing = releasing || (revised && expired && spentKnown && !answered);
+        if ((answered || releasing) && (revised || unconfirmed) && applied != AlignValue {})
         { weight = 0.0f; adopt ({}); }
         return applied;
     }
@@ -348,6 +354,9 @@ public:
     std::int64_t servable() const noexcept { return reach.load (std::memory_order_relaxed); }
     // The hold ended before PRE's run served the correction: PRE plays at K until it does.
     bool unservedCorrection() const noexcept { return unserved.load(); }
+    // Owner: this budget dropped its retained correction after the clock moved unanswered.
+    bool clockReleased() const noexcept
+    { return dropped.load (std::memory_order_relaxed) == budget.load (std::memory_order_relaxed); }
     AlignValue value() const noexcept { return applied; }
     // The block's clock verdict. accepted: at the applied address; pathClock: the clocks alone prove
     // PRE's path (alignClockProven below), whatever address this assignment applied. BLIND takes
@@ -360,6 +369,9 @@ public:
     // calibrates, spend it at once.
     void observed (bool accepted, bool pathClock, const AlignUpdate& update) noexcept
     {
+        if (releasing && pathClock)
+        { answered = true; dropped.store (budget.load (std::memory_order_relaxed), std::memory_order_relaxed); }
+        releasing = false;
         if (accepted) shown.publishDisplay (applied, context);
         const bool path = blindPath ? pathClock : accepted;
         proven.store (path && ! update.deferred, std::memory_order_relaxed);
@@ -416,6 +428,9 @@ private:
     // its address (corrected: a correction); answered: the service has answered the spent budget.
     std::int64_t held = 0, stake = 0, played = 0, bound = 0;
     bool expired = false, answered = false, holdEnded = false, serves = false, corrected = false, blindPath = false, checks = false;
+    bool spentKnown = false, releasing = false;
+    std::uint64_t spentRevision = 0;
+    std::atomic<std::uint64_t> dropped { 0 }; // an unanswered spent budget released at a moved mapping
     bool unconfirmed = false; // the content check does not cover the mapping read by update()
     std::atomic<bool> unserved { false }, proven { false }, spent { false };
     std::atomic<std::uint64_t> budget { 1 }; // written by the Audio Thread: which budget is running

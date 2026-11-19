@@ -168,6 +168,7 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     tick.pending = state.active && liveCompareAutoAlign() && liveCompare.renderer.alignPending();
     if (tick.pending) liveCompare.renderer.alignState().arm(); // the wait for content counts from here, once for a budget
     tick.spent = liveCompare.renderer.alignState().budgetSpent();
+    tick.released = liveCompare.renderer.alignState().clockReleased();
     tick.reach = liveCompare.renderer.alignReach();
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest())

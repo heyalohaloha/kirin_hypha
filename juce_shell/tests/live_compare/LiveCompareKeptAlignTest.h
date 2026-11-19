@@ -70,6 +70,7 @@ struct Session
         }
         auto tick = input (l, PreAlignEvent::tick);
         tick.pending = l.alignment.readiness.pending(); tick.spent = l.alignment.budgetSpent();
+        tick.released = l.alignment.clockReleased();
         tick.reach = l.alignment.servable();
         tick.now = static_cast<std::uint64_t> (clock) * 1000000000u / rate; tick.readRetryNanos = 500000000u;
         if (tick.pending) l.alignment.arm();

@@ -52,6 +52,7 @@ struct PreAlignInput
     std::uint64_t measuredRevision = 0;
     std::int64_t measuredK = 0;
     // tick
+    bool released = false; // tick: spent unanswered budget left for a later proven clock mapping
     bool pending = false, spent = false; // a content check is awaited; the Audio Thread's budget is spent
     std::int64_t reach = std::numeric_limits<std::int64_t>::max(); // what PRE's run serves; the maximum while unknown
     std::int64_t agreement = 0; // the estimates' agreement in frames
@@ -113,7 +114,7 @@ public:
                 }
                 // The budget ended without a confirmed position: the kept correction of this very
                 // pair, format, owner and host conditions plays, told as not re-measured; else K.
-                auto use = usable (in) ? kept.value : AlignValue {};
+                auto use = usable (in) && !in.released ? kept.value : AlignValue {};
                 if (use.frames != 0 && ! known && (missSince == 0 || in.now - missSince < in.readRetryNanos))
                 {
                     if (missSince == 0) missSince = in.now;

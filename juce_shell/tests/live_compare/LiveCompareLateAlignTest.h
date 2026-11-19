@@ -46,9 +46,8 @@ static void clockChangeInsideABlockCostsNoPostBlock()
         require (chain.report.preAudible && alignment.budgetSpent(), "real renderer starts on spent K fallback");
         chain.confirmAlign ({ 256 }); chain.setK (options.k + 1024);
         int waits = 0, proven = 0, postOnly = 0; bool stable = false;
-        for (int i = 0; i < 10; ++i)
-            chain.chunk ([&] (int callback, BlockClock&) {
-                if (callback > 0 && chain.decision.kValid && chain.decision.k == options.k + 1024
+        const auto observePrevious = [&] {
+                if (chain.decision.kValid && chain.decision.k == options.k + 1024
                     && chain.decision.verdict == Verdict::accepted)
                 {
                     ++proven; if (!chain.report.preAudible) ++postOnly; if (chain.report.alignWaiting) ++waits;
@@ -60,7 +59,9 @@ static void clockChangeInsideABlockCostsNoPostBlock()
                     require (containsPre, "the proven changed-clock block contains PRE PCM, not only a cleared waiting flag");
                     stable = stable || (chain.report.stableSource && chain.report.preAudible);
                 }
-            });
+        };
+        for (int i = 0; i < 10; ++i) chain.chunk ([&] (int, BlockClock&) { observePrevious(); });
+        observePrevious(); // include the final callback, not only callbacks before another render
         require (proven > 0 && waits == 0 && postOnly == 0 && stable,
                  "small callbacks keep no POST-only wait at the new proven K and finish the fade");
     }

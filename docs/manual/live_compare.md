@@ -246,6 +246,9 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   clock mapping with the same pair, format and PRE: when audio that confirms no position follows
   (a dense loop through outboard, for example), PRE plays with that amount after the first second
   and the status line says **Delay not re-measured** until new audio confirms a position. A
+  further clock-mapping change after the wait budget is spent, before its answer has played,
+  drops the retained correction and uses the proven clock position from that block. Two strong
+  agreeing windows can align it again. This decision is the same for both anonymous BLIND sources. A
   different pair or format, a restored session, or a host that starts compensating that amount
   itself (the clock mapping moves by it) drops it. An amount PRE cannot serve yet (more than a
   second, right after a start) stays: PRE plays where the clocks put it with **Delay unmeasured**

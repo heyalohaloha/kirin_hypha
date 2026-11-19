@@ -145,6 +145,7 @@ struct World
     {
         auto tick = input (l, PreAlignEvent::tick);
         tick.pending = l.alignment.readiness.pending(); tick.spent = l.alignment.budgetSpent();
+        tick.released = l.alignment.clockReleased();
         tick.reach = l.alignment.servable(); tick.now = static_cast<std::uint64_t> (clock) * 1000000000u / rate; tick.readRetryNanos = 500000000u;
         if (tick.pending) l.alignment.arm();
         const auto out = send (l, tick);
@@ -206,6 +207,7 @@ struct World
         {
             ++blindBlocks;
             auto& x = listeners[0]; auto& y = listeners[1];
+            check (x.alignment.clockReleased() == y.alignment.clockReleased(), "both BLIND assignments release the same budget");
             if (x.pathOpen && x.alignment.readiness.pending())
                 check (x.address == 0 && y.address == 0, "unconfirmed BLIND paths both use the clock address");
             const auto toldX = x.owner.notice (x.alignment.unservedCorrection()), toldY = y.owner.notice (y.alignment.unservedCorrection());
