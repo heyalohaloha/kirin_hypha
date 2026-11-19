@@ -141,6 +141,12 @@ fn reject_transitive_capi(metadata: &Value, root: &Value) -> Result<(), String> 
                 .as_array()
                 .ok_or("missing dependency kinds")?;
             if kinds.iter().any(|kind| kind["kind"].is_null()) {
+                if dependency["name"]
+                    .as_str()
+                    .is_some_and(|name| matches!(name, "std" | "core"))
+                {
+                    return Err("resolved shipping dependency shadows a standard namespace".into());
+                }
                 pending.push(&dependency["pkg"]);
             }
         }
@@ -186,6 +192,12 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
                 continue; // dev and build dependencies are not linked into the product
             }
             let dependency_name = dependency["name"].as_str().unwrap_or_default();
+            let visible_name = dependency["rename"].as_str().unwrap_or(dependency_name);
+            if matches!(visible_name, "std" | "core") {
+                return Err(format!(
+                    "{name} shadows a standard namespace with dependency {visible_name}"
+                ));
+            }
             if dependency_name.starts_with("nih_plug") {
                 return Err(format!(
                     "{name} links the legacy nih-plug path ({dependency_name})"
@@ -217,16 +229,55 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
         .collect())
 }
 
-pub(super) fn rust_sources(directory: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(directory).expect("source directory") {
-        let path = entry.expect("source entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
+/// Cargo's actual library entries, not an assumed src/lib.rs. Kept separate from graph-only
+/// fixture checks: real source validation rejects absent or malformed target metadata.
+pub(super) fn library_roots(
+    metadata: &Value,
+    krate: &ShippingCrate,
+) -> Result<Vec<PathBuf>, String> {
+    let package = metadata["packages"]
+        .as_array()
+        .ok_or("no packages")?
+        .iter()
+        .find(|p| {
+            p["name"] == krate.name
+                && p["manifest_path"]
+                    .as_str()
+                    .and_then(|p| Path::new(p).parent())
+                    == Some(krate.dir.as_path())
+        })
+        .ok_or("shipping package missing from metadata")?;
+    let targets = package["targets"].as_array().ok_or("no Cargo targets")?;
+    let mut roots = std::collections::BTreeSet::new();
+    for target in targets {
+        let kinds = target["kind"].as_array().ok_or("target kind missing")?;
+        if !kinds.iter().filter_map(Value::as_str).any(|k| {
+            matches!(
+                k,
+                "lib" | "rlib" | "staticlib" | "cdylib" | "dylib" | "proc-macro"
+            )
+        }) {
+            continue;
         }
+        let path = PathBuf::from(
+            target["src_path"]
+                .as_str()
+                .ok_or("library src_path missing")?,
+        );
+        if !path.is_absolute() {
+            return Err("library src_path is not absolute".into());
+        }
+        roots.insert(path);
     }
+    if roots.len() != 1 {
+        return Err("expected one unambiguous Cargo library source".into());
+    }
+    Ok(roots.into_iter().collect())
 }
+
+#[cfg(test)]
+#[path = "ffi_unwind_metadata_tests.rs"]
+mod metadata_tests;
 
 #[cfg(test)]
 mod tests {
