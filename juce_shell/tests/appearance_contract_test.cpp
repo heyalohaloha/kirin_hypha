@@ -276,7 +276,8 @@ int main (int argc, char** argv)
         const auto root=hypha::tests::shippingDisabledFixture(check).getNonexistentChildFile("appearance",{},false);
         const auto before=hypha::storage::write_guard::permittedMutationEntries();
         hypha::appearance::Storage storage(root);
-        check(storage.updatePreference(std::nullopt,std::nullopt,true).state==hypha::appearance::TransactionState::persisted,
+        hypha::appearance::Activation activation; activation.id="123e4567-e89b-42d3-a456-426614174000";
+        check(storage.updatePreference(activation,std::nullopt,true).state==hypha::appearance::TransactionState::persisted,
               "disabled Appearance shared code saves outside configured root");
         check(storage.preferenceFile().existsAsFile(),"disabled Appearance bytes exist");
         check(before==hypha::storage::write_guard::permittedMutationEntries(),"disabled Appearance mutation count unchanged");

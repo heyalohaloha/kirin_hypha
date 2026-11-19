@@ -82,7 +82,7 @@ template<class Require> void verifyAppearanceWriteGuard (const juce::File& fixtu
     const auto inner=allowed.getChildFile("inner");
     check(outside.createDirectory().wasOk() && inner.createDirectory().wasOk(),"prepare disposable junction endpoints");
     const auto sentinel=outside.getChildFile("keep");
-    check(sentinel.replaceWithText("untouched"),"seed external fixture sentinel");
+    { juce::FileOutputStream out(sentinel); check(out.openedOk() && out.writeText("untouched",false,false,nullptr),"seed external fixture sentinel"); }
     const auto outward=allowed.getChildFile("escape");
     const auto inward=outside.getChildFile("enter");
     const auto internal=allowed.getChildFile("inner-link");
@@ -95,7 +95,8 @@ template<class Require> void verifyAppearanceWriteGuard (const juce::File& fixtu
     {
         ScopedFixturePolicy scoped({allowed.getFullPathName(),{protectedRoot}});
         Storage storage(inner.getChildFile("direct"));
-        check(storage.updatePreference(std::nullopt,std::nullopt,true).state==TransactionState::persisted,
+        Activation activation; activation.id="123e4567-e89b-42d3-a456-426614174000";
+        check(storage.updatePreference(activation,std::nullopt,true).state==TransactionState::persisted,
               "ordinary inner path still permits writes");
     }
     check(removeDisposableDirectoryAlias(outward) && removeDisposableDirectoryAlias(inward)
@@ -110,7 +111,8 @@ template<class Require> void verifyAppearanceWriteGuard (const juce::File& fixtu
         denied(moved,{fixtureRoot.getFullPathName(),{moved}});
         ScopedFixturePolicy scoped({allowed.getFullPathName(),{moved}});
         Storage storage(allowed.getChildFile(name));
-        check(storage.updatePreference(std::nullopt,std::nullopt,true).state==TransactionState::persisted,
+        Activation activation; activation.id="123e4567-e89b-42d3-a456-426614174000";
+        check(storage.updatePreference(activation,std::nullopt,true).state==TransactionState::persisted,
               "relocated protected fixture leaves unrelated allowed root writable");
     }
     std::cout << "APPEARANCE_GUARD_REPARSE_FIXTURE=PASS KNOWNFOLDERS_EQUIVALENT=PASS\n";
