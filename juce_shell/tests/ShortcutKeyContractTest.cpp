@@ -1,6 +1,7 @@
 #include "ShortcutKeyRig.h"
 #include "../src/HyphaShortcutText.h"
 #include <algorithm>
+#include <chrono>
 #include <set>
 #include <string>
 
@@ -16,6 +17,53 @@ void require (bool condition, const std::string& message)
 {
     if (! condition) throw std::runtime_error (message);
 }
+
+// A queued sentinel is not a modal-completion receipt: the modal manager may post
+// its callback after that sentinel. Observe the actual dialog's destruction instead.
+class DialogDeletionNotice final : private juce::ComponentListener, private juce::Timer
+{
+public:
+    explicit DialogDeletionNotice (juce::Component& dialog) : observed (&dialog)
+    { dialog.addComponentListener (this); }
+    ~DialogDeletionNotice() override
+    {
+        stopTimer();
+        if (observed != nullptr) observed->removeComponentListener (this);
+    }
+    bool wasDeleted() const { return deleted; }
+    void startWaiting()
+    { deadline = Clock::now() + std::chrono::seconds (5); startTimer (5000); }
+    bool wait()
+    {
+        while (! deleted && ! expired && Clock::now() < deadline)
+        {
+           #if JUCE_MAC
+            const auto remaining = std::chrono::duration<double> (deadline - Clock::now()).count();
+            if (remaining <= 0) break;
+            CFRunLoopRunInMode (kCFRunLoopDefaultMode, remaining, true);
+           #else
+            // Block for the next real message. The one-shot deadline timer also wakes this wait.
+            juce::detail::dispatchNextMessageOnSystemQueue (false);
+           #endif
+        }
+        stopTimer();
+        return deleted && deletedAt < deadline;
+    }
+private:
+    using Clock = std::chrono::steady_clock;
+    juce::Component::SafePointer<juce::Component> observed;
+    Clock::time_point deadline {};
+    Clock::time_point deletedAt {};
+    bool deleted = false, expired = false;
+    void componentBeingDeleted (juce::Component&) override
+    { deletedAt = Clock::now(); deleted = true; }
+    void timerCallback() override
+    {
+        const auto left = std::chrono::ceil<std::chrono::milliseconds> (deadline - Clock::now()).count();
+        if (left > 0) startTimer (static_cast<int> (left));
+        else { expired = true; stopTimer(); }
+    }
+};
 
 void verifyKeysGoBackToTheHost (ShortcutKeyRig& rig)
 {
@@ -303,8 +351,12 @@ void verifyShortcutKeys()
     require (dialog != nullptr, "Shift+V opens the RESET question");
     rig.press ('V');
     require (dialog != nullptr && dialog->isCurrentlyModal(), "the question stays over the window");
+    DialogDeletionNotice closed (*dialog);
+    require (afterQueuedMessages ([] {}) && ! closed.wasDeleted() && dialog != nullptr,
+             "an unrelated queued message does not report CANCEL completion");
+    closed.startWaiting();
     dialog->exitModalState (0);
-    require (afterQueuedMessages ([] {}) && dialog == nullptr, "CANCEL closes it");
+    require (closed.wait() && dialog == nullptr, "CANCEL closes it after its actual destruction notification");
     rig.editor->grabKeyboardFocus();
 
    #if KIRIN_HYPHA_PRE_DISPLAY
