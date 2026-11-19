@@ -1,6 +1,7 @@
 #pragma once
 #include "../src/appearance/AppearanceTestWriteGuard.h"
 #include <filesystem>
+#include "DisposableDirectoryAlias.h"
 namespace hypha::tests
 {
 template<class Require> void verifyAppearanceWriteGuard (const juce::File& fixtureRoot, Require require)
@@ -77,20 +78,42 @@ template<class Require> void verifyAppearanceWriteGuard (const juce::File& fixtu
         const auto before=permittedMutationEntries(); lock.reset();
         check(path.isDirectory()&&permittedMutationEntries()==before,"destructor refuses mutation after policy revocation");
     }
-#if !JUCE_WINDOWS
-    // Windows junction/symlink creation can require privileges; not emulated as a pass.
-    const auto link=allowed.getChildFile("escape");
-    std::error_code error;
-    std::filesystem::create_directory_symlink(protectedRoot.getFullPathName().toStdString(),link.getFullPathName().toStdString(),error);
-    check(!error,"create disposable alias fixture");
-    denied(link.getChildFile("child"),{allowed.getFullPathName(),{protectedRoot}});
-    const auto inner=allowed.getChildFile("inner"); check(inner.createDirectory().wasOk(),"prepare internal alias target");
-    const auto alias=allowed.getChildFile("inner-link");
-    std::filesystem::create_directory_symlink(inner.getFullPathName().toStdString(),alias.getFullPathName().toStdString(),error);
-    check(!error,"create internal alias fixture");
-    denied(alias.getChildFile("child"),{allowed.getFullPathName(),{protectedRoot}});
-#else
-    std::cout << "APPEARANCE_GUARD_REPARSE_FIXTURE=NOT_RUN\n";
+    const auto outside=fixtureRoot.getChildFile("outside");
+    const auto inner=allowed.getChildFile("inner");
+    check(outside.createDirectory().wasOk() && inner.createDirectory().wasOk(),"prepare disposable junction endpoints");
+    const auto sentinel=outside.getChildFile("keep");
+    check(sentinel.replaceWithText("untouched"),"seed external fixture sentinel");
+    const auto outward=allowed.getChildFile("escape");
+    const auto inward=outside.getChildFile("enter");
+    const auto internal=allowed.getChildFile("inner-link");
+    check(createDisposableDirectoryAlias(outside,outward),"create outward directory alias");
+    check(createDisposableDirectoryAlias(inner,inward),"create inward directory alias");
+    check(createDisposableDirectoryAlias(inner,internal),"create child directory alias");
+    denied(outward.getChildFile("child"),{allowed.getFullPathName(),{protectedRoot}});
+    denied(inward.getChildFile("child"),{allowed.getFullPathName(),{protectedRoot}});
+    denied(internal.getChildFile("child"),{allowed.getFullPathName(),{protectedRoot}});
+    {
+        ScopedFixturePolicy scoped({allowed.getFullPathName(),{protectedRoot}});
+        Storage storage(inner.getChildFile("direct"));
+        check(storage.updatePreference(std::nullopt,std::nullopt,true).state==TransactionState::persisted,
+              "ordinary inner path still permits writes");
+    }
+    check(removeDisposableDirectoryAlias(outward) && removeDisposableDirectoryAlias(inward)
+          && removeDisposableDirectoryAlias(internal),"remove aliases without traversing targets");
+    check(sentinel.loadFileAsString()=="untouched" && inner.isDirectory(),"alias cleanup preserves target contents");
+#if JUCE_WINDOWS
+    // Emulate relocated KnownFolders through the existing narrowing-only fixture policy.
+    // SHSetKnownFolderPath/registry edits are intentionally never used.
+    for(const auto* name : {"moved-documents","moved-local","moved-roaming"}) {
+        const auto moved=fixtureRoot.getChildFile(name).getChildFile("Kirin OS");
+        check(moved.createDirectory().wasOk(),"prepare relocated KnownFolder-equivalent fixture");
+        denied(moved,{fixtureRoot.getFullPathName(),{moved}});
+        ScopedFixturePolicy scoped({allowed.getFullPathName(),{moved}});
+        Storage storage(allowed.getChildFile(name));
+        check(storage.updatePreference(std::nullopt,std::nullopt,true).state==TransactionState::persisted,
+              "relocated protected fixture leaves unrelated allowed root writable");
+    }
+    std::cout << "APPEARANCE_GUARD_REPARSE_FIXTURE=PASS KNOWNFOLDERS_EQUIVALENT=PASS\n";
 #endif
     std::cout << "APPEARANCE_GUARD_ASSERTIONS=" << assertions << '\n';
 }
