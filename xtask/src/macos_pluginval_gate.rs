@@ -107,40 +107,8 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
         "node scripts/pluginval_archive.mjs url \"$PLUGINVAL_VERSION\" macOS",
         "script must resolve the official macOS archive through the reviewed pin",
     );
-    // X40 moved URL construction into the reviewed pin resolver. Keep strict
-    // acquisition and validation checks rather than requiring the old literal URL.
-    for needle in [
-        "set -euo pipefail",
-        "node scripts/pluginval_archive.mjs verify \"$PLUGINVAL_VERSION\" macOS \"$ZIP\"",
-        "VERIFIED_STAGE=\"$(mktemp -d \"$CACHE_DIR/verified.XXXXXX\")\"",
-        "CI requires a pinned archive, not PLUGINVAL_BIN.",
-        "if [[ \"$PINNED_TOOL\" != 1 ]]; then",
-        "exit 2",
-    ] {
-        require(
-            PLUGINVAL_SCRIPT,
-            needle,
-            "pinned acquisition must fail closed",
-        );
-    }
-    let verify = PLUGINVAL_SCRIPT
-        .find("node scripts/pluginval_archive.mjs verify")
-        .unwrap();
-    let stage = PLUGINVAL_SCRIPT.find("VERIFIED_STAGE=").unwrap();
-    let extract = PLUGINVAL_SCRIPT.find("unzip -q").unwrap();
-    assert!(
-        verify < stage && stage < extract,
-        "archive verification must precede a fresh extraction stage"
-    );
-    let pins: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../scripts/pluginval_archives.json"
-    ));
-    require(
-        pins,
-        "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip",
-        "reviewed pin must retain the exact official macOS archive",
-    );
+    // Exit status and forbidden downstream execution are checked by the
+    // isolated shell fixtures below, not by ordering unbound string literals.
     require(
         PLUGINVAL_SCRIPT,
         "--validate-in-process",
@@ -226,4 +194,67 @@ fn section_after<'a>(source: &'a str, marker: &str) -> &'a str {
 
 fn require(source: &str, needle: &str, message: &str) {
     assert!(source.contains(needle), "{message}: missing `{needle}`");
+}
+
+#[cfg(unix)]
+fn gate_fixture(case: &str) -> serde_json::Value {
+    let output = std::process::Command::new("node")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scripts/macos_pluginval_fixture.mjs"
+        ))
+        .arg(case)
+        .output()
+        .expect("run isolated macOS shell fixture");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("fixture receipt")
+}
+
+#[cfg(unix)]
+fn operation_count(receipt: &serde_json::Value, operation: &str) -> usize {
+    receipt["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["operation"] == operation)
+        .count()
+}
+
+#[test]
+#[cfg(unix)]
+fn macos_pluginval_ci_override_cannot_reach_the_tool() {
+    let receipt = gate_fixture("ci-override");
+    assert_eq!(receipt["status"], 1);
+    assert!(receipt["events"].as_array().unwrap().is_empty());
+    assert!(receipt["stderr"]
+        .as_str()
+        .unwrap()
+        .contains("CI requires a pinned archive"));
+}
+
+#[test]
+#[cfg(unix)]
+fn macos_pluginval_local_override_is_only_a_diagnostic() {
+    let receipt = gate_fixture("local-override");
+    assert_eq!(receipt["status"], 2);
+    assert_eq!(operation_count(&receipt, "execute"), 2);
+    assert_eq!(operation_count(&receipt, "extract"), 0);
+    assert_eq!(operation_count(&receipt, "verify"), 0);
+}
+
+#[test]
+#[cfg(unix)]
+fn macos_pluginval_corrupt_zip_cannot_reach_extraction_or_execution() {
+    for case in ["bad-cache", "bad-download"] {
+        let receipt = gate_fixture(case);
+        assert_eq!(receipt["status"], 1, "{case}");
+        assert_eq!(operation_count(&receipt, "verify"), 1);
+        assert_eq!(operation_count(&receipt, "extract"), 0);
+        assert_eq!(operation_count(&receipt, "execute"), 0);
+        assert_eq!(operation_count(&receipt, "bundle-check"), 0);
+    }
 }
