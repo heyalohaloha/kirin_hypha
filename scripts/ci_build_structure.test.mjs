@@ -163,7 +163,7 @@ test('native shards use the checked stride; Windows test failures do not skip la
     assert.doesNotMatch(step, /continue-on-error:/);
   }
   for (const [id, previous] of [['juce-patch', 'ffi-build'], ['native-root', 'juce-patch'], ['native-configure', 'native-root'],
-    ['native-inventory', 'native-configure'], ['native-build', 'native-inventory']]) {
+    ['native-fixtures', 'native-configure'], ['native-inventory', 'native-fixtures'], ['native-build', 'native-inventory']]) {
     assert.ok(windows.includes(`id: ${id}\n        if: \${{ !cancelled() && steps.${previous}.outcome == 'success' }}`));
   }
 });
