@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <iostream>
+#include "BlindLongNameResultTest.h"
 namespace hypha::tests::blind_preference_component_test
 {
 inline void printResultGeometry(juce::Component& view,const juce::String& phase)
@@ -283,6 +284,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             }
         }
     }
+    verifyBlindLongNameResult (require, preview);
     require(!file.exists(),"details never writes preference history");
     std::cout << "Blind PREFERENCE component: PASS (state, next-setting, partial reveal, images, EN/JA x 300/600/900)\n";
 }
