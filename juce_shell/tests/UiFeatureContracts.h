@@ -1,5 +1,6 @@
 #pragma once
 #include "Look239VisualContract.h"
+#include "RoleTitleBoundsContract.h"
 #include "FreqFrameDeliveryTest.h"
 #include "VisualReadabilityContract.h"
 #include "SpectrumProductCadenceTest.h"
@@ -69,6 +70,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { look239::verify(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--visual-readability-only")
     { visual_readability::verify(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--role-title-only")
+    { role_title_bounds::verify(); return true; }
     if (argc >= 2 && std::string_view(argv[1]) == "--freq-settings-qa")
     { std::exit(settings_qa::main(argc, argv)); }
     if (argc == 2 && std::string_view (argv[1]) == "--low-playback-only")
@@ -167,6 +170,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         verifyTimeHistoryContract();
         return true;
     }
+    role_title_bounds::verify();
     verifyTypographyContract();
     if (typographyOnly) return true;
     if (typographyVisualOnly)

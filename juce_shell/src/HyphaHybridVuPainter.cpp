@@ -66,24 +66,26 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
 {
     const auto width = area.getWidth();
     auto title = area.reduced (scaled (25.0f, width, 6.5f), 0.0f);
-    // The title engraving in the chassis occupies the left 22.5% of this inset header.
-    // Keep both words inside that physical frame at every supported scale.
-    const auto titleWidth = title.getWidth() * 0.225f;
-    auto titleArea = title.removeFromLeft (titleWidth);
     const auto roleText = state.role == observatory::Role::post ? juce::String ("POST")
                                                                 : juce::String ("PRE");
     const auto roleFont = labelFont (state.presentation, typography::TextRole::shellTitle)
                               .withExtraKerningFactor (0.12f);
-    const auto roleWidth = juce::jmin (
-        titleArea.getWidth() * 0.45f,
-        roleFont.getStringWidthFloat (roleText) + scaled (3.0f, width, 1.0f));
+    // Reserve actual glyph widths: a fixed 45% role share clipped POST at 300 px.
+    const auto roleWidth = std::ceil (roleFont.getStringWidthFloat (roleText))
+                         + scaled (3.0f, width, 1.0f);
+    const juce::String brandText = width >= 700.0f ? "H Y P H A" : "HYPHA";
+    const auto brandFont = labelFont (state.presentation, typography::TextRole::shellTitle);
+    const auto titleGap = scaled (5.0f, width, 1.0f);
+    const auto minimumTitle = roleWidth + titleGap
+                            + std::ceil (brandFont.getStringWidthFloat (brandText)) + 1.0f;
+    auto titleArea = title.removeFromLeft (juce::jmax (title.getWidth() * 0.225f, minimumTitle));
     drawText (g, roleText,
               titleArea.removeFromLeft (roleWidth), state.presentation,
               typography::TextRole::shellTitle, typography::Composition::shell,
               state.role == observatory::Role::post ? COL_FLORA : COL_LED_BLUE,
               juce::Justification::centredLeft, false, 0.12f);
-    titleArea.removeFromLeft (scaled (5.0f, width, 1.0f));
-    drawText (g, width >= 700.0f ? "H Y P H A" : "HYPHA", titleArea,
+    titleArea.removeFromLeft (titleGap);
+    drawText (g, brandText, titleArea,
               state.presentation, typography::TextRole::shellTitle,
               typography::Composition::shell, COL_NORMAL, juce::Justification::centredLeft);
 
