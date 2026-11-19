@@ -37,11 +37,13 @@ inline void verifyFreqRichMotionRules()
     }
     {
         // A value received long after the last drawn frame: the time that passed still counts as fall.
-        SpectrumComponent view; slowView (view);
+        double receivedAt = 1'000;
+        SpectrumComponent view ([&receivedAt] { return receivedAt; }); slowView (view);
         const auto loud = spectrumPerformanceFixture().post_dbfs[128];
         view.setSnapshot (spectrumPerformanceFixture());
         const auto started = view.curveUpdateTimeForTest();
-        view.delayReceiptForTest (5'000);
+        check (std::abs (started - receivedAt) < 1.0e-6, "snapshot uses the supplied receipt clock");
+        receivedAt += 5'000;
         view.queueSnapshot (quieter (spectrumPerformanceFixture(), 40, 1'600));
         view.presentationTickAt (started + 5'016);
         const auto expected = loud - 4.0f * (5.016f - 1.5f);

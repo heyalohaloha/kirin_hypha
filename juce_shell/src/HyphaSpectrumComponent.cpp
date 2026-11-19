@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace hypha
 {
@@ -65,6 +66,11 @@ namespace
 }
 
 SpectrumComponent::SpectrumComponent()
+    : SpectrumComponent ([] { return juce::Time::getMillisecondCounterHiRes(); }) {}
+
+SpectrumComponent::SpectrumComponent (ReceiptClock clock)
+    : receiptClock (clock ? std::move (clock)
+                         : ReceiptClock ([] { return juce::Time::getMillisecondCounterHiRes(); }))
 {
     setInterceptsMouseClicks (true, true);
     addChildComponent (averageButton);
@@ -175,7 +181,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     curveDirty = false;
     numericDirty = false;
     resumeCurve = false;
-    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    const auto nowMs = receiptClock();
     lastCurvePresentationMs = nowMs;
     lastCurveUpdateMs = nowMs;
     lastNumericPresentationMs = nowMs;
@@ -306,7 +312,7 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next, uint64_t c
     pendingSnapshot = next;
     havePendingSnapshot = true;
     curveDirty = numericDirty = true;
-    notePeak (juce::Time::getMillisecondCounterHiRes());
+    notePeak (receiptClock());
     if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
         channelMode = next.channel_mode;
     if (next.channels == 1u || next.channels == 2u)

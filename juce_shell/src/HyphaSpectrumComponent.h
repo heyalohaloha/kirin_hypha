@@ -31,7 +31,10 @@ class SpectrumComponent final : public juce::Component,
                                 public juce::SettableTooltipClient
 {
 public:
+    // Message-thread receipt clock, in monotonic milliseconds. The default uses JUCE time.
+    using ReceiptClock = std::function<double()>;
     SpectrumComponent();
+    explicit SpectrumComponent (ReceiptClock);
     using Average = spectrum_average::Choice;
     Average averageChoice() const noexcept { return average; }
     void setAverageChoice (Average next)
@@ -81,8 +84,6 @@ public:
     float slowPeakForTest (size_t band) const noexcept { return peakFall.values()[band]; }
     bool slowPeakEmptyForTest() const noexcept { return peakFall.empty(); }
     unsigned tickRepaintsForTest() const noexcept { return tickRepaints; }
-    // Lets a test receive a value later than the display last drew, as after a stalled message thread.
-    void delayReceiptForTest (double ms) noexcept { receiptDelayForTest += ms; }
     double displayedPsbCeilingForTest() const noexcept { return psbMotion.ceiling; }
     double peakLabelUpdateTimeForTest() const noexcept { return peakReadout.updated; }
     void setHistoryCacheEnabledForTest (bool enabled) { backdrop.enabled = enabled; backdrop.invalidate(); }
@@ -185,6 +186,7 @@ public:
     std::function<bool(bool)> onScopeChange;
 
 private:
+    ReceiptClock receiptClock;
     display_settings::Values displaySettings;
     spectrum_display::PeakReadout peakReadout;
     spectrum_display::PsbMotion psbMotion;
@@ -196,11 +198,10 @@ private:
     {
         if (! displaySettings.slowPeak() || ! absoluteObservation || midSideObservation) return;
         peakFall.accept (spectrum_display::spatial (pendingPost, pendingSnapshot.min_hz, pendingSnapshot.max_hz,
-                                                    displaySettings[display_settings::smooth]), displayedPost, nowMs + receiptDelayForTest);
+                                                    displaySettings[display_settings::smooth]), displayedPost, nowMs);
     }
     bool resumeCurve = false, animationVisible = true;
     unsigned tickRepaints = 0;
-    double receiptDelayForTest = 0;
     class AverageButton final : public juce::Button
     {
     public:
