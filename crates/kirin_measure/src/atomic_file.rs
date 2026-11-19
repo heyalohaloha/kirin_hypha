@@ -10,7 +10,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-
 #[cfg(test)]
 use std::sync::{Condvar, Mutex, OnceLock};
 #[cfg(test)]
@@ -102,7 +101,6 @@ fn write_bytes_atomic_inspect<T>(
         )
     }))
 }
-
 #[cfg(test)]
 #[derive(Default)]
 struct AtomicWritePauseState {
@@ -110,7 +108,6 @@ struct AtomicWritePauseState {
     entered: bool,
     released: bool,
 }
-
 #[cfg(test)]
 fn atomic_write_pause_state() -> &'static (Mutex<AtomicWritePauseState>, Condvar) {
     static STATE: OnceLock<(Mutex<AtomicWritePauseState>, Condvar)> = OnceLock::new();
@@ -152,20 +149,31 @@ impl AtomicWritePause {
         let deadline = Instant::now() + Duration::from_secs(5);
         while state.path.as_ref() == Some(&self.path) && !state.entered {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            assert!(
-                !remaining.is_zero(),
-                "target atomic write did not enter the pause: {}",
-                self.path.display()
-            );
+            if remaining.is_zero() {
+                state.released = true;
+                state.path = None;
+                wake.notify_all();
+                drop(state);
+                panic!(
+                    "target atomic write did not enter the pause: {}",
+                    self.path.display()
+                );
+            }
             let (next, timeout) = wake
                 .wait_timeout(state, remaining)
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             state = next;
-            assert!(
-                !timeout.timed_out() || state.entered,
-                "target atomic write did not enter the pause: {}",
-                self.path.display()
-            );
+            if timeout.timed_out() && !state.entered {
+                // Unblock a late worker before unwinding a scoped thread join.
+                state.released = true;
+                state.path = None;
+                wake.notify_all();
+                drop(state);
+                panic!(
+                    "target atomic write did not enter the pause: {}",
+                    self.path.display()
+                );
+            }
         }
         assert!(
             state.entered,
@@ -484,3 +492,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "atomic_pause_timeout_tests.rs"]
+mod timeout_tests;
