@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
 // One deadline covers the entire contract. CTest's 60 seconds leaves cleanup headroom.
@@ -60,4 +61,29 @@ export function fixture(t) {
   const protectedRoot = path.join(storageRoot, 'plugin_data', 'fixture-project');
   fs.mkdirSync(protectedRoot, { recursive: true });
   return { root, protectedRoot, storageRoot, roots: [storageRoot], state: path.join(root, 'baseline.json') };
+}
+
+// Exercise the real guard on bounded, non-empty owned source for storage fixtures.
+// The contract separately checks the real checkout before/after and tests source changes.
+export async function isolatedStorageGuard(t) {
+  const f = fixture(t);
+  const checkout = path.join(f.root, 'checkout');
+  const scripts = path.join(checkout, 'scripts');
+  const source = path.join(checkout, 'src');
+  fs.mkdirSync(scripts, { recursive: true });
+  fs.mkdirSync(source);
+  const sentinel = 'pub fn harmless_fixture() {}\n';
+  fs.writeFileSync(path.join(source, 'harmless.rs'), sentinel);
+  for (const name of ['native_storage_guard.mjs', 'native_storage_exclusions.mjs']) {
+    const original = new URL(name, import.meta.url);
+    const copy = path.join(scripts, name);
+    fs.copyFileSync(original, copy);
+    assert.deepEqual(fs.readFileSync(copy), fs.readFileSync(original));
+  }
+  const ownership = await import(pathToFileURL(path.join(scripts, 'native_storage_exclusions.mjs')).href);
+  // Discover by walking the copied checkout, not by passing an injected empty map.
+  assert.deepEqual([...ownership.readOwnedSources()], [['src/harmless.rs', sentinel]]);
+  assert.equal(ownership.assertExclusionOwnership(), 1);
+  const { run } = await import(pathToFileURL(path.join(scripts, 'native_storage_guard.mjs')).href);
+  return { run, checkout };
 }
