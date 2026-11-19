@@ -81,6 +81,8 @@ template<class Require> void verify (Require require)
         require (alignment.releasedAt() == 0, "service captured the pre-release state");
         callbackOnly();
         require (alignment.releasedAt() != 0, "real Audio resolve and observed publish release");
+        require (post.liveCompareStatus().preAudible && !post.liveCompareStatus().preWaiting,
+                 "release callback plays PRE without further waiting");
         LiveTimingFixtureAccess::deferContentMonitorForTest (post);
     };
     beforeAlignFallbackForTest = interruptOnce;
@@ -96,7 +98,8 @@ template<class Require> void verify (Require require)
     {
         callbackOnly();
         require (post.liveCompareStatus().verdict == Verdict::accepted && post.liveCompareAlignFrames() == 0
-            && alignment.releasedAt() == released, "proven callback rejects stale resend and keeps K");
+            && alignment.releasedAt() == released && post.liveCompareStatus().preAudible
+            && !post.liveCompareStatus().preWaiting, "proven callback rejects stale resend and audibly keeps K");
     }
     require (!alignment.readiness.pending(), "release is consumed even with pending false");
     LiveTimingFixtureAccess::serviceContentTiming (post);

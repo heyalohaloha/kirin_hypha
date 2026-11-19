@@ -74,6 +74,8 @@ inline void staleResendAfterReleaseIsRefused()
         c->movedWithoutProof(); const auto raced = c->input (PreAlignEvent::tick);
         c->mustReadK (c->block (true, true));
         require (c->r.releasedAt() != 0, "proof publishes release before the stale owner tick");
+        c->weight = c->selected ? 1.0f : 0.0f; // renderer fade has made only PRE audible after release
+        require ((c->weight > 0.0f) == c->selected, "only the PRE assignment is audible across the stale resend");
         const auto stale = c->send (raced);
         require (stale.request && stale.resend && stale.value.frames == 1000, "stale input really does send kept correction");
         for (int n = 0; n < 2; ++n)
