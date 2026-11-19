@@ -38,25 +38,9 @@ mod live_blind_tests;
 mod live_compare_reentry_tests;
 #[path = "rt_safety_live_compare_timing_tests.rs"]
 mod live_compare_timing_tests;
-// The body of the first function whose definition starts with signature (brace matched).
-fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
-    let start = source.find(signature).expect("the function exists");
-    let open = start + source[start..].find('{').expect("the body opens");
-    let mut depth = 0usize;
-    for (offset, ch) in source[open..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return &source[open..open + offset + 1];
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("unbalanced body for {signature}");
-}
+#[path = "source_contract_body.rs"]
+mod source_contract_body;
+use source_contract_body::function_body;
 fn without_line_comments(source: &str) -> String {
     source
         .lines()
@@ -138,7 +122,7 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
         "loopAddressIsCurrent (runtimePeer.anchor, runtimePeer.block, block, k,",
         "runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire)",
         "timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,",
-        "alignedReadStart (block.clock, k, align, decision.preStart)",
+        "alignedReadStart (block.clock, k, late.at (k, align), decision.preStart)",
         "if (decision.timelineChanged)",
         "! block.loop.active",
         "profile.invalidateOnDisagreement",

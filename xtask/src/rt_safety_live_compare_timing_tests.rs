@@ -19,11 +19,8 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(alignment.contains(
         "(! blind || ! preSelected || ! playback.enabled || applied.verifySamples || unreadable)"
     ));
-    // A correction PRE's current run cannot serve yet (after a seek or stop): one of up to the 1 s
-    // bound waits as POST. One budget bounds every wait for PRE's address (a held block and a
-    // clock-proven block waiting for content count alike unless PRE played it). BLIND counts and
-    // serves by PRE's path. A spent budget stays spent until PRE plays at its address or a new
-    // session or context begins; an ended hold needs PRE's run to serve the correction first.
+    // One 1 s budget covers all unserved PRE paths, including BLIND. Only a new session,
+    // context or served correction renews it; seek/stop and clock loss cannot reset it.
     assert!(alignment.contains(
         "stake = holdable && unreached && (blind || (preSelected && playback.outputAllowed)) && ! expired ? playedFrames : 0;"
     ));
@@ -95,8 +92,16 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(alignment.contains("appliedRevision == result.revision"));
     assert!(function_body(SESSION_H, "void prepare (").contains("alignment.newSession()"));
     assert!(render.contains(
-        "consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value())"
+        "consumer.process (ring, pairKey, sampleRate, block, scratch, 2, alignment.value(), { &alignment, &weight })"
     ));
+    assert!(
+        render.find("alignment.update (").unwrap() < render.find("consumer.process (").unwrap()
+    );
+    assert!(
+        render.find("consumer.process (").unwrap()
+            < render.find("alignment.readiness.observe (").unwrap()
+    );
+    assert!(ALIGN_H.contains("alignment->resolve (k, *weight) : fixed;"));
     let history = function_body(SESSION_H, "void recordHistory (");
     assert!(!history.contains("align"));
     assert!(history.contains("decision.k"));
@@ -125,7 +130,14 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
     );
     let read = function_body(ALIGN_H, "AlignValue read (");
     assert!(read.contains("if (before != sequence.load()) return unchanged"));
-    assert!(read.contains("return measured == context ? value : AlignValue {}"));
+    assert!(
+        read.contains("const auto accepted = measured == context ? value : AlignValue {};")
+            && read.contains("return accepted;")
+    );
+    assert!(read.contains("*current = measured == context && measuredRevision == expectedRevision"));
+    assert!(read.contains(
+        "if (measured == context && measuredRevision != expectedRevision) return unchanged;"
+    ));
     assert!(!read.contains("while") && !read.contains("for ("));
     let format = include_str!("../../juce_shell/src/PluginProcessorFormat.cpp");
     assert!(format.contains("if (! preparedFormat.matches (sampleRate, roles))"));
@@ -170,7 +182,6 @@ fn rendered_alignment_requires_acceptance() -> bool {
         && ALIGN_H.contains("if (accepted) shown.publishDisplay (applied, context);")
         && ALIGN_H.contains("if (playback.context != context)")
 }
-
 #[test]
 fn clock_preparation_and_shared_projection_stay_realtime_safe() {
     for source in [
@@ -264,7 +275,6 @@ fn clock_preparation_and_shared_projection_stay_realtime_safe() {
     assert!(observe.contains("postCycles.observe (corroborated ? verified : post, rate)"));
     assert!(observe.contains("timeline.observe (corroborated ? verified : post, rate"));
 }
-
 #[test]
 fn clock_preparation_never_copies_pcm_or_grants_output_permission() {
     let publisher = function_body(TIMING_H, "TimelineStep observe (TimingHeader&");
@@ -329,12 +339,21 @@ fn clock_preparation_never_copies_pcm_or_grants_output_permission() {
     );
     assert!(
         process
+            .find("! preparedTimingCurrent (ring.header)")
+            .unwrap()
+            < process.find("decision.verdict = read (").unwrap()
+    );
+    assert!(
+        process.find("late.at (k, align)").unwrap()
+            < process.find("decision.verdict = read (").unwrap()
+    );
+    assert!(
+        process
             .rfind("! preparedTimingCurrent (ring.header)")
             .unwrap()
             > process.find("decision.verdict = read (").unwrap()
     );
 }
-
 #[test]
 fn chain_timing_is_display_only_and_adds_no_clock_reading() {
     // INV-LC25. The meter and everything it calls stay free of allocation, locks, I/O and waits.
@@ -368,8 +387,7 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
             "chain timing contains {forbidden}"
         );
     }
-    // Each callback keeps its one wall-clock reading: POST's is the first thing its callback
-    // reads, PRE's follows its own measurement work, and neither side takes a second one.
+    // Keep one clock read per callback: POST first, PRE after measurement.
     let realtime = function_body(
         PROCESSOR_CPP,
         "void KirinHyphaProcessorBase::processLiveCompare",
@@ -381,8 +399,7 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
     assert!(host_clock.contains(
         "role == Role::Post ? hypha::live_compare::callbackWallNanos() : 0;\n    bool playing = false;"
     ));
-    // PRE stamps every callback and its publisher still never looks at demand (INV-LC23);
-    // POST refuses a block PRE copied by PRE's own count of copied blocks.
+    // PRE stamps without demand (INV-LC23); POST checks PRE's copied-block count.
     let publisher = function_body(TIMING_H, "TimelineStep observe (TimingHeader&");
     assert!(publisher.contains("h.wallNanos.store (block.wallNanos, std::memory_order_relaxed);"));
     assert!(publisher.contains("h.thread.store (block.thread, std::memory_order_relaxed);"));
@@ -391,7 +408,6 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
         "chain->observe (snapshot, block, ring->header.published.load (std::memory_order_acquire));"
     ));
     assert!(observe.contains("chain->observeWithoutPre (block);"));
-    // A counted block meets every condition; none of them is a tolerance.
     let classify = function_body(CHAIN_H, "ChainTimingReason classify (");
     for required in [
         "haveSequence && fedBlocks != fed",
@@ -403,8 +419,7 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
     ] {
         assert!(classify.contains(required), "chain timing lost {required}");
     }
-    // Display only: the Audio Thread hands the meter to the clock preparation and nothing that
-    // selects, matches or renders knows it exists.
+    // Display only: selection, matching and rendering cannot access the meter.
     assert_eq!(
         without_line_comments(realtime)
             .matches("liveCompare.chain")
@@ -415,7 +430,6 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
         assert!(!source.contains("ChainTiming"));
     }
 }
-
 #[test]
 fn preparation_uses_the_existing_low_rate_service_timer() {
     let service = include_str!("../../juce_shell/src/PluginProcessorService.cpp");
@@ -431,7 +445,6 @@ fn preparation_uses_the_existing_low_rate_service_timer() {
     assert!(TIMING_H.contains("CalibrationProfile profile"));
     assert!(CORRESPONDENCE_H.contains("CalibrationProfile profile"));
 }
-
 #[test]
 fn full_processor_probe_keeps_display_queries_off_the_audio_thread() {
     let probe = include_str!("../../juce_shell/tests/live_compare_processor_benchmark.cpp");
@@ -443,7 +456,6 @@ fn full_processor_probe_keeps_display_queries_off_the_audio_thread() {
     }
     let audio = function_body(probe, "void process()");
     assert!(audio.contains("const bool preOutput = mode > 0;"));
-    // Audit the actual oracle, not its user-facing failure text or a float tolerance.
     assert!(audio.contains("hypha::test::exactScaledPcm (actual, input, matchedGain)"));
     assert!(probe.contains("require (hypha::test::exactPcmControls()"));
     let timing = include_str!("../../juce_shell/tests/live_compare_timing_product_test.cpp");
@@ -456,7 +468,6 @@ fn full_processor_probe_keeps_display_queries_off_the_audio_thread() {
         assert!(!audio.contains("->liveBlindStatus()"));
     }
 }
-
 #[test]
 fn synthetic_clock_policy_and_first_loop_are_portable_not_diagnostic_side_effects() {
     let timing = include_str!("../../juce_shell/tests/live_compare_timing_product_test.cpp");
@@ -481,20 +492,9 @@ fn synthetic_clock_policy_and_first_loop_are_portable_not_diagnostic_side_effect
         .unwrap()..]
         .contains("if(KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)"));
 }
-
+#[path = "rt_safety_live_compare_ownership_tests.rs"]
+mod ownership_tests;
 #[test]
 fn pre_mapping_ownership_is_non_rt_and_cannot_restamp_readers() {
-    let mapping = include_str!("../../juce_shell/src/live_compare/LiveCompareSharedRing.cpp");
-    let header = include_str!("../../juce_shell/src/live_compare/LiveCompareSharedRing.h");
-    let claim = include_str!("../../juce_shell/src/live_compare/LiveCompareOwnerClaim.h");
-    assert!(header.contains("std::unique_ptr<OwnerClaim> claim;"));
-    assert!(!header.contains("#include \"LiveCompareOwnerClaim.h\""));
-    assert!(!RING_H.contains("OwnerClaim") && !SESSION_H.contains("OwnerClaim"));
-    assert!(!mapping.contains("mapped = fresh ?"));
-    assert!(mapping.contains("if (! ownership->acquire (pairKey)) return false;"));
-    assert!(mapping.contains("if (existing == nullptr || ! fresh)"));
-    assert!(mapping.contains("O_CREAT | O_EXCL | O_RDWR"));
-    assert!(claim.contains("LOCK_EX | LOCK_NB") && claim.contains("O_NOFOLLOW"));
-    assert!(claim.contains("ERROR_ALREADY_EXISTS"));
-    assert_eq!(mapping.matches("claim.reset();").count(), 2);
+    ownership_tests::verify_ownership();
 }
