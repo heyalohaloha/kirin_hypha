@@ -127,9 +127,9 @@ fn live_action_boundary_separates_old_history_from_new_success_faults() {
         perform.find("return ActionCompletion::newFault").unwrap()
             < perform.find("current()").unwrap()
     );
-    let current = function_body(action, "bool currentNamedAction");
+    let current = function_body(action, "bool currentNamedAction (");
     assert!(!without_line_comments(current).contains("reason") && !current.contains("interrupted"));
-    let auto = function_body(action, "AutoReadiness autoReadiness");
+    let auto = function_body(action, "AutoReadiness autoReadiness (");
     for required in [
         "matchReady",
         "matchLimited",

@@ -110,21 +110,51 @@ pub(super) fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
         {
             continue;
         }
-        let parameters = start
-            + code[start..]
-                .iter()
-                .position(|b| *b == b'(')
-                .expect("parameters open");
+        let parameters = match needle.iter().position(|b| *b == b'(') {
+            Some(offset) => start + offset,
+            None => {
+                let mut next = start + needle.len();
+                while code.get(next).is_some_and(u8::is_ascii_whitespace) {
+                    next += 1;
+                }
+                if code.get(next) != Some(&b'(') {
+                    continue;
+                }
+                next
+            }
+        };
         let mut i = close_group(&code, parameters, b'(', b')') + 1;
         while i < code.len() {
-            match code[i] {
-                b';' | b'=' => break, // forward, deleted or defaulted declaration
-                b'(' => i = close_group(&code, i, b'(', b')') + 1, // noexcept(expression)
-                b'{' => {
-                    bodies.push((i, close_group(&code, i, b'{', b'}') + 1));
-                    break;
+            while code.get(i).is_some_and(u8::is_ascii_whitespace) {
+                i += 1;
+            }
+            if code.get(i) == Some(&b'{') {
+                bodies.push((i, close_group(&code, i, b'{', b'}') + 1));
+                break;
+            }
+            // Only known suffixes may occur between parameters and a definition.
+            if code.get(i) == Some(&b'&') {
+                i += 1;
+                if code.get(i) == Some(&b'&') {
+                    i += 1;
                 }
-                _ => i += 1,
+                continue;
+            }
+            let begin = i;
+            while code.get(i).is_some_and(|b| identifier(*b)) {
+                i += 1;
+            }
+            match &code[begin..i] {
+                b"const" | b"volatile" | b"override" | b"final" => {}
+                b"noexcept" => {
+                    while code.get(i).is_some_and(u8::is_ascii_whitespace) {
+                        i += 1;
+                    }
+                    if code.get(i) == Some(&b'(') {
+                        i = close_group(&code, i, b'(', b')') + 1;
+                    }
+                }
+                _ => break, // declaration, outer close, or unsupported syntax
             }
         }
     }
@@ -178,4 +208,33 @@ fn duplicate_definitions_are_rejected() {
 fn partial_identifier_matches_and_hex_separators_are_not_definitions() {
     let source = "void targetExtra() {} void target(int x = 0xCAFE'BEEF) { actual(); }";
     assert_eq!(function_body(source, "void target"), "{ actual(); }");
+}
+
+#[test]
+#[should_panic(expected = "expected one definition")]
+fn function_parameter_cannot_borrow_outer_body() {
+    function_body("void outer(void target(int)) { work(); }", "void target(");
+}
+
+#[test]
+#[should_panic(expected = "expected one definition")]
+fn variable_cannot_borrow_next_function() {
+    function_body("bool target; void other() { work(); }", "bool target");
+}
+
+#[test]
+#[should_panic(expected = "expected one definition")]
+fn unknown_suffix_is_rejected() {
+    function_body("void target() UNKNOWN { work(); }", "void target(");
+}
+
+#[test]
+fn known_suffixes_preserve_the_exact_body() {
+    assert_eq!(
+        function_body(
+            "bool target() const & noexcept(true) override final { return true; }",
+            "bool target("
+        ),
+        "{ return true; }"
+    );
 }
