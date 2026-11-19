@@ -328,6 +328,7 @@ public:
     std::uint64_t recordInvalidationsForTest() const noexcept { return recordBodyInvalidations; }
     std::uint64_t footerInvalidationsForTest() const noexcept { return footerInvalidations; }
     bool historyHeldForTest() const noexcept { return levelInspection.held(); }
+    juce::Rectangle<int> levelHistoryBoundsForTest() const noexcept { return levelHistoryArea; }
     void setVuFrameTestMode (bool); void tickVuForTest (double);
     double vuPositionForTest (int) const;
 private:
@@ -494,7 +495,6 @@ private:
     Button liveEndButton { "END", false };
     Button liveReturnButton { "RETURN", false };
     InformationButton informationButton;
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)
 };
 }
