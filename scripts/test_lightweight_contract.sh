@@ -25,6 +25,7 @@ run node --test scripts/pluginval_archive.test.mjs
 run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
 run node --test scripts/check_screen_text.test.mjs
+run node --test scripts/readability_fixes_text.test.mjs
 run node scripts/check_screen_text.mjs
 run node --test scripts/check_unavailable_reasons.test.mjs
 run node scripts/check_unavailable_reasons.mjs

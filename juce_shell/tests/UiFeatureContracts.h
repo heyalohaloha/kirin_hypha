@@ -1,7 +1,7 @@
 #pragma once
 #include "NameSelectAllContract.h"
 #include "FooterShortNoticeBoundaryContract.h"
-#include "Look239VisualContract.h"
+#include "ReadabilityFixesContract.h"
 #include "RoleTitleBoundsContract.h"
 #include "FreqFrameDeliveryTest.h"
 #include "VisualReadabilityContract.h"
@@ -70,10 +70,10 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { verifyFooterShortNoticeBoundary(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--name-select-all-only")
     { verifyNameSelectAll(); return true; }
-    if (argc == 2 && std::string_view (argv[1]) == "--look239-notices-only")
+    if (argc == 2 && std::string_view (argv[1]) == "--bounce-notices-only")
     { verifyAllListenText (visual_readability::require); return true; }
-    if (argc == 2 && std::string_view (argv[1]) == "--look239-only")
-    { look239::verify(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--readability-fixes-only")
+    { readability_fixes::verify(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--visual-readability-only")
     { visual_readability::verify(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--role-title-only")

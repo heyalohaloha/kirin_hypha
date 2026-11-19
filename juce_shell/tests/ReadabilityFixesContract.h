@@ -5,23 +5,23 @@
 #include "../src/HyphaComparisonNotices.h"
 #include "../src/HyphaFooterNoticeFont.h"
 
-namespace hypha::tests::look239
+namespace hypha::tests::readability_fixes
 {
 inline void save (const juce::Image& image, const juce::String& name)
 {
-    const auto root = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_LOOK239_DIR", {});
+    const auto root = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_READABILITY_FIXES_DIR", {});
     if (root.isEmpty()) return; // Evidence paths are opt-in; ordinary CTest still checks every condition.
     const juce::File directory (root);
-    visual_readability::require (directory.createDirectory().wasOk(), "create look239 directory");
+    visual_readability::require (directory.createDirectory().wasOk(), "create readability_fixes directory");
     auto stream = directory.getChildFile (name + ".png").createOutputStream();
     visual_readability::require (stream && stream->setPosition (0) && stream->truncate().wasOk()
-        && juce::PNGImageFormat().writeImageToStream (image, *stream), "write look239 pixels");
+        && juce::PNGImageFormat().writeImageToStream (image, *stream), "write readability_fixes pixels");
 }
 inline void verify()
 {
     int images = 0, failures = 0;
     // Only the explicitly requested pre-change capture skips new wording. CI checks it by default.
-    const bool candidate = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_LOOK239_BASELINE", {}) != "1";
+    const bool candidate = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_READABILITY_FIXES_BASELINE", {}) != "1";
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
@@ -43,17 +43,17 @@ inline void verify()
             for (size_t band = 0; band < KIRIN_SPECTRUM_BAND_COUNT; ++band)
                 spectrum.post_dbfs[band] = band % 9 == 0 ? -3.0f : -80.0f;
             frequency.setSnapshot (spectrum); frequency.presentationTick();
-            visual_readability::require (frequency.displayedPostForTest (144) > -10, "F12 real peak accepted");
+            visual_readability::require (frequency.displayedPostForTest (144) > -10, "freq-label real peak accepted");
             {
                 text_style::ShownTextLog frequencyText;
                 const auto body = frequency.createComponentSnapshot (frequency.getLocalBounds(), true, scale);
                 const bool hasNotes = frequencyText.texts().joinIntoString (" ").contains ("256 BANDS");
-                std::cout << "F12 " << suffix << " notesVisible=" << hasNotes << " axisFont="
+                std::cout << "freq-label " << suffix << " notesVisible=" << hasNotes << " axisFont="
                           << typography::resolve (context, typography::TextRole::axis, typography::Composition::visualization).fontHeight << '\n';
                 auto full = freqShell.createComponentSnapshot (freqShell.getLocalBounds(), true, scale);
                 juce::Graphics g (full);
                 g.drawImageAt (body, juce::roundToInt (freqBounds.getX() * scale), juce::roundToInt (freqBounds.getY() * scale));
-                save (full, "F12-" + suffix); ++images;
+                save (full, "freq-label-" + suffix); ++images;
             }
 
             observatory::View level (observatory::Role::post);
@@ -69,16 +69,16 @@ inline void verify()
             }
             level.setHistory (history);
             {
-                save (level.createComponentSnapshot (level.getLocalBounds(), true, scale), "F13-" + suffix); ++images;
+                save (level.createComponentSnapshot (level.getLocalBounds(), true, scale), "lra-preparing-" + suffix); ++images;
                 bool lraVisible = false;
                 for (int y = 0; y < level.getHeight() && !lraVisible; y += 8)
                     for (int x = 0; x < level.getWidth(); x += 8)
                         if (level.metricHelpAt ({ x, y }).contains ("(LRA)")) { lraVisible = true; break; }
-                if (width == 900) visual_readability::require (lraVisible, "F13 full-size LRA must be visible");
+                if (width == 900) visual_readability::require (lraVisible, "lra-preparing full-size LRA must be visible");
                 // LRA uses per-glyph tabular drawing, not ShownTextLog. Its actual
                 // bounds/brightness are checked by lra_state_bounds below, and
                 // candidate wording is separately tied to its source and catalogue.
-                std::cout << "F13 " << suffix << " lraVisible=" << lraVisible << " rasterScale=" << scale << '\n';
+                std::cout << "lra-preparing " << suffix << " lraVisible=" << lraVisible << " rasterScale=" << scale << '\n';
             }
 
             const juce::String notice (comparison_ui::beforeRealtimeBounce);
@@ -87,12 +87,12 @@ inline void verify()
             observatory::LiveCompareFooter footer; footer.entryEnabled = true;
             footer.active = footer.preSelected = true; footer.recoveryHelp = notice.toRawUTF8();
             view.setLiveCompareFooter (footer); view.setFeedback (notice);
-            visual_readability::require (view.getLocalBounds().contains (view.statusStripBounds()), "F14 strip fits product view");
+            visual_readability::require (view.getLocalBounds().contains (view.statusStripBounds()), "bounce-notice strip fits product view");
             for (const auto* id : { "observatory-live-pre", "observatory-live-post", "observatory-live-end", "observatory-menu" })
                 if (const auto* action = view.findChildWithID (id); action && action->isVisible())
-                    visual_readability::require (!action->getBounds().intersects (view.statusStripBounds()), "F14 clears visible actions");
+                    visual_readability::require (!action->getBounds().intersects (view.statusStripBounds()), "bounce-notice clears visible actions");
             if (!view.statusStripFolded())
-                visual_readability::require (!view.analysisBodyBounds().intersects (view.statusStripBounds()), "F14 clears nonfolded body");
+                visual_readability::require (!view.analysisBodyBounds().intersects (view.statusStripBounds()), "bounce-notice clears nonfolded body");
             FeedbackStrip strip; strip.setBounds (view.statusStripBounds());
             strip.setPresentationContext (view.presentationContext()); strip.setFeedback (notice);
             auto& painted = view.statusStripFolded() ? static_cast<juce::Component&> (strip) : view.feedbackDetailsAnchor();
@@ -104,10 +104,10 @@ inline void verify()
             const bool full = footer_notice::completePaint (actual, shown, painted.getLocalBounds())
                 && font.getHeight() >= 12.0f
                 && text_style::shownWrappedHeight (notice, font, room.getWidth()) <= room.getHeight() + 0.5f;
-            std::cout << "F14 " << suffix << " full=" << full << " font=" << font.getHeight()
+            std::cout << "bounce-notice " << suffix << " full=" << full << " font=" << font.getHeight()
                       << " room=" << room.toString() << " text=" << shown << '\n';
             failures += !full;
-            save (band, "F14-band-" + suffix);
+            save (band, "bounce-notice-band-" + suffix);
             auto composite = view.createComponentSnapshot (view.getLocalBounds(), true, scale);
             if (view.statusStripFolded())
             {
@@ -115,20 +115,20 @@ inline void verify()
                 g.drawImageAt (band, juce::roundToInt (view.statusStripBounds().getX() * scale),
                                     juce::roundToInt (view.statusStripBounds().getY() * scale));
             }
-            save (composite, "F14-" + suffix); ++images;
+            save (composite, "bounce-notice-" + suffix); ++images;
             if (candidate)
             {
                 const auto expected = language == i18n::Language::japanese
                     ? juce::String::fromUTF8 (u8"リアルタイムで書き出す前は END を押し、音量が戻るのを待ってください")
                     : juce::String ("Before a realtime bounce, press END and wait for the level to return");
-                visual_readability::require (shown == expected, "F14 exact requested full sentence");
+                visual_readability::require (shown == expected, "bounce-notice exact requested full sentence");
                 visual_readability::require (i18n::tr ("Preparing 20 s") == (language == i18n::Language::japanese
-                    ? juce::String::fromUTF8 (u8"準備中 20 秒") : juce::String ("Preparing 20 s")), "F13 preparing units");
+                    ? juce::String::fromUTF8 (u8"準備中 20 秒") : juce::String ("Preparing 20 s")), "lra-preparing preparing units");
             }
         }
     }
-    std::cout << "LOOK239 images=" << images << " noticeFailures=" << failures << '\n';
-    visual_readability::require (images == 36 && failures == 0, "look239 all image conditions fit");
+    std::cout << "READABILITY_FIXES images=" << images << " noticeFailures=" << failures << '\n';
+    visual_readability::require (images == 36 && failures == 0, "readability_fixes all image conditions fit");
     visual_readability::verify(); // Preserved ridge, history and all-five-preset LRA oracles.
 }
 }
