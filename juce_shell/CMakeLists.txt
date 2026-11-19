@@ -1139,6 +1139,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
         ${KIRIN_HYPHA_LANGUAGE_SOURCES}
+        src/HyphaTextButton.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
         JUCE_WEB_BROWSER=0

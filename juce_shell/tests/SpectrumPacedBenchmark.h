@@ -1,4 +1,5 @@
 #pragma once
+#include "CompilerVersionString.h"
 // Paired full-component native-image offscreen workload, not DAW/VBlank/dirty-region CPU.
 #include "SpectrumPacedBenchmarkSupport.h"
 #include "SpectrumPhaseProfileCollector.h"
@@ -100,7 +101,7 @@ inline juce::var run(const Input& input,int width,int repetition,const juce::Str
         work.push_back(slot.workMs); paint.push_back(slot.paintMs); queue.push_back(slot.queueMs); tick.push_back(slot.tickMs);
     }
     auto out=object(); set(out,"schema","hypha-freq-paced-v1"); set(out,"source_id_caller_supplied",sourceId);
-    set(out,"compiler",__VERSION__); set(out,"os",juce::SystemStats::getOperatingSystemName());
+    set(out,"compiler",hypha::tests::compilerVersionString()); set(out,"os",juce::SystemStats::getOperatingSystemName());
     set(out,"cpu_model",juce::SystemStats::getCpuModel()); set(out,"juce_version",juce::SystemStats::getJUCEVersion());
     set(out,"fixture_sha256",input.sha256); set(out,"width",width); set(out,"height",width*2/3); set(out,"run",repetition);
     set(out,"mode","paired-LR-full-scope-average-live"); set(out,"render_scale",1); set(out,"language","en");

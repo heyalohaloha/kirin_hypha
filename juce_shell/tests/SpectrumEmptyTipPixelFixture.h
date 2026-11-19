@@ -1,4 +1,5 @@
 #pragma once
+#include "CompilerVersionString.h"
 // Exercise actual paintCurves in each binary; no copied baseline implementation.
 #include "SpectrumPairedPixelReplay.h"
 #include "../src/HyphaSpectrumPainter.h"
@@ -83,7 +84,7 @@ inline int main(const juce::File& directory,const juce::String& sourceId) {
     auto manifest=object(); set(manifest,"schema","hypha-empty-tip-pixels-v1"); set(manifest,"source_id_caller_supplied",sourceId);
     set(manifest,"backend","ARGB explicit NativeImageType, same fixed transform/clip and scale1");
     set(manifest,"os",juce::SystemStats::getOperatingSystemName()); set(manifest,"juce_version",juce::SystemStats::getJUCEVersion());
-    set(manifest,"compiler",__VERSION__); set(manifest,"cases",results); set(manifest,"image_count",images);
+    set(manifest,"compiler",hypha::tests::compilerVersionString()); set(manifest,"cases",results); set(manifest,"image_count",images);
     set(manifest,"scope","real paintCurves direct boundary inputs; no component smoothing; no baseline/candidate comparison or CPU verdict");
     saveJson(directory.getChildFile("manifest.json"),manifest);
     std::cout<<"FREQ_EMPTY_TIP_FIXTURE cases="<<cases<<" images="<<images<<" generated=1 comparison=NOT_RUN"<<std::endl;

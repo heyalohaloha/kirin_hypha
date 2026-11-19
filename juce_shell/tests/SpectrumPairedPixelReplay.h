@@ -1,4 +1,5 @@
 #pragma once
+#include "CompilerVersionString.h"
 // Deterministic paired FULL/LR replay; array/pixel evidence, not a timing/CPU verdict.
 #include "SpectrumPacedBenchmark.h"
 #include <array>
@@ -76,7 +77,7 @@ inline Pass replay(const Input& input,int width,int pass,const juce::File& direc
     auto manifest=object(); set(manifest,"source_id_caller_supplied",sourceId); set(manifest,"fixture_sha256",input.sha256);
     set(manifest,"width",width); set(manifest,"height",width*2/3); set(manifest,"scale",1); set(manifest,"pass",pass);
     set(manifest,"mode","paired-full-LR-AVG-LIVE-default-settings-no-hover"); set(manifest,"language","en");
-    set(manifest,"os",juce::SystemStats::getOperatingSystemName()); set(manifest,"compiler",__VERSION__);
+    set(manifest,"os",juce::SystemStats::getOperatingSystemName()); set(manifest,"compiler",hypha::tests::compilerVersionString());
     set(manifest,"juce_version",juce::SystemStats::getJUCEVersion()); set(manifest,"initial_clock_ms",base);
     set(manifest,"frames",allFrames); set(manifest,"pixel_checkpoints",8);
     set(manifest,"scope","960 array hashes, 8 actual RGBA checkpoints; no CPU claim; not absolute/stop/rearm");
