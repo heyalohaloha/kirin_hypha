@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, readJson, fileFact, checkFacts, digest, Checkpoint } from './hypha_release_contract.mjs';
 import { CONDITIONAL_HOST_TESTS } from './release_scope.mjs';
+import { LIGHT_FIX_ROWS_SCHEMA, BASELINE_SCOPE, lightPolicy, checkBaseline, applicableHost } from './hypha_release_light_policy.mjs';
+export { LIGHT_FIX_ROWS_SCHEMA } from './hypha_release_light_policy.mjs';
 
 export const FIX_ROWS_SCHEMA = 'hypha-release-fix-rows-v2';
 export const OWNER_DECISION_SCHEMA = 'hypha-owner-acceptance-decision-v1';
@@ -87,7 +89,8 @@ function checkFullTransitions(row, daw, file) {
 // row names the DAW, the format(s) and the chain it runs. Checked at --init and on every stage.
 export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const spec = readJson(file);
-  if (spec.schema !== FIX_ROWS_SCHEMA || spec.release !== candidate.version || !Array.isArray(spec.rows)) {
+  const light = spec.schema === LIGHT_FIX_ROWS_SCHEMA;
+  if ((!light && spec.schema !== FIX_ROWS_SCHEMA) || spec.release !== candidate.version || !Array.isArray(spec.rows)) {
     throw new Error('Fix rows must name this release with the supported schema');
   }
   const promises = notePromises(notes);
@@ -98,7 +101,8 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const coverage = new Map();
   for (const row of spec.rows) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,95}$/.test(row.id || '') || seen.has(row.id)
-        || !['host', 'ci'].includes(row.kind) || row.depth !== 'deep'
+        || !['host', 'ci'].includes(row.kind) || (row.depth !== 'deep'
+          && !(light && row.scope === BASELINE_SCOPE && row.depth === 'baseline'))
         || !Array.isArray(row.hosts) || row.hosts.some(host => !text(host))
         || (row.kind === 'host' && (!row.hosts.length || !text(row.daw) || !text(row.chain))) || !text(row.oracle)
         || (row.kind === 'ci' && !Object.hasOwn(CI_ORACLES, row.oracle))
@@ -107,16 +111,18 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       throw new Error('Fix row needs a unique id, kind, hosts, DAW and chain (host), deep oracle and expected values');
     }
     const full = row.kind === 'host' && row.scope === FULL_TRANSITIONS;
-    if ((Object.hasOwn(row, 'scope') && !full) || (row.kind === 'host' && row.expected.newIssues !== 0)
+    const baseline = light && row.scope === BASELINE_SCOPE;
+    if (baseline) checkBaseline(row);
+    if ((Object.hasOwn(row, 'scope') && !full && !baseline) || (row.kind === 'host' && row.expected.newIssues !== 0)
         || (Object.hasOwn(row, 'evidence') && (row.kind !== 'host' || !Array.isArray(row.evidence) || !row.evidence.length
           || row.evidence.some(kind => !EVIDENCE_KINDS.includes(kind)) || new Set(row.evidence).size !== row.evidence.length))) {
       throw new Error(`Fix row ${row.id}: host rows expect newIssues 0; scope and evidence kinds must be known`);
     }
-    const names = full ? [] : row.kind === 'host' && Object.hasOwn(row, 'promises') ? row.promises : [row.promise];
+    const names = full || baseline ? [] : row.kind === 'host' && Object.hasOwn(row, 'promises') ? row.promises : [row.promise];
     if (full) fullTransitions += 1;
-    else if ((Object.hasOwn(row, 'promises') && (row.kind !== 'host' || Object.hasOwn(row, 'promise')))
+    else if (!baseline && ((Object.hasOwn(row, 'promises') && (row.kind !== 'host' || Object.hasOwn(row, 'promise')))
         || !Array.isArray(names) || !names.length || names.some(name => !text(name))
-        || new Set(names).size !== names.length || names.some(name => !promises.includes(name))) {
+        || new Set(names).size !== names.length || names.some(name => !promises.includes(name)))) {
       throw new Error(`Fix row ${row.id} names no promise of the release notes`);
     }
     if (row.kind === 'host') {
@@ -128,13 +134,19 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       }
       if (daw === 'Logic Pro' && row.os !== 'macos') throw new Error(`Fix row ${row.id}: Logic Pro requires macos`);
       if (daw === 'Cakewalk' && row.os !== 'windows') throw new Error(`Fix row ${row.id}: Cakewalk requires windows`);
+      if (light && new Set(row.hosts).size !== row.hosts.length) throw new Error('Duplicate light host format');
+      if (light && row.hosts.some(host => !/^(macOS\/x86_64|Windows\/x64)\/(AU|VST3|AAX)$/.test(host)
+          || !applicableHost(daw, row.os, host.split('/')[2]))) {
+        throw new Error('Light host rows need known shipping platform and format');
+      }
       if (full) checkFullTransitions(row, daw, file);
       for (const promise of names) {
         if (!coverage.has(promise)) coverage.set(promise, new Map());
         const daws = coverage.get(promise);
         if (!daws.has(daw)) daws.set(daw, new Set());
         const systems = daws.get(daw);
-        if (systems.has(row.os) || (systems.size && !sensitive.includes(promise))) {
+        if (systems.has(row.os) || (systems.size && !sensitive.includes(promise)
+            && !(light && spec.impact?.some(item => item.promise === promise && item.scope === 'platform')))) {
           throw new Error(`Promise ${promise} is already verified in ${daw}`);
         }
         systems.add(row.os);
@@ -148,7 +160,7 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
   const missingHost = promises.find(promise => !spec.rows.some(row => row.kind === 'host' && namesPromise(row, promise)));
   if (missingHost) throw new Error(`Release-note promise has no real-host acceptance row: ${missingHost}`);
   for (const promise of promises) {
-    for (const daw of REQUIRED_DAWS) {
+    for (const daw of light ? [] : REQUIRED_DAWS) {
       if (!coverage.get(promise)?.has(daw)) throw new Error(`Release-note promise is not verified in ${daw}: ${promise}`);
     }
     if (sensitive.includes(promise)) {
@@ -159,8 +171,9 @@ export function fixRows(file, candidate, reserved = HOST_TESTS, notes = '') {
       }
     }
   }
-  if (fullTransitions !== 1) throw new Error('Fix rows need exactly one Pro Tools full-transitions row');
-  return { rows: spec.rows, decision: fileFact(file) };
+  if (light) lightPolicy(spec, candidate, promises, REQUIRED_DAWS, canonicalDaw, sensitive);
+  if (!light && fullTransitions !== 1) throw new Error('Fix rows need exactly one Pro Tools full-transitions row');
+  return { rows: spec.rows, decision: fileFact(file), ...(light ? { schema: spec.schema } : {}) };
 }
 
 // Re-read on every stage and on --bind-publication: the current notes may not promise anything
