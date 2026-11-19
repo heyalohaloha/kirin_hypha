@@ -34,9 +34,18 @@ mod tests {
     fn io_owner_contention_skips_without_waiting() {
         let sm = RecordStateMachine::new();
         let held = sm.io_entry_owner.try_lock().unwrap();
-        sm.remember_io_entry_owner("one", 1, "owner".into());
-        assert_eq!(sm.io_entry_owner("one", 1), None);
-        drop(held);
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::scope(|scope| {
+            let task = scope.spawn(|| {
+                sm.remember_io_entry_owner("one", 1, "owner".into());
+                let _ = tx.send(sm.io_entry_owner("one", 1));
+            });
+            let outcome = rx.recv_timeout(std::time::Duration::from_secs(5));
+            // A blocking regression must be released before join or assertion.
+            drop(held);
+            task.join().unwrap();
+            assert_eq!(outcome.expect("IO owner access waited for the lock"), None);
+        });
         assert_eq!(sm.io_entry_owner("one", 1), None);
     }
 }
