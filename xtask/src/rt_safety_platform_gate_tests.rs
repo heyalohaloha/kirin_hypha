@@ -238,11 +238,35 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
 fn every_native_test_requires_the_read_only_real_storage_fixture() {
     let cmake = include_str!("../../juce_shell/CMakeLists.txt");
     assert!(cmake.trim_end().ends_with(
-        "include(cmake/NativeStorageGuard.cmake)\ninclude(cmake/NativeTestTargets.cmake)"
+        "include(cmake/NativeStorageGuard.cmake)\ninclude(cmake/NativeTestTargets.cmake)\ninclude(cmake/NativeTestLabels.cmake)"
     ));
-    // The final include aggregates existing targets only; no test can escape the prior guard.
+    // The suffix may aggregate targets and append labels, but must not register or bypass tests.
     let aggregate = include_str!("../../juce_shell/cmake/NativeTestTargets.cmake");
     assert!(!aggregate.contains("add_test("));
+    let labels = include_str!("../../juce_shell/cmake/NativeTestLabels.cmake");
+    for forbidden in [
+        "add_test(",
+        "include(",
+        "add_subdirectory(",
+        "set_tests_properties(",
+        "FIXTURES_",
+        "DISABLED",
+        "execute_process(",
+    ] {
+        assert!(
+            !labels.contains(forbidden),
+            "labels may only annotate guarded tests: {forbidden}"
+        );
+    }
+    assert!(labels.contains("get_property(kirin_label_tests DIRECTORY PROPERTY TESTS)"));
+    let mutations: Vec<_> = labels
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("set_property("))
+        .collect();
+    assert_eq!(mutations, [
+        "set_property(TEST \"${test}\" APPEND PROPERTY LABELS \"hypha-all\" \"hypha-${domain}\")"
+    ]);
     let guard = include_str!("../../juce_shell/cmake/NativeStorageGuard.cmake");
     for contract in [
         "get_property(kirin_hypha_native_tests DIRECTORY PROPERTY TESTS)",
