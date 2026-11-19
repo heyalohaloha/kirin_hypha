@@ -274,7 +274,7 @@ fn constant(tokens: &[Token]) -> bool {
 
 #[cfg(test)]
 fn scan(source: &str) -> Scan {
-    scan_with(source, &[])
+    scan_with(source, &[], &[])
 }
 
 /// The `macro_rules!` names one source defines; a crate's macros may be invoked in its other files.
@@ -288,8 +288,10 @@ fn defined_macros(source: &str) -> Vec<String> {
 }
 
 /// Scans one source; `crate_macros` are the `macro_rules!` names defined anywhere in its crate.
-fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
+fn scan_with(source: &str, crate_macros: &[String], owned_crates: &[&str]) -> Scan {
     let tokens = tokens(source);
+    let mut owned_roots = scope::module_roots(&tokens);
+    owned_roots.extend_from_slice(owned_crates);
     let line = |at: usize| source[..at].matches('\n').count() + 1;
     let mut scan = Scan::default();
     let mut entry_fns = Vec::new();
@@ -339,9 +341,17 @@ fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
                 token.text
             ));
         }
-        if token.is("use") && imports_under_allowed_name(&tokens[at + 1..], &macros) {
+        if token.is("use")
+            && scope::imports_under_allowed_name(&tokens[at + 1..], &macros, &owned_roots)
+        {
             scan.problems.push(format!(
                 "line {}: import under an allowed macro name",
+                line(token.start)
+            ));
+        }
+        if token.is("macro_use") && attribute_name(&tokens, at) {
+            scan.problems.push(format!(
+                "line {}: unverified macro_use import",
                 line(token.start)
             ));
         }
@@ -426,26 +436,6 @@ fn allowed_item_macro(tokens: &[Token], at: usize, macros: &[&str]) -> bool {
         }
         _ => false,
     }
-}
-
-/// A `use` tree that could put another macro under an allowed name: a rename to it
-/// (`use x::emit as thread_local;`), or an import of it whose path starts outside std and the crate.
-fn imports_under_allowed_name(after_use: &[Token], macros: &[&str]) -> bool {
-    let end = after_use.iter().position(|t| t.is(";"));
-    let tree = &after_use[..end.unwrap_or(after_use.len())];
-    let trusted = ["std", "core", "crate", "$crate", "self", "super"];
-    let trusted_root = tree.first().is_some_and(|t| trusted.contains(&t.text));
-    let precise_capture = tree.first().is_some_and(|t| t.is("<")); // `impl Trait + use<'a>`
-    !precise_capture
-        && tree.iter().enumerate().any(|(i, t)| {
-            let allowed =
-                ["thread_local", "assert", "include"].contains(&t.text) || macros.contains(&t.text);
-            let raw = i >= 2 && tree[i - 1].is("#") && tree[i - 2].is("r");
-            let before = i.checked_sub(if raw { 3 } else { 1 });
-            t.kind == Kind::Ident
-                && allowed
-                && (!trusted_root || before.is_some_and(|b| tree[b].is("as")))
-        })
 }
 
 /// The braces of the body after a signature that starts at `from`, or `None` when `;` ends it.
