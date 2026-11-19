@@ -43,7 +43,7 @@ struct Session
     }
     void send (Listener& l, const PreAlignInput& in) noexcept
     {
-        if (const auto out = l.owner.transition (in); out.request) l.alignment.request (out.value, context, out.revision);
+        if (const auto out = l.owner.transition (in); out.request) l.alignment.request (out.value, context, out.revision, out.resend);
     }
     void render (Listener& l) noexcept
     {
@@ -70,7 +70,7 @@ struct Session
         }
         auto tick = input (l, PreAlignEvent::tick);
         tick.pending = l.alignment.readiness.pending(); tick.spent = l.alignment.budgetSpent();
-        tick.released = l.alignment.clockReleased();
+        tick.releasedAt = l.alignment.releasedAt();
         tick.reach = l.alignment.servable();
         tick.now = static_cast<std::uint64_t> (clock) * 1000000000u / rate; tick.readRetryNanos = 500000000u;
         if (tick.pending) l.alignment.arm();

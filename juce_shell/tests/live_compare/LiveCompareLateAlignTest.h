@@ -45,11 +45,13 @@ static void clockChangeInsideABlockCostsNoPostBlock()
         chain.relocate (48000); chain.run (4); chain.confirmAlign ({ 96000 }); chain.run (12);
         require (chain.report.preAudible && alignment.budgetSpent(), "real renderer starts on spent K fallback");
         chain.confirmAlign ({ 256 }); chain.setK (options.k + 1024);
-        int waits = 0, proven = 0, postOnly = 0; bool stable = false;
+        int waits = 0, proven = 0, postOnly = 0, callbacks = 0, stableAt = 0; bool stable = false;
         const auto observePrevious = [&] {
+                if (proven > 0 && !stable) ++callbacks;
                 if (chain.decision.kValid && chain.decision.k == options.k + 1024
                     && chain.decision.verdict == Verdict::accepted)
                 {
+                    if (proven == 0) callbacks = 1;
                     ++proven; if (!chain.report.preAudible) ++postOnly; if (chain.report.alignWaiting) ++waits;
                     require (chain.decision.preStart == chain.renderedClock - chain.decision.k,
                              "the first and later proven blocks actually read the current K address");
@@ -57,12 +59,13 @@ static void clockChangeInsideABlockCostsNoPostBlock()
                     for (int frame = 0; frame < blockFrames; ++frame)
                         containsPre = containsPre || chain.outputSample (frame) != aax_chunk_test::postSample;
                     require (containsPre, "the proven changed-clock block contains PRE PCM, not only a cleared waiting flag");
-                    stable = stable || (chain.report.stableSource && chain.report.preAudible);
+                    if (!stable && chain.report.stableSource && chain.report.preAudible)
+                    { stable = true; stableAt = callbacks; }
                 }
         };
         for (int i = 0; i < 10; ++i) chain.chunk ([&] (int, BlockClock&) { observePrevious(); });
         observePrevious(); // include the final callback, not only callbacks before another render
-        require (proven > 0 && waits == 0 && postOnly == 0 && stable,
+        require (proven > 0 && waits == 0 && postOnly == 0 && stable && stableAt <= (240 + blockFrames - 1) / blockFrames + 2,
                  "small callbacks keep no POST-only wait at the new proven K and finish the fade");
     }
 

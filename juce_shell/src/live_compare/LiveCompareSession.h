@@ -428,8 +428,8 @@ public:
     }
 
     // Message thread (INV-LC28): the content value for later blocks; 0 reads PRE at K alone.
-    void requestAlign (AlignValue value, AlignContext context = {}, std::uint64_t measured = 0) noexcept
-    { alignment.request (value, context, measured); }
+    void requestAlign (AlignValue value, AlignContext context = {}, std::uint64_t measured = 0, bool resend = false) noexcept
+    { alignment.request (value, context, measured, resend); }
     std::uint64_t alignRevision() const noexcept { return alignment.readiness.generation(); }
     std::int64_t alignClockK() const noexcept { return alignment.readiness.clockK(); }
     bool alignPending() const noexcept { return alignment.readiness.pending(); }

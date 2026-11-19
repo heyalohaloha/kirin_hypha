@@ -56,7 +56,7 @@ static void takeoverReceiptCompletesBeforeFallback()
         require (renderer.budgetSpent(), "provisional K does not renew the unanswered correction budget");
         weight = 0.3f; renderer.resolve (takesOver ? 1000 : 64, weight);
         require (weight == 0.3f, "an existing provisional K fade is not restarted");
-        require (owner.keptValue().frames == 1000 && renderer.readiness.pending() && !renderer.clockReleased(),
+        require (owner.keptValue().frames == 1000 && renderer.readiness.pending() && !renderer.releasedAt(),
                  "provisional K neither discards, confirms, nor renews the retained correction");
         PreAlignInput tick; tick.context = context; tick.clock = &renderer.readiness;
         tick.revision = renderer.readiness.generation(); tick.k = renderer.readiness.clockK();

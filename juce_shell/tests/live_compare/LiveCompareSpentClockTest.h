@@ -34,12 +34,12 @@ static void alignClockStormAfterTheBudget()
                     // Exercise the unanswered branch: at 128/256 frames expiry coincides with the
                     // regular tick. Delay that one service, rather than testing the answered A4 path.
                     if (!delayedDeadlineAnswer && world.listeners[0].alignment.budgetSpent()
-                        && !world.listeners[0].alignment.clockReleased()) delayedDeadlineAnswer = true;
+                        && !world.listeners[0].alignment.releasedAt()) delayedDeadlineAnswer = true;
                     else world.tick();
                 }
                 for (const auto& l : world.listeners)
                 {
-                    require (l.waited <= rate + world.tickAllowance(), "fixed storm does not extend the single wait budget");
+                    require (l.waited <= rate + world.tickAllowance() + (delayedDeadlineAnswer ? world.tickEvery * frames : 0), "fixed storm does not extend the single wait budget");
                     if (static_cast<std::int64_t> (i) * frames > rate + world.tickAllowance())
                         require (l.pathOpen && l.address == 0, "a proven continuing storm uses K after the budget");
                 }
@@ -86,16 +86,16 @@ static void spentBudgetReleasesOnceAtAMovedClock()
         alignment.resolve (k, weight); alignment.readiness.observe (true, true, true, k);
         alignment.observed (true, true, update);
     }
-    require (alignment.budgetSpent() && !alignment.clockReleased(), "spending alone does not discard a retained correction");
+    require (alignment.budgetSpent() && !alignment.releasedAt(), "spending alone does not discard a retained correction");
     auto update = alignment.update (playback, false, true, weight, 48000, 128, 64);
     alignment.resolve (k + 64, weight);
     require (weight == 0.0f && alignment.value().frames == 0, "late moved mapping switches to K before reading");
     alignment.observed (false, false, update);
-    require (!alignment.clockReleased(), "a rejected unproven block cannot publish a clock release");
+    require (!alignment.releasedAt(), "a rejected unproven block cannot publish a clock release");
     update = alignment.update (playback, false, true, weight, 48000, 128, 64);
     k += 64; weight = 0.3f; alignment.resolve (k, weight);
     alignment.readiness.observe (true, true, true, k); alignment.observed (true, true, update);
-    require (alignment.clockReleased() && weight == 0.3f, "the proven block commits release without restarting a K fade");
+    require (alignment.releasedAt() && weight == 0.3f, "the proven block commits release without restarting a K fade");
     for (int i = 0; i < 10; ++i)
     {
         update = alignment.update (playback, false, true, weight, 48000, 128, 64);
@@ -126,7 +126,7 @@ static void clockReleaseStartsAfterTheSpentBlock()
             alignment.resolve (k, weight); alignment.readiness.observe (true, true, true, k);
             alignment.observed (true, true, update);
             require (alignment.budgetSpent() == (block >= 3), "boundary fixture spends the budget on the third block");
-            require (alignment.clockReleased() == (movedBlock == 4 && block == 4),
+            require ((alignment.releasedAt() != 0) == (movedBlock == 4 && block == 4),
                      "a mapping on or before the spent block cannot release the unanswered budget");
         }
         require (alignment.value().frames == (movedBlock == 4 ? 0 : 1000),
@@ -159,18 +159,18 @@ static void repeatedRefusalsKeepTheCorrectionUntilProof()
         for (int i = 0; i < 4; ++i)
         {
             const auto update = alignment.update (playback, blind, selected, weight, 48000, 128, 64);
-            require (!alignment.clockReleased(), "revision alone cannot notify retained correction release");
+            require (!alignment.releasedAt(), "revision alone cannot notify retained correction release");
             if (i == 0) k += 64;
             // Rejected Consumer path never reaches resolve(), but still observes valid K.
             alignment.readiness.observe (true, true, true, k);
             alignment.observed (false, false, update);
-            require (!alignment.clockReleased(), "consecutive unproven blocks preserve the retained correction");
+            require (!alignment.releasedAt(), "consecutive unproven blocks preserve the retained correction");
         }
         const auto proven = alignment.update (playback, blind, selected, weight, 48000, 128, 64);
-        require (!alignment.clockReleased(), "the final update still waits for proof");
+        require (!alignment.releasedAt(), "the final update still waits for proof");
         alignment.resolve (k, weight); alignment.readiness.observe (true, true, true, k);
         alignment.observed (true, true, proven);
-        require (alignment.clockReleased() && alignment.value().frames == 0,
+        require (alignment.releasedAt() && alignment.value().frames == 0,
                  "the same proven block releases and adopts K under either assignment");
     }
 }

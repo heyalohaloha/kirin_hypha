@@ -47,6 +47,7 @@ static void print (const char* name, const Tally& t)
 #include "LiveCompareKeptAlignTest.h"
 #include "LiveCompareLateAlignTest.h"
 #include "LiveCompareSpentClockTest.h"
+#include "LiveCompareReleaseResendTest.h"
 #include "LiveCompareTakeoverFenceTest.h"
 #include "LiveCompareAlignUnrestrictedStormTest.h"
 
@@ -283,6 +284,13 @@ int main()
     spentBudgetReleasesOnceAtAMovedClock();
     clockReleaseStartsAfterTheSpentBlock();
     repeatedRefusalsKeepTheCorrectionUntilProof();
+    live_compare_release_resend_test::staleResendAfterReleaseIsRefused();
+    live_compare_release_resend_test::resendBeforeProofKeepsTheRelease();
+    live_compare_release_resend_test::freshEstimateIsNeverRefused();
+    live_compare_release_resend_test::freshEstimateAfterReleaseSurvives();
+    live_compare_release_resend_test::unreachedBlockNeverReleases();
+    live_compare_release_resend_test::settingChangeIsNoClockMove();
+    live_compare_release_resend_test::blindPathUsesTheSameRequestSnapshot();
     alignTransportStormWithoutHostStability();
     std::printf ("live compare correspondence: all checks passed\n");
     return 0;
