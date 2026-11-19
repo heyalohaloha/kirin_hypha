@@ -17,9 +17,7 @@
 #include <functional>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_cryptography/juce_cryptography.h>
-#if JUCE_WINDOWS
-#include <windows.h>
-#else
+#if ! JUCE_WINDOWS
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>

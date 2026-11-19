@@ -1,5 +1,6 @@
 #include "StorageWriteGuardStartup.h"
 #include "AtomicWriteGuardTest.h"
+#include "ShippingDisabledGuardTest.h"
 #include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "TestPathBudget.h"
@@ -45,9 +46,12 @@ int main (int argc, char** argv)
     if (mode=="--guard-shipping-disabled") {
         const auto root=juce::SystemStats::getEnvironmentVariable("KIRIN_HYPHA_TEST_STORAGE_ROOT",{});
         if (!guard::validRoot(root)) return 78;
-        const auto file=juce::File(root).getNonexistentChildFile("disabled",{},false);
+        const auto destination=hypha::tests::shippingDisabledFixture(require);
+        const auto before=guard::permittedMutationEntries();
+        const auto file=destination.getNonexistentChildFile("disabled",{},false);
         require(hypha::storage::writeText(file,"shipping bytes") && file.loadFileAsString()=="shipping bytes",
                 "disabled runtime preserves normal save");
+        require(before==guard::permittedMutationEntries(),"disabled save does not enter guarded mutations");
         require(file.deleteFile(),"disabled fixture cleanup"); return 0;
     }
     if (!hypha::tests::initializeStorageWriteGuard()) return 78;

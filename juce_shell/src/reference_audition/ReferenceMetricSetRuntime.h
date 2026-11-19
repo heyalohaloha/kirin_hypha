@@ -7,6 +7,10 @@
 
 namespace hypha::reference_audition::metrics
 {
+#if JUCE_WINDOWS
+namespace windows_detail { double threadCpuSeconds(); }
+#endif
+
 inline bool metricPreparationWait (ScanState state, std::uint64_t sourceFrames) noexcept
 { return state == ScanState::waiting && sourceFrames == 0; }
 inline bool metricBackgroundCpuBudget (double wall, double start, double end) noexcept
@@ -187,11 +191,7 @@ private:
     static double cpuSeconds()
     {
 #if JUCE_WINDOWS
-        FILETIME created {}, exited {}, kernel {}, user {};
-        if (!GetThreadTimes (GetCurrentThread(), &created, &exited, &kernel, &user)) return -1;
-        ULARGE_INTEGER k {}, u {}; k.LowPart = kernel.dwLowDateTime; k.HighPart = kernel.dwHighDateTime;
-        u.LowPart = user.dwLowDateTime; u.HighPart = user.dwHighDateTime;
-        return static_cast<double> (k.QuadPart + u.QuadPart) * 1.0e-7;
+        return windows_detail::threadCpuSeconds();
 #else
         timespec value {};
         return clock_gettime (CLOCK_THREAD_CPUTIME_ID, &value) == 0

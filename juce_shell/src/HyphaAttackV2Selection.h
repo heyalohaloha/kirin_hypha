@@ -20,18 +20,18 @@ public:
     void begin (const std::vector<LocatedEvent>& visible, float x)
     {
         if (clustered && std::abs (x - anchor) <= 8.0f) { cycle (true); dragging = true; return; }
-        std::vector<LocatedEvent> near;
-        for (const auto& e : visible) if (distance (e, x) <= 6.0f) near.push_back (e);
-        if (near.empty())
+        std::vector<LocatedEvent> nearbyEvents;
+        for (const auto& e : visible) if (distance (e, x) <= 6.0f) nearbyEvents.push_back (e);
+        if (nearbyEvents.empty())
         {
             if (visible.empty()) return;
-            near.push_back (*std::min_element (visible.begin(), visible.end(), [x] (const auto& a, const auto& b) {
+            nearbyEvents.push_back (*std::min_element (visible.begin(), visible.end(), [x] (const auto& a, const auto& b) {
                 return distance (a, x) < distance (b, x); }));
         }
-        if (near.size() == 1 && selected && ! live && sameEvent (*selected, near[0].key)) { clear(); return; }
-        live = false; clustered = near.size() > 1; dragging = true; anchor = near.front().x; index = 0;
-        frozen = clustered ? std::move (near) : visible; // Normal drag also freezes its complete start set.
-        selected = clustered ? frozen[0].key : near[0].key;
+        if (nearbyEvents.size() == 1 && selected && ! live && sameEvent (*selected, nearbyEvents[0].key)) { clear(); return; }
+        live = false; clustered = nearbyEvents.size() > 1; dragging = true; anchor = nearbyEvents.front().x; index = 0;
+        frozen = clustered ? std::move (nearbyEvents) : visible; // Normal drag also freezes its complete start set.
+        selected = clustered ? frozen[0].key : nearbyEvents[0].key;
         if (! clustered) for (std::size_t i = 0; i < frozen.size(); ++i)
             if (sameEvent (frozen[i].key, *selected)) index = i;
     }

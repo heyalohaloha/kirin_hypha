@@ -1,9 +1,7 @@
 #pragma once
 #include <cstdint>
 
-#if defined(_WIN32)
- #include <windows.h>
-#else
+#if ! defined(_WIN32)
  #include <dlfcn.h>
  #if defined(__APPLE__)
   #include <mach-o/loader.h>
@@ -14,6 +12,9 @@
 
 namespace hypha::reference_audition::receipt_detail
 {
+#if defined(_WIN32)
+namespace windows_detail { bool retainModuleAt (const void*) noexcept; }
+#endif
 // A detached store may return after the host closes its last plugin instance. Retain the
 // code, including its static data and thread-exit destructors, until process exit. One
 // pin per loaded image; never one per receipt or instance. No call runs on the audio thread.
@@ -23,9 +24,7 @@ static bool retainModule() noexcept
     static const bool retained = []
     {
        #if defined(_WIN32)
-        HMODULE module = nullptr;
-        return GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                                  reinterpret_cast<LPCWSTR> (&anchor), &module) != 0;
+        return windows_detail::retainModuleAt (&anchor);
        #else
         Dl_info image {};
         if (dladdr (&anchor, &image) == 0 || image.dli_fname == nullptr) return false;

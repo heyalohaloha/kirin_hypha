@@ -6,6 +6,13 @@
 
 namespace hypha::reference_audition::revision_detail
 {
+#if JUCE_WINDOWS
+namespace windows_detail {
+void* openSnapshotLease (const juce::File&, bool);
+void closeSnapshotLease (void*) noexcept;
+bool setSnapshotLeaseTime (void*, juce::int64);
+}
+#endif
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
 inline std::atomic<const juce::File*> snapshotRootForTest { nullptr };
 #endif
@@ -43,12 +50,7 @@ public:
     bool setModificationTimeForTest (juce::Time when)
     {
 #if JUCE_WINDOWS
-        const auto ms = when.toMilliseconds();
-        constexpr std::uint64_t epoch = 116444736000000000ULL;
-        if (ms < 0 || static_cast<std::uint64_t> (ms) > (std::numeric_limits<std::uint64_t>::max() - epoch) / 10000) return false;
-        const auto ticks = static_cast<std::uint64_t> (ms) * 10000 + epoch;
-        const FILETIME value { static_cast<DWORD> (ticks), static_cast<DWORD> (ticks >> 32) };
-        return held && SetFileTime (handle, nullptr, nullptr, &value) != 0;
+        return held && windows_detail::setSnapshotLeaseTime (handle, when.toMilliseconds());
 #else
         return held && lease.setLastModificationTime (when);
 #endif
@@ -80,13 +82,8 @@ private:
     bool lock (const juce::File& file, bool create)
     {
 #if JUCE_WINDOWS
-        handle = CreateFileW (file.getFullPathName().toWideCharPointer(), GENERIC_READ | GENERIC_WRITE,
-            0, nullptr, create ? CREATE_NEW : OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-        if (handle == INVALID_HANDLE_VALUE) return false;
-        BY_HANDLE_FILE_INFORMATION info {};
-        if (!GetFileInformationByHandle (handle, &info)
-            || (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)))
-        { unlock(); return false; }
+        handle = windows_detail::openSnapshotLease (file, create);
+        if (handle == nullptr) return false;
 #else
         handle = ::open (file.getFullPathName().toRawUTF8(), O_RDWR | O_NOFOLLOW | O_CLOEXEC
             | (create ? O_CREAT | O_EXCL : 0), 0600);
@@ -100,7 +97,7 @@ private:
     void unlock()
     {
 #if JUCE_WINDOWS
-        if (handle != INVALID_HANDLE_VALUE) { CloseHandle (handle); handle = INVALID_HANDLE_VALUE; }
+        windows_detail::closeSnapshotLease (handle); handle = nullptr;
 #else
         if (handle >= 0) { ::close (handle); handle = -1; }
 #endif
@@ -108,7 +105,7 @@ private:
     juce::File directory, lease;
     bool held = false;
 #if JUCE_WINDOWS
-    HANDLE handle = INVALID_HANDLE_VALUE;
+    void* handle = nullptr;
 #else
     int handle = -1;
 #endif

@@ -82,14 +82,10 @@ void paintAxis (juce::Graphics& g, const Layout& layout, presentation::Context p
 {
     constexpr std::array<double, 5> ticks { 3.0, 2.0, 1.0, 0.0, -1.0 };
     const auto overlay = overlayFor (layout.sharedPlot);
-    g.setFont (monoFont (presentation, typography::TextRole::axis,
+    g.setFont (monoFont (presentation, typography::TextRole::historyAxis,
                          typography::Composition::visualization));
     g.setColour (COL_TRUE_PEAK.withAlpha (0.86f));
-    // Above the +3 label, which is centred on the overlay's top edge.
-    text_style::drawText (g, "TP", layout.truePeakLabels.getX(),
-                          juce::roundToInt (overlay.getY()) - 22,
-                          layout.truePeakLabels.getWidth(), 14,
-                          juce::Justification::centredLeft);
+    // The header already names TP; a second title above +3 intrudes into it.
     // +3 and -1 (the ends) and 0 first; numbers that would overlap are left out.
     std::vector<float> centres;
     for (const auto tick : ticks) centres.push_back (static_cast<float> (yFor (overlay, tick)));
