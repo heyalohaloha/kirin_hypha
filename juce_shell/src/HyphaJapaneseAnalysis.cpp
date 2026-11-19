@@ -119,7 +119,6 @@ const Entry entries[] = {
     { "POST ONLY", u8"POSTのみ" },
     { "NO PAIR", u8"ペアなし" },
     { "NO HIT", u8"打音なし" },
-    { "UNAVAILABLE", u8"利用不可" },
     { "WARMING UP", u8"準備中" },
 
     // DRUM BAND (B-1097, B-1098): what the engine stated for a hit in the band, the guidance
