@@ -59,7 +59,6 @@ fn content_alignment_moves_only_the_audition_address() {
     assert!(render.contains(
         "if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served();"
     ));
-    // What an ended hold tells is one rule for LISTEN, BLIND and A/B: no mode is asked.
     assert!(STATUS_H.contains(
         "liveCompare.preAlign.notice (liveCompare.renderer.alignState().unservedCorrection());"
     ));
@@ -133,6 +132,7 @@ fn alignment_is_bound_to_the_context_measured_before_publication() {
     assert!(
         read.contains("const auto accepted = measured == context ? value : AlignValue {};")
             && read.contains("return accepted;")
+            && read.contains("if (mirrored != nullptr) *mirrored = accepted;")
     );
     assert!(read.contains("*current = measured == context && measuredRevision == expectedRevision"));
     assert!(read.contains(

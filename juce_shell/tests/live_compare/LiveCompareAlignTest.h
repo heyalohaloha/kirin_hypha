@@ -216,8 +216,10 @@ static void alignPublicationIncludesTheRecheckGeneration()
     require (request.read (context, { 256 }, 8, &current).frames == 256 && !current,
              "an old correction cannot confirm a newer recheck");
     current = false;
-    require (request.read ({ 5, 6, 8, 10 }, { 256 }, 8, &current).frames == 0 && !current,
-             "a foreign context is rejected even when the generation also differs");
+    AlignValue mirrored { 2048 };
+    require (request.read ({ 5, 6, 8, 10 }, { 256 }, 8, &current, false, nullptr, &mirrored).frames == 0
+             && mirrored.frames == 0 && !current,
+             "a foreign context is rejected for both the returned address and BLIND mirror");
     request.publish ({ 0 }, context, 8);
     current = false;
     require (request.read (context, { 1024 }, 8, &current).frames == 0 && current,
