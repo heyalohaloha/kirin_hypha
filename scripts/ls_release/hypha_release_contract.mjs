@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { validateLightHostRuns } from './hypha_release_light_evidence.mjs';
+import { validateLightHostRuns, validateDistinctHostObservations } from './hypha_release_light_evidence.mjs';
 import { releaseComplete } from './release_stages.mjs';
 import { verifyReaperEvidenceForState } from '../acceptance/reaper_run.mjs';
 // Candidate-bound evidence. Reports are attestations backed by retained files, never auto-PASS.
@@ -179,7 +179,20 @@ export function validateReport(state, reportPath, gate, binding, ids) {
   if (!Array.isArray(report.tests) || new Set(report.tests.map(t => t.id)).size !== report.tests.length) {
     throw new Error(`${gate}: missing or duplicate test records`);
   }
+  const hostObservations = [];
   for (const test of report.tests) {
+    if (light) for (const evidence of test.evidence || []) {
+      const actual = fileFact(resolveInput(state, evidence.path));
+      const bytes = fs.readFileSync(actual.path);
+      if (actual.sha256 !== evidence.sha256
+          || crypto.createHash('sha256').update(bytes).digest('hex') !== evidence.sha256) {
+        throw new Error(`${gate}: evidence hash mismatch`);
+      }
+      let schema; try { schema = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, '')).schema; } catch {}
+      if (schema === 'hypha-real-daw-run-v1' && evidence.kind !== 'host-run') {
+        throw new Error('Real DAW run schema requires verified planned A4 host-run evidence');
+      }
+    }
     if (test.evidence?.some(item => item.kind === 'host-run') && (!light || gate !== 'A4'
       || !ids.includes(test.id) || test.result !== 'PASS'
       || !state.fixRows.rows.some(plan => plan.id === test.id && plan.kind === 'host'))) {
@@ -205,7 +218,7 @@ export function validateReport(state, reportPath, gate, binding, ids) {
     }
     if (!compareExpected(row.expected, row.measured, light)) throw new Error(`${gate}: ${id} measured values fail expected conditions`);
     if (gate === 'A4') facts.push(...validateLightHostRuns(state, row, binding,
-      { resolveInput, fileFact, digest, compareExpected: (a, b) => compareExpected(a, b, true) }));
+      { resolveInput, fileFact, digest, compareExpected: (a, b) => compareExpected(a, b, true) }, hostObservations));
     const method = acceptanceCriteria(state).evidenceMethods[id] || 'manual';
     if (!['manual', 'reaper'].includes(method)) throw new Error(`${gate}: unknown evidence method`);
     if (gate === 'A4' && state.freeze?.criteriaSha256 !== digest(acceptanceCriteria(state))) throw new Error(`${gate}: frozen criteria changed`);
@@ -251,6 +264,7 @@ export function validateReport(state, reportPath, gate, binding, ids) {
       }
     }
   }
+  if (light && gate === 'A4') validateDistinctHostObservations(hostObservations);
   return facts;
 }
 
