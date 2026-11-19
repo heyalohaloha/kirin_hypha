@@ -13,10 +13,31 @@ function testMap(tests, label) {
   return result;
 }
 
+const guardFixtures = new Map([
+  ['kirin_native_storage_guard_setup', ['FIXTURES_SETUP', 'kirin_real_storage']],
+  ['kirin_native_storage_guard_cleanup', ['FIXTURES_CLEANUP', 'kirin_real_storage']],
+  ['kirin_native_path_budget_setup', ['FIXTURES_SETUP', 'kirin_path_budget']],
+  ['kirin_native_path_budget_cleanup', ['FIXTURES_CLEANUP', 'kirin_path_budget']],
+]);
+
+// Inspect the final registry, not CMake spelling or only the release-selected subset.
+export function checkStorageFixtures(registered) {
+  for (const test of registered) {
+    const has = (name, value) => test.properties?.some(p => p.name === name
+      && Array.isArray(p.value) && p.value.includes(value));
+    const fixture = guardFixtures.get(test.name);
+    if (fixture && has(...fixture)) continue;
+    if (!has('FIXTURES_REQUIRED', 'kirin_real_storage')) {
+      throw new Error(`native test missing kirin_real_storage fixture: ${test.name}`);
+    }
+  }
+}
+
 // Compare CTest's actual selections, including automatically added fixtures, with ALL
 // registered tests. A selected-count check alone cannot discover an omitted new test.
 export function checkInventory(registered, groups, exclusions) {
   const all = testMap(registered, 'registered');
+  checkStorageFixtures([...all.values()]);
   if (!Array.isArray(groups) || groups.length === 0) throw new Error('missing selection groups');
   const selected = new Set();
   for (const { tests, expected } of groups) {
