@@ -157,20 +157,40 @@ fn every_visited_entry_and_json_byte_is_bounded() {
     }
     let temp = TempDir::new().unwrap();
     let file = temp.path().join("value.json");
+    // This fixture tests counts/bytes, not the host's scheduling or I/O speed.
+    // Default clocks and real deadline behaviour remain covered separately.
+    let fixed_now = std::time::Instant::now();
+    let clock = || fixed_now;
     for size in [65536, 65537] {
         File::create(&file)
             .unwrap()
             .write_all(&vec![b' '; size])
             .unwrap();
-        let mut budget = Budget::new(&|| false);
+        let mut budget = Budget::with_clock(&|| false, &clock);
+        let started = std::time::Instant::now();
         let result = budget.json(&file);
-        assert_eq!(result.is_ok(), size == 65536);
+        assert_eq!(
+            result.is_ok(),
+            size == 65536,
+            "size={size} err={:?} wall_elapsed={:?} stats={:?}; fixture clock is fixed",
+            result.as_ref().err(),
+            started.elapsed(),
+            budget.stats
+        );
         assert!(budget.stats.bytes <= 65536);
     }
     fs::write(&file, vec![b' '; 16384]).unwrap();
-    let mut budget = Budget::new(&|| false);
-    for _ in 0..64 {
-        assert!(budget.json(&file).is_ok());
+    let mut budget = Budget::with_clock(&|| false, &clock);
+    let started = std::time::Instant::now();
+    for index in 0..64 {
+        let result = budget.json(&file);
+        assert!(
+            result.is_ok(),
+            "index={index} err={:?} wall_elapsed={:?} stats={:?}; fixture clock is fixed",
+            result.as_ref().err(),
+            started.elapsed(),
+            budget.stats
+        );
     }
     assert_eq!(budget.stats.bytes, 1048576);
     assert_eq!(budget.json(&file), Err(Stop::Limit));
