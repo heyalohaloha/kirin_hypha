@@ -5,13 +5,29 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { capture, protectedRoots, run, snapshot, verify } from './native_storage_guard.mjs';
-import { exclusionPaths, exclusionRules } from './native_storage_exclusions.mjs';
+import { capture, protectedRoots, snapshot, verify } from './native_storage_guard.mjs';
+import { assertExclusionOwnership, exclusionPaths, exclusionRules } from './native_storage_exclusions.mjs';
 import { testOwnership } from './native_storage_guard_ownership_cases.mjs';
-import { cleanupChild, contractTimeoutMs, fixture, spawnChild, stopSocket, waitChild } from './native_storage_guard_test_helpers.mjs';
+import { cleanupChild, contractTimeoutMs, fixture, isolatedStorageGuard, spawnChild, stopSocket, waitChild } from './native_storage_guard_test_helpers.mjs';
 
 const script = fileURLToPath(new URL('./native_storage_guard.mjs', import.meta.url));
 test('native storage guard contract', { timeout: contractTimeoutMs }, async suite => {
+// Always rescan real source at both boundaries, including failure/cancellation cleanup.
+assert.ok(assertExclusionOwnership() > 0);
+suite.after(() => { assert.ok(assertExclusionOwnership() > 0); });
+const { run } = await isolatedStorageGuard(suite);
+
+await suite.test('isolated checkout rejects newly added excluded-path writers before setup and cleanup', async t => {
+  const guard = await isolatedStorageGuard(t);
+  const f = fixture(t);
+  assert.equal(guard.run('setup', f.state, f.roots), 1);
+  fs.writeFileSync(path.join(guard.checkout, 'src', 'new.rs'),
+    'fn writer() { std::fs::write(root.join("GPUCache"), [1]); }');
+  assert.throws(() => guard.run('cleanup', f.state, f.roots), { code: 'STORAGE_EXCLUSION_OWNERSHIP' });
+  fs.unlinkSync(f.state);
+  assert.throws(() => guard.run('setup', f.state, f.roots), { code: 'STORAGE_EXCLUSION_OWNERSHIP' });
+  assert.equal(fs.existsSync(f.state), false);
+});
 await suite.test('unchanged nested files pass; repeated snapshots do not change metadata', t => {
   const f = fixture(t);
   fs.mkdirSync(path.join(f.protectedRoot, 'presence'));
