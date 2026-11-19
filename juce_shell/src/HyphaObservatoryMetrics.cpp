@@ -78,7 +78,7 @@ void drawMetric (juce::Graphics& g,
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::facts));
         text_style::drawText (g, label, labelArea.reduced (4, 0), juce::Justification::centred);
-        g.setColour (std::isfinite (value) && textOverride.isEmpty()
+        g.setColour (std::isfinite (value) || textOverride.startsWith ("WARMING ")
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
         if (textOverride.isNotEmpty())
             bounded_text::metricState (g, textOverride, area.reduced (4, 0).toFloat(), presentation,

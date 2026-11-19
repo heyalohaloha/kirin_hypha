@@ -6,6 +6,7 @@
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaSurfaceMaterial.h"
 
 #include <algorithm>
 #include <array>
@@ -410,7 +411,7 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
 
     // What the plot draws and the exact analysis it shows, from the snapshot itself.
     g.setFont (monoFont (context, typography::TextRole::axis, typography::Composition::visualization));
-    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
+    g.setColour (COL_TEXT_TERTIARY);
     const auto notes = inner.reduced (10.0f, 6.0f).toNearestInt();
     text_style::drawText (g, delta ? (shape ? juce::String ("SHAPE(f) = POST(f) - PRE(f) - LEVEL OFFSET  dB")
                                   : hypha::delta() + "(f) = POST(f) - PRE(f)  dB") : juce::String ("L(f) = POST(f)"),
@@ -418,11 +419,20 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
     if (view.sample_rate > 0u && view.aperture_samples > 0u)
     {
         const auto apertureMs = 1'000.0 * (double) view.aperture_samples / (double) view.sample_rate;
-        text_style::drawText (g, "APERTURE " + juce::String (apertureMs, 1) + " ms   FFT "
+        const auto text = "APERTURE " + juce::String (apertureMs, 1) + " ms   FFT "
                         + juce::String ((int) view.fft_size) + "   "
                         + juce::String ((int) KIRIN_SPECTRUM_BAND_COUNT) + " BANDS   "
-                        + juce::String (ui_contract::spectrumPresentationHz) + " Hz",
-                    notes, juce::Justification::bottomLeft, false);
+                        + juce::String (ui_contract::spectrumPresentationHz) + " Hz";
+        const auto height = juce::jmax (14, (int) std::ceil (g.getCurrentFont().getHeight()) + 2);
+        const auto width = juce::jmin (notes.getWidth(),
+            (int) std::ceil (text_style::shownWidth (g.getCurrentFont(), text)) + 2);
+        const auto label = notes.withTop (notes.getBottom() - height).withWidth (width);
+        // Notes are painted after the curves. Opaque glass only beneath this line
+        // keeps a peak behind the text from changing its contrast.
+        g.setColour (surface_material::uncached::observationGlass().withAlpha (1.0f));
+        g.fillRect (label.expanded (2, 1));
+        g.setColour (COL_TEXT_TERTIARY);
+        text_style::drawText (g, text, label, juce::Justification::bottomLeft, false);
     }
 }
 }

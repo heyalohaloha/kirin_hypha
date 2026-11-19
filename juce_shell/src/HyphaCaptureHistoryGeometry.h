@@ -24,9 +24,13 @@ inline Layout layoutFor (juce::Rectangle<int> area)
     const auto inspection = area.getWidth() >= 700;
     Layout result;
     result.legend = area.removeFromTop (inspection ? 36 : 30);
+    // End-point ticks extend seven pixels above/below the data field. Keep them
+    // clear of both header rows and the time axis, including at compact sizes.
+    area.removeFromTop (9);
     result.loudnessLabels = area.removeFromLeft (inspection ? 54 : 40);
     result.truePeakLabels = area.removeFromRight (inspection ? 38 : 31);
     result.timeLabels = area.removeFromBottom (inspection ? 16 : 14);
+    area.removeFromBottom (9);
     result.sharedPlot = area.reduced (2, 2).toFloat();
     return result;
 }
