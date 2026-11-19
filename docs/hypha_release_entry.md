@@ -217,6 +217,50 @@ Blind漏洩は0を要求する。最低期待値を緩めない。
 宣言host範囲と追加の数値閾値はA0で担当者が照合し、A3前にmatrix／期待値へ含める。
 reportで事後に期待値を変更して通すことはできない。
 
+### 1.1.58 以降の新規候補で選べる軽い実機受入
+
+`--init --fix-rows FILE` の新しい file に `schema: hypha-release-fix-rows-light-v1` を明示する。
+既存の v2 file・署名済み／凍結済み候補は移行しない。凍結後の条件の変更は従来どおり拒否する。
+以下は受入計画の入力であり、実行や PASS の証拠ではない。
+
+- 7 DAW は各 1 行の `kind: host, scope: ordinary-pass, depth: baseline`。
+  `promise` は付けず、`expected` は `installed / launched / operated / saved / reopened / retained: true`
+  と `newIssues: 0`。導入→起動→普通の操作→保存→再起動して保持を実機で確かめる。
+- 各公開ノートの約束に 1 件ずつ `impact` を置く。`promise`（原文）、`reason`（変更の影響と代表の選定理由）、
+  `scope`（`common / host / platform / format`）、`targets`、`transitions` をすべて明示する。
+  各 target は `{ daw, os, formats }`。変更が影響する DAW・OS・形式を列挙し、共通実装は理由付きの代表を選ぶ。
+  これは担当者が source 差分に基づいて策定し、公開前に監査する計画であって、自動で影響範囲を推定する機能ではない。
+- 各 target の各形式には同じ約束を名指す `depth: deep` の実 host 行が必要。
+  CI 行だけでは代用できない。`platform` と `platformSensitive` の約束は両 OS の深い行を必要とする。
+- `transitions` は変更が影響する具体的な遷移の名前。影響がなければ空配列を明示し理由に記す。
+  各 target の深い行の `expected.transitions` には列挙した名前をすべて `true` として結ぶ。
+  Pro Tools の変更のない全遷移を重複実行しないが、AAX・clock・loop・PDC 等の変更で必要な遷移を省略しない。
+- 軽い型でも通常の形式別通し、安全の 3 行、timing の保守的判定、候補 identity、証拠の hash、
+  `newIssues: 0`、本人判断が必要な除外と公開の承認はそのまま。未実施・失敗を PASS に変えない。
+- format は `macOS/x86_64/AU|VST3|AAX` または `Windows/x64/VST3|AAX` の必須実機範囲。
+  Universal の slice と自動 CI の確認は別に維持する。
+
+例（この断片だけでは他 6 DAW の通しが欠けるため受入条件として成立しない）:
+```json
+{
+  "schema": "hypha-release-fix-rows-light-v1", "release": "1.1.58",
+  "impact": [{ "promise": "Labels remain readable.", "scope": "common",
+    "reason": "Shared renderer; REAPER is the representative. No transport change.",
+    "targets": [{ "daw": "REAPER", "os": "macos", "formats": ["VST3"] }], "transitions": [] }],
+  "rows": [
+    { "id": "reaper-pass", "kind": "host", "scope": "ordinary-pass", "depth": "baseline",
+      "daw": "REAPER", "os": "macos", "hosts": ["macOS/x86_64/VST3"], "chain": "PRE -> POST",
+      "oracle": "ordinary host operation", "expected": { "installed": true, "launched": true,
+        "operated": true, "saved": true, "reopened": true, "retained": true, "newIssues": 0 } },
+    { "id": "labels", "kind": "host", "depth": "deep", "promise": "Labels remain readable.",
+      "daw": "REAPER", "os": "macos", "hosts": ["macOS/x86_64/VST3"], "chain": "PRE -> POST",
+      "oracle": "real host label observation", "expected": { "readable": true, "newIssues": 0 } }
+  ]
+}
+```
+
+以下は変更せず保持する **従来の v2 の条件**。新しい軽い型と混同しない。
+
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
 `--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の
 箇条が約束で、各約束をStudio One、Logic Pro、REAPER、Pro Tools、Cubase、Ableton Live、Cakewalkの全7 DAWの実host行で検証し、CI行はその補足とする。
