@@ -104,8 +104,42 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
     );
     require(
         PLUGINVAL_SCRIPT,
-        "releases/download/${PLUGINVAL_VERSION}/pluginval_macOS.zip",
-        "script must download the official macOS pluginval binary",
+        "node scripts/pluginval_archive.mjs url \"$PLUGINVAL_VERSION\" macOS",
+        "script must resolve the official macOS archive through the reviewed pin",
+    );
+    // X40 moved URL construction into the reviewed pin resolver. Keep strict
+    // acquisition and validation checks rather than requiring the old literal URL.
+    for needle in [
+        "set -euo pipefail",
+        "node scripts/pluginval_archive.mjs verify \"$PLUGINVAL_VERSION\" macOS \"$ZIP\"",
+        "VERIFIED_STAGE=\"$(mktemp -d \"$CACHE_DIR/verified.XXXXXX\")\"",
+        "CI requires a pinned archive, not PLUGINVAL_BIN.",
+        "if [[ \"$PINNED_TOOL\" != 1 ]]; then",
+        "exit 2",
+    ] {
+        require(
+            PLUGINVAL_SCRIPT,
+            needle,
+            "pinned acquisition must fail closed",
+        );
+    }
+    let verify = PLUGINVAL_SCRIPT
+        .find("node scripts/pluginval_archive.mjs verify")
+        .unwrap();
+    let stage = PLUGINVAL_SCRIPT.find("VERIFIED_STAGE=").unwrap();
+    let extract = PLUGINVAL_SCRIPT.find("unzip -q").unwrap();
+    assert!(
+        verify < stage && stage < extract,
+        "archive verification must precede a fresh extraction stage"
+    );
+    let pins: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../scripts/pluginval_archives.json"
+    ));
+    require(
+        pins,
+        "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip",
+        "reviewed pin must retain the exact official macOS archive",
     );
     require(
         PLUGINVAL_SCRIPT,
