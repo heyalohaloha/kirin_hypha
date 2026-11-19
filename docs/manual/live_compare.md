@@ -145,9 +145,10 @@ if it still does not work, use the on-screen buttons to do the same thing instea
    experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
-   then restores normal POST level within half a second. While the DAW is stopped it returns at
-   once; when the DAW sends no audio at all, the return finishes after half a second of quiet and
-   the next playback starts at normal level.
+   then restores normal POST level within half a second. While the DAW is stopped, the rise uses
+   a short ramp of up to 5 ms. If the DAW sends no audio callbacks for half a second, Hypha completes
+   the return state during that quiet. The first audio block afterward starts on POST and uses the
+   same short ramp to reach normal level; the ramp may continue across short blocks.
 6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running.
    A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
