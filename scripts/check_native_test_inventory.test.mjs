@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { checkInventory, main } from './check_native_test_inventory.mjs';
+import { checkInventory, checkStorageFixtures, main } from './check_native_test_inventory.mjs';
 
-const tests = (...names) => names.map(name => ({ name }));
+const tests = (...names) => names.map(name => ({ name, properties: [
+  { name: 'FIXTURES_REQUIRED', value: ['kirin_real_storage'] },
+] }));
 const group = (...names) => ({ tests: tests(...names), expected: names.length });
 
 test('all registered tests are selected across groups, with shared CTest fixtures counted once', () => {
@@ -52,7 +54,7 @@ test('duplicate and unknown selected names fail', () => {
 });
 
 test('disabled selected tests cannot count as coverage', () => {
-  const disabled = { name: 'a', properties: [{ name: 'DISABLED', value: true }] };
+  const disabled = { ...tests('a')[0], properties: [...tests('a')[0].properties, { name: 'DISABLED', value: true }] };
   assert.throws(() => checkInventory([disabled], [group('a')], []), /disabled/);
 });
 
@@ -75,13 +77,13 @@ test('real CTest selection includes fixtures and detects an omitted product with
     writeFileSync(path.join(root, 'CMakeLists.txt'), `cmake_minimum_required(VERSION 3.20)
 project(InventoryFixture NONE)
 enable_testing()
-add_test(NAME setup COMMAND "/not-executed")
-add_test(NAME cleanup COMMAND "/not-executed")
+add_test(NAME kirin_native_storage_guard_setup COMMAND "/not-executed")
+add_test(NAME kirin_native_storage_guard_cleanup COMMAND "/not-executed")
 add_test(NAME existing COMMAND "/not-executed")
 add_test(NAME new_product COMMAND "/not-executed")
-set_tests_properties(setup PROPERTIES FIXTURES_SETUP storage)
-set_tests_properties(cleanup PROPERTIES FIXTURES_CLEANUP storage)
-set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED storage)
+set_tests_properties(kirin_native_storage_guard_setup PROPERTIES FIXTURES_SETUP kirin_real_storage)
+set_tests_properties(kirin_native_storage_guard_cleanup PROPERTIES FIXTURES_CLEANUP kirin_real_storage)
+set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED kirin_real_storage)
 `);
     const build = path.join(root, 'build');
     const configured = spawnSync('cmake', ['-S', root, '-B', build], { encoding: 'utf8' });
@@ -103,6 +105,19 @@ set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED storage)
     const excluded = run(3, '^existing$');
     assert.equal(excluded.status, 0, excluded.stderr);
     assert.match(excluded.stdout, /4 registered, 3 selected, 1 reasoned exclusions/);
+    // CMake commands are case-insensitive: late ADD_TEST must not escape the final registry check.
+    appendFileSync(path.join(root, 'CMakeLists.txt'), '\nADD_TEST(NAME late_added COMMAND "/not-executed")\n');
+    assert.equal(spawnSync('cmake', ['-S', root, '-B', build]).status, 0);
+    writeFileSync(exclusions, '[]');
+    const unguarded = run(5, '^(existing|new_product|late_added)$');
+    assert.equal(unguarded.status, 1);
+    assert.match(unguarded.stderr, /missing kirin_real_storage fixture: late_added/);
+    appendFileSync(path.join(root, 'CMakeLists.txt'),
+      'set_tests_properties(late_added PROPERTIES FIXTURES_REQUIRED kirin_real_storage)\n');
+    assert.equal(spawnSync('cmake', ['-S', root, '-B', build]).status, 0);
+    const guarded = run(5, '^(existing|new_product|late_added)$');
+    assert.equal(guarded.status, 0, guarded.stderr);
+
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -113,4 +128,28 @@ test('release selection includes the added native contracts, including renamed r
   for (const name of added) assert.ok(selection.test(name), `release selection omitted ${name}`);
   assert.equal(selection.test('kirin_look239_visual'), false);
   assert.equal(selection.test('kirin_unregistered_future_contract'), false);
+});
+
+test('final registry rejects unguarded, excluded, wrongly typed and invented fixture bodies', () => {
+  for (const properties of [undefined, [], [{ name: 'FIXTURES_REQUIRED', value: 'kirin_real_storage' }],
+    [{ name: 'FIXTURES_REQUIRED', value: ['other'] }],
+    [{ name: 'FIXTURES_SETUP', value: ['invented'] }]]) {
+    assert.throws(() => checkStorageFixtures([{ name: 'late_added', properties }]), /late_added/);
+  }
+  assert.throws(() => checkInventory([...tests('a'), { name: 'benchmark' }], [group('a')],
+    [{ name: 'benchmark', reason: 'performance' }]), /missing kirin_real_storage/);
+  assert.throws(() => checkStorageFixtures([{ name: 'kirin_native_storage_guard_setup' }]), /missing/);
+  checkStorageFixtures([{ name: 'kirin_native_storage_guard_setup', properties: [
+    { name: 'FIXTURES_SETUP', value: ['kirin_real_storage'] },
+  ] }, ...tests('guarded')]);
+});
+
+
+test('initial source phase wait has release selection, build target and updated count', () => {
+  const source = readFileSync(new URL('./test_release_source.sh', import.meta.url), 'utf8');
+  const selection = new RegExp(source.match(/JUCE_TEST_REGEX='([^']+)'/)[1]);
+  assert.ok(selection.test('kirin_reference_initial_source_phase_wait'));
+  const targets = source.match(/JUCE_TEST_TARGETS=\(([\s\S]*?)\n\)/)[1].trim().split(/\s+/);
+  assert.equal(targets.filter(name => name === 'KirinInitialSourcePhaseWaitTests').length, 1);
+  assert.match(source, /^JUCE_TEST_COUNT=344$/m);
 });
