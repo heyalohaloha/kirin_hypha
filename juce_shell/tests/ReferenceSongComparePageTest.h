@@ -266,7 +266,7 @@ inline void verifyReferenceSongComparePage()
         const auto line = reference_ui::referenceStatusLine (missing).text;
         require (missing.song.cMissing && ! missing.song.shown && missing.cueKirin == check.cueKirin
                      && line == "C WHOLE-SONG SPECTRUM UNAVAILABLE / USING CUE"
-                     && japanese (line) == u8 (u8"Cの曲全体のスペクトルがないためCueで比べます")
+                     && japanese (line) == u8 (u8"Cの曲全体のスペクトルを使えないため、Cueで比べます")
                      && reference_ui::cueSpectrumLegend (missing).contains ("C CUE"),
                  "without C's whole-song values the page keeps the Cue and says why: " + line + " / " + japanese (line));
         // A valid whole-song spectrum must clear the missing-data explanation.
@@ -299,7 +299,7 @@ inline void verifyReferenceSongComparePage()
             const auto said = reference_ui::referenceStatusLine (*playing).text;
             const auto reason = playing == &missing ? juce::String ("C WHOLE-SONG SPECTRUM UNAVAILABLE / USING CUE")
                                                     : juce::String ("A FROM START HOLDS THE DAW'S FIRST 30 MIN");
-            const auto reasonJa = playing == &missing ? u8 (u8"Cの曲全体のスペクトルがないためCueで比べます") : u8 (u8"A頭からはDAWの最初の30分まで");
+            const auto reasonJa = playing == &missing ? u8 (u8"Cの曲全体のスペクトルを使えないため、Cueで比べます") : u8 (u8"A頭からはDAWの最初の30分まで");
             require (said.startsWith ("C CUE 1:02-1:32 LOOP") && said.contains ("  /  " + reason) && japanese (said).contains (reasonJa),
                      "while C plays the page still says why SONG is not whole: " + said + " / " + japanese (said));
         }
