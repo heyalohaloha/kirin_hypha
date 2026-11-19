@@ -1,4 +1,4 @@
-use super::scope::{rust_sources, shipping_crates, workspace_metadata};
+use super::scope::{library_roots, shipping_crates, workspace_metadata};
 use super::*;
 use std::path::Path;
 
@@ -21,7 +21,8 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
     let root = root();
     let cmake = std::fs::read_to_string(root.join("juce_shell/CMakeLists.txt")).expect("CMake");
     assert!(cmake.contains("build --release -p kirin_hypha_ffi"));
-    let crates = shipping_crates(&workspace_metadata(root)).unwrap();
+    let metadata = workspace_metadata(root);
+    let crates = shipping_crates(&metadata).unwrap();
     for name in ["kirin_hypha_ffi", "kirin_measure"] {
         assert!(
             crates.iter().any(|c| c.name == name),
@@ -32,9 +33,10 @@ fn every_shipping_c_abi_entry_runs_entirely_inside_catch_unwind() {
     let mut names = Vec::new();
     let mut failures = Vec::new();
     let mut all_sources = Vec::new();
-    for dir in crates.iter().map(|c| &c.dir) {
-        let mut files = Vec::new();
-        rust_sources(&dir.join("src"), &mut files);
+    for krate in &crates {
+        let roots = library_roots(&metadata, krate).expect("Cargo library sources");
+        let files = sources::shipping_sources(root, &krate.dir, &roots)
+            .expect("complete shipping source inventory");
         let sources: Vec<_> = files
             .iter()
             .map(|file| std::fs::read_to_string(file).expect("UTF-8 source"))

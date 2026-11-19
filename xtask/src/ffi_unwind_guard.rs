@@ -16,6 +16,8 @@
 mod fallback;
 #[path = "ffi_unwind_scope.rs"]
 mod scope;
+#[path = "ffi_unwind_sources.rs"]
+mod sources;
 #[cfg(test)]
 #[path = "ffi_unwind_guard_tests.rs"]
 mod tests;

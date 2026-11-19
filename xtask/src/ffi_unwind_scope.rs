@@ -229,16 +229,55 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
         .collect())
 }
 
-pub(super) fn rust_sources(directory: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(directory).expect("source directory") {
-        let path = entry.expect("source entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
+/// Cargo's actual library entries, not an assumed src/lib.rs. Kept separate from graph-only
+/// fixture checks: real source validation rejects absent or malformed target metadata.
+pub(super) fn library_roots(
+    metadata: &Value,
+    krate: &ShippingCrate,
+) -> Result<Vec<PathBuf>, String> {
+    let package = metadata["packages"]
+        .as_array()
+        .ok_or("no packages")?
+        .iter()
+        .find(|p| {
+            p["name"] == krate.name
+                && p["manifest_path"]
+                    .as_str()
+                    .and_then(|p| Path::new(p).parent())
+                    == Some(krate.dir.as_path())
+        })
+        .ok_or("shipping package missing from metadata")?;
+    let targets = package["targets"].as_array().ok_or("no Cargo targets")?;
+    let mut roots = std::collections::BTreeSet::new();
+    for target in targets {
+        let kinds = target["kind"].as_array().ok_or("target kind missing")?;
+        if !kinds.iter().filter_map(Value::as_str).any(|k| {
+            matches!(
+                k,
+                "lib" | "rlib" | "staticlib" | "cdylib" | "dylib" | "proc-macro"
+            )
+        }) {
+            continue;
         }
+        let path = PathBuf::from(
+            target["src_path"]
+                .as_str()
+                .ok_or("library src_path missing")?,
+        );
+        if !path.is_absolute() {
+            return Err("library src_path is not absolute".into());
+        }
+        roots.insert(path);
     }
+    if roots.len() != 1 {
+        return Err("expected one unambiguous Cargo library source".into());
+    }
+    Ok(roots.into_iter().collect())
 }
+
+#[cfg(test)]
+#[path = "ffi_unwind_metadata_tests.rs"]
+mod metadata_tests;
 
 #[cfg(test)]
 mod tests {
