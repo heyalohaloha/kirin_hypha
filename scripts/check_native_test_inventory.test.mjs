@@ -4,12 +4,26 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readFileSync, appendFile
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { checkInventory, checkStorageFixtures, main } from './check_native_test_inventory.mjs';
+import { checkInventory as rawInventory, checkStorageFixtures, main } from './check_native_test_inventory.mjs';
 
 const tests = (...names) => names.map(name => ({ name, properties: [
   { name: 'FIXTURES_REQUIRED', value: ['kirin_real_storage'] },
 ] }));
 const group = (...names) => ({ tests: tests(...names), expected: names.length });
+
+const fixtures = () => [
+  ['kirin_native_storage_guard_setup', 'FIXTURES_SETUP', 'kirin_real_storage'],
+  ['kirin_native_storage_guard_cleanup', 'FIXTURES_CLEANUP', 'kirin_real_storage'],
+  ['kirin_native_path_budget_setup', 'FIXTURES_SETUP', 'kirin_path_budget'],
+  ['kirin_native_path_budget_cleanup', 'FIXTURES_CLEANUP', 'kirin_path_budget'],
+].map(([name, property, value]) => ({ name, properties: [{ name: property, value: [value] }] }));
+// Selection unit cases add the four real fixture roles; direct registry tests below do not.
+function checkInventory(registered, groups, exclusions) {
+  const result = rawInventory(registered.length ? [...fixtures(), ...registered] : registered,
+    groups.map(g => ({ tests: g.tests.length ? [...fixtures(), ...g.tests] : g.tests,
+      expected: Number.isSafeInteger(g.expected) && g.expected > 0 ? g.expected + 4 : g.expected })), exclusions);
+  return { registered: result.registered - 4, selected: result.selected - 4, excluded: result.excluded };
+}
 
 test('all registered tests are selected across groups, with shared CTest fixtures counted once', () => {
   assert.deepEqual(checkInventory(tests('setup', 'a', 'b', 'cleanup'), [
@@ -79,11 +93,15 @@ project(InventoryFixture NONE)
 enable_testing()
 add_test(NAME kirin_native_storage_guard_setup COMMAND "/not-executed")
 add_test(NAME kirin_native_storage_guard_cleanup COMMAND "/not-executed")
+add_test(NAME kirin_native_path_budget_setup COMMAND "/not-executed")
+add_test(NAME kirin_native_path_budget_cleanup COMMAND "/not-executed")
+set_tests_properties(kirin_native_path_budget_setup PROPERTIES FIXTURES_SETUP kirin_path_budget)
+set_tests_properties(kirin_native_path_budget_cleanup PROPERTIES FIXTURES_CLEANUP kirin_path_budget)
 add_test(NAME existing COMMAND "/not-executed")
 add_test(NAME new_product COMMAND "/not-executed")
 set_tests_properties(kirin_native_storage_guard_setup PROPERTIES FIXTURES_SETUP kirin_real_storage)
 set_tests_properties(kirin_native_storage_guard_cleanup PROPERTIES FIXTURES_CLEANUP kirin_real_storage)
-set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED kirin_real_storage)
+set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED "kirin_real_storage;kirin_path_budget")
 `);
     const build = path.join(root, 'build');
     const configured = spawnSync('cmake', ['-S', root, '-B', build], { encoding: 'utf8' });
@@ -92,31 +110,38 @@ set_tests_properties(existing new_product PROPERTIES FIXTURES_REQUIRED kirin_rea
     writeFileSync(exclusions, '[]');
     const run = (count, regex) => spawnSync(process.execPath, [checker, '--build-dir', build,
       '--config', 'Release', '--exclusions', exclusions, '--group', String(count), regex], { encoding: 'utf8' });
-    const missed = run(3, '^existing$');
+    const fixtureOnly = () => spawnSync(process.execPath, [checker, '--fixtures-only', '--build-dir', build, '--config', 'Release'], { encoding: 'utf8' });
+    assert.equal(fixtureOnly().status, 0);
+    const missed = run(5, '^existing$');
     assert.equal(missed.status, 1);
     assert.match(missed.stderr, /missing from release source inventory:\nnew_product/);
-    const fixed = run(4, '^(existing|new_product)$');
+    const fixed = run(6, '^(existing|new_product)$');
     assert.equal(fixed.status, 0, fixed.stderr);
-    assert.match(fixed.stdout, /4 registered, 4 selected, 0 reasoned exclusions/);
+    assert.match(fixed.stdout, /6 registered, 6 selected, 0 reasoned exclusions/);
     const wrongCount = run(2, '^(existing|new_product)$');
     assert.equal(wrongCount.status, 1);
-    assert.match(wrongCount.stderr, /count 4 does not match expected 2/);
+    assert.match(wrongCount.stderr, /count 6 does not match expected 2/);
     writeFileSync(exclusions, '[{"name":"new_product","reason":"separate measurement"}]');
-    const excluded = run(3, '^existing$');
+    const excluded = run(5, '^existing$');
     assert.equal(excluded.status, 0, excluded.stderr);
-    assert.match(excluded.stdout, /4 registered, 3 selected, 1 reasoned exclusions/);
+    assert.match(excluded.stdout, /6 registered, 5 selected, 1 reasoned exclusions/);
     // CMake commands are case-insensitive: late ADD_TEST must not escape the final registry check.
     appendFileSync(path.join(root, 'CMakeLists.txt'), '\nADD_TEST(NAME late_added COMMAND "/not-executed")\n');
     assert.equal(spawnSync('cmake', ['-S', root, '-B', build]).status, 0);
     writeFileSync(exclusions, '[]');
-    const unguarded = run(5, '^(existing|new_product|late_added)$');
+    const unguarded = run(7, '^(existing|new_product|late_added)$');
     assert.equal(unguarded.status, 1);
+    assert.equal(fixtureOnly().status, 1);
     assert.match(unguarded.stderr, /missing kirin_real_storage fixture: late_added/);
     appendFileSync(path.join(root, 'CMakeLists.txt'),
       'set_tests_properties(late_added PROPERTIES FIXTURES_REQUIRED kirin_real_storage)\n');
     assert.equal(spawnSync('cmake', ['-S', root, '-B', build]).status, 0);
-    const guarded = run(5, '^(existing|new_product|late_added)$');
+    const guarded = run(7, '^(existing|new_product|late_added)$');
     assert.equal(guarded.status, 0, guarded.stderr);
+    assert.equal(fixtureOnly().status, 0);
+    appendFileSync(path.join(root, 'CMakeLists.txt'), '\nset_tests_properties(kirin_native_storage_guard_setup PROPERTIES FIXTURES_SETUP \"\" FIXTURES_REQUIRED kirin_real_storage)\n');
+    assert.equal(spawnSync('cmake', ['-S', root, '-B', build]).status, 0);
+    assert.equal(fixtureOnly().status, 1);
 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -139,9 +164,7 @@ test('final registry rejects unguarded, excluded, wrongly typed and invented fix
   assert.throws(() => checkInventory([...tests('a'), { name: 'benchmark' }], [group('a')],
     [{ name: 'benchmark', reason: 'performance' }]), /missing kirin_real_storage/);
   assert.throws(() => checkStorageFixtures([{ name: 'kirin_native_storage_guard_setup' }]), /missing/);
-  checkStorageFixtures([{ name: 'kirin_native_storage_guard_setup', properties: [
-    { name: 'FIXTURES_SETUP', value: ['kirin_real_storage'] },
-  ] }, ...tests('guarded')]);
+  checkStorageFixtures([...fixtures(), ...tests('guarded')]);
 });
 
 
@@ -152,4 +175,18 @@ test('initial source phase wait has release selection, build target and updated 
   const targets = source.match(/JUCE_TEST_TARGETS=\(([\s\S]*?)\n\)/)[1].trim().split(/\s+/);
   assert.equal(targets.filter(name => name === 'KirinInitialSourcePhaseWaitTests').length, 1);
   assert.match(source, /^JUCE_TEST_COUNT=344$/m);
+});
+
+
+test('all four known roles must exist with their own property, even if required is present', () => {
+  for (const role of fixtures()) {
+    assert.throws(() => checkStorageFixtures(fixtures().filter(t => t.name !== role.name)), /missing required fixture registration/);
+    for (const properties of [[], tests('body')[0].properties,
+      [{ name: role.properties[0].name, value: ['wrong'] }]]) {
+      assert.throws(() => checkStorageFixtures(fixtures().map(t => t.name === role.name ? { ...t, properties } : t)), /known fixture missing/);
+    }
+  }
+  assert.throws(() => checkStorageFixtures([]), /empty/);
+  assert.throws(() => main(['--fixtures-only']), /required/);
+  assert.throws(() => main(['--fixtures-only', '--build-dir', 'x', '--config', 'Release', '--group', '1', '^a$']), /no selection/);
 });
