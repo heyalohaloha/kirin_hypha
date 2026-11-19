@@ -143,9 +143,9 @@ does not compensate.
 <img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
 <br><b>Decide with the names hidden</b> · BLIND<br>
 Two anonymous sources at a fixed matched level. Switch while the DAW plays, then <b>REVEAL</b>
-which one was PRE and which was POST. Turn on GUESS in MENU to answer which one is POST first;
-<b>SAVE IMAGE</b> saves the result as an image. With A/B, compare outboard gear and a plug-in on
-one track; GUESS then asks which one is B.
+which one was PRE and which was POST. Choose <b>ROUNDS</b> 5× or 10× to answer which one you prefer
+in each round, with the sources reshuffled between rounds; <b>SAVE IMAGE</b> saves the result as an
+image. With A/B, compare outboard gear and a plug-in on one track in the same way.
 </td>
 </tr>
 <tr>

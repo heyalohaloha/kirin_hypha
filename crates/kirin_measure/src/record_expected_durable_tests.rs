@@ -1,4 +1,4 @@
-//! HYP-233: durable session, generation-correspondence and metadata-free markers.
+//! Durable session, generation-correspondence and metadata-free markers.
 //! A failed sync remains best effort; a failed publication remains an error.
 use super::*;
 use crate::atomic_file::durable::test_hook::syncs_during;

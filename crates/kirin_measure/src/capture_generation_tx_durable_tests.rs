@@ -1,4 +1,4 @@
-//! HYP-233: observe the exact preparation/active publications, not just their shared parent.
+//! Observe the exact preparation/active publications, not just their shared parent.
 //! All storage is synthetic; sync failure is best effort, unlike a failed rename.
 use super::*;
 use crate::atomic_file::durable::test_hook::syncs_during;
