@@ -243,8 +243,19 @@ fn guarded_argument(argument: &[Token]) -> bool {
         t.first()
             .is_some_and(|first| first.is("||") || first.is("|"))
     };
-    let path = |t: &[Token]| !t.is_empty() && t.iter().all(|t| t.kind == Kind::Ident || t.is("::"));
-    if closure(argument) {
+    let path = |t: &[Token]| {
+        let t = if starts_with(t, &["::"]) { &t[1..] } else { t };
+        !t.is_empty()
+            && t.len() % 2 == 1
+            && t.iter().enumerate().all(|(i, t)| {
+                if i % 2 == 0 {
+                    t.kind == Kind::Ident
+                } else {
+                    t.is("::")
+                }
+            })
+    };
+    if closure(argument) || path(argument) {
         return true;
     }
     let Some(wrapped) = after_path(argument, "AssertUnwindSafe") else {

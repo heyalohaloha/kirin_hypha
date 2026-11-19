@@ -348,3 +348,42 @@ fn unlinked_capi_nodes_and_disabled_capi_declarations_do_not_fail() {
         }));
     assert!(shipping_crates(&metadata).is_ok());
 }
+
+#[test]
+fn bare_function_paths_are_guarded_without_evaluating_a_call_first() {
+    for argument in [
+        "shutdown",
+        "service::shutdown",
+        "::service::shutdown",
+        "crate::service::shutdown",
+        "self::shutdown",
+        "super::shutdown",
+    ] {
+        let source = format!("pub extern \"C\" fn entry() {{ let _ = catch_unwind({argument}); }}");
+        let (entries, problems) = summary(&source);
+        assert_eq!(entries, [("entry".into(), true)], "{argument}");
+        assert!(problems.is_empty(), "{problems:?}");
+    }
+}
+
+#[test]
+fn function_argument_construction_must_not_execute_outside_the_guard() {
+    for argument in [
+        "service::make_callback()",
+        "{ service::shutdown }",
+        "callbacks[0]",
+        "object.callback",
+        "service::shutdown as fn()",
+        "service::",
+        "service shutdown",
+        "",
+        "(service::shutdown)",
+    ] {
+        for wrapped in [argument.to_owned(), format!("AssertUnwindSafe({argument})")] {
+            let source =
+                format!("pub extern \"C\" fn entry() {{ let _ = catch_unwind({wrapped}); }}");
+            let (entries, _) = summary(&source);
+            assert_eq!(entries, [("entry".into(), false)], "{wrapped}");
+        }
+    }
+}
