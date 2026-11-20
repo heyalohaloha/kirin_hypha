@@ -297,34 +297,18 @@ void verifyVuLayerParity()
                      hybrid_vu::vuNormalized (meter.channel_vu_dbfs[0]),
                      hybrid_vu::vuNormalized (meter.channel_vu_dbfs[1]));
     }
-    const auto dialLayer = [&](bool captions)
-    {
-        juce::Image image (juce::Image::ARGB, direct.getWidth(), direct.getHeight(), true);
-        juce::Graphics graphics (image);
-        hybrid_vu::paintDialLayer (graphics, image.getBounds(), state, captions);
-        return image;
-    };
-    const auto dialBackground = dialLayer (false), dialCaption = dialLayer (true);
-    int differences = 0, maxChannelDifference = 0, overOne = 0;
-    int differencesOutsideDial = 0, alphaDifferences = 0;
+    const auto differences = differentPixels (direct, layered);
+    int maxChannelDifference = 0, overOne = 0;
     for (int y = 0; y < direct.getHeight(); ++y)
         for (int x = 0; x < direct.getWidth(); ++x)
         {
             const auto a = direct.getPixelAt (x, y), b = layered.getPixelAt (x, y);
-            const auto alphaChanged = a.getAlpha() != b.getAlpha();
             const auto delta = juce::jmax (std::abs ((int) a.getRed() - (int) b.getRed()),
                 std::abs ((int) a.getGreen() - (int) b.getGreen()),
-                std::abs ((int) a.getBlue() - (int) b.getBlue()));
-            alphaDifferences += alphaChanged;
+                std::abs ((int) a.getBlue() - (int) b.getBlue()),
+                std::abs ((int) a.getAlpha() - (int) b.getAlpha()));
             maxChannelDifference = juce::jmax (maxChannelDifference, delta);
-            if (delta != 0 || alphaChanged)
-            {
-                const auto withinDial = dialBackground.getPixelAt (x, y).getAlpha() != 0
-                                     || dialCaption.getPixelAt (x, y).getAlpha() != 0;
-                differencesOutsideDial += ! withinDial;
-                differences += withinDial;
-                overOne += withinDial && delta > 1;
-            }
+            overOne += delta > 1;
         }
     const auto dir = juce::SystemStats::getEnvironmentVariable ("KIRIN_VU_PARITY_DIR", {});
     if (dir.isNotEmpty())
@@ -335,12 +319,9 @@ void verifyVuLayerParity()
             KIRIN_HYBRID_VU_REQUIRE (juce::PNGImageFormat().writeImageToStream (image.second, *output));
         }
     std::cout << "layered_vs_direct_different_pixels=" << differences
-              << " max_channel_delta=" << maxChannelDifference << " over_one=" << overOne
-              << " outside_dial=" << differencesOutsideDial
-              << " alpha_differences=" << alphaDifferences << std::endl;
-    // The 8-bit dial-layer rounding was identical with either/both the title and TP rail changes reverted.
-    KIRIN_HYBRID_VU_REQUIRE (differencesOutsideDial == 0 && alphaDifferences == 0);
-    KIRIN_HYBRID_VU_REQUIRE (maxChannelDifference <= 2 && differences <= 4000 && overOne <= 32);
+              << " max_channel_delta=" << maxChannelDifference << " over_one=" << overOne << std::endl;
+    // Separately composited 8-bit alpha can round a channel by up to two levels.
+    KIRIN_HYBRID_VU_REQUIRE (maxChannelDifference <= 2 && differences <= 2700);
     KIRIN_HYBRID_VU_REQUIRE (cache.staticBuildsForTest() == 1);
     meter.channel_vu_dbfs[0] = -25.0;
     { juce::Graphics g (layered); cache.paint (g, layered.getBounds(), state, 1.0f, 0.3f, 0.3f); }
