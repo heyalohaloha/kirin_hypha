@@ -148,7 +148,7 @@ const Entry entries[] = {
     { "Loudness range (LRA): how far the loudness moves within the song since the reset. Compare PRE and POST to see how much compression narrowed it.",
       u8"LRA（Loudness Range）：曲の中での音量の幅。PREとPOSTで比べると、Compressionで狭まった量が分かります。" },
     { "Average dynamics of the song (PLR): the highest true peak minus integrated loudness. Compare PRE and POST to see how much limiting reduced it.",
-      u8"曲の平均的なダイナミクス（PLR）：最大TP − LUFS-I。PREとPOSTで比べるとリミッターで圧縮した量が分かります。" },
+      u8"曲の平均的なダイナミクス（PLR）：最大TP − LUFS-I。PREとPOSTで比べるとリミッターで縮んだ量が分かります。" },
     { "True peak (TP) in the current window, inter-sample peaks included. Watch it against a ceiling such as -1 dBTP.",
       u8"True Peak（TP）：今の計測区間の、サンプル間を含むPeak。−1 dBTPなどの上限と比べて見ます。" },
     { "Crest factor (CREST): peak minus RMS in this window, the dynamics of the moment. Compare PRE and POST to see how much transients were reduced.",
