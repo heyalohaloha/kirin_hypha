@@ -249,9 +249,17 @@ void ScreenComponent::resized()
     // The active preference screen uses this row for explicit round progress.
     // The same exit explanation remains on END's accessible description/tooltip.
     const bool compactPreference = compact && shown.roundsShown && shown.guessShown;
-    detail.setVisible (!covered && !compactPreference && shown.preferenceResultText.isEmpty() && shown.matchedGainText.isEmpty());
     const bool showRounds = !covered && shown.roundsShown
         && shown.preferenceResultText.isEmpty() && getWidth() >= 450 && getHeight() >= 300;
+    // This short standard viewport shows ROUNDS while the smaller compact sizes do not.
+    // Keep the normal layout at 600 x 400 and above; the saved explanation on END is the fallback.
+    const bool shortStandard = getWidth() >= 450 && getWidth() < 600
+        && getHeight() >= 300 && getHeight() < 400;
+    const bool shortLiveLayout = shortStandard && shown.sourcesShown && (showRounds || shown.saveImageShown);
+    constexpr int sourceMinHeight = 60;
+    const bool showDetail = !covered && !compactPreference
+        && shown.preferenceResultText.isEmpty() && shown.matchedGainText.isEmpty();
+    detail.setVisible (showDetail);
     roundsLabel.setVisible (showRounds);
     outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !showRounds);
     roundsLabel.setText (shown.roundsEnabled ? i18n::tr ("ROUNDS") : shown.roundsProgress, juce::dontSendNotification);
@@ -335,7 +343,7 @@ void ScreenComponent::resized()
         ? typography::TextRole::listenChoice : typography::TextRole::body;
     cause.setFont (labelFont (context, guidanceRole, typography::Composition::information));
     recovery.setFont (labelFont (context, guidanceRole, typography::Composition::information));
-    auto area = getLocalBounds().reduced (compact ? 12 : 24);
+    auto area = getLocalBounds().reduced (compact || shortLiveLayout ? 12 : 24);
     const auto needed = [&] (const juce::Label& label)
     {
         const auto border = label.getBorderSize();
@@ -349,14 +357,30 @@ void ScreenComponent::resized()
     };
     // Waiting/interruption screens give the cause and next step their actual localized height.
     // Normal source buttons keep their established layout; no font is compressed or shrunk.
-    title.setBounds (area.removeFromTop (shown.guidanceShown ? needed (title) : compact ? 24 : 40));
+    title.setBounds (area.removeFromTop (shown.guidanceShown ? needed (title)
+                                                            : (compact || shortLiveLayout ? 24 : 40)));
     // A RESULT with two facts takes the lines it needs; a text that fits keeps the fixed height
     // (needed() adds 2 px of slack, so a tight single line does not move the sources).
-    const auto fixedStatus = compact ? 30 : 48;
+    const auto fixedStatus = compact || shortLiveLayout ? 30 : 48;
     const auto statusHeight = shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
-    detail.setBounds (detail.isVisible() ? area.removeFromBottom (compact ? 34 : 46) : juce::Rectangle<int>());
-    auto actions = area.removeFromBottom (compact ? 28 : 40);
+    const int actionHeight = compact ? 28 : shortLiveLayout ? 32 : 40;
+    const int voteHeight = compact ? 26 : shortLiveLayout ? 32 : 40;
+    const int verticalInset = compact || shortLiveLayout ? 5 : 12;
+    const int detailHeight = shortLiveLayout ? juce::jmax (34, needed (detail)) : compact ? 34 : 46;
+    const auto causeHeight = needed (cause);
+    const auto recoveryHeight = needed (recovery);
+    if (shortLiveLayout)
+    {
+        // First budget the source cards, interactive rows and visible recovery. END already
+        // exposes the explanation to hover and accessibility if the extra detail row will not fit.
+        const int requiredHeight = sourceMinHeight + actionHeight + (showRounds ? 32 : 0)
+            + (shown.guessShown ? voteHeight : 0) + 2 * verticalInset
+            + (shown.guidanceShown ? causeHeight + recoveryHeight : 0);
+        detail.setVisible (showDetail && area.getHeight() >= requiredHeight + detailHeight);
+    }
+    detail.setBounds (detail.isVisible() ? area.removeFromBottom (detailHeight) : juce::Rectangle<int>());
+    auto actions = area.removeFromBottom (actionHeight);
     if (shown.saveImageShown && shown.alignOffShown)
     {
         const auto third = actions.getWidth() / 3;
@@ -389,7 +413,8 @@ void ScreenComponent::resized()
         }
         else outcome.setJustificationType (juce::Justification::centredLeft);
         // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
-        auto row = area.removeFromBottom (compact ? 26 : 40).withTrimmedBottom (compact ? 3 : 6);
+        auto row = area.removeFromBottom (voteHeight)
+                       .withTrimmedBottom (compact || shortLiveLayout ? 3 : 6);
         const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
         const auto textWidth = [] (const juce::Label& label)
         {
@@ -407,13 +432,14 @@ void ScreenComponent::resized()
         row.removeFromLeft (gap);
         if (!(compact && shown.roundsShown)) outcome.setBounds (row);
     }
-    area.reduce (0, compact ? 5 : 12);
-    const auto causeHeight = needed (cause);
-    const auto recoveryHeight = needed (recovery);
+    area.reduce (0, verticalInset);
     // A live trial retains source controls during long timing loss. Reserve guidance above
     // them instead of reusing the same rectangle as an ended-trial screen.
+    const auto guidanceHeight = shortLiveLayout
+        ? juce::jmin (causeHeight + recoveryHeight, juce::jmax (0, area.getHeight() - sourceMinHeight))
+        : causeHeight + recoveryHeight;
     auto guidance = shown.guidanceShown && (shown.sourcesShown || shown.approveShown)
-        ? area.removeFromTop (causeHeight + recoveryHeight)
+        ? area.removeFromTop (guidanceHeight)
         : area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
     cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);

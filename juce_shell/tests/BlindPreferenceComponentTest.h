@@ -58,6 +58,88 @@ struct Harness
     void choose (int source) { view.onGuess(source); }
     void reveal() { status.trial.revealed = true; publish(); }
 };
+
+template <typename Require>
+void verifySmallSources (Harness& h, Require require, const juce::String& where, int minimum, bool exerciseClick)
+{
+    auto& view = h.view;
+    int selected = 0;
+    view.onSelect = [&] (int source) { selected = source; };
+    for (const auto source : {1, 2})
+    {
+        auto* card = dynamic_cast<juce::Button*>(view.findChildWithID ("live-blind-source-" + juce::String (source)));
+        if (!card) { require(false, where + " missing SOURCE"); continue; }
+        const auto bounds = card->getBounds();
+        require(card->isVisible() && card->isEnabled() && bounds.getHeight() >= minimum && !bounds.isEmpty()
+                && view.getLocalBounds().contains(bounds), where + " SOURCE size: " + bounds.toString());
+        for (auto* sibling : view.getChildren())
+            if (sibling != card && sibling->isVisible())
+                require(!bounds.intersects(sibling->getBounds()), where + " SOURCE overlaps " + sibling->getComponentID());
+        const auto centre = bounds.getCentre();
+        require(view.getComponentAt(centre) == card, where + " SOURCE centre is mouse-reachable");
+        if (exerciseClick)
+        {
+            card->onClick();
+            require(selected == source, where + " SOURCE click reaches the selector");
+        }
+    }
+    view.onSelect = {};
+}
+
+template <typename Require>
+void verifySmallPreferenceLayout (Require require, const juce::File& root, const juce::String& preview, const juce::String& lang)
+{
+    const auto legacy = root.getChildFile("preference-small-legacy");
+    require(blind_image::preferGuess(legacy,true)
+            && ui_preferences::read(legacy,"blind-rounds").isEmpty(), "upgrade fixture has only the old GUESS key");
+    for (bool candidate : {false,true}) for (int width : {375,450}) for (int rounds : {1,5,10})
+        for (bool migrated : {false,true})
+    {
+        if (migrated && (candidate || width != 450 || rounds != 5)) continue;
+        const auto settings = migrated ? legacy : root.getChildFile("preference-small-default");
+        const auto choice = migrated ? blind_image::preferenceRounds(settings) : rounds;
+        Harness h(choice,candidate,settings);
+        h.view.setBounds(0,0,width,width*2/3);
+        h.view.setVisible(true);
+        const auto tag = juce::String("small preference ") + lang + " " + juce::String(width)
+            + " x" + juce::String(rounds) + (candidate ? " A/B" : " PRE/POST")
+            + (migrated ? " migrated" : "");
+        require(h.view.activePreferenceRounds()==rounds,tag + " exact round count");
+        const int minimum = width == 450 ? 60 : 24;
+        verifySmallSources(h,require,tag + " before a vote",minimum,true);
+        if (width == 450)
+        {
+            auto* selector = h.view.findChildWithID("live-blind-rounds-5");
+            auto* end = dynamic_cast<juce::Button*>(h.view.findChildWithID("live-blind-end"));
+            require(selector && selector->isVisible() && !selector->getBounds().isEmpty(),tag + " retained selector row");
+            require(end && end->getDescription().contains(h.view.screen().detail)
+                    && end->getTooltip().contains(h.view.screen().detail),tag + " END preserves explanation");
+            if (!candidate && !migrated && rounds != 10 && preview.isNotEmpty())
+            {
+                const auto png = juce::File(preview).getChildFile("blind-450-" + lang + "-" + juce::String(rounds) + ".png");
+                png.deleteFile();
+                require(capture::writePng(h.view.createComponentSnapshot(h.view.getLocalBounds()),png)==capture::PngSave::saved,
+                        tag + " preview saved");
+            }
+        }
+        h.heard(1);
+        if (rounds != 1) {
+            h.choose(1);
+            require(h.accepted==0 && !h.view.screen().guessOpen,tag + " one heard source cannot vote");
+        }
+        h.heard(3);
+        if (rounds != 1) {
+            h.choose(1);
+            require(h.accepted==1 && h.view.preferenceTrial().roundNumber()==2,tag + " next round after one accepted vote");
+            verifySmallSources(h,require,tag + " next round",minimum,true);
+        }
+        h.reveal();
+        // The RESULT screen keeps its established layout: 40 px sources, or one 24 px row when dense.
+        verifySmallSources(h,require,tag + " after REVEAL",24,true);
+    }
+    require(ui_preferences::read(legacy,"blind-rounds").isEmpty(), "migration does not populate a new round setting");
+    require(legacy.deleteFile(), "upgrade fixture removed");
+}
 }
 namespace hypha::tests
 {
@@ -132,6 +214,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
     for (auto language : {i18n::Language::english,i18n::Language::japanese}) {
         const i18n::ScopedLanguage shown(language);
         const auto lang = language==i18n::Language::english ? "en" : "ja";
+        verifySmallPreferenceLayout(require,root,preview,lang);
         for (const auto counts : {std::pair<unsigned,unsigned>{5,0},{4,1},{3,2},{10,0},{9,1},{8,2},{7,3},{6,4},{5,5}}) {
             const blind_preference::Summary summary{counts.first,counts.second,blind_preference::probability(counts.first,counts.second)};
             require(blind_preference::probabilityLine(summary).isEmpty()==(summary.chance.roundedPerHundred()==100),
