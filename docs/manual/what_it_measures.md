@@ -270,8 +270,8 @@ and Sharpness; Integrated Loudness and Max True Peak remain absolute POST sessio
 Integrated value spans transport stops within one Keep. After Stop, the final Record result remains
 visible until the first newly computed Watch result arrives.
 When a plug-in between PRE and POST reports latency (for example, a look-ahead limiter), POST may not
-find a moment it shares with PRE; the Δ values then stay at measuring and are not shown, while POST's own
-values are unaffected.
+find a moment it shares with PRE; the Δ values may then keep showing **MEASURING** instead of a value,
+while POST's own values are shown as usual.
 PSR always uses the engine's 3 s Short-term loudness.
 
 **On True Peak.** Two distinct True Peak quantities are reported. The *recent peak* is the maximum inter-sample peak within the last 400 ms (the same window as LUFS-M) and is shown live in Watch mode; it is not held, so a transient drops out of the reading once that window has passed. The *session maximum* is the running maximum inter-sample peak over the whole recording and is what the Record data stores. When a single dBTP figure is quoted for a file, it is the session maximum. Peak windows are tracked by sample count, so offline / faster-than-real-time rendering does not shift them.
