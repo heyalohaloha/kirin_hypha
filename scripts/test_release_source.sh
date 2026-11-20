@@ -315,6 +315,8 @@ run cargo build -p kirin_hypha_ffi --locked
 run check_ffi_symbols
 
 # Static contracts for the common JUCE AU/VST3 shell, audio-thread safety, packaging, and CI.
+# xtask reads the whole locked graph offline (every target); a CI cache keeps only the crates it built.
+run cargo fetch --locked
 run cargo test -p xtask --locked
 }
 
