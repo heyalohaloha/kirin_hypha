@@ -79,7 +79,7 @@ const Entry entries[] = {
     { "Queue C for DAW playback. A stays live until ready; press A to cancel.",
       u8"DAW再生後にCへ切り替えます。準備が整うまで音はAのままです。Aを押すと取り消せます。" },
     // Status facts.
-    { "A REMAINS LIVE", u8"Aは通常の出力のまま" },
+    { "A REMAINS LIVE", u8"Aは通常出力のまま" },
     { "BLIND STOPPED", u8"Blindを中止" },
     { "A HELD %1 dB", u8"Aを%1 dBで保持中" },
     { "RETURN A EXPLICITLY", u8"Aは手動で戻す" },

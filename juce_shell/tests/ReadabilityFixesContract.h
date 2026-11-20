@@ -119,7 +119,7 @@ inline void verify()
             if (candidate)
             {
                 const auto expected = language == i18n::Language::japanese
-                    ? juce::String::fromUTF8 (u8"リアルタイムで書き出す前は END を押し、音量が戻るのを待ってください")
+                    ? juce::String::fromUTF8 (u8"リアルタイム書き出しは、ENDで音量が戻ってから")
                     : juce::String ("Before a realtime bounce, press END and wait for the level to return");
                 visual_readability::require (shown == expected, "bounce-notice exact requested full sentence");
                 visual_readability::require (i18n::tr ("Preparing 20 s") == (language == i18n::Language::japanese
