@@ -1,4 +1,8 @@
 #[cfg(test)]
+#[path = "rt_safety_spectrum_ingress_tests.rs"]
+mod spectrum_ingress_tests;
+
+#[cfg(test)]
 #[path = "reference_worker_lifetime_tests.rs"]
 mod reference_worker_lifetime_tests;
 

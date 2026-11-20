@@ -363,3 +363,21 @@ bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
     out = hypha::analysis_ui::slotOwnerNames (names);
     return true;
 }
+
+bool KirinHyphaProcessorBase::pollReferenceLiveMetrics (KirinReferenceLiveMetricFrame& output) const
+{
+    const juce::ScopedLock lock (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_reference_live_metrics (hyphaHandle, &output);
+}
+
+// Deferred: PRE own SHARP exceeded the CPU acceptance budget. These inert entry
+// points preserve shell compatibility without acquiring a lease or touching native IO.
+void KirinHyphaProcessorBase::setPreSharpObservationEnabled (bool enabled)
+{
+    juce::ignoreUnused (enabled);
+}
+bool KirinHyphaProcessorBase::pollPreSharp (KirinPreSharpFrame& output) const
+{
+    juce::ignoreUnused (output);
+    return false;
+}

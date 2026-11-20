@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "HyphaSpectrumFrameCadence.h"
 #include <functional>
 #include <memory>
 #include <vector>
@@ -34,12 +35,13 @@ private:
     }
     void synchronize()
     {
-        if (! enabled || ! owner.isShowing()) { attachment.reset(); return; }
+        if (! enabled || ! owner.isShowing()) { attachment.reset(); cadence.reset(); return; }
         if (! attachment)
             attachment = std::make_unique<juce::VBlankAttachment> (&owner, [this]
             {
                 if (! enabled || ! owner.isShowing()) { triggerAsyncUpdate(); return; }
-                tick (juce::Time::getMillisecondCounterHiRes());
+                const auto now = juce::Time::getMillisecondCounterHiRes();
+                if (cadence.due (now)) tick (now);
             });
     }
     void componentVisibilityChanged (juce::Component&) override { synchronize(); }
@@ -48,6 +50,7 @@ private:
     juce::Component& owner;
     std::function<void(double)> tick;
     bool enabled = false;
+    FrameCadence cadence;
     std::unique_ptr<juce::VBlankAttachment> attachment;
     std::vector<juce::Component::SafePointer<juce::Component>> parents;
 };

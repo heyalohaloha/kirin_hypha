@@ -5,6 +5,7 @@
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceRuntimePresetOptions.h"
 #include "ReferenceTestCommitObserver.h"
+#include "ReferenceChangeNotesReader.h"
 
 #include <cmath>
 
@@ -291,6 +292,31 @@ void observeReferenceSwitchPages (const RuntimeV2Controller*, std::uint64_t, con
         if (cue == nullptr) cue = &candidate->cues.front();
 
         Snapshot next;
+        if (versionComparison && preset->versionEntry && preset->changeNotesReceipt)
+        {
+            const auto& receipt = *preset->changeNotesReceipt;
+            const auto key = juce::String(configuration.generation) + ":" + preset->sourcePresetArtifact.sha256
+                + ":" + receipt.sha256 + ":" + candidate->sourceIdentityKey;
+            if (key != changeNotesCacheKey || !changeNotesCache.notes)
+            { changeNotesCache = readChangeNotes(root, receipt, *candidate); changeNotesCacheKey = key; }
+            next.changeNotes = changeNotesCache.notes;
+            next.changeNotesConfigurationGeneration = configuration.generation;
+            next.changeNotesSelectionGeneration = selection.generation;
+            next.changeNotesIssue = changeNotesCache.issue;
+           #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            observeReferenceTestNotesAcceptedBoundary(this, receipt.sha256.toRawUTF8(), selection.generation);
+           #endif
+        }
+        else
+        {
+            changeNotesCacheKey.clear(); changeNotesCache = {};
+            if (versionComparison && preset->versionEntry) next.changeNotesIssue = preset->changeNotesIssue;
+        }
+        { // File IO above never holds the control lock or publishes into a newer selection.
+            const juce::ScopedLock lock(stateLock);
+            if (requestedConfiguration.generation != configuration.generation
+                || requestedSelection.generation != selection.generation) return;
+        }
         next.state = RuntimeState::verifying;
         next.presetId = preset->sourcePresetArtifact.presetId;
         next.checkId = check->checkId;

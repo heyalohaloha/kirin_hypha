@@ -2,6 +2,7 @@
 #include "../KirinTestStorage.h"
 #include "../AtomicFile.h"
 #include "AppearanceFileLock.h"
+#include "../StorageWriteGuard.h"
 
 #include <utility>
 
@@ -180,6 +181,7 @@ StoredPreference Storage::readPreference()
 
 bool Storage::writeAtomic (const juce::File& target, const juce::String& text) const
 {
+    if (!hypha::storage::write_guard::permitMutation(target)) return false;
     if (target.getParentDirectory().createDirectory().failed())
         return false;
     return hypha::storage::writeText (target, text, false, false, "\n");
@@ -197,6 +199,7 @@ TransactionResult Storage::updatePreference (
     const std::optional<Choice>& choice,
     bool acknowledgeNotice)
 {
+    if (!hypha::storage::write_guard::permitMutation(preferenceFile())) return {};
     if (preferenceFile().getParentDirectory().createDirectory().failed())
         return {};
 

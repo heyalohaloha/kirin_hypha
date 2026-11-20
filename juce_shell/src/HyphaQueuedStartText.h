@@ -30,7 +30,12 @@ enum class AfterTail : unsigned char { none, referenceV, referenceC, referenceB,
 
 // INV-AB6: a Keep that waited its two minutes while B never proved the ordinary path (playback kept
 // stopping or seeking): it ends and says why.
-inline constexpr const char* keepTailEndedNotice = "A/B tail not cleared: run A/B once, then Keep";
+inline constexpr const char* keepTailEndedNotice = "Keep cannot start because the A/B tail has not been verified as cleared.";
+
+// Guidance only: absence of proof does not establish that the original PRE was removed.
+inline constexpr const char* keepTailDetail = "Hypha cannot verify that the A/B audio has cleared.";
+inline constexpr const char* keepTailRecovery = "Run and end A/B with the current PRE and POST.";
+inline constexpr const char* keepTailRetry = "Return to normal playback, then try Keep again.";
 
 constexpr const char* afterTailNotice (AfterTail action, bool playing) noexcept
 {

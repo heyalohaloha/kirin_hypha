@@ -173,7 +173,7 @@ inline void verifyUnavailableButtons()
     require (version != nullptr && version->getTooltip() == reference_ui::help_text::versionMixContext,
              "the Version selector describes the mix context");
     { const i18n::ScopedLanguage japanese (i18n::Language::japanese);
-      require (text_style::shownText (b->getTooltip()) == juce::String::fromUTF8 (u8"VはHyphaを2Mixに置くと動きやすい"),
+      require (text_style::shownText (b->getTooltip()) == juce::String::fromUTF8 (u8"VはHyphaを2Mixに置くと動作しやすい"),
                "the V mix context is translated"); }
     b->onClick();
     require (selectedB && explained.isEmpty(), "a ready B is selected without a reason");

@@ -104,9 +104,11 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
     );
     require(
         PLUGINVAL_SCRIPT,
-        "releases/download/${PLUGINVAL_VERSION}/pluginval_macOS.zip",
-        "script must download the official macOS pluginval binary",
+        "node scripts/pluginval_archive.mjs url \"$PLUGINVAL_VERSION\" macOS",
+        "script must resolve the official macOS archive through the reviewed pin",
     );
+    // Exit status and forbidden downstream execution are checked by the
+    // isolated shell fixtures below, not by ordering unbound string literals.
     require(
         PLUGINVAL_SCRIPT,
         "--validate-in-process",
@@ -192,4 +194,67 @@ fn section_after<'a>(source: &'a str, marker: &str) -> &'a str {
 
 fn require(source: &str, needle: &str, message: &str) {
     assert!(source.contains(needle), "{message}: missing `{needle}`");
+}
+
+#[cfg(unix)]
+fn gate_fixture(case: &str) -> serde_json::Value {
+    let output = std::process::Command::new("node")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scripts/macos_pluginval_fixture.mjs"
+        ))
+        .arg(case)
+        .output()
+        .expect("run isolated macOS shell fixture");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("fixture receipt")
+}
+
+#[cfg(unix)]
+fn operation_count(receipt: &serde_json::Value, operation: &str) -> usize {
+    receipt["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["operation"] == operation)
+        .count()
+}
+
+#[test]
+#[cfg(unix)]
+fn macos_pluginval_ci_override_cannot_reach_the_tool() {
+    let receipt = gate_fixture("ci-override");
+    assert_eq!(receipt["status"], 1);
+    assert!(receipt["events"].as_array().unwrap().is_empty());
+    assert!(receipt["stderr"]
+        .as_str()
+        .unwrap()
+        .contains("CI requires a pinned archive"));
+}
+
+#[test]
+#[cfg(unix)]
+fn macos_pluginval_local_override_is_only_a_diagnostic() {
+    let receipt = gate_fixture("local-override");
+    assert_eq!(receipt["status"], 2);
+    assert_eq!(operation_count(&receipt, "execute"), 2);
+    assert_eq!(operation_count(&receipt, "extract"), 0);
+    assert_eq!(operation_count(&receipt, "verify"), 0);
+}
+
+#[test]
+#[cfg(unix)]
+fn macos_pluginval_corrupt_zip_cannot_reach_extraction_or_execution() {
+    for case in ["bad-cache", "bad-download"] {
+        let receipt = gate_fixture(case);
+        assert_eq!(receipt["status"], 1, "{case}");
+        assert_eq!(operation_count(&receipt, "verify"), 1);
+        assert_eq!(operation_count(&receipt, "extract"), 0);
+        assert_eq!(operation_count(&receipt, "execute"), 0);
+        assert_eq!(operation_count(&receipt, "bundle-check"), 0);
+    }
 }

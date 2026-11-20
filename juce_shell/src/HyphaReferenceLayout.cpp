@@ -196,7 +196,14 @@ void Component::resized()
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
     // The page's main window, in the frame the page draws around it (paint). B の一覧と BALANCE は枠の外の広さのまま。
     observationArea = area.reduced (main_frame::insetFor (presentationContext), main_frame::insetFor (presentationContext));
-    comparisonView.setBounds (observationArea);
+    auto comparisonBounds = observationArea;
+    if (changeNotesView.isVisible())
+    {
+        const bool expanded = changeNotesView.isExpanded();
+        changeNotesView.setBounds(expanded ? observationArea : comparisonBounds.removeFromBottom(44));
+        comparisonView.setVisible(!expanded);
+    }
+    comparisonView.setBounds (comparisonBounds);
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
     balanceBounds = area.withTrimmedTop (panelGap()).withTrimmedLeft (songList.getWidth() + 6);
     const auto switchWidth = OverlaySwitch::widthFor (current.overlay.all, presentationContext);  // 描き方は ALL の時だけ
@@ -218,6 +225,17 @@ void Component::resized()
     }
     statusStrip.resized();
     layoutSelectionReadouts();
+    if (changeNotesView.isVisible() && changeNotesView.isExpanded())
+    {
+        // Reading is a local pane below the role buttons, not an overlay on controls.
+        auto notesArea = panelArea().withTrimmedTop(panelHeaderHeight());
+        notesArea = notesArea.reduced(main_frame::insetFor(presentationContext));
+        for (auto* child : getChildren())
+            if (child != &changeNotesView && child->isVisible() && child->getBounds().intersects(notesArea))
+                child->setVisible(false);
+        changeNotesView.setBounds(notesArea);
+        changeNotesView.toFront(false);
+    }
 }
 
 void Component::configureAWindowControls()

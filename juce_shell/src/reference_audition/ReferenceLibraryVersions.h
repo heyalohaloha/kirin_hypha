@@ -1,6 +1,7 @@
 #pragma once
 #include "ReferenceRuntimeRepositoryParsing.h"
 #include "ReferenceTextEdges.h"
+#include "ReferenceChangeNotesValidation.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <set>
 
@@ -36,8 +37,7 @@ inline bool readReferenceLibraryVersion (const juce::File& root, const juce::var
     skipped = skippedItem (descriptor["candidate"], "display_name");
     RuntimeCandidate candidate;
     const auto* item = descriptor.getDynamicObject();
-    // Kirin OS may add the Version's correction notes (change_notes_artifact). This Hypha does not show them
-    // yet; the Version stays usable whatever the notes field holds.
+    // Notes are optional. Invalid notes never remove an otherwise valid Version.
     const bool notes = item != nullptr && item->hasProperty ("change_notes_artifact");
     if (item == nullptr
         || !(notes ? exactProperties (*item, { "format", "version", "entry_id", "display_name", "candidate", "change_notes_artifact" })
@@ -52,6 +52,13 @@ inline bool readReferenceLibraryVersion (const juce::File& root, const juce::var
         || candidate.cues[0].startSample != 0 || candidate.cues[0].loopEnabled) return false;
     RuntimePreset entry;
     entry.versionEntry = true;
+    if (notes)
+    {
+        ChangeNotesReceipt noteReceipt;
+        if (change_notes_detail::parseReceipt(descriptor["change_notes_artifact"], noteReceipt))
+            entry.changeNotesReceipt = std::move(noteReceipt);
+        else entry.changeNotesIssue = "reference_change_notes_receipt";
+    }
     entry.sourcePresetArtifact = receipt;
     entry.name = reference_text::cut (candidate.displayName, 80); // Kirin OS keeps it in listening records
     RuntimeCheck check;

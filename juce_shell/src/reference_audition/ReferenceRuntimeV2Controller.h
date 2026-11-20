@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferenceMetricLeaseEpoch.h"
 
 #include <atomic>
 #include <deque>
@@ -35,6 +36,7 @@
 
 namespace hypha::reference_audition
 {
+    namespace metrics { class Runtime; class SetRuntime; class SeriesCache; }
     class RuntimeV2Controller final : private juce::Thread
     {
     public:
@@ -47,6 +49,12 @@ namespace hypha::reference_audition
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
         void disconnect();
+        // Control demand only; audio processing never reads this publication or starts work.
+        void setMetricObservationEnabled (bool enabled) noexcept
+        { metricObservationEnabled.store (enabled, std::memory_order_release); notify(); }
+        void setMetricOwnershipLease (std::shared_ptr<void> lease);
+        void setMetricSeriesCache (std::shared_ptr<metrics::SeriesCache> cache);
+        void setMetricContext (bool enabled, const juce::String& setId, std::uint64_t generation);
         ReferenceChoice savedChoice() const;
         void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
@@ -282,6 +290,8 @@ namespace hypha::reference_audition
         juce::CriticalSection outputGateLock;
         Configuration requestedConfiguration;
         RequestedSelection requestedSelection;
+        juce::String changeNotesCacheKey; // Worker-owned: only the selected Version, never all library bodies.
+        ChangeNotesReadResult changeNotesCache;
         std::uint64_t appliedConfigurationGeneration = 0;
         std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;
@@ -290,6 +300,15 @@ namespace hypha::reference_audition
         VersionIdentifier versionIdentifier; // Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
+        std::unique_ptr<metrics::Runtime> metricRuntime;
+        std::unique_ptr<metrics::SetRuntime> metricSetRuntime;
+        juce::String metricSetId; // stateLock; the upper controller chooses the set and priority role.
+        std::uint64_t metricContextGeneration = 0; // stateLock
+        std::shared_ptr<metrics::SeriesCache> metricSeriesCache; // stateLock mailbox; shared B/C LRU
+        std::shared_ptr<void> metricOwnershipLease; // stateLock mailbox; applied only by worker
+        metrics::LeaseEpoch metricOwnershipEpoch; // stateLock; rejects old publication before worker applies lease
+        bool metricOwnershipManaged = false; // stateLock; legacy isolated tests may omit leases
+        std::atomic<bool> metricObservationEnabled {false};
         std::shared_ptr<const RuntimeSource> workerSource;
         std::uint64_t workerSourceGeneration = 0;
         std::shared_ptr<const RuntimeSource> publishedSource;

@@ -1,20 +1,70 @@
-//! Which crates the C ABI guard scans: the crates linked into the shipping JUCE product.
+//! Import scopes and linked-crate scopes inspected by the shipping C ABI guard.
 //!
 //! The JUCE product links one Rust artifact, the `kirin_hypha_ffi` staticlib
 //! (`juce_shell/CMakeLists.txt` builds `-p kirin_hypha_ffi`). The scanned crates are that crate and
 //! every workspace crate it links as a normal dependency, on any target. Cargo itself reads the
-//! manifests (`cargo metadata --no-deps`), so every dependency syntax counts, and a shipping path
+//! manifests and the resolved graph (`cargo metadata --offline --locked`), so every dependency
+//! syntax counts, and a shipping path
 //! dependency outside the workspace fails the check instead of dropping out of it.
 //!
 //! The legacy nih-plug crates (PRE/POST/GUI) are kept only to verify the old VST3 identity and
 //! state. They are not linked into the JUCE binaries, and their `nih_export_vst3!` exports come
 //! from vendored nih-plug code that this rule cannot guard, so a shipping crate may not depend on
-//! nih-plug. Third-party crates are out of scope; a shipping crate may not enable a dependency's
-//! `capi` feature (the vendored ebur128 keeps its C API behind it), neither where it declares the
-//! dependency nor through one of its own features.
+//! nih-plug. Third-party sources are out of scope, but their resolved normal dependencies must
+//! not activate `capi` either. A shipping crate may not enable a dependency's `capi` feature
+//! (the vendored ebur128 keeps its C API behind it), directly or through its own features.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+
+/// Local top-level modules are scanned with their crate; a nested declaration cannot vouch for
+/// an unrelated external root at file scope.
+pub(super) fn module_roots<'a>(tokens: &[super::Token<'a>]) -> Vec<&'a str> {
+    let mut depth = 0;
+    let mut roots = Vec::new();
+    for (at, token) in tokens.iter().enumerate() {
+        if token.is("mod") && depth == 0 {
+            if let Some(name) = tokens.get(at + 1).filter(|t| t.kind == super::Kind::Ident) {
+                roots.push(name.text);
+            }
+        }
+        if token.is("{") {
+            depth += 1;
+        }
+        if token.is("}") {
+            depth -= 1;
+        }
+    }
+    roots
+}
+
+/// A `use` tree that could put another macro under an allowed name: a rename to it
+/// (`use x::emit as thread_local;`), or an import of it whose path starts outside std and the crate.
+pub(super) fn imports_under_allowed_name(
+    after_use: &[super::Token],
+    macros: &[&str],
+    owned_roots: &[&str],
+) -> bool {
+    let end = after_use.iter().position(|t| t.is(";"));
+    let tree = &after_use[..end.unwrap_or(after_use.len())];
+    let trusted = ["std", "core", "crate", "$crate", "self", "super"];
+    let trusted_root = tree
+        .iter()
+        .find(|t| !t.is("::"))
+        .is_some_and(|t| trusted.contains(&t.text) || owned_roots.contains(&t.text));
+    let precise_capture = tree.first().is_some_and(|t| t.is("<")); // `impl Trait + use<'a>`
+    !precise_capture
+        && ((!trusted_root && tree.iter().any(|t| t.is("*")))
+            || tree.iter().enumerate().any(|(i, t)| {
+                let allowed = ["thread_local", "assert", "include"].contains(&t.text)
+                    || macros.contains(&t.text);
+                let raw = i >= 2 && tree[i - 1].is("#") && tree[i - 2].is("r");
+                let before = i.checked_sub(if raw { 3 } else { 1 });
+                t.kind == super::Kind::Ident
+                    && allowed
+                    && (!trusted_root || before.is_some_and(|b| tree[b].is("as")))
+            }))
+}
 
 #[derive(Debug)]
 pub(super) struct ShippingCrate {
@@ -32,16 +82,20 @@ fn enables_capi(value: &str) -> bool {
     value.rsplit('/').next() == Some("capi")
 }
 
-/// The workspace as Cargo reads it, without resolving or downloading dependencies.
+/// The resolved workspace, offline and locked: never download or silently change dependencies.
 pub(super) fn workspace_metadata(root: &Path) -> Value {
+    let metadata = read_metadata(root, true);
+    assert!(
+        metadata["resolve"]["nodes"].is_array(),
+        "missing resolved graph"
+    );
+    metadata
+}
+
+fn read_metadata(root: &Path, resolve: bool) -> Value {
+    let mode = if resolve { "--locked" } else { "--no-deps" };
     let output = std::process::Command::new(env!("CARGO"))
-        .args([
-            "metadata",
-            "--no-deps",
-            "--format-version",
-            "1",
-            "--offline",
-        ])
+        .args(["metadata", mode, "--format-version", "1", "--offline"])
         .current_dir(root)
         .output()
         .expect("run cargo metadata");
@@ -51,6 +105,53 @@ pub(super) fn workspace_metadata(root: &Path) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("cargo metadata JSON")
+}
+
+/// Follow only linked edges. Dev/build-only nodes and unused feature declarations do not ship.
+fn reject_transitive_capi(metadata: &Value, root: &Value) -> Result<(), String> {
+    // Manifest-only unit fixtures test the declaration checks below. The real source scan uses
+    // workspace_metadata(), which requires a complete, locked resolve graph.
+    let Some(nodes) = metadata["resolve"]["nodes"].as_array() else {
+        return Ok(());
+    };
+    let mut pending = vec![&root["id"]];
+    let mut seen = Vec::new();
+    while let Some(id) = pending.pop() {
+        if seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+        let node = nodes
+            .iter()
+            .find(|n| &n["id"] == id)
+            .ok_or_else(|| format!("missing dependency node {id}"))?;
+        if node["features"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|f| f == "capi")
+        {
+            return Err(format!("shipping dependency {id} enables a C API (capi)"));
+        }
+        let dependencies = node["deps"]
+            .as_array()
+            .ok_or("missing resolved dependency edges")?;
+        for dependency in dependencies {
+            let kinds = dependency["dep_kinds"]
+                .as_array()
+                .ok_or("missing dependency kinds")?;
+            if kinds.iter().any(|kind| kind["kind"].is_null()) {
+                if dependency["name"]
+                    .as_str()
+                    .is_some_and(|name| matches!(name, "std" | "core"))
+                {
+                    return Err("resolved shipping dependency shadows a standard namespace".into());
+                }
+                pending.push(&dependency["pkg"]);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `kirin_hypha_ffi` and every workspace crate it links (normal dependencies, not dev or build).
@@ -66,6 +167,10 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
         .iter()
         .find(|package| package["name"] == "kirin_hypha_ffi")
         .ok_or("kirin_hypha_ffi is not a workspace member")?;
+    reject_transitive_capi(metadata, root)?;
+    let members = metadata["workspace_members"]
+        .as_array()
+        .ok_or("no workspace members")?;
     let mut pending = vec![root];
     let mut found: Vec<&Value> = Vec::new();
     while let Some(package) = pending.pop() {
@@ -87,6 +192,12 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
                 continue; // dev and build dependencies are not linked into the product
             }
             let dependency_name = dependency["name"].as_str().unwrap_or_default();
+            let visible_name = dependency["rename"].as_str().unwrap_or(dependency_name);
+            if matches!(visible_name, "std" | "core") {
+                return Err(format!(
+                    "{name} shadows a standard namespace with dependency {visible_name}"
+                ));
+            }
             if dependency_name.starts_with("nih_plug") {
                 return Err(format!(
                     "{name} links the legacy nih-plug path ({dependency_name})"
@@ -101,7 +212,9 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
             };
             let member = packages
                 .iter()
-                .find(|package| dir_of(package) == Path::new(path))
+                .find(|package| {
+                    members.contains(&package["id"]) && dir_of(package) == Path::new(path)
+                })
                 .ok_or_else(|| format!("{name} links {path}, which is not a workspace member"))?;
             pending.push(member);
         }
@@ -116,20 +229,64 @@ pub(super) fn shipping_crates(metadata: &Value) -> Result<Vec<ShippingCrate>, St
         .collect())
 }
 
-pub(super) fn rust_sources(directory: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(directory).expect("source directory") {
-        let path = entry.expect("source entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
+/// Cargo's actual library entries, not an assumed src/lib.rs. Kept separate from graph-only
+/// fixture checks: real source validation rejects absent or malformed target metadata.
+pub(super) fn library_roots(
+    metadata: &Value,
+    krate: &ShippingCrate,
+) -> Result<Vec<PathBuf>, String> {
+    let package = metadata["packages"]
+        .as_array()
+        .ok_or("no packages")?
+        .iter()
+        .find(|p| {
+            p["name"] == krate.name
+                && p["manifest_path"]
+                    .as_str()
+                    .and_then(|p| Path::new(p).parent())
+                    == Some(krate.dir.as_path())
+        })
+        .ok_or("shipping package missing from metadata")?;
+    let targets = package["targets"].as_array().ok_or("no Cargo targets")?;
+    let mut roots = std::collections::BTreeSet::new();
+    for target in targets {
+        let kinds = target["kind"].as_array().ok_or("target kind missing")?;
+        if !kinds.iter().filter_map(Value::as_str).any(|k| {
+            matches!(
+                k,
+                "lib" | "rlib" | "staticlib" | "cdylib" | "dylib" | "proc-macro"
+            )
+        }) {
+            continue;
         }
+        let path = PathBuf::from(
+            target["src_path"]
+                .as_str()
+                .ok_or("library src_path missing")?,
+        );
+        if !path.is_absolute() {
+            return Err("library src_path is not absolute".into());
+        }
+        roots.insert(path);
     }
+    if roots.len() != 1 {
+        return Err("expected one unambiguous Cargo library source".into());
+    }
+    Ok(roots.into_iter().collect())
 }
+
+#[cfg(test)]
+#[path = "ffi_unwind_metadata_tests.rs"]
+mod metadata_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // These fixtures deliberately name absent external crates; only declaration syntax is read.
+    fn declaration_metadata(root: &Path) -> Value {
+        read_metadata(root, false)
+    }
 
     fn fake_workspace(name: &str, files: &[(&str, &str)]) -> PathBuf {
         let root = std::env::temp_dir().join(format!("ffi-scope-{name}-{}", std::process::id()));
@@ -180,7 +337,7 @@ mod tests {
         );
         files.extend(sources.iter().map(|path| (path.as_str(), "")));
         let root = fake_workspace("syntax", &files);
-        let mut names: Vec<_> = shipping_crates(&workspace_metadata(&root))
+        let mut names: Vec<_> = shipping_crates(&declaration_metadata(&root))
             .unwrap()
             .into_iter()
             .map(|c| c.name)
@@ -256,7 +413,7 @@ mod tests {
                 ],
             );
             assert!(
-                shipping_crates(&workspace_metadata(&root)).is_err(),
+                shipping_crates(&declaration_metadata(&root)).is_err(),
                 "{name} accepted"
             );
             std::fs::remove_dir_all(&root).unwrap();
@@ -283,7 +440,7 @@ mod tests {
                 ("crates/kirin_hypha_ffi/src/lib.rs", ""),
             ],
         );
-        let shipping = shipping_crates(&workspace_metadata(&root));
+        let shipping = shipping_crates(&declaration_metadata(&root));
         std::fs::remove_dir_all(&root).unwrap();
         assert!(shipping.is_ok(), "{shipping:?}");
     }

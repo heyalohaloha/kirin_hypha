@@ -276,7 +276,15 @@ inline void verifySpaceNativeRestore (Processor& processor, KirinHyphaEditor& ed
             process(); (editor.*privateMember (SpaceEditorTick {}))();
             require (! screen.running() && ! processor.spaceLive().enabled() && screen.frame().samples.empty(),
                      "hidden callbacks and editor polling leave SPACE idle");
-            require (conceal (host.getPeer()->getNativeHandle(), false), "native host restoration confirmed");
+            const char* nativeOperation = conceal == setNativeWindowMinimised ? "window_minimised"
+                : conceal == setNativeViewHidden ? "view_hidden" : "window_hidden";
+            std::cout << "SPACE native restore begin operation=" << nativeOperation
+                      << " wrapper=" << int (processor.wrapperType) << " role=" << processor.getName() << std::endl;
+            const bool restored = conceal (host.getPeer()->getNativeHandle(), false);
+            std::cout << "SPACE native restore result operation=" << nativeOperation << " confirmed=" << restored
+                      << " editor_visible=" << editor.isVisible() << " editor_showing=" << editor.isShowing()
+                      << " visibility_events=" << events.count << std::endl;
+            require (restored, "native host restoration confirmed");
             require (editor.isVisible() && editor.isShowing() && events.count == 0,
                      "shared native restoration leaves JUCE visibility unchanged");
             (editor.*privateMember (SpaceEditorTick {}))();

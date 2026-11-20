@@ -1,30 +1,61 @@
 # Local PRE/POST Blind Compare
 
-BLIND plays PRE and POST as two anonymous sources at a fixed matched level during one playback.
-Switch SOURCE 1 and SOURCE 2, then REVEAL shows which was PRE. It needs no Kirin OS and stores no
-answers.
+BLIND plays PRE and POST as two anonymous sources at a fixed matched level during live playback.
+Switch SOURCE 1 and SOURCE 2, then REVEAL shows which was PRE. An optional preference trial lets
+you choose the side you prefer over several rounds. No Kirin OS is required.
 
 [Back to the README](../../README.md#the-full-manual)
 
-**BLIND** is a one-pass live blind comparison, without Capture or rewinding. Press BLIND, keep
-the DAW playing, and Hypha prepares a fixed level match. Switch **SOURCE 1 / SOURCE 2** as often
-as needed during that same playback. Once both have actually sounded, **REVEAL** shows the
-PRE/POST assignment in one click, without a preference question or another playback. You can keep
-switching after reveal, or press **END**. Live Blind does not collect preference answers, save a
-vote, learn from it, or change audio from it. No Kirin OS is required.
+**BLIND** is a live blind comparison, without Capture or rewinding. Press BLIND, keep the DAW
+playing, and Hypha prepares a fixed level match. Switch **SOURCE 1 / SOURCE 2** as often as needed.
+With **ROUNDS → 1**, once both have actually sounded, **REVEAL** shows the PRE/POST assignment
+in one click, without a question or another playback. You can keep switching after reveal, or
+press **END**. This is the existing BLIND flow.
 
 ![PRE/POST Blind after REVEAL: SOURCE 1 was POST and SOURCE 2 was PRE; switching continues until END](../media/readme/blind_result.jpg)
 
-**GUESS** in MENU (off by default) adds one question above REVEAL: **Which one is POST?**
-(**Which one is B?** in A/B). Choose **1** or **2** before REVEAL. The question and both answers look
-the same whatever the hidden assignment is. After REVEAL your answer stays lit with **— right** or
-**— not this time**. The answer is not stored. With GUESS off, BLIND is unchanged.
+## Preference rounds
+
+Choose **ROUNDS 1× / 5× / 10×** near REVEAL in the BLIND screen. **1** is the default and keeps
+the existing comparison without a question. MENU offers the same **ROUNDS** setting and stays in
+sync with the screen. At small sizes where the screen control cannot fit legibly, use MENU instead.
+You can change the count only before the first answer of that trial. After an answer, the control
+shows progress such as **Round 3 of 5** and cannot be changed; you can choose again for the next trial.
+
+With **5** or **10** selected, BLIND asks **Which do you prefer?** in both PRE/POST and A/B comparisons. After both sources have
+actually sounded in the current round, choose **1** or **2**. An interval where a substitute
+source played does not count as hearing the requested source.
+
+The counter shows the current round, such as **Round 3 of 5**. Each answer starts a new, independently
+randomized hidden assignment, while the matched gain and approval stay fixed. Hearing marks start
+over for each round. The source number you have selected stays the same, but its hidden assignment
+may change. If a random assignment cannot be prepared, Hypha stops rather than using a predictable one.
+
+After at least one answer, you can press **REVEAL** without finishing all the rounds. An unanswered
+round is not counted. After the final answer, Hypha invites you to reveal; it does not reveal automatically.
+The result reports the number of times you chose PRE or POST (A or B in A/B), or the equal counts.
+From two completed rounds onward, except when the percentage rounds to 100%, it also reports how often a preference at least this uneven would
+occur when choosing at random, using a two-sided binomial calculation. This is a description of the
+choices, not an assessment of the listener, an ABX identification test, or proof of better sound.
+
+Preference answers and hidden assignments remain in memory for the current trial. END, restoring
+saved plug-in state, or changing the pair, format or owner clears them; restoring state does not
+resume a trial. Answers are not automatically written to disk, learned from, or used to change audio.
+The round-count setting is remembered separately. A previous GUESS-on setting is read as five rounds
+when no new preference setting has been saved.
+
+The result shows the approved level adjustment applied to each source, including a one-round comparison. This line is not included in the saved image.
+
+## Save an image
 
 On the RESULT, **SAVE IMAGE** saves a 1080 × 1080 PNG where you choose. Name each source first, up to
-16 characters; an empty name uses PRE and POST (A and B in A/B), and the names are remembered. The
-image shows which source was which, your answer and its outcome when GUESS was on, and the RESULT's
-own notes, in the screen language. It ends with **One blind listen at matched level.** and the Hypha
-address. Song and track names are not collected automatically. When saving fails, the reason stays on the screen.
+16 characters; an empty name uses PRE and POST (A and B in A/B), and the names are remembered.
+The image shows the source assignment, the preference count and random-choice proportion when
+available, and the RESULT's existing notes, in the screen language. Saving the image is an explicit
+export of that summary, not an automatic record of individual answers. It ends with **One blind listen
+at matched level.** for one round, or **N blind rounds at matched level.** for two or more, and the
+Hypha address. Song and track names are not collected automatically. When saving fails, the reason
+stays on the screen.
 
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
 another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match, and a MATCH

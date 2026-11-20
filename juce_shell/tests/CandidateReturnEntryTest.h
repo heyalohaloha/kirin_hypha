@@ -202,6 +202,21 @@ template<class Require> void verifyAfterTailBlockedReturn (Require require)
             (actual.*candidateEditorTick (CandidateEditorServiceTail {}))();
             require (waiting.action == AfterTail::none && candidateToast (*editor) == keepTailEndedNotice,
                      "unproven tail keeps the two-minute Keep deadline");
+            // Presentation-only: the existing detail path carries recovery, not a deletion claim.
+            auto* view = const_cast<observatory::View*> (candidateView (*editor));
+            require (view != nullptr, "Keep guidance has the existing status view");
+            view->setFeedback (keepTailEndedNotice);
+            const auto story = actual.statusStory();
+            require (story.size() == 3 && story[0] == keepTailDetail
+                     && story[1] == keepTailRecovery && story[2] == keepTailRetry,
+                     "unverified clearance explains recovery in existing status details");
+            for (const auto* text : { keepTailEndedNotice, keepTailDetail, keepTailRecovery, keepTailRetry })
+                if (language == i18n::Language::japanese)
+                    require (i18n::translate (text, language) != text, "Keep guidance has Japanese text");
+            view->setFeedback (bypassHoldsReturnNotice);
+            require (actual.statusStory().isEmpty(), "a different notice cannot retain Keep recovery");
+            view->setFeedback ({});
+            require (actual.statusStory().isEmpty(), "dismissed guidance leaves no stale detail");
             require (juce::String (afterTailNotice (action, false)) == "Play to continue, then Keep",
                      "stopped Keep asks for playback");
         }

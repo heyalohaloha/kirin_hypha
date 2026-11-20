@@ -1,4 +1,5 @@
 #include "AppearanceFileLock.h"
+#include "../StorageWriteGuard.h"
 
 #include <utility>
 
@@ -21,6 +22,7 @@ constexpr std::int64_t staleLockMilliseconds = 30'000;
 
 bool createLockDirectory (const juce::File& directory)
 {
+    if (!hypha::storage::write_guard::permitMutation(directory)) return false;
    #if JUCE_WINDOWS
     return ::CreateDirectoryW (directory.getFullPathName().toWideCharPointer(), nullptr) != FALSE;
    #else
@@ -30,6 +32,7 @@ bool createLockDirectory (const juce::File& directory)
 
 void removeLockDirectory (const juce::File& directory)
 {
+    if (!hypha::storage::write_guard::permitMutation(directory)) return;
    #if JUCE_WINDOWS
     ::RemoveDirectoryW (directory.getFullPathName().toWideCharPointer());
    #else

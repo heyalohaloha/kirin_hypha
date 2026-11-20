@@ -33,7 +33,7 @@ static juce::String songLine (const State& state)
 {
     if (state.comparisonSlot != 2) return {};
     if (state.song.chosen && ! songSupported (state)) return songUnsupportedNotice;
-    if (state.song.cMissing) return "WHOLE-SONG VALUES COME WITH KIRIN OS 1.7.0";
+    if (state.song.cMissing) return "C WHOLE-SONG SPECTRUM UNAVAILABLE / USING CUE";
     if (state.song.shown && state.song.aBeyond) return "A FROM START HOLDS THE DAW'S FIRST 30 MIN";
     return {};
 }

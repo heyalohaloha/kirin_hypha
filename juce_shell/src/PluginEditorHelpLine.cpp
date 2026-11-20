@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "HyphaHelpLineText.h"
+#include "HyphaQueuedStartText.h"
 
 // 2026-10-04：300% 以上ではどの画面も同じ説明の行を使い、項目が何で、どう使うかまで言う。
 // 300% 以上の LEVEL・TIME・FREQ・SPACE と REF の B・C・V で項目を指すと、
@@ -93,6 +94,10 @@ void KirinHyphaEditor::updateHelpLine()
 
 juce::StringArray KirinHyphaEditor::statusStory() const
 {
+    // Attach the recovery to the displayed notice, never to a stale tail or a dismissed toast.
+    if (observatoryView.feedback() == hypha::live_compare_ui::keepTailEndedNotice)
+        return { hypha::live_compare_ui::keepTailDetail, hypha::live_compare_ui::keepTailRecovery,
+                 hypha::live_compare_ui::keepTailRetry };
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (! liveCompareStory.isEmpty() && observatoryView.feedback() == liveCompareWarning)
         return liveCompareStory;

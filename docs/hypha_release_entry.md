@@ -177,6 +177,9 @@ AUはApple専用。Windows x64を「Universal Binary」とは呼ばない。
 署名・公証・配布・GitHub・HPのコマンド接続はscriptが行うが、実DAWの聴取試験を自動PASSにしない。
 `provenance-inputs`、`ci`、`source-delivery`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`packages`、`hosts`、
 `provenance`、`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
+
+A5 の全3チャネルの取り出し証拠が揃う前に distribution まで流すと、provenance は待ち（CHECKPOINT、段は PENDING）で止まる。A5 を済ませてから同じ段を流し直せば、手動の照合や profile の修正なしで再開できる。既にある証拠の hash 不一致、取り出し失敗、重複・未知のチャネルは待ちではなく FAIL のままとする。
+
 PKGをA4の前に作るので、A4は利用者が受け取るbytesを試し、PKGの導入（管理者の認証）は1回で済む。
 
 確認待ちは`CHECKPOINT`／exit 2。後段へは進まない。担当者は表示されたgateを確認し、
@@ -213,6 +216,77 @@ reportはcandidateとpayload/containerのSHAへ結び、各rowの`expected`、`m
 Blind漏洩は0を要求する。最低期待値を緩めない。
 宣言host範囲と追加の数値閾値はA0で担当者が照合し、A3前にmatrix／期待値へ含める。
 reportで事後に期待値を変更して通すことはできない。
+
+### 1.1.58 以降の新規候補で選べる軽い実機受入
+
+`--init --fix-rows FILE` の新しい file に `schema: hypha-release-fix-rows-light-v1` を明示する。
+既存の v2 file・署名済み／凍結済み候補は移行しない。凍結後の条件の変更は従来どおり拒否する。
+以下は受入計画の入力であり、実行や PASS の証拠ではない。
+
+- 7 DAW は各 1 行の `kind: host, scope: ordinary-pass, depth: baseline`。
+  `promise` は付けず、`expected` は `installed / launched / operated / saved / reopened / retained: true`
+  と `newIssues: 0`。導入→起動→普通の操作→保存→再起動して保持を実機で確かめる。
+- 各公開ノートの約束に 1 件ずつ `impact` を置く。`promise`（原文）、`reason`（変更の影響と代表の選定理由）、
+  `scope`（`common / host / platform / format`）、`targets`、`transitions` をすべて明示する。
+  各 target は `{ daw, os, formats }`。変更が影響する DAW・OS・形式を列挙し、共通実装は理由付きの代表を選ぶ。
+  これは担当者が source 差分に基づいて策定し、公開前に監査する計画であって、自動で影響範囲を推定する機能ではない。
+- 各 target の各形式には同じ約束を名指す `depth: deep` の実 host 行が必要。
+  CI 行だけでは代用できない。`platform` と `platformSensitive` の約束は両 OS の深い行を必要とする。
+- `transitions` は変更が影響する具体的な遷移の名前。影響がなければ空配列を明示し理由に記す。
+  各 target の深い行の `expected.transitions` には列挙した名前をすべて `true` として結ぶ。
+  Pro Tools の変更のない全遷移を重複実行しないが、AAX・clock・loop・PDC 等の変更で必要な遷移を省略しない。
+- 軽い型でも通常の形式別通し、安全の 3 行、timing の保守的判定、候補 identity、証拠の hash、
+  `newIssues: 0`、本人判断が必要な除外と公開の承認はそのまま。未実施・失敗を PASS に変えない。
+- format は `macOS/x86_64/AU|VST3|AAX` または `Windows/x64/VST3|AAX` の必須実機範囲。
+  Universal の slice と自動 CI の確認は別に維持する。
+
+例（この断片だけでは他 6 DAW の通しが欠けるため受入条件として成立しない）:
+```json
+{
+  "schema": "hypha-release-fix-rows-light-v1", "release": "1.1.58",
+  "impact": [{ "promise": "Labels remain readable.", "scope": "common",
+    "reason": "Shared renderer; REAPER is the representative. No transport change.",
+    "targets": [{ "daw": "REAPER", "os": "macos", "formats": ["VST3"] }], "transitions": [] }],
+  "rows": [
+    { "id": "reaper-pass", "kind": "host", "scope": "ordinary-pass", "depth": "baseline",
+      "daw": "REAPER", "os": "macos", "hosts": ["macOS/x86_64/VST3"], "chain": "PRE -> POST",
+      "oracle": "ordinary host operation", "expected": { "installed": true, "launched": true,
+        "operated": true, "saved": true, "reopened": true, "retained": true, "newIssues": 0 } },
+    { "id": "labels", "kind": "host", "depth": "deep", "promise": "Labels remain readable.",
+      "daw": "REAPER", "os": "macos", "hosts": ["macOS/x86_64/VST3"], "chain": "PRE -> POST",
+      "oracle": "real host label observation", "expected": { "readable": true, "newIssues": 0 } }
+  ]
+}
+```
+
+### 軽い型の欠けを拒否する条件
+
+- 英語の箇条書きの約束と `impact` はともに1件以上。本文だけで箇条書きが無い場合も拒否する。
+- 深い行は `newIssues: 0` や `passed: true` だけでは足りない。約束の成否に対応する具体的な
+  観測値（例 `readable: true`）、または影響表に宣言した非空の遷移の結果が必要。
+  観測名の意味・影響表の妥当性は引き続き人が差分監査する。
+- 通しと深い行は同じ形式対応を使う。Logic Pro は macOS AU、Pro Tools は AAX、
+  Cubase は VST3、Cakewalk は Windows VST3。Studio One・REAPER・Ableton Live は VST3、
+  macOS では AU も選べる。1行に複数形式を載せても実測を共有したことにはならない。
+- `scope: platform` の約束は同じ DAW の別 OS の深い行を許す。重複した同一 OS の行は拒否する。
+
+A4 の light-v1 の各 host 行は、`evidence` に対象 `hosts` の**各要素ごと**の
+`{ kind: "host-run", host, path, sha256 }` を必ず持つ。通常通しにも同じ条件を適用する。
+参照先は独立した実機実行の記録 `schema: hypha-real-daw-run-v1` とし、次を保持する：
+
+- `execution: real-daw`、実際の `result`、形式ごとに別の `runId`、同一候補 `candidate` と
+  `bindingSha256`、計画と同じ `rowId / daw / os / host / chain`。
+- 実際の `processId / hostVersion / observer / oracle / startedAt / finishedAt`。
+- 凍結計画と同じ `expected` と、その形式を実際に観測した `measured`。
+- 非空の `observations`：実機から保存した `screen / audio / host-log` の `kind / path / sha256`。
+  ファイルとハッシュを保持し、実機で取得した証拠であることを人が監査する。
+
+この記録は実行の証明を担当者が署名なしで申告する形式であり、台本が画面を観測したり、
+申告の真実性を自動認定する機能ではない。CIログだけの添付、実行していない形式の代用、
+欠け・PENDING・候補/形式不一致・実測不一致は拒否する。実行前に成功記録を作らない。
+旧 v2 の証拠形式・凍結条件・安全3行・timing 条件は変更しない。
+
+以下は変更せず保持する **従来の v2 の条件**。新しい軽い型と混同しない。
 
 新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
 `--init --notes FILE --fix-rows FILE`で版ごとの深い検証を結ぶ。公開ノートの英語の部分（最初の`---`の前）の

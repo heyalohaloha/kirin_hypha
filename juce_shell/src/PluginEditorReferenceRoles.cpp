@@ -158,6 +158,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     const auto& slot = runtime.referenceSelection ? *runtime.referenceSelection : runtime;
     state.referenceReady = processorRef.heartbeatLive() && runtime.referenceReady;
     const auto& version = runtime.versionSelection ? *runtime.versionSelection : runtime;
+    state.changeNotes = version.changeNotes;
     const auto& check = runtime.checkSelection ? *runtime.checkSelection : runtime;
     const auto& audibleRole = runtime.audibleComparisonSlot == 1 ? version : runtime.audibleComparisonSlot == 3 ? slot : check;
     // 聴いている役の合わせ方（追従か固定か）。Blind には追従を持ち込まない。

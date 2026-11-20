@@ -5,7 +5,7 @@
 //! means another process won the claim; no final path is visible until it is
 //! complete.
 
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,18 +41,18 @@ pub(crate) fn build_claim_temp(
     match res {
         Ok(()) => Ok(temp),
         Err(e) => {
-            let _ = fs::remove_file(&temp);
+            let _ = crate::atomic_file::durable::entry::remove_file(&temp);
             Err(e)
         }
     }
 }
 
 pub(crate) fn link_claim(temp: &Path, final_path: &Path) -> io::Result<ClaimOutcome> {
-    let outcome = match fs::hard_link(temp, final_path) {
+    let outcome = match crate::atomic_file::durable::entry::hard_link(temp, final_path) {
         Ok(()) => Ok(ClaimOutcome::Created),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(ClaimOutcome::AlreadyClaimed),
         Err(e) => Err(e),
     };
-    let _ = fs::remove_file(temp);
+    let _ = crate::atomic_file::durable::entry::remove_file(temp);
     outcome
 }

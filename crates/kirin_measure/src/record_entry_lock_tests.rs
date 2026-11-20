@@ -1,9 +1,10 @@
 use super::*;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 static TEST_SEQ: AtomicU64 = AtomicU64::new(0);
 
-fn isolated_base() -> PathBuf {
+pub(super) fn isolated_base() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "kirin_record_entry_lock_test_{}_{}",
         std::process::id(),
@@ -55,19 +56,22 @@ fn stale_entry_can_be_reclaimed() {
 fn concurrent_entry_claims_exactly_one_wins() {
     const THREADS: usize = 12;
     let base = Arc::new(isolated_base());
-    let barrier = Arc::new(Barrier::new(THREADS));
+    let mut starts = Vec::new();
     let outcomes = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
 
     for _ in 0..THREADS {
         let base = Arc::clone(&base);
-        let barrier = Arc::clone(&barrier);
+        let (start, ready) = std::sync::mpsc::sync_channel(1);
+        starts.push(start);
         let outcomes = Arc::clone(&outcomes);
         handles.push(std::thread::spawn(move || {
-            barrier.wait();
+            ready
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
             let outcome =
                 claim_record_entry(&base, "ph", "session-concurrent", Role::Post, "post-1")
-                    .map(|()| "created")
+                    .map(|_| "created")
                     .unwrap_or_else(|e| match e {
                         RecordEntryLockError::AlreadyActive { .. } => "already_active",
                         other => panic!("unexpected entry lock outcome: {other}"),
@@ -76,6 +80,9 @@ fn concurrent_entry_claims_exactly_one_wins() {
         }));
     }
 
+    for start in starts {
+        start.send(()).unwrap();
+    }
     for handle in handles {
         handle.join().unwrap();
     }

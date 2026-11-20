@@ -137,7 +137,10 @@ impl CaptureGenerationTransaction {
             publish_current_generation(&self.base_dir, project_hash, &self.generation)?;
         }
         let json = serde_json::to_vec(&self.generation)?;
-        crate::atomic_file::write_bytes_atomic(&preparing_generation_path(&self.base_dir), &json)?;
+        crate::atomic_file::write_bytes_atomic_durable(
+            &preparing_generation_path(&self.base_dir),
+            &json,
+        )?;
         Ok(())
     }
 
@@ -273,7 +276,7 @@ impl CaptureGenerationTransaction {
                 // exact generation. Publish the new active pointer first, then compare-remove
                 // preparation. At every observable filesystem state Stop therefore resolves the
                 // new generation; there is no gap in which retained old active can win.
-                crate::atomic_file::write_bytes_atomic(
+                crate::atomic_file::write_bytes_atomic_durable(
                     &active_generation_path(&self.base_dir),
                     &json,
                 )?;
@@ -366,7 +369,8 @@ fn remove_preparing_if_current(base_dir: &Path, generation: &CaptureGeneration) 
         .as_ref()
         .is_some_and(|current| same_generation(current, generation))
     {
-        let _ = std::fs::remove_file(preparing_generation_path(base_dir));
+        let _ =
+            crate::atomic_file::durable::entry::remove_file(preparing_generation_path(base_dir));
     }
 }
 
@@ -385,7 +389,10 @@ fn restore_project_pointer_if_current(
         if let Some(previous) = previous {
             let _ = publish_current_generation(base_dir, project_hash, previous);
         } else {
-            let _ = std::fs::remove_file(current_generation_path(base_dir, project_hash));
+            let _ = crate::atomic_file::durable::entry::remove_file(current_generation_path(
+                base_dir,
+                project_hash,
+            ));
         }
     }
 }
@@ -470,3 +477,7 @@ mod ready_tests;
 #[cfg(test)]
 #[path = "capture_generation_tx_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "capture_generation_tx_durable_tests.rs"]
+mod durable_tests;

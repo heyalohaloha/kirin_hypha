@@ -33,6 +33,7 @@ void View::initializeVuCalibrationControl()
 {
     addChildComponent (vuCalibrationControl);
     vuCalibrationControl.onClick = [this] { if (onVuCalibrationMenu) onVuCalibrationMenu(); };
+    luFace.onLayoutChange = [this] { updateVuVisibility(); resized(); repaint(); };
 }
 
 void View::setVuCalibration (int value, bool choiceAvailable)
@@ -48,6 +49,7 @@ void View::setAnalysisPage (analysis_navigation::Page page)
 {
     if (analysisPage == page) return;
     retireTimePresentation (true);
+    invalidateSessionPresentation();
     analysisPage = page;
     history.clear(); runSummary = {};
     updateControls(); resized(); repaint();

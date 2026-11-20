@@ -22,6 +22,10 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
         target_compile_options(Kirin_${contract}_Tests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
         add_test(NAME kirin_${contract} COMMAND Kirin_${contract}_Tests)
     endforeach()
+    add_executable(KirinBlindPreferenceTrialTests tests/BlindPreferenceTrialTest.cpp)
+    target_compile_features(KirinBlindPreferenceTrialTests PRIVATE cxx_std_17)
+    target_include_directories(KirinBlindPreferenceTrialTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME kirin_blind_preference_trial COMMAND KirinBlindPreferenceTrialTests)
     find_package(Threads REQUIRED)
     foreach(contract IN ITEMS easy_to_try reaper_loop_entry logic_cycle_entry logic_cycle_replay reaper_pdc_adapter
             chain_trace_burst)

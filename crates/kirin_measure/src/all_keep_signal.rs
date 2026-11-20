@@ -231,8 +231,11 @@ fn write_broadcast_signal(
 ) -> Result<(), AllKeepError> {
     let final_path = signal_path(base_dir, project_hash, originator_post_instance_id);
     let json = serde_json::to_vec(broadcast)?;
-    crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
-    crate::atomic_file::write_bytes_atomic(&current_broadcast_path(base_dir, project_hash), &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&final_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(
+        &current_broadcast_path(base_dir, project_hash),
+        &json,
+    )?;
     Ok(())
 }
 
@@ -271,7 +274,7 @@ pub fn delete_broadcast(
     originator_post_instance_id: &str,
 ) -> Result<(), AllKeepError> {
     let path = signal_path(base_dir, project_hash, originator_post_instance_id);
-    match fs::remove_file(&path) {
+    match crate::atomic_file::durable::entry::remove_file(&path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(AllKeepError::Io(e)),
@@ -284,7 +287,7 @@ pub fn delete_broadcast(
             broadcast.originator_post_instance_id == originator_post_instance_id
         });
     if owns_current {
-        match fs::remove_file(current) {
+        match crate::atomic_file::durable::entry::remove_file(current) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(AllKeepError::Io(e)),
@@ -403,3 +406,7 @@ fn now_iso8601() -> String {
 #[cfg(test)]
 #[path = "all_keep_signal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "coordination_durable_tests.rs"]
+mod coordination_durable_tests;

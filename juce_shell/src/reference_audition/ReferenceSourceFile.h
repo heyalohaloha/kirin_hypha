@@ -15,9 +15,7 @@
 #include <functional>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_cryptography/juce_cryptography.h>
-#if JUCE_WINDOWS
-#include <windows.h>
-#else
+#if ! JUCE_WINDOWS
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -25,6 +23,13 @@
 
 namespace hypha::reference_audition::revision_detail
 {
+#if JUCE_WINDOWS
+namespace windows_detail {
+void* open (const juce::File&); void close (void*) noexcept;
+bool revision (void*, RuntimeFileRevision&); bool seek (void*, juce::int64);
+int read (void*, void*, int);
+}
+#endif
 inline bool equal (const RuntimeFileRevision& a, const RuntimeFileRevision& b)
 {
     return a.deviceId == b.deviceId && a.fileId == b.fileId && a.sizeBytes == b.sizeBytes
@@ -72,9 +77,7 @@ public:
         if (std::exchange (threadOpenFailureForTest, false) || verifyFailureForTest.compare_exchange_strong (expected, 0)) return;
 #endif
 #if JUCE_WINDOWS
-        handle = CreateFileW (file.getFullPathName().toWideCharPointer(), GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-            FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        handle = windows_detail::open (file);
 #else
         handle = ::open (file.getFullPathName().toRawUTF8(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
 #endif
@@ -84,7 +87,7 @@ public:
     ~OpenFile() override
     {
 #if JUCE_WINDOWS
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle (handle);
+        windows_detail::close (handle);
 #else
         if (handle >= 0) ::close (handle);
 #endif
@@ -92,21 +95,7 @@ public:
     bool revision (RuntimeFileRevision& r) const
     {
 #if JUCE_WINDOWS
-        BY_HANDLE_FILE_INFORMATION i {}; FILE_BASIC_INFO b {};
-        if (handle == INVALID_HANDLE_VALUE || !GetFileInformationByHandle (handle, &i)
-            || !GetFileInformationByHandleEx (handle, FileBasicInfo, &b, sizeof (b))
-            || (i.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0
-            || b.LastWriteTime.QuadPart < 116444736000000000LL || b.ChangeTime.QuadPart < 116444736000000000LL)
-            return false;
-        const auto ticks = [] (LONGLONG t) -> juce::String {
-            const auto n = static_cast<std::uint64_t> (t - 116444736000000000LL);
-            return n <= std::numeric_limits<std::uint64_t>::max() / 100 ? number (n * 100) : juce::String {};
-        };
-        r.deviceId = number (i.dwVolumeSerialNumber);
-        r.fileId = number ((std::uint64_t (i.nFileIndexHigh) << 32) | i.nFileIndexLow);
-        r.sizeBytes = number ((std::uint64_t (i.nFileSizeHigh) << 32) | i.nFileSizeLow);
-        r.modifiedTimeNs = ticks (b.LastWriteTime.QuadPart); r.changedTimeNs = ticks (b.ChangeTime.QuadPart);
-        if (r.modifiedTimeNs.isEmpty() || r.changedTimeNs.isEmpty()) return false;
+        if (! windows_detail::revision (handle, r)) return false;
 #else
         struct stat i {};
         if (handle < 0 || ::fstat (handle, &i) != 0 || !S_ISREG (i.st_mode) || i.st_size < 0) return false;
@@ -131,8 +120,7 @@ public:
     bool setPosition (juce::int64 p) override
     {
 #if JUCE_WINDOWS
-        LARGE_INTEGER v {}; v.QuadPart = p;
-        if (handle == INVALID_HANDLE_VALUE || !SetFilePointerEx (handle, v, nullptr, FILE_BEGIN)) return false;
+        if (! windows_detail::seek (handle, p)) return false;
 #else
         if (handle < 0 || ::lseek (handle, p, SEEK_SET) < 0) return false;
 #endif
@@ -147,8 +135,8 @@ public:
         { failed = true; return 0; }
 #endif
 #if JUCE_WINDOWS
-        DWORD got = 0; if (handle == INVALID_HANDLE_VALUE || !ReadFile (handle, data, DWORD (n), &got, nullptr)) { failed = true; return 0; }
-        const auto result = int (got);
+        const auto result = windows_detail::read (handle, data, n);
+        if (result < 0) { failed = true; return 0; }
 #else
         const auto got = handle < 0 ? -1 : ::read (handle, data, size_t (n));
         if (got < 0) { failed = true; return 0; } const auto result = int (got);
@@ -174,7 +162,7 @@ public:
 #endif
 private:
 #if JUCE_WINDOWS
-    HANDLE handle = INVALID_HANDLE_VALUE;
+    void* handle = nullptr;
 #else
     int handle = -1;
 #endif

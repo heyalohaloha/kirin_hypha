@@ -12,6 +12,7 @@
 #include <juce_core/juce_core.h>
 
 #include "ReferenceCuePart.h"
+#include "ReferenceChangeNotesModel.h"
 
 namespace hypha::reference_audition
 {
@@ -91,6 +92,8 @@ namespace hypha::reference_audition
     struct RuntimePreset
     {
         bool versionEntry = false;
+        std::optional<ChangeNotesReceipt> changeNotesReceipt;
+        juce::String changeNotesIssue;
         bool songEntry = false;  // B（REF）の曲。sets.json の B セットの曲 1 つを、1 Check・1 曲の Preset にしたもの
         juce::String workId;
         RuntimeSourcePresetReceipt sourceTemplateArtifact;
@@ -203,6 +206,7 @@ namespace hypha::reference_audition
 
     struct RuntimeLibrarySets
     {
+        std::int64_t manifestRevision = 0; // 採用元。carry しても新しい manifest に付け替えない
         std::int64_t revision = 0;
         juce::String hash;
         std::vector<RuntimeSongSet> songSets;

@@ -78,7 +78,7 @@ void drawMetric (juce::Graphics& g,
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::facts));
         text_style::drawText (g, label, labelArea.reduced (4, 0), juce::Justification::centred);
-        g.setColour (std::isfinite (value) && textOverride.isEmpty()
+        g.setColour (std::isfinite (value) || textOverride.startsWith ("Preparing ")
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
         if (textOverride.isNotEmpty())
             bounded_text::metricState (g, textOverride, area.reduced (4, 0).toFloat(), presentation,
@@ -413,7 +413,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const auto warming = index == lraIndex && cumulativeAvailable
                           && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
         const auto warmingText = warming
-            ? "WARMING " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + " S"
+            ? "Preparing " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + " s"
             : juce::String();
         drawMetric (g, metricHelpArea (area.removeFromLeft (
                         area.getWidth() / (supportCount - index)).reduced (2),

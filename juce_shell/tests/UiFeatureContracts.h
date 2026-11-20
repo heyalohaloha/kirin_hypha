@@ -1,5 +1,12 @@
 #pragma once
+#include "NameSelectAllContract.h"
+#include "FooterShortNoticeBoundaryContract.h"
+#include "ReadabilityFixesContract.h"
+#include "RoleTitleBoundsContract.h"
 #include "FreqFrameDeliveryTest.h"
+#include "VisualReadabilityContract.h"
+#include "SpectrumProductCadenceTest.h"
+#include "SpectrumSettingsQa.h"
 #include "ReferenceLibraryFormatUiTest.h"
 #include "ReferenceMonoVisualTest.h"
 
@@ -16,6 +23,8 @@
 #include "AbsoluteTimelineContractTest.h"
 #include "AbsoluteSpectrumContractTest.h"
 #include "ObservatoryViewContractTest.h"
+#include "LuNeedleContractTest.h"
+#include "BlindLongNameResultTest.h"
 #include "CaptureHistoryContractTest.h"
 #include "ComparisonPresentationContractTest.h"
 #include "TimeFieldContractTest.h"
@@ -57,6 +66,20 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--footer-short-notice-only")
+    { verifyFooterShortNoticeBoundary(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--name-select-all-only")
+    { verifyNameSelectAll(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--bounce-notices-only")
+    { verifyAllListenText (visual_readability::require); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--readability-fixes-only")
+    { readability_fixes::verify(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--visual-readability-only")
+    { visual_readability::verify(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--role-title-only")
+    { role_title_bounds::verify(); return true; }
+    if (argc >= 2 && std::string_view(argv[1]) == "--freq-settings-qa")
+    { std::exit(settings_qa::main(argc, argv)); }
     if (argc == 2 && std::string_view (argv[1]) == "--low-playback-only")
     { verifyLowPlaybackLoad(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-vblank-only")
@@ -67,10 +90,16 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     { verifyVuAnimatorLifecycle(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-performance-only")
     { measureVuFramePerformance(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--blind-long-name-only")
+    { verifyBlindLongNameResult ([] (bool ok, const char* message) { if (!ok) throw std::runtime_error (message); }, juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_UI_REFINEMENT_DIR", {})); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--lu-needle-only")
+    { verifyLuNeedleContract(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-layer-only")
     { verifyVuLayerParity(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--vu-frame-trace-only")
     { verifyVuFrameTrace(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--freq-product-cadence-only")
+    { verifySpectrumProductCadence(); verifySpectrumProductGlowLayers(); verifySpectrumImmediateInteraction(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-path-reuse-only")
     { verifySpectrumPathReuse(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--freq-paint-cost-only")
@@ -147,6 +176,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         verifyTimeHistoryContract();
         return true;
     }
+    role_title_bounds::verify();
     verifyTypographyContract();
     if (typographyOnly) return true;
     if (typographyVisualOnly)
@@ -188,6 +218,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         std::cout << "Product entry: PASS (82 role/size layouts, 41 Reference layouts, update dispatch, DRUM navigation)\n";
         return true;
     }
+    verifyNameSelectAll();
+    verifyFooterShortNoticeBoundary();
     verifyNoteDialog();
     verifyReferenceReachability();
     verifyObservationPageContract();
@@ -203,8 +235,10 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyAbsoluteSpectrumContract();
     verifyPerceptualRenderingContract();
     verifyHybridVuContract();
+    verifyLuNeedleContract();
     verifyObservatoryViewContract();
     verifyCaptureHistoryContract();
+    visual_readability::verify();
     verifyTimeHistoryContract();
     verifySpaceFieldContract();
     return false;

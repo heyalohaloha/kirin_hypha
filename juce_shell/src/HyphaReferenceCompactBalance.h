@@ -90,7 +90,7 @@ inline void paintCompactBalance (juce::Graphics& g, juce::Rectangle<int> bounds,
                                          : state.targets.collection.selected.isEmpty() && item.id == state.songId;
         if (! item.drawable() || (state.overlay.all ? item.line == nullptr : ! selected)) continue;
         const auto colour = state.overlay.all ? overlayLineColour (item.line->colour) : COL_SPECTRUM_DELTA;
-        plot (*item.centers, *item.medians, std::isfinite (item.gainDb) ? item.gainDb : 0.0, colour);
+        plot (*item.centers, *item.medians, std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0, colour);
     }
 }
 }

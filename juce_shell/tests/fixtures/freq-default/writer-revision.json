@@ -1,0 +1,7 @@
+{
+  "baseline_fixture_sha256": "64258a002ab84451840b42b30a23ce589efb39c757a98550dbbcd010a31bc632",
+  "writer_revision_fixture_sha256": "2b83ac580a9445333823d6a389f7c480e843b73206b2cdaebbfd439c858141ed",
+  "baseline_header_sha256": "4c6487cc7ec1e68cc8a6278cf5896be4cefa9d0a151d9bdf6a46853374068363",
+  "writer_revision_header_sha256": "52e4493cd0fc58de01ee33fb63135bb7c87a05bcefe9cffb785a0eec4a7502de",
+  "reason": "Only manifest output uses the existing AtomicFile writeText helper; paint/snapshot/PNG/label code unchanged. Baseline provenance is not rewritten. New native execution remains required."
+}

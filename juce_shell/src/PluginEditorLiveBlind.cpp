@@ -11,7 +11,12 @@ using hypha::live_compare::StartResult;
 
 void KirinHyphaEditor::configureLiveBlind()
 {
-    liveBlindView.setGuessing (hypha::blind_image::guessPreferred (liveBlindView.preferenceFile()));
+    liveBlindView.setPreferenceRounds (hypha::blind_image::preferenceRounds (liveBlindView.preferenceFile()));
+    liveBlindView.onPreferenceRoundsChanged = [this] (int rounds)
+    {
+        if (!hypha::blind_image::preferRounds (liveBlindView.preferenceFile(), rounds))
+            showToast ("Rounds setting could not be saved");
+    };
     observatoryView.onLocalBlind = [this] { openLiveBlind(); };
     scaleRoot.addChildComponent (liveBlindView);
     liveBlindView.onSelect = [this] (int source)
@@ -36,9 +41,19 @@ void KirinHyphaEditor::configureLiveBlind()
     };
     const auto stage = processorRef.liveBlindStatus().stage;
     liveBlindOpen = stage != BlindStage::idle && stage != BlindStage::finishing;
+    liveBlindView.onPreferenceAnswer = [this] (int source, std::uint64_t generation, std::uint32_t epoch)
+    { return processorRef.acceptLiveBlindPreference (source, generation, epoch); };
+    liveBlindView.onPreferenceNext = [this] (std::uint64_t generation, std::uint32_t epoch)
+    {
+        const bool next = processorRef.nextLiveBlindPreferenceRound (generation, epoch);
+        refreshLiveBlind();
+        return next;
+    };
     liveBlindView.onReveal = [this]
     {
-        processorRef.revealLiveBlind();
+        if (liveBlindView.preferenceTrial().planned() > 0)
+            processorRef.revealLiveBlindPreference (liveBlindView.state().generation, liveBlindView.state().trial.epoch);
+        else processorRef.revealLiveBlind();
         refreshLiveBlind();
     };
 }
@@ -104,6 +119,7 @@ void KirinHyphaEditor::refreshLiveBlind()
     // END is accepted even without callbacks. Only the non-modal audio-return notice remains.
     if (blind.stage == BlindStage::idle || status.finishing)
     {
+        liveBlindView.setState (blind, processorRef.isPlaying(), status.postActual);
         liveBlindOpen = false;
         liveCompareActiveSeen = false;
         layoutLocalBlindProduct();
@@ -114,6 +130,8 @@ void KirinHyphaEditor::refreshLiveBlind()
     }
     liveBlindView.setState (blind, processorRef.isPlaying(), status.postActual,
                            processorRef.liveContentTimingObservation().verifySamples);
+    const auto gain = processorRef.liveBlindApprovedPreferenceGain (blind.generation, blind.trial.epoch);
+    liveBlindView.setPreferenceApprovedGains (blind.generation, gain);
 }
 
 void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActive)
@@ -158,7 +176,15 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         hypha::unavailable::addItem (menu, 23, "BLIND",
             ! keepActive && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (true)),
             reasonFor (keepActive ? "Finish Keep / Record before PRE / POST Blind" : liveCompareEntryRefusal (true)));
-    if (observatoryView.localBlindEntryAvailable()) menu.addItem (48, "GUESS", true, liveBlindView.guessing());
+    if (observatoryView.localBlindEntryAvailable())
+    {
+        juce::PopupMenu preference;
+        const bool canChange = liveBlindView.canChangePreferenceRounds();
+        preference.addItem (481, "1 round", canChange, liveBlindView.preferenceRounds() == 1);
+        preference.addItem (485, "5 rounds", canChange, liveBlindView.preferenceRounds() == 5);
+        preference.addItem (490, "10 rounds", canChange, liveBlindView.preferenceRounds() == 10);
+        menu.addSubMenu ("ROUNDS", preference);
+    }
     menu.addItem (44, processorRef.candidateCompareActive() ? "Align A automatically" : "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 
@@ -167,12 +193,12 @@ bool KirinHyphaEditor::handleLiveCompareMenu (int result)
     // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
     if (result == 45) { showCandidateCompareMenu(); return true; }
     if (result == 46 || result == 47) { handleLiveCompareFollowChoice (result == 46 ? 1 : liveCompareAuto.on ? 2 : 3); return true; }
-    if (result == 48)
+    if (result == 481 || result == 485 || result == 490)
     {
-        // GUESS holds for this editor even when the setting file cannot be written.
-        liveBlindView.setGuessing (! liveBlindView.guessing());
-        if (! hypha::blind_image::preferGuess (liveBlindView.preferenceFile(), liveBlindView.guessing()))
-            showToast ("GUESS setting could not be saved");
+        const int rounds = result == 485 ? 5 : result == 490 ? 10 : 1;
+        // Recheck at dispatch: a vote may have landed while this menu was open.
+        if (liveBlindView.setPreferenceRounds (rounds) && liveBlindView.onPreferenceRoundsChanged)
+            liveBlindView.onPreferenceRoundsChanged (rounds);
         return true;
     }
     if (result < 40 || result > 44) return false;

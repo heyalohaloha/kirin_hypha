@@ -1,3 +1,4 @@
+#include "StorageWriteGuardStartup.h"
 #include "TestTemporaryDirectory.h"
 #include "../src/appearance/AppearanceContract.h"
 #include "../src/appearance/AppearanceFileLock.h"
@@ -8,6 +9,8 @@
 #include <iostream>
 #include <thread>
 #include "TestPathBudget.h"
+#include "AppearanceWriteGuardTest.h"
+#include "ShippingDisabledGuardTest.h"
 namespace
 {
 constexpr auto activationId = "123e4567-e89b-42d3-a456-426614174000";
@@ -268,8 +271,28 @@ void verifyOperatingSystemLock()
 
 int main (int argc, char** argv)
 {
+    if(argc==2 && juce::String(argv[1])=="--guard-shipping-disabled") {
+        const auto check=[](bool ok,const char* message){require(ok,message,__LINE__);};
+        const auto root=hypha::tests::shippingDisabledFixture(check).getNonexistentChildFile("appearance",{},false);
+        const auto before=hypha::storage::write_guard::permittedMutationEntries();
+        hypha::appearance::Storage storage(root);
+        hypha::appearance::Activation activation; activation.id="123e4567-e89b-42d3-a456-426614174000";
+        check(storage.updatePreference(activation,std::nullopt,true).state==hypha::appearance::TransactionState::persisted,
+              "disabled Appearance shared code saves outside configured root");
+        check(storage.preferenceFile().existsAsFile(),"disabled Appearance bytes exist");
+        check(before==hypha::storage::write_guard::permittedMutationEntries(),"disabled Appearance mutation count unchanged");
+        check(hypha::tests::removeFixtureDirectory(root),"disabled Appearance fixture cleanup");
+        return 0;
+    }
+    if (!hypha::tests::initializeStorageWriteGuard()) return 78;
+    if (argc == 2 && juce::String(argv[1]) == "--guard-startup-only") return 0;
     if (argc == 3 && juce::String (argv[1]) == "--lock-child")
         return runLockChild (juce::String (argv[2]));
+    KIRIN_APPEARANCE_REQUIRE(hypha::appearance::test_write_guard::permitMutation(
+        hypha::tests::temporaryParent().getChildFile("guard-startup-preflight")));
+    const auto guardRoot=makeRoot();
+    hypha::tests::verifyAppearanceWriteGuard(guardRoot,[](bool ok,const char* message) { require(ok,message,__LINE__); });
+    KIRIN_APPEARANCE_REQUIRE(hypha::tests::removeFixtureDirectory(guardRoot));
     verifyDecoding();
     verifyStorageAndRecovery();
     verifyConcurrentFieldUpdates();

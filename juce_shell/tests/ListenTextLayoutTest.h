@@ -44,7 +44,7 @@ void verifyAllListenText (Require require)
                 if (item.text.startsWith ("Waiting up to 10 s, then "))
                     require (i18n::tr (item.text) != item.text, "automatic wait guidance is translated");
         if (language == i18n::Language::japanese)
-            for (const auto* text : { "Before realtime bounce, press END and wait for normal level",
+            for (const auto* text : { "Before a realtime bounce, press END and wait for the level to return",
                                       "Press END to finish the current comparison, then try again" })
                 require (i18n::tr (text) != text, "comparison instructions are translated");
         for (const auto& item : notices)
@@ -66,7 +66,7 @@ void verifyAllListenText (Require require)
                     && item.text != "Measurements saved; waiting for Kirin OS audio (auto link)"
                     && item.text != "No new PRE processing; DAW may pause it (POST)"
                     && ! item.text.startsWith ("Waiting up to 10 s, then ")
-                    && item.text != "Before realtime bounce, press END and wait for normal level"
+                    && item.text != "Before a realtime bounce, press END and wait for the level to return"
                     && item.text != "Press END to finish the current comparison, then try again") continue;
                 named.setFeedback ({});
                 named.setSize (width, width * 2 / 3);
@@ -94,7 +94,7 @@ void verifyAllListenText (Require require)
                     || item.text == "Measurements saved; waiting for Kirin OS audio (auto link)"
                     || item.text == "No new PRE processing; DAW may pause it (POST)"
                     || item.text.startsWith ("Waiting up to 10 s, then ")
-                    || item.text == "Before realtime bounce, press END and wait for normal level"
+                    || item.text == "Before a realtime bounce, press END and wait for the level to return"
                     || item.text == "Press END to finish the current comparison, then try again")
                     require (font.getHeight() >= 14.0f, "storage guidance is readable at every size");
                 const bool complete = pixels.isValid()

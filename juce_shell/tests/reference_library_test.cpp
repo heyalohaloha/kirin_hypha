@@ -11,6 +11,7 @@
 #include "ReferenceConcurrentSwitch.h"
 #include "../src/AtomicFile.h"
 #include "ReferenceLibraryFormatTest.h"
+#include "ReferenceChangeNotesAsyncControllerTest.h"
 namespace
 {
 bool waitFor (ref::RuntimeV2Controller& controller, const std::function<bool(const ref::Snapshot&)>& predicate)
@@ -28,9 +29,9 @@ bool waitFor (ref::RuntimeV2Controller& controller, const std::function<bool(con
 
 }
 
-void testReferenceLibraryContract (const juce::File& sandbox);
 void testReferenceLibraryContract (const juce::File& sandbox)
 {
+    verifyChangeNotesRepository (sandbox);
     testReferenceLibraryFormat (sandbox);
     const auto root = sandbox.getChildFile ("independent-library");
     ref::RuntimeV2Repository repository (root);

@@ -191,7 +191,7 @@ pub fn write_expected_metadata(
     }
     let path = expected_path(base_dir, project_hash);
     let json = serde_json::to_vec(metadata)?;
-    crate::atomic_file::write_bytes_atomic(&path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&path, &json)?;
     Ok(())
 }
 
@@ -534,9 +534,9 @@ pub(crate) fn write_claim_marker_for_generation(
     };
     let json = serde_json::to_vec(&marker)?;
     let session_path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
-    crate::atomic_file::write_bytes_atomic(&session_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&session_path, &json)?;
     let path = expected_claim_marker_path(base_dir, project_hash, metadata, session_id);
-    crate::atomic_file::write_bytes_atomic(&path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&path, &json)?;
     Ok(())
 }
 
@@ -566,7 +566,7 @@ fn write_empty_claim_marker_for_generation(
     };
     let json = serde_json::to_vec(&marker)?;
     let session_path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
-    crate::atomic_file::write_bytes_atomic(&session_path, &json)?;
+    crate::atomic_file::write_bytes_atomic_durable(&session_path, &json)?;
     Ok(())
 }
 

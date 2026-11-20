@@ -1,0 +1,544 @@
+{
+  "cases": [
+    {
+      "name": "300-en",
+      "width": 300,
+      "height": 200,
+      "rgba_sha256": "5dcd046317aef0031c4b9d794492193bda2d9c2af51cf8879c05153820fc2c84",
+      "labels": [
+        {
+          "text": "+24",
+          "bounds": "0 2 22 11"
+        },
+        {
+          "text": "0",
+          "bounds": "0 92 22 11"
+        },
+        {
+          "text": "-24",
+          "bounds": "0 181 22 11"
+        },
+        {
+          "text": "10",
+          "bounds": "26 188 32 11"
+        },
+        {
+          "text": "1k",
+          "bounds": "170 188 32 11"
+        },
+        {
+          "text": "22k",
+          "bounds": "262 188 32 11"
+        },
+        {
+          "text": "\u0394",
+          "bounds": "29 9 13 11"
+        },
+        {
+          "text": "PRE",
+          "bounds": "46 9 21 11"
+        },
+        {
+          "text": "POST",
+          "bounds": "74 9 30 11"
+        }
+      ]
+    },
+    {
+      "name": "600-en",
+      "width": 600,
+      "height": 400,
+      "rgba_sha256": "6e59710c451fa91cf0976fc3c492fa1cd15a0f875f01a7db8c698e6efb0d4fb7",
+      "labels": [
+        {
+          "text": "+24",
+          "bounds": "0 99 43 21"
+        },
+        {
+          "text": "0",
+          "bounds": "0 231 43 21"
+        },
+        {
+          "text": "-24",
+          "bounds": "0 363 43 21"
+        },
+        {
+          "text": "0",
+          "bounds": "554 97 43 21"
+        },
+        {
+          "text": "-48",
+          "bounds": "554 231 43 21"
+        },
+        {
+          "text": "-96",
+          "bounds": "554 365 43 21"
+        },
+        {
+          "text": "10",
+          "bounds": "50 377 62 21"
+        },
+        {
+          "text": "1k",
+          "bounds": "317 377 62 21"
+        },
+        {
+          "text": "22k",
+          "bounds": "486 377 62 21"
+        },
+        {
+          "text": "100",
+          "bounds": "168 377 62 21"
+        },
+        {
+          "text": "10k",
+          "bounds": "466 377 62 21"
+        },
+        {
+          "text": "LR",
+          "bounds": "50 14 41 27"
+        },
+        {
+          "text": "MID",
+          "bounds": "95 14 54 27"
+        },
+        {
+          "text": "SIDE",
+          "bounds": "153 14 62 27"
+        },
+        {
+          "text": "M/S",
+          "bounds": "219 14 66 27"
+        },
+        {
+          "text": "LOW",
+          "bounds": "304 14 50 27"
+        },
+        {
+          "text": "RAW",
+          "bounds": "400 48 74 21"
+        },
+        {
+          "text": "SHAPE",
+          "bounds": "474 48 74 21"
+        },
+        {
+          "text": "\u0394",
+          "bounds": "56 48 25 21"
+        },
+        {
+          "text": "PRE",
+          "bounds": "89 48 41 21"
+        },
+        {
+          "text": "POST",
+          "bounds": "143 48 58 21"
+        },
+        {
+          "text": "MARK",
+          "bounds": "462 14 87 27"
+        },
+        {
+          "text": "\u0394(f) = POST(f) - PRE(f)  dB",
+          "bounds": "62 115 475 252"
+        },
+        {
+          "text": "APERTURE 85.3 ms   FFT 8192   256 BANDS   30 Hz",
+          "bounds": "62 353 299 14"
+        },
+        {
+          "text": "PSB",
+          "bounds": "362 14 91 27"
+        },
+        {
+          "text": "AVG LIVE",
+          "bounds": "0 0 169 27"
+        }
+      ]
+    },
+    {
+      "name": "900-en",
+      "width": 900,
+      "height": 600,
+      "rgba_sha256": "4fe88ebac70c254b8f9e2311b3f23917890ef335061b9be83d1b20d930a80ffa",
+      "labels": [
+        {
+          "text": "+24",
+          "bounds": "0 147 64 31"
+        },
+        {
+          "text": "0",
+          "bounds": "0 346 64 31"
+        },
+        {
+          "text": "-24",
+          "bounds": "0 545 64 31"
+        },
+        {
+          "text": "0",
+          "bounds": "832 144 64 31"
+        },
+        {
+          "text": "-48",
+          "bounds": "832 346 64 31"
+        },
+        {
+          "text": "-96",
+          "bounds": "832 548 64 31"
+        },
+        {
+          "text": "10",
+          "bounds": "74 566 92 31"
+        },
+        {
+          "text": "1k",
+          "bounds": "476 566 92 31"
+        },
+        {
+          "text": "22k",
+          "bounds": "731 566 92 31"
+        },
+        {
+          "text": "100",
+          "bounds": "252 566 92 31"
+        },
+        {
+          "text": "10k",
+          "bounds": "701 566 92 31"
+        },
+        {
+          "text": "LR",
+          "bounds": "74 21 61 40"
+        },
+        {
+          "text": "MID",
+          "bounds": "141 21 80 40"
+        },
+        {
+          "text": "SIDE",
+          "bounds": "227 21 92 40"
+        },
+        {
+          "text": "M/S",
+          "bounds": "325 21 98 40"
+        },
+        {
+          "text": "LOW",
+          "bounds": "461 21 74 40"
+        },
+        {
+          "text": "RAW",
+          "bounds": "603 71 110 31"
+        },
+        {
+          "text": "SHAPE",
+          "bounds": "713 71 110 31"
+        },
+        {
+          "text": "\u0394",
+          "bounds": "83 71 37 31"
+        },
+        {
+          "text": "PRE",
+          "bounds": "132 71 61 31"
+        },
+        {
+          "text": "POST",
+          "bounds": "212 71 86 31"
+        },
+        {
+          "text": "MARK",
+          "bounds": "695 21 129 40"
+        },
+        {
+          "text": "\u0394(f) = POST(f) - PRE(f)  dB",
+          "bounds": "86 167 726 388"
+        },
+        {
+          "text": "APERTURE 85.3 ms   FFT 8192   256 BANDS   30 Hz",
+          "bounds": "86 539 348 16"
+        },
+        {
+          "text": "PSB",
+          "bounds": "547 21 135 40"
+        },
+        {
+          "text": "AVG LIVE",
+          "bounds": "0 0 251 40"
+        }
+      ]
+    },
+    {
+      "name": "300-ja",
+      "width": 300,
+      "height": 200,
+      "rgba_sha256": "5dcd046317aef0031c4b9d794492193bda2d9c2af51cf8879c05153820fc2c84",
+      "labels": [
+        {
+          "text": "+24",
+          "bounds": "0 2 22 11"
+        },
+        {
+          "text": "0",
+          "bounds": "0 92 22 11"
+        },
+        {
+          "text": "-24",
+          "bounds": "0 181 22 11"
+        },
+        {
+          "text": "10",
+          "bounds": "26 188 32 11"
+        },
+        {
+          "text": "1k",
+          "bounds": "170 188 32 11"
+        },
+        {
+          "text": "22k",
+          "bounds": "262 188 32 11"
+        },
+        {
+          "text": "\u0394",
+          "bounds": "29 9 13 11"
+        },
+        {
+          "text": "PRE",
+          "bounds": "46 9 21 11"
+        },
+        {
+          "text": "POST",
+          "bounds": "74 9 30 11"
+        }
+      ]
+    },
+    {
+      "name": "600-ja",
+      "width": 600,
+      "height": 400,
+      "rgba_sha256": "6e59710c451fa91cf0976fc3c492fa1cd15a0f875f01a7db8c698e6efb0d4fb7",
+      "labels": [
+        {
+          "text": "+24",
+          "bounds": "0 99 43 21"
+        },
+        {
+          "text": "0",
+          "bounds": "0 231 43 21"
+        },
+        {
+          "text": "-24",
+          "bounds": "0 363 43 21"
+        },
+        {
+          "text": "0",
+          "bounds": "554 97 43 21"
+        },
+        {
+          "text": "-48",
+          "bounds": "554 231 43 21"
+        },
+        {
+          "text": "-96",
+          "bounds": "554 365 43 21"
+        },
+        {
+          "text": "10",
+          "bounds": "50 377 62 21"
+        },
+        {
+          "text": "1k",
+          "bounds": "317 377 62 21"
+        },
+        {
+          "text": "22k",
+          "bounds": "486 377 62 21"
+        },
+        {
+          "text": "100",
+          "bounds": "168 377 62 21"
+        },
+        {
+          "text": "10k",
+          "bounds": "466 377 62 21"
+        },
+        {
+          "text": "LR",
+          "bounds": "50 14 41 27"
+        },
+        {
+          "text": "MID",
+          "bounds": "95 14 54 27"
+        },
+        {
+          "text": "SIDE",
+          "bounds": "153 14 62 27"
+        },
+        {
+          "text": "M/S",
+          "bounds": "219 14 66 27"
+        },
+        {
+          "text": "LOW",
+          "bounds": "304 14 50 27"
+        },
+        {
+          "text": "RAW",
+          "bounds": "400 48 74 21"
+        },
+        {
+          "text": "SHAPE",
+          "bounds": "474 48 74 21"
+        },
+        {
+          "text": "\u0394",
+          "bounds": "56 48 25 21"
+        },
+        {
+          "text": "PRE",
+          "bounds": "89 48 41 21"
+        },
+        {
+          "text": "POST",
+          "bounds": "143 48 58 21"
+        },
+        {
+          "text": "MARK",
+          "bounds": "462 14 87 27"
+        },
+        {
+          "text": "\u0394(f) = POST(f) - PRE(f)  dB",
+          "bounds": "62 115 475 252"
+        },
+        {
+          "text": "APERTURE 85.3 ms   FFT 8192   256 BANDS   30 Hz",
+          "bounds": "62 353 299 14"
+        },
+        {
+          "text": "PSB",
+          "bounds": "362 14 91 27"
+        },
+        {
+          "text": "AVG LIVE",
+          "bounds": "0 0 169 27"
+        }
+      ]
+    },
+    {
+      "name": "900-ja",
+      "width": 900,
+      "height": 600,
+      "rgba_sha256": "4fe88ebac70c254b8f9e2311b3f23917890ef335061b9be83d1b20d930a80ffa",
+      "labels": [
+        {
+          "text": "+24",
+          "bounds": "0 147 64 31"
+        },
+        {
+          "text": "0",
+          "bounds": "0 346 64 31"
+        },
+        {
+          "text": "-24",
+          "bounds": "0 545 64 31"
+        },
+        {
+          "text": "0",
+          "bounds": "832 144 64 31"
+        },
+        {
+          "text": "-48",
+          "bounds": "832 346 64 31"
+        },
+        {
+          "text": "-96",
+          "bounds": "832 548 64 31"
+        },
+        {
+          "text": "10",
+          "bounds": "74 566 92 31"
+        },
+        {
+          "text": "1k",
+          "bounds": "476 566 92 31"
+        },
+        {
+          "text": "22k",
+          "bounds": "731 566 92 31"
+        },
+        {
+          "text": "100",
+          "bounds": "252 566 92 31"
+        },
+        {
+          "text": "10k",
+          "bounds": "701 566 92 31"
+        },
+        {
+          "text": "LR",
+          "bounds": "74 21 61 40"
+        },
+        {
+          "text": "MID",
+          "bounds": "141 21 80 40"
+        },
+        {
+          "text": "SIDE",
+          "bounds": "227 21 92 40"
+        },
+        {
+          "text": "M/S",
+          "bounds": "325 21 98 40"
+        },
+        {
+          "text": "LOW",
+          "bounds": "461 21 74 40"
+        },
+        {
+          "text": "RAW",
+          "bounds": "603 71 110 31"
+        },
+        {
+          "text": "SHAPE",
+          "bounds": "713 71 110 31"
+        },
+        {
+          "text": "\u0394",
+          "bounds": "83 71 37 31"
+        },
+        {
+          "text": "PRE",
+          "bounds": "132 71 61 31"
+        },
+        {
+          "text": "POST",
+          "bounds": "212 71 86 31"
+        },
+        {
+          "text": "MARK",
+          "bounds": "695 21 129 40"
+        },
+        {
+          "text": "\u0394(f) = POST(f) - PRE(f)  dB",
+          "bounds": "86 167 726 388"
+        },
+        {
+          "text": "APERTURE 85.3 ms   FFT 8192   256 BANDS   30 Hz",
+          "bounds": "86 539 348 16"
+        },
+        {
+          "text": "PSB",
+          "bounds": "547 21 135 40"
+        },
+        {
+          "text": "AVG LIVE",
+          "bounds": "0 0 251 40"
+        }
+      ]
+    }
+  ],
+  "backend": "JUCE ARGB/CoreGraphics bitmap; paintEntireComponent; scale1",
+  "mode": "paired FULL LR AVG LIVE defaults; initial static snapshot; no hover",
+  "os": "Mac OSX 15.7.7",
+  "juce": "JUCE v7.0.12"
+}

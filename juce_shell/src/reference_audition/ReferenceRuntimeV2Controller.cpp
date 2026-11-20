@@ -1,4 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceMetricRuntime.h"
+#include "ReferenceMetricSetRuntime.h"
 #include "ReferenceCopyCorrespondence.h"
 #include "ReferenceTestCommitObserver.h"
 
@@ -53,6 +55,8 @@ namespace hypha::reference_audition
           eventTransport (root),
           libraryReceivedWriter (root, std::move (receivedStore))
     {
+        metricRuntime = std::make_unique<metrics::Runtime> (root);
+        metricSetRuntime = std::make_unique<metrics::SetRuntime> (root);
         trackingEnabled.store (versionComparison, std::memory_order_release);  // V は追従、C は固定
         outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
@@ -67,6 +71,8 @@ namespace hypha::reference_audition
         notify();
         if (! stopThread (-1))
             jassertfalse;
+        metricRuntime->clear();
+        metricSetRuntime->clear();
         outputRetirement.stop();
         blind.forceClearAfterAudioStopped();
         releaseActiveOutputGate();
@@ -105,10 +111,55 @@ namespace hypha::reference_audition
         configure ({}, 0.0, 0);
     }
 
+    void RuntimeV2Controller::setMetricSeriesCache (std::shared_ptr<metrics::SeriesCache> cache)
+    {
+        { const juce::ScopedLock lock (stateLock); metricSeriesCache = std::move (cache); }
+        notify();
+    }
+
+    void RuntimeV2Controller::setMetricOwnershipLease (std::shared_ptr<void> lease)
+    {
+        { const juce::ScopedLock lock (stateLock);
+          if (!metricOwnershipManaged || metricOwnershipLease != lease) metricOwnershipEpoch.changed();
+          metricOwnershipManaged = true;
+          metricOwnershipLease = std::move (lease); }
+        notify();
+    }
+
+    void RuntimeV2Controller::setMetricContext (bool enabled, const juce::String& setId, std::uint64_t generation)
+    {
+        const juce::ScopedLock lock (stateLock);
+        if (metricObservationEnabled.load() == enabled && metricSetId == setId && metricContextGeneration == generation) return;
+        metricSetId = setId; metricContextGeneration = generation;
+        metricObservationEnabled.store (enabled, std::memory_order_release);
+        notify();
+    }
+
     Snapshot RuntimeV2Controller::snapshot() const
     {
         const juce::ScopedLock lock (stateLock);
         auto result = currentSnapshot;
+        result.nativeMetrics = metricRuntime->snapshot();
+        if ((metricOwnershipManaged && (!metricOwnershipLease || !metricOwnershipEpoch.current()))
+            || !ready.load (std::memory_order_acquire) || !metricObservationEnabled.load (std::memory_order_acquire)
+            || (result.nativeMetrics && result.nativeMetrics->selectionGeneration != requestedSelection.generation))
+            result.nativeMetrics.reset();
+        if (result.nativeMetrics && result.nativeMetrics->series)
+        {
+            const auto set = metricSetRuntime->snapshot();
+            if (set && set->membershipKey == metrics::metricSetKey (workspace.get(), metricSetId)
+                && set->generation == metricContextGeneration && set->rate == result.nativeMetrics->series->rate
+                && set->channels == result.nativeMetrics->series->channels)
+            {
+                auto combined = std::make_shared<metrics::Publication> (*result.nativeMetrics);
+                combined->setKey = set->membershipKey; combined->setReason = set->reason; combined->setGeneration = set->generation;
+                combined->setExpected = set->expected; combined->setCompleted = set->completed;
+                combined->setComplete = set->complete;
+                if (set->complete) combined->bands = set->bands;
+                result.nativeMetrics = std::move (combined);
+            }
+        }
+
         const auto observationBefore = inputObservationGeneration.load (std::memory_order_acquire);
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
         result.publicationIssue = retainedPublicationIssue;
@@ -132,6 +183,8 @@ namespace hypha::reference_audition
         result.followA = follows;
         result.followOffsetSeconds = requestedConfiguration.sampleRate > 0.0
             ? static_cast<double> (offsetNow) / requestedConfiguration.sampleRate : 0.0;
+        if (follows && publishedReady && sourcePosition >= 0 && mappingBefore == mappingAfter && requestedConfiguration.sampleRate > 0.0)
+            result.followPositionSeconds = static_cast<double> (sourcePosition) / requestedConfiguration.sampleRate;
         // FOLLOW A で A の位置＋ずらしが曲の外（同じ写像で読めたときだけ。曲の長さは開いた面の長さ）。
         if (follows && publishedReady && result.transportPositionValid && sourcePosition < 0
             && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter
@@ -203,6 +256,10 @@ namespace hypha::reference_audition
                 contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()));
         if ((versionComparison && !blindState.eligible) || result.followOutside != 0) result.auditionBuffered = false;
         if (result.bSelected && normalPageWaiting.load (std::memory_order_acquire)) result.auditionBuffered = false;
+        if (!versionComparison || result.changeNotesSelectionGeneration != requestedSelection.generation
+            || result.changeNotesConfigurationGeneration != requestedConfiguration.generation
+            || blindState.phase != BlindPhase::inactive)
+            result.changeNotes.reset();
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;
         result.pendingBlindStimulus = blindState.pendingStimulus;

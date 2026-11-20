@@ -261,6 +261,15 @@ fn stale_reclaim_is_not_clobbered_by_old_guard_drop_or_heartbeat() {
     first.claim.heartbeat_at_ms = now_epoch_ms() - WRITER_CLAIM_STALE_MS - 1_000;
     let bytes = serde_json::to_vec(&first.claim).unwrap();
     crate::atomic_file::write_bytes_atomic(&first.path, &bytes).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&first.path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(
+            std::time::UNIX_EPOCH
+                + std::time::Duration::from_millis(first.claim.heartbeat_at_ms as u64),
+        ))
+        .unwrap();
 
     let second = claim_writer(&base, "ph", "session-stale-reclaim", Role::Post, "post-1").unwrap();
     let second_owner = second.claim.owner_id.clone();
@@ -347,3 +356,6 @@ fn the_first_claim_makes_its_new_project_directory_durable_in_the_base() {
         );
     }
 }
+
+#[path = "record_writer_claim_durable_tests.rs"]
+mod durable_tests;

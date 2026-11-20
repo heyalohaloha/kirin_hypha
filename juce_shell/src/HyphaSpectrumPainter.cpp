@@ -1,4 +1,6 @@
 #include "HyphaSpectrumPainter.h"
+#include "HyphaSpectrumGlowLayers.h"
+#include "HyphaSpectrumPhaseProfile.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumPostBody.h"
@@ -137,6 +139,7 @@ void paintCurves (juce::Graphics& g,
                   const SpectrumValidity* markValid, float range, float brightness, bool richPost,
                   PathWorkspace* workspace)
 {
+    KIRIN_FREQ_SCOPE(profileGeometry, curve_geometry_paths);
     std::optional<PathWorkspace> localWorkspace;
     if (workspace == nullptr) localWorkspace.emplace();
     auto& paths = workspace != nullptr ? *workspace : *localWorkspace;
@@ -209,7 +212,7 @@ void paintCurves (juce::Graphics& g,
             ++last;
         if (bucket > 0u)
         {
-            for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
+            for (const auto layer : glowLayers)
             {
                 auto& tip = paths.path (PathWorkspace::tipBase + layer * kIntensityLevelCount + bucket,
                                         ribbonCapacity);
@@ -226,6 +229,8 @@ void paintCurves (juce::Graphics& g,
         first = last + 1;
     }
 
+    KIRIN_FREQ_FINISH(profileGeometry);
+    KIRIN_FREQ_SCOPE(profilePrePost, pre_post_stroke_and_rich_fill);
     g.setColour (COL_SPECTRUM_PRE.withMultipliedBrightness (brightness).withAlpha (ui_contract::spectrumPreCurveAlpha));
     g.strokePath (preCurve,
                   juce::PathStrokeType (scaledStroke (ui_contract::spectrumPreStrokeWidth),
@@ -235,6 +240,8 @@ void paintCurves (juce::Graphics& g,
     strokePostCurve (g, postCurve, visualScale, brightness);
     if (richPost) post_body::edge (g, postCurve, strokeScale, brightness);
 
+    KIRIN_FREQ_FINISH(profilePrePost);
+    KIRIN_FREQ_SCOPE(profileDeltaGeometry, delta_fill_geometry);
     auto& deltaFill = paths.path (4, ribbonCapacity);
     deltaFill.setUsingNonZeroWinding (false);
     for (size_t first = 0; first < KIRIN_SPECTRUM_BAND_COUNT;)
@@ -254,6 +261,9 @@ void paintCurves (juce::Graphics& g,
         }
         first = last + 1;
     }
+    KIRIN_FREQ_FINISH(profileDeltaGeometry);
+    KIRIN_FREQ_SCOPE(profileDeltaPaint, delta_fill_stroke_glow);
+    KIRIN_FREQ_SCOPE(profileGradientBody, delta_gradient_body);
     juce::ColourGradient fillGradient (COL_SPECTRUM_DELTA.withMultipliedBrightness (brightness).withAlpha (0.34f),
                                        plot.getX(), plot.getY(),
                                        COL_SPECTRUM_DELTA.withMultipliedBrightness (brightness).withAlpha (0.34f),
@@ -262,9 +272,11 @@ void paintCurves (juce::Graphics& g,
     g.setGradientFill (fillGradient);
     g.fillPath (deltaFill);
 
+    KIRIN_FREQ_FINISH(profileGradientBody);
+    KIRIN_FREQ_SCOPE(profileTipRibbons, delta_tip_ribbons);
     // A measurement-derived tip ribbon adds density beside the live presentation edge, never
     // across the whole body. Numeric readout, MARK and Focus Trail retain their unsmoothed facts.
-    for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
+    for (const auto layer : glowLayers)
     {
         for (size_t bucket = 1; bucket < kIntensityLevelCount; ++bucket)
         {
@@ -276,6 +288,8 @@ void paintCurves (juce::Graphics& g,
         }
     }
 
+    KIRIN_FREQ_FINISH(profileTipRibbons);
+    KIRIN_FREQ_SCOPE(profileMarkZero, delta_mark_and_zero_lines);
     // MARK is a presentation-only frozen Δ. Amber separates the chosen moment from the cyan live
     // presentation, while its narrower stroke and lack of fill/glow keep live Δ visually primary.
     if (! markCurve.isEmpty())
@@ -294,6 +308,8 @@ void paintCurves (juce::Graphics& g,
     g.setColour (COL_SPECTRUM_DELTA_BR.withMultipliedBrightness (brightness).withAlpha (0.76f));
     g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaledStroke (1.0f));
 
+    KIRIN_FREQ_FINISH(profileMarkZero);
+    KIRIN_FREQ_SCOPE(profilePrimaryStrokes, delta_primary_strokes);
     g.setColour (COL_SPECTRUM_DELTA.withMultipliedBrightness (brightness).withAlpha (0.17f));
     g.strokePath (deltaCurve, juce::PathStrokeType (scaledGlow (4.6f),
                                                     juce::PathStrokeType::curved,
@@ -303,6 +319,8 @@ void paintCurves (juce::Graphics& g,
                                                     juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
 
+    KIRIN_FREQ_FINISH(profilePrimaryStrokes);
+    KIRIN_FREQ_SCOPE(profileHighlights, delta_bucket_highlights);
     constexpr std::array<float, kIntensityLevelCount> highlightAlpha {
         0.10f, 0.13f, 0.16f, 0.19f, 0.22f, 0.255f, 0.29f,
         0.325f, 0.36f, 0.40f, 0.44f, 0.48f, 0.52f,
@@ -326,11 +344,12 @@ void paintAbsoluteHistory (juce::Graphics& g,
                            const absolute_spectrum::History& history, spectrum_display::Backdrop* cache,
                            display_settings::Values settings, float minimumHz, float maximumHz)
 {
+    KIRIN_FREQ_SCOPE(profileHistory, history_total);
     if (plot.isEmpty()) return;
     if (cache != nullptr && cache->enabled && history.size() >= 2 && plot.getWidth() >= spectrum_terrain::minimumPlotWidth)
     {
         cache->paintRaster (g, plot, history.revision(), settings, [&] (juce::Image& image, float dpi)
-        { spectrum_terrain::renderLevelLandscape (image, dpi, plot, history, settings, minimumHz, maximumHz); });
+        { KIRIN_FREQ_SCOPE(profileRaster, history_raster_render_callback); spectrum_terrain::renderLevelLandscape (image, dpi, plot, history, settings, minimumHz, maximumHz); });
         return;
     }
     if (cache != nullptr)

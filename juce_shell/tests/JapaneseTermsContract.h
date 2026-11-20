@@ -139,4 +139,68 @@ inline void verifyBuiltInTermAliases()
                 }
             }
 }
+// Stored aliases converge only for built-in IDs; authored labels remain untouched.
+inline void verifyStoredReferenceNameAliases()
+{
+    const auto check = [] (bool valid, const char* message)
+    {
+        if (! valid) { std::cerr << "Stored reference name: " << message << '\n'; std::exit (EXIT_FAILURE); }
+    };
+    const char* const names[][3] {
+        { u8"録音｜部屋・ノイズ・かぶり", u8"録音｜部屋・ノイズ・他の音の混入", u8"Recording · room, noise, and bleed" },
+        { u8"聴かせどころの位置", u8"聴かせたい箇所の位置", "Hook placement" },
+        { u8"聴かせどころ", u8"聴かせたい箇所", "Hook" },
+        { u8"分離とかぶり", u8"分離と他の音の混入", "Separation and bleed" },
+        { u8"かぶり", u8"他の音の混入", "Bleed" },
+        { u8"録音｜部屋・ノイズ・Bleed", u8"録音｜部屋・ノイズ・他の音の混入", u8"Recording · room, noise, and bleed" },
+        { u8"音の重なり", u8"音の重なり", "Layering" },
+    };
+    const juce::String builtIn ("00000000-0000-4000-8000-000000002001");
+    int cases = 0;
+    for (const auto& row : names)
+        for (const auto* alias : { row[0], row[1], row[2] })
+            for (const auto& suffix : { juce::String {}, juce::String ("   1 / 3"), juce::String ("  /  Synthetic source") })
+                for (const auto language : { i18n::Language::japanese, i18n::Language::english })
+                    for (const auto& id : { builtIn, "work:" + builtIn, builtIn + "/candidate", juce::String ("custom"),
+                                            juce::String ("11111111-1111-4111-8111-111111111111") })
+                    {
+                        const auto input = juce::String::fromUTF8 (alias) + suffix;
+                        const bool standard = id == builtIn || id == "work:" + builtIn || id == builtIn + "/candidate";
+                        const auto expected = standard
+                            ? juce::String::fromUTF8 (language == i18n::Language::japanese ? row[1] : row[2]) + suffix : input;
+                        reference_ui::State state;
+                        state.presetId = state.checkId = state.cueId = id;
+                        state.presetName = state.checkLabel = state.cueLabel = input;
+                        for (auto* options : { &state.presets, &state.checks, &state.cues, &state.songSets })
+                        {
+                            options->push_back ({ id, input });
+                            options->back().checkLabel = input;
+                        }
+                        // Exercise the same state preparation path as the component, not only lookup helpers.
+                        for (int pass = 0; pass < 2; ++pass)
+                        {
+                            reference_ui::prepareDisplayNames (state, language);
+                            check (state.presetName == expected && state.checkLabel == expected && state.cueLabel == expected,
+                                   "language, suffix, authored name or repeat changed");
+                            check (state.presetId == id && state.checkId == id && state.cueId == id, "identity changed");
+                            for (const auto* options : { &state.presets, &state.checks, &state.cues, &state.songSets })
+                                check (options->size() == 1 && options->front().id == id
+                                    && options->front().label == expected && options->front().checkLabel == expected,
+                                    "option preparation or repeat changed");
+                        }
+                        if (standard)
+                        {
+                            reference_ui::prepareDisplayNames (state, i18n::Language::english);
+                            check (state.checkLabel == juce::String::fromUTF8 (row[2]) + suffix, "English spelling changed");
+                            reference_ui::prepareDisplayNames (state, i18n::Language::japanese);
+                            check (state.checkLabel == juce::String::fromUTF8 (row[1]) + suffix, "Japanese round trip changed");
+                        }
+                        ++cases;
+                    }
+    check (cases == 630, "case count");
+    check (reference_ui::standardDisplayName (juce::String::fromUTF8 (u8"音の重なり")) == "Layering",
+           "Layering must not become Bleed");
+    std::cout << "REFERENCE_STORED_ALIAS_CASES=" << cases << '\n';
+}
+
 }

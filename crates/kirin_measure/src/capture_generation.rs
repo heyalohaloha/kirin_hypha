@@ -330,7 +330,7 @@ pub fn publish_current_generation(
         return Err(CaptureGenerationError::Invalid);
     }
     let json = serde_json::to_vec(generation)?;
-    crate::atomic_file::write_bytes_atomic(
+    crate::atomic_file::write_bytes_atomic_durable(
         &current_generation_path(base_dir, project_hash),
         &json,
     )?;

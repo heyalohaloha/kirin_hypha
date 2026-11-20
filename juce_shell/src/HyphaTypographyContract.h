@@ -30,6 +30,8 @@ enum class TextRole
     noticeBody,
     noticeCompact,
     listenChoice,
+    historyAxis,
+    historyLegend,
 };
 
 enum class Composition
@@ -106,6 +108,8 @@ constexpr Scale roleScale (TextRole role, Composition composition) noexcept
             break;
         case TextRole::metricLabel: return { 11.0f, 11.0f, 11.5f, 13.0f, 16.0f };
         case TextRole::unit: return { 11.0f, 11.0f, 11.0f, 12.0f, 14.0f };
+        case TextRole::historyAxis: return { 12.0f, 12.0f, 12.0f, 12.0f, 14.0f };
+        case TextRole::historyLegend: return { 12.0f, 12.0f, 12.0f, 13.0f, 16.0f };
         case TextRole::axis: return { 11.0f, 11.0f, 11.0f, 12.0f, 14.0f };
         case TextRole::legend: return { 11.0f, 11.0f, 11.5f, 13.0f, 16.0f };
         case TextRole::readout: return { 11.0f, 11.0f, 12.0f, 14.0f, 17.0f };
@@ -156,6 +160,8 @@ constexpr Overflow overflowFor (TextRole role) noexcept
         case TextRole::secondaryValue:
         case TextRole::metricLabel:
         case TextRole::unit:
+        case TextRole::historyAxis:
+        case TextRole::historyLegend:
         case TextRole::axis:
         case TextRole::legend:
         case TextRole::readout:
@@ -191,7 +197,7 @@ constexpr TextStyle resolve (const presentation::Context& context,
     }
 
     const auto numeric = role == TextRole::primaryValue || role == TextRole::secondaryValue
-                      || role == TextRole::readout || role == TextRole::referenceRangeValue || role == TextRole::axis;
+                      || role == TextRole::readout || role == TextRole::referenceRangeValue || role == TextRole::axis || role == TextRole::historyAxis;
     const auto lineMultiplier = numeric ? 1.12f : role == TextRole::body || role == TextRole::listenChoice ? 1.32f : 1.20f;
     const auto padding = role == TextRole::action || role == TextRole::selector
         ? fontHeight * 0.55f : fontHeight * 0.25f;

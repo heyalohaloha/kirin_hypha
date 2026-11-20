@@ -2,18 +2,18 @@
 
 # Kirin Hypha
 
-### See the signal. Touch nothing.
+### Louder, or better?
 
-Measure before and after your processing chain, see exactly what it changed, then hear both sides
-at the same loudness — with the names hidden if you like.<br>
-A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
+Hear what your processing really did — at the same loudness, with the names hidden if you like —
+and see exactly what it changed. In normal measurement it never touches your signal.<br>
+A free, open-source loudness meter and comparison plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
 
 </div>
 
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
 <p align="center">
-<a href="#download"><b>Download 1.1.57</b></a> &nbsp;·&nbsp;
+<a href="#download"><b>Download 1.1.58</b></a> &nbsp;·&nbsp;
 <a href="#start-in-under-a-minute"><b>Start in a minute</b></a> &nbsp;·&nbsp;
 <a href="#what-you-can-do"><b>What you can do</b></a> &nbsp;·&nbsp;
 <a href="#the-full-manual"><b>Manual</b></a> &nbsp;·&nbsp;
@@ -31,7 +31,7 @@ passes through unchanged with zero added latency.
 |---|---|
 | Price | Free |
 | License | GPLv3 ([LICENSE](LICENSE)); the source is this repository |
-| Latest version | 1.1.57 ([release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57)) |
+| Latest version | 1.1.58 ([release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58)) |
 | Download | macOS PKG and Windows EXE under [Download](#download) and on [GitHub Releases](https://github.com/heyalohaloha/kirin_hypha/releases) |
 | macOS | macOS 12 or later, Universal (Apple Silicon and Intel): AU, VST3 and AAX Native, signed and notarized |
 | Windows | Windows 10 or 11, x64: VST3 and AAX Native in an Authenticode-signed installer |
@@ -143,9 +143,9 @@ does not compensate.
 <img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
 <br><b>Decide with the names hidden</b> · BLIND<br>
 Two anonymous sources at a fixed matched level. Switch while the DAW plays, then <b>REVEAL</b>
-which one was PRE and which was POST. Turn on GUESS in MENU to answer which one is POST first;
-<b>SAVE IMAGE</b> saves the result as an image. With A/B, compare outboard gear and a plug-in on
-one track; GUESS then asks which one is B.
+which one was PRE and which was POST. Choose <b>ROUNDS</b> 5× or 10× to answer which one you prefer
+in each round, with the sources reshuffled between rounds; <b>SAVE IMAGE</b> saves the result as an
+image. With A/B, compare outboard gear and a plug-in on one track in the same way.
 </td>
 </tr>
 <tr>
@@ -185,16 +185,16 @@ library, and Keep / Record saves a playback's measurements with the song. See [M
 
 ## Download
 
-**Hypha 1.1.57 is available for macOS and Windows.** Both installers include PRE and POST.
+**Hypha 1.1.58 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
-| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.57/Kirin-Hypha-1.1.57-macOS-Universal.pkg) | AU · VST3 · AAX Native |
-| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.57/Kirin-Hypha-1.1.57-Windows-x64-Setup.exe) | VST3 · AAX Native |
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.58/Kirin-Hypha-1.1.58-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.58/Kirin-Hypha-1.1.58-Windows-x64-Setup.exe) | VST3 · AAX Native |
 
 Official macOS release packages and plug-ins are signed and notarized. Official Windows release
 installers and plug-ins are Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
-[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57).
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58).
 
 <details>
 <summary>Download verification and release provenance</summary>
@@ -235,13 +235,13 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 </details>
 
 <a id="optional-update-information"></a>
-## Update information in 1.1.57
+## Update information in 1.1.58
 
-PRE now lines up with POST for comparison even through an EQ or a limiter, or across a few seconds of
-delay the DAW does not compensate. With GUESS in BLIND, you answer which one is POST before REVEAL,
-and you can save the result as an image. With a Kirin OS license, the Reference page compares your mix
-(A) with your targets on B and with songs chosen in Kirin OS on C. The
-[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.57) list all changes. To update, download the installer for your platform above, close your
+When Kirin OS provides a Reference, the VU meter can switch to LU, PSR, CREST or SHARP, with 0 on the
+scale at the selected Reference song's value. BLIND can run 5 or 10 rounds with the sources shuffled
+between rounds. After at least two answers, the result shows how often a result at least this uneven
+would occur at random (not shown when it rounds to 100%). The True Peak scale now reaches +3 dBTP. The
+[release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58) list all changes. To update, download the installer for your platform above, close your
 DAW, run the installer and reopen the DAW.
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or

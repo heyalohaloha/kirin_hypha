@@ -115,3 +115,77 @@ child verifies cancellation and shutdown. Its short deadline tests the whole-con
 not response latency. Config atomic replacement, in-progress temporary files, excluded-only
 ancestor creation/removal, unsupported literal spellings and linked source folders have explicit
 regression controls.
+
+## Phase 1: Appearance standalone test write-entry guard
+
+The first phase introduced a target-local guard for `KirinAppearanceContractTests`.
+Its Appearance preference parent creation, primary/backup atomic-write entry and
+lock creation/removal (including stale cleanup and destruction) reject mutations
+outside an existing absolute `KIRIN_HYPHA_TEST_STORAGE_ROOT`. Shipping targets,
+class layouts and ABI are unchanged. This is not a guard for all native writers;
+shared runtime, activation/startup and plugin writers still need their own phase.
+
+The protected root list is intended as a superset of the Node snapshot guard:
+OS-account Documents/Kirin OS and platform application-data roots remain protected.
+Windows additionally includes redirected Known Folder Documents, LocalAppData and
+RoamingAppData, the conventional Profile/AppData/Local and Roaming paths, and any
+absolute APPDATA/LOCALAPPDATA environment paths. Unix also protects .config/Kirin OS.
+Invalid root discovery fails closed. The Node snapshot implementation is unchanged.
+Mac and Windows path components compare case-insensitively, deliberately rejecting
+case-only alternate names even on case-sensitive Mac volumes. Existing descendant
+symlinks/reparse points are rejected. This is preflight validation, not a TOCTOU
+barrier or a guarantee against all filesystem aliases (such as Windows short names
+or alternate volume identities). Atomic staging/cleanup uses the checked parent;
+it is not independently intercepted at each syscall.
+
+Disposable fixtures exercise denied writes/locks, stale cleanup, policy revocation,
+case aliases and normal isolated persistence. They do not attempt writes to real
+storage. Windows Known Folder redirection, reparse points and Windows execution
+remain unverified on real hardware; a Mac pass must not be reported as Windows
+validation. Mutation-entry counts are permitted guard entries, not syscall counts.
+
+## Phase 2a: limited C++ runtime activation
+
+`StorageWriteGuard.h` now supplies identical inline runtime definitions to Appearance
+and AtomicFile callers. Shipping starts disabled and saves normally; environment
+variables alone do not activate it. No class layout or C ABI changes are introduced.
+The Appearance and AtomicFile native mains explicitly enable it before fixture
+creation (including the Appearance lock child). Missing, relative, nonexistent or
+protected roots exit 78. Failed initialization stays enabled-and-denied permanently.
+The initial allowed root is fixed: later fixture/environment roots cannot expand it.
+Fixture policies can narrow it and add protected exclusions, never remove real roots.
+
+Appearance guards preference directories, primary/backup publication and lock
+creation/removal. AtomicFile guards the target, staging entry and final publication.
+TemporaryFile cleanup retains its existing checked same-parent behavior; this is
+not a syscall interception layer or a TOCTOU guarantee. The two mains use
+`--guard-startup-only` for no-write preflight. AtomicFile also has isolated
+`--guard-failed-enable` and `--guard-shipping-disabled` modes. The latter deliberately
+leaves the runtime disabled but validates its disposable fixture root before saving.
+`kirin_storage_write_guard_startup` tests direct startup separately from CTest setup.
+`kirin_atomic_file_boundaries` continues to provide its own existing child root.
+
+This phase does NOT protect other mains, upper-level directory creation outside
+Appearance, Rust, or separately loaded modules. Inline state is not a cross-module
+policy transport. It does not claim protection if a test runs writers before its
+explicit initialization. The normal POST build must still be checked independently.
+Windows execution and alias/redirect behavior remain unverified on actual Windows.
+
+## Phase 2b: PreDisplay presence writer and one additional main
+
+PreDisplay presence/capability/acknowledgement publication now checks permission
+before parent creation and delegates identical LF JSON publication to AtomicFile.
+Presence, acknowledgement and capability removal each check permission before
+unlink. Existing identity checks, lease durations and worker/RT behavior are unchanged.
+The standalone PreDisplay runtime main enables the same fixed-root guard before
+fixtures. `--guard-startup-only` has the same exit-78 failure contract; its isolated
+`--guard-shipping-disabled` mode exercises normal publication/update/removal without
+activating test policy. `kirin_pre_display_write_guard_startup` includes this third
+main as well as the two preceding ones. Synthetic revoked-policy fixtures check
+missing parent creation and byte-preserving denial of all three cleanup operations.
+
+This additional main does not activate the guard for other executables, Rust or
+separately loaded plugins. Pre-main writers and module propagation are still not
+covered. In particular, Windows environment-redirecting sandboxes require separate
+policy work before broader bootstrap adoption; this phase does not relax real-root
+protection to accommodate them. Windows runtime execution remains unverified.

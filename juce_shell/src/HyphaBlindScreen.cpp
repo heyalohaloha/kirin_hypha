@@ -17,7 +17,7 @@ bool Screen::operator== (const Screen& other) const noexcept
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle, screen.guessShown, screen.guessOpen, screen.guessRight,
-                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown);
+                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.matchedGainText, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
     };
     return key (*this) == key (other);
 }
@@ -67,6 +67,42 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     guessOne.onClick = [this] { if (shown.guessOpen && onGuess) onGuess (1); };
     guessTwo.onClick = [this] { if (shown.guessOpen && onGuess) onGuess (2); };
     saveImage.onClick = [this] { if (shown.saveImageShown && onSaveImage) onSaveImage(); };
+    roundsLabel.setComponentID (idPrefix + "-rounds-label");
+    roundsLabel.setColour (juce::Label::textColourId, COL_NORMAL);
+    roundsLabel.setMinimumHorizontalScale (1.0f);
+    roundsLabel.setJustificationType (juce::Justification::centred);
+    addChildComponent (roundsLabel);
+    int roundIndex = 0;
+    for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
+    {
+        const int values[] { 1, 5, 10 }; const int value = values[roundIndex++];
+        button->setComponentID (idPrefix + "-rounds-" + juce::String (value));
+        button->onClick = [this, value] { if (shown.roundsShown && shown.roundsEnabled && onRounds) onRounds (value); };
+        addChildComponent (button);
+    }
+    matchedGainBody.setComponentID(idPrefix + "-matched-gain");
+    matchedGainBody.setMultiLine(true); matchedGainBody.setReadOnly(true);
+    matchedGainBody.setJustification(juce::Justification::centredTop);
+    matchedGainBody.setScrollbarsShown(false);
+    matchedGainBody.setColour(juce::TextEditor::textColourId,COL_NORMAL);
+    addChildComponent(matchedGainBody);
+    preferenceResultBody.setComponentID (idPrefix + "-preference-result");
+    preferenceResultBody.setMultiLine (true); preferenceResultBody.setReadOnly (true);
+    preferenceResultBody.setScrollbarsShown (false);
+    preferenceResultBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
+    addChildComponent (preferenceResultBody);
+    preferenceResultBody.setJustification (juce::Justification::centredTop);
+    preferenceNoteBody.setComponentID (idPrefix + "-preference-note");
+    preferenceNoteBody.setMultiLine (true); preferenceNoteBody.setReadOnly (true);
+    preferenceNoteBody.setScrollbarsShown (false);
+    preferenceNoteBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
+    addChildComponent (preferenceNoteBody);
+    for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
+    {
+        body->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        body->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        body->setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+    }
     apply();
 }
 
@@ -172,6 +208,15 @@ void ScreenComponent::apply()
         button->setDescription (button->getTitle());
         button->setTooltip (button->getTitle());
     }
+    const bool preferenceResult = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    preferenceResultBody.setVisible (shown.preferenceResultText.isNotEmpty());
+    const auto resultText = shown.preferenceResultText;
+    preferenceNoteBody.setVisible (preferenceResult);
+    const auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText(shown.instruction) + "\n" + text_style::shownText(shown.detail);
+    if (preferenceNoteBody.getText() != noteText) preferenceNoteBody.setText(noteText,false);
+    if (preferenceResultBody.getText() != resultText) preferenceResultBody.setText (resultText, false);
+    matchedGainBody.setVisible(shown.matchedGainText.isNotEmpty());
+    if (matchedGainBody.getText()!=shown.matchedGainText) matchedGainBody.setText(shown.matchedGainText,false);
     saveImage.setVisible (shown.saveImageShown);
     saveImage.setTitle ("Save the result as an image");
     saveImage.setDescription (saveImage.getTitle());
@@ -181,9 +226,10 @@ void ScreenComponent::apply()
     end.setDescription (shown.endTitle + " / " + shown.detail);
     end.setTooltip (end.getDescription());
     for (auto* always : std::initializer_list<juce::Component*> { &title, &detail, &end }) always->setVisible (true);
+    if (preferenceResult) { status.setVisible (false); detail.setVisible (false); }
     if (covered)
         for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
-                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
+                                     &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
             own->setVisible (false);
     repaint();
 }
@@ -193,14 +239,93 @@ void ScreenComponent::setCovered (bool next)
     if (covered == next) return;
     covered = next;
     apply();
+    resized();
 }
 
 void ScreenComponent::resized()
 {
     context = presentation::forEditor (getWidth(), getHeight());
     const bool compact = getWidth() < 450;
+    // The active preference screen uses this row for explicit round progress.
+    // The same exit explanation remains on END's accessible description/tooltip.
+    const bool compactPreference = compact && shown.roundsShown && shown.guessShown;
+    detail.setVisible (!covered && !compactPreference && shown.preferenceResultText.isEmpty() && shown.matchedGainText.isEmpty());
+    const bool showRounds = !covered && shown.roundsShown
+        && shown.preferenceResultText.isEmpty() && getWidth() >= 450 && getHeight() >= 300;
+    roundsLabel.setVisible (showRounds);
+    outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !showRounds);
+    roundsLabel.setText (shown.roundsEnabled ? i18n::tr ("ROUNDS") : shown.roundsProgress, juce::dontSendNotification);
+    roundsLabel.setFont (labelFont (context, typography::TextRole::listenAction, typography::Composition::information));
+    int roundIndex = 0;
+    for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
+    {
+        const int values[] { 1, 5, 10 }; const int value = values[roundIndex++];
+        button->setPresentationContext (context);
+        button->setButtonText (i18n::tr (juce::String (value) + juce::String::fromUTF8 (u8"×")));
+        button->setVisible (showRounds && shown.roundsEnabled);
+        unavailable::set (*button, shown.roundsEnabled, "Rounds cannot change after the first answer");
+        button->setToggleState (shown.roundsValue == value, juce::dontSendNotification);
+    }
+
+    for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
+    {
+        body->setFont (displayTextFont (body->getText(), context,
+                                       body == &preferenceResultBody ? typography::TextRole::primaryValue : typography::TextRole::listenChoice, typography::Composition::information));
+        body->applyFontToAllText (body->getFont());
+    }
+    title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
         button->setPresentationContext (context);
+    if (shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty())
+    {
+        // Try the normal two-row actions first, using the actual wrapped text
+        // at its final width. A narrow width alone does not select dense mode.
+        auto normal = getLocalBounds().reduced (24);
+        normal.removeFromTop (40); normal.removeFromBottom (80);
+        int neededHeight = 0;
+        for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
+        {
+            body->setBounds (normal.getX(), normal.getY(), normal.getWidth(), 100);
+            if (body->getText().isNotEmpty()) neededHeight += body->getTextHeight() + 8;
+        }
+        const bool denseResult = neededHeight > normal.getHeight();
+        auto panel = getLocalBounds().reduced (denseResult ? 4 : 24);
+        if (denseResult) panel.removeFromTop (20); // same 24px top inset as normal
+        title.setBounds (panel.removeFromTop (denseResult ? 18 : 40));
+        auto actions = panel.removeFromBottom (denseResult ? 24 : 40);
+        if (denseResult)
+        {
+            // Keep all four actions available without spending two rows on them.
+            const int cell = actions.getWidth() / 4;
+            one.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            two.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            saveImage.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            end.setBounds (actions.reduced (2, 0));
+        }
+        else
+        {
+            saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
+            end.setBounds (actions.reduced (3, 0));
+            auto sources = panel.removeFromBottom (40);
+            one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
+            two.setBounds (sources.reduced (3, 0));
+        }
+        // Size every wrapped body at its final width, with no hidden overflow.
+        // Notes stay at the bottom; the primary result and its smaller gain line
+        // form a centred group in the remaining space at 600/900 as well as 300.
+        for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
+            body->setBounds(panel.getX(),panel.getY(),panel.getWidth(),100);
+        const int padding = denseResult ? 4 : 8;
+        const int resultHeight=shown.preferenceResultText.isEmpty()?0:preferenceResultBody.getTextHeight()+padding;
+        const int gainHeight=shown.matchedGainText.isEmpty()?0:matchedGainBody.getTextHeight()+padding;
+        const int noteHeight=preferenceNoteBody.getTextHeight()+padding;
+        preferenceNoteBody.setBounds(panel.removeFromBottom(noteHeight));
+        const int groupHeight=resultHeight+gainHeight;
+        auto centred=panel.withSizeKeepingCentre(panel.getWidth(),groupHeight);
+        preferenceResultBody.setBounds(centred.removeFromTop(resultHeight));
+        matchedGainBody.setBounds(centred);
+        return;
+    }
     for (auto* label : { &question, &outcome })
         label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
@@ -230,7 +355,7 @@ void ScreenComponent::resized()
     const auto fixedStatus = compact ? 30 : 48;
     const auto statusHeight = shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
-    detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
+    detail.setBounds (detail.isVisible() ? area.removeFromBottom (compact ? 34 : 46) : juce::Rectangle<int>());
     auto actions = area.removeFromBottom (compact ? 28 : 40);
     if (shown.saveImageShown && shown.alignOffShown)
     {
@@ -246,8 +371,23 @@ void ScreenComponent::resized()
         alignOff.setBounds (reveal.getBounds());
         saveImage.setBounds (reveal.getBounds());
     }
+    if (showRounds)
+    {
+        auto row = area.removeFromBottom (32).reduced (0, 2);
+        row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), 360), row.getHeight());
+        roundsLabel.setBounds (shown.roundsEnabled ? row.removeFromLeft (120) : row);
+        roundsOne.setBounds (row.removeFromLeft (80).reduced (2, 0));
+        roundsFive.setBounds (row.removeFromLeft (80).reduced (2, 0));
+        roundsTen.setBounds (row.reduced (2, 0));
+    }
     if (shown.guessShown)
     {
+        if (compact && shown.roundsShown && outcome.isVisible())
+        {
+            outcome.setJustificationType (juce::Justification::centred);
+            outcome.setBounds (area.removeFromBottom (24));
+        }
+        else outcome.setJustificationType (juce::Justification::centredLeft);
         // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
         auto row = area.removeFromBottom (compact ? 26 : 40).withTrimmedBottom (compact ? 3 : 6);
         const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
@@ -256,7 +396,7 @@ void ScreenComponent::resized()
             return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText())))
                 + label.getBorderSize().getLeftAndRight() + 2 : 0;
         };
-        const auto asked = textWidth (question), told = textWidth (outcome);
+        const auto asked = textWidth (question), told = compact && shown.roundsShown ? 0 : textWidth (outcome);
         const auto total = asked + gap + answer * 2 + 4 + (told > 0 ? gap + told : 0);
         row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), total), row.getHeight());
         question.setBounds (row.removeFromLeft (juce::jmin (asked, row.getWidth() - gap - answer * 2 - 4)));
@@ -265,7 +405,7 @@ void ScreenComponent::resized()
         row.removeFromLeft (4);
         guessTwo.setBounds (row.removeFromLeft (answer));
         row.removeFromLeft (gap);
-        outcome.setBounds (row);
+        if (!(compact && shown.roundsShown)) outcome.setBounds (row);
     }
     area.reduce (0, compact ? 5 : 12);
     const auto causeHeight = needed (cause);

@@ -43,6 +43,7 @@ impl RecordStateMachine {
     /// Watch で初期化。
     pub fn new() -> Self {
         Self {
+            io_entry_owner: Default::default(),
             state: AtomicU64::new(STATE_WATCH),
             entry_token: AtomicU64::new(0),
             seal: AtomicU64::new(0),
@@ -471,3 +472,6 @@ mod measure_wake;
 #[cfg(test)]
 #[path = "record_entry_failure_tests.rs"]
 mod entry_failure_tests;
+
+#[path = "record_io_entry_owner.rs"]
+mod io_entry_owner;

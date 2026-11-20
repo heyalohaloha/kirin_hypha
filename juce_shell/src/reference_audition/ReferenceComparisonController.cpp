@@ -1,4 +1,5 @@
 #include "ReferenceComparisonController.h"
+#include "ReferenceMetricSeriesCache.h"
 #include <algorithm>
 
 namespace hypha::reference_audition
@@ -29,6 +30,9 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           return binding;
       },analysis)
 {
+    metricSeriesCache = std::make_shared<metrics::SeriesCache>();
+    check.setMetricSeriesCache (metricSeriesCache);
+    reference.setMetricSeriesCache (metricSeriesCache);
     check.prepareSelectionsBeforeReturn();
     check.reportLibraryReceived();  // V と B の id には印が付く。素の id を持つ C が返す
     version.prepareSelectionsBeforeReturn();
@@ -295,6 +299,22 @@ Snapshot ReferenceComparisonController::snapshot()
         result.rejectionCode = "reference_version_unselected";
         result.blindEligible = false;
     }
+    // Match the LU/metric zero-role precedence exactly. Only that role may admit
+    // native metric work; its selected song completes before its set background job.
+    const bool songChosen = songId.isNotEmpty() && r.candidateId.isNotEmpty();
+    const bool checkChosen = c.candidateId.isNotEmpty();
+    const auto audible = result.audibleComparisonSlot;
+    const int priority = audible == 3 && songChosen ? 3 : audible == 2 && checkChosen ? 2
+        : slot == 3 && songChosen ? 3 : slot == 2 && checkChosen ? 2 : songChosen ? 3 : checkChosen ? 2 : 0;
+    const bool metricEnabled = metricObservationRequested.load (std::memory_order_acquire);
+    const auto priorityKey = juce::String (metricEnabled ? priority : 0) + "\n" + result.selectedSongSetId;
+    if (priorityKey != metricPriorityKey) { metricPriorityKey = priorityKey; ++metricPriorityGeneration; }
+    check.setMetricContext (metricEnabled && priority == 2, result.selectedSongSetId, metricPriorityGeneration);
+    reference.setMetricContext (metricEnabled && priority == 3, result.selectedSongSetId, metricPriorityGeneration);
+    // Re-read only the active role after setting the context, so old-set bands
+    // cannot leak through a snapshot made just before this set/role change.
+    if (priority == 2) result.checkSelection = std::make_shared<const Snapshot> (check.snapshot());
+    if (priority == 3) result.referenceSelection = std::make_shared<const Snapshot> (reference.snapshot());
     return result;
 }
 

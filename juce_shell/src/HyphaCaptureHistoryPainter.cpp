@@ -314,7 +314,7 @@ void paint (juce::Graphics& g,
 
     auto legend = layout.legend;
     auto meanings = legend.removeFromTop (legend.getHeight() / 2);
-    g.setFont (monoFont (presentation, typography::TextRole::legend,
+    g.setFont (monoFont (presentation, typography::TextRole::historyLegend,
                          typography::Composition::visualization));
     g.setColour (COL_SPECTRUM_POST);
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
@@ -380,7 +380,7 @@ void paint (juce::Graphics& g,
         0.0, -6.0, -12.0, -18.0, -24.0, -30.0, -36.0
     };
     constexpr std::array<double, 5> deltaTicks { 12.0, 6.0, 0.0, -6.0, -12.0 };
-    g.setFont (monoFont (presentation, typography::TextRole::axis,
+    g.setFont (monoFont (presentation, typography::TextRole::historyAxis,
                          typography::Composition::visualization));
     const auto paintLoudnessTicks = [&] (const auto& ticks)
     {
@@ -426,7 +426,7 @@ void paint (juce::Graphics& g,
             geometry.update (band, chainView);
             geometry.paint (g);
             g.setColour (COL_MUTED.brighter (0.25f));
-            g.setFont (monoFont (presentation, typography::TextRole::axis,
+            g.setFont (monoFont (presentation, typography::TextRole::historyAxis,
                                  typography::Composition::visualization));
             text_style::drawText (g, "REL", layout.loudnessLabels.getX(), juce::roundToInt (band.getY()),
                         layout.loudnessLabels.getWidth() - 2, 12,
@@ -445,7 +445,7 @@ void paint (juce::Graphics& g,
     paintCurrentLoudness (g, loudnessPlot, history, delta,
                           contextFact == "HOLD", presentation);
     g.setColour (COL_MUTED.withAlpha (0.64f));
-    g.setFont (monoFont (presentation, typography::TextRole::axis,
+    g.setFont (monoFont (presentation, typography::TextRole::historyAxis,
                          typography::Composition::visualization));
     text_style::drawText (g, "-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
     text_style::drawText (g, "-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),

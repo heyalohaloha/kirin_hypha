@@ -1,4 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceMetricRuntime.h"
+#include "ReferenceMetricSetRuntime.h"
 #include "ReferenceTestCommitObserver.h"
 
 #include <algorithm>
@@ -38,6 +40,7 @@ namespace hypha::reference_audition
         contentMappingContinuity.store (0, std::memory_order_release);
         copyCorrespondence.store (false, std::memory_order_release);
         activePublishedSelectionKey.clear();
+        metricRuntime->clear(); metricSetRuntime->clear();
         workerSource.reset(); workerSourceGeneration = 0;
         sourceCache.clear();
         {
@@ -209,6 +212,47 @@ namespace hypha::reference_audition
                 }
             }
             if (songsOnly.load (std::memory_order_acquire)) serviceSongPreload();
+            std::shared_ptr<void> metricLease;
+            std::uint64_t metricLeaseTicket = 0;
+            std::shared_ptr<metrics::SeriesCache> metricCache;
+            bool metricOwnershipAllowed = false;
+            { const juce::ScopedLock lock (stateLock);
+              metricLease = metricOwnershipLease;
+              metricLeaseTicket = metricOwnershipEpoch.ticket();
+              metricCache = metricSeriesCache;
+              metricOwnershipAllowed = !metricOwnershipManaged || static_cast<bool> (metricLease); }
+            metricRuntime->setSeriesCache (std::move (metricCache));
+            metricRuntime->setPublisherLease (metricLease);
+            metricSetRuntime->setPublisherLease (metricLease);
+            { const juce::ScopedLock lock (stateLock);
+              metricOwnershipEpoch.acknowledge (metricLeaseTicket); }
+            if (metricOwnershipAllowed && metricObservationEnabled.load (std::memory_order_acquire) && !versionComparison
+                && libraryReceived.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire)
+                && workerSourceGeneration == selectionGeneration && !currentPages().sourceUnavailable()
+                && std::isfinite (configuration.sampleRate) && configuration.sampleRate >= 8000.0
+                && configuration.sampleRate <= 384000.0 && std::floor (configuration.sampleRate) == configuration.sampleRate)
+            {
+                metricRuntime->service (workerSource, static_cast<std::uint32_t> (configuration.sampleRate),
+                    static_cast<std::uint32_t> (configuration.channels), selectionGeneration,
+                    {static_cast<std::uint64_t> (std::max<std::int64_t> (0, cueStart.load())),
+                     static_cast<std::uint64_t> (std::max<std::int64_t> (0, cueEnd.load()))});
+                const auto selected = metricRuntime->snapshot();
+                if (selected && selected->state == metrics::Availability::ready
+                    && selected->selectionGeneration == selectionGeneration)
+                {
+                    metrics::SetRequest request;
+                    { const juce::ScopedLock lock (stateLock);
+                      request = metrics::metricSetRequest (workspace.get(), metricSetId, metricContextGeneration,
+                          static_cast<std::uint32_t> (configuration.sampleRate), static_cast<std::uint32_t> (configuration.channels)); }
+                    metricSetRuntime->service (request);
+                }
+                else if (metricSetRuntime->snapshot()) metricSetRuntime->clear();
+            }
+            else
+            {
+                if (metricRuntime->snapshot()) metricRuntime->clear();
+                if (metricSetRuntime->snapshot()) metricSetRuntime->clear();
+            }
             wait (fading ? 2 : workerPollMs);
         }
     }

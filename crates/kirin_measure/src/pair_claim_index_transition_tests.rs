@@ -6,7 +6,7 @@ fn isolated_root() -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(
-        "kirin_pair_claim_index_{}_{}",
+        "kirin_pair_claim_index_transition_{}_{}",
         std::process::id(),
         n
     ));

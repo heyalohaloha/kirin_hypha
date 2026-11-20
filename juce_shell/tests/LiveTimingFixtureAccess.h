@@ -160,6 +160,10 @@ public:
     }
     static void assignBlind (KirinHyphaProcessorBase& processor, bool firstPre)
     { processor.liveCompare.blind.start (firstPre); }
+    static auto alignmentHearingForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.blindHearing.read(); }
+    static auto alignmentHearingCommandForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.blind.command().word; }
     static bool confirmAlignmentForTest (KirinHyphaProcessorBase& processor, std::int64_t frames)
     {
         using namespace hypha::live_compare;
@@ -174,6 +178,14 @@ public:
     }
     static void deferContentMonitorForTest (KirinHyphaProcessorBase& processor)
     { processor.liveCompare.contentMonitorNext = std::numeric_limits<std::uint64_t>::max(); }
+    // Single-thread synthetic fixture preparation only. The actual processor/renderer is non-const;
+    // its public accessor is read-only to product callers. Never call this alongside Audio.
+    static hypha::live_compare::RendererAlignment& prepareAlignmentForTest (KirinHyphaProcessorBase& processor)
+    { return const_cast<hypha::live_compare::RendererAlignment&> (processor.liveCompare.renderer.alignState()); }
+    static hypha::live_compare::AlignValue keptAlignmentForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.preAlign.keptValue(); }
+    static hypha::live_compare::AlignContext alignmentContextForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.alignContext(); }
     static bool awaitingAlignmentListener (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.preAlign.awaitsListener(); }
     static bool alignmentHistoryValid (const KirinHyphaProcessorBase& processor)

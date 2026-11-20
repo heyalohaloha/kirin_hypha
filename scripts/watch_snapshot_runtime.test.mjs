@@ -48,12 +48,16 @@ test('shipping Watch snapshots reach the display model and respect publication r
   const meter = readFileSync('juce_shell/src/PluginEditorMeter.cpp', 'utf8');
   const view = readFileSync('juce_shell/src/HyphaObservatoryView.cpp', 'utf8');
   const editor = readFileSync('juce_shell/src/PluginEditorObservatory.cpp', 'utf8');
+  const session = readFileSync('juce_shell/src/HyphaSessionCoverage.cpp', 'utf8');
   const directory = mkdtempSync(join(tmpdir(), 'hypha-watch-runtime-'));
   try {
     const source = join(directory, 'watch.cpp'), binary = join(directory, process.platform === 'win32' ? 'watch.exe' : 'watch');
     writeFileSync(source, `
 #include "watch_snapshot_runtime.h"
 ${method(view, 'void View::setWatchDisplay')}
+${method(session, 'void View::invalidateSessionPresentation()')}
+${method(session, 'bool View::retainSessionPoll')}
+${method(session, 'void View::setSessionCoverage')}
 ${method(meter, 'void KirinHyphaEditor::refreshWatchSnapshot()')}
 ${method(editor, 'void KirinHyphaEditor::refreshObservatory()')}
 int main() {
@@ -103,6 +107,34 @@ int main() {
   assert(editor.observatoryView.watchDisplay.current.lufs_m == -45.0);
   assert(editor.observatoryView.paints == 3);
 #endif
+  // Exercise the shipping editor's whole-packet guard, not a copied branch.
+  editor.processorRef.preferredTarget = Target::absolute;
+  editor.processorRef.levelReady = true;
+  editor.processorRef.available = true;
+  auto& frame = editor.processorRef.frame;
+  frame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+  frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+  frame.meter.state = KIRIN_METER_SESSION_ACTIVE;
+  frame.meter.generation = 7; frame.meter.measurement_epoch = 19;
+  frame.meter.sample_rate = 48000; frame.meter.channels = 2;
+  frame.meter.active_frames = frame.meter.observed_frames = 4800;
+  auto& coverage = editor.processorRef.coverage;
+  coverage.version = 2; coverage.struct_size = sizeof(coverage);
+  coverage.session = frame.meter; coverage.summary_status = KIRIN_SESSION_SUMMARY_COMPLETE;
+  editor.processorRef.coverageStatus = KIRIN_SNAPSHOT_SUCCESS;
+  juce::Time::nowMs = 0;
+  editor.processorRef.next.current.lufs_m = -20;
+  editor.refreshWatchSnapshot(); editor.refreshObservatory();
+  assert(editor.observatoryView.watchDisplay.current.lufs_m == -20);
+  editor.processorRef.coverageStatus = KIRIN_SNAPSHOT_BUSY;
+  frame.meter.active_frames = frame.meter.observed_frames = 9600;
+  editor.processorRef.next.current.lufs_m = -8;
+  editor.refreshWatchSnapshot();
+  juce::Time::nowMs = 999; editor.refreshObservatory();
+  assert(editor.observatoryView.watchDisplay.current.lufs_m == -20);
+  juce::Time::nowMs = 1000; editor.refreshObservatory();
+  assert(editor.observatoryView.watchDisplay.current.lufs_m == -8);
+  assert(!editor.observatoryView.haveSessionCoverage);
 }
 `);
     const compiler = process.env.CXX || (process.platform === 'win32' ? 'clang++' : 'c++');

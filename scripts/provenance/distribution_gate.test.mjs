@@ -7,6 +7,7 @@ import test from 'node:test';
 import zlib from 'node:zlib';
 import { assetDecision, embeddedAssets, readAssetRegistry, rejectHeldBytes, ROOT, REGISTRY, sha256 } from './asset_gate.mjs';
 import { verifyDistributionEvidence } from './distribution_gate.mjs';
+import { STAGES, executeRelease, makeState } from '../release_hypha.mjs';
 import { sealedAliasRules } from './sealed_pace_alias.mjs';
 import { fileFact, Checkpoint, treeFact } from '../ls_release/hypha_release_contract.mjs';
 
@@ -110,6 +111,63 @@ test('all three exact payloads deliver notices, source pointer and matching sour
   assert.equal(result.publicFacts.length, 1); assert.equal(result.publicFacts[0].sha256, f.report.sourceSha256);
   assert.equal(result.facts.length, 31 + BUNDLED_COMPONENTS.flatMap(c => c.licenseFiles).length * 3);
 });
+test('absent, non-array and incomplete A5 payloads wait for evidence', t => {
+  for (const payloads of [undefined, null, {}, [], 'pending', 2]) {
+    const f = fixture(t);
+    f.report.payloads = payloads === 2 ? f.report.payloads.slice(0, 2) : payloads;
+    assert.throws(() => verifyDistributionEvidence(f.args), error =>
+      error instanceof Checkpoint && /run A5.*distribution stages again/.test(error.message));
+  }
+});
+test('duplicate, unknown, malformed and excess channels remain failures', t => {
+  for (const kind of ['duplicate', 'unknown', 'malformed', 'excess']) {
+    const f = fixture(t);
+    if (kind === 'duplicate') f.report.payloads[2] = f.report.payloads[0];
+    if (kind === 'unknown') f.report.payloads[2].channel = 'other';
+    if (kind === 'malformed') f.report.payloads[2] = null;
+    if (kind === 'excess') f.report.payloads.push(f.report.payloads[0]);
+    assert.throws(() => verifyDistributionEvidence(f.args), error =>
+      error instanceof Error && !(error instanceof Checkpoint) && /payload channels/.test(error.message));
+  }
+});
+test('retained extraction mismatches fail even while another channel is absent', t => {
+  for (const incomplete of [false, true]) for (const kind of ['artifact', 'result', 'evidence']) {
+    const f = fixture(t); const p = f.report.payloads[0];
+    if (incomplete) f.report.payloads.pop();
+    if (kind === 'artifact') p.artifactSha256 = '0'.repeat(64);
+    if (kind === 'result') p.extractionResult = 'FAIL';
+    if (kind === 'evidence') p.extractionEvidenceSha256 = '0'.repeat(64);
+    assert.throws(() => verifyDistributionEvidence(f.args), error =>
+      error instanceof Error && !(error instanceof Checkpoint) && /extraction evidence/i.test(error.message));
+  }
+});
+test('A5 evidence resumes the persisted provenance stage from PENDING without reconciliation', async t => {
+  const f = fixture(t); const payloads = f.report.payloads;
+  put(f.root, 'crates/hypha_pre/Cargo.toml', '[package]\nversion = "1.2.3"\n');
+  const source = { commit: f.report.commit, bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
+  const statePath = path.join(f.root, 'release_state/pipeline.json');
+  const state = makeState(f.root, { state: statePath, windowsFactoryRepository: 'fixture/factory',
+    windowsFactoryCommit: 'c'.repeat(40) }, () => source);
+  state.inputs.windowsPromotionRun = '123'; state.inputs.windowsArtifactArchive = f.archive;
+  const calls = [];
+  const actions = Object.fromEntries(STAGES.map(stage => [stage, async () => {
+    calls.push(stage); return stage === 'provenance' ? verifyDistributionEvidence(f.args) : { facts: [fileFact(f.archive)] };
+  }]));
+  const deps = { statePath, snapshot: () => source, clean: () => {}, actions, log: () => {} };
+  f.report.payloads = [];
+  await executeRelease(state, { execute: true, until: 'hp' }, deps);
+  const pending = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  assert.equal(pending.stages.provenance.status, 'PENDING');
+  assert.match(pending.blocker.reason, /run A5.*distribution stages again/);
+  assert.equal(pending.stages.distribution, undefined);
+  f.report.payloads = payloads;
+  await executeRelease(pending, { execute: true, until: 'hp' }, deps);
+  const resumed = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  assert.equal(resumed.stages.provenance.status, 'PASS');
+  assert.equal(resumed.stages.distribution.status, 'PASS'); assert.equal(resumed.blocker, undefined);
+  assert.equal(calls.filter(s => s === 'provenance').length, 2);
+  assert.equal(calls.filter(s => s === 'packages').length, 1);
+});
 test('JUCE license-route review cannot be satisfied by unresolved declarations', t => {
   for (const license of ['Unknown', ' NOASSERTION ', 'unknown', 'Pending', 'TBD', 'Unverified',
     'Unspecified', 'Unconfirmed', 'Unresolved', 'Missing', 'NONE', 'N/A', 'NA', 'not provided',
@@ -177,7 +235,7 @@ test('absent or incorrect notice, component license, source pointer and extracti
     if (kind === 'extraction') p.extractionResult = 'SKIP';
     if (kind === 'channel') f.report.payloads.pop();
     if (kind === 'font') f.report.kimeraEmbedded = true;
-    assert.throws(() => verifyDistributionEvidence(f.args), kind === 'font' ? Checkpoint : Error, kind);
+    assert.throws(() => verifyDistributionEvidence(f.args), ['font', 'channel'].includes(kind) ? Checkpoint : Error, kind);
   }
 });
 test('source archive omission, changed bytes and private extras are rejected', t => {

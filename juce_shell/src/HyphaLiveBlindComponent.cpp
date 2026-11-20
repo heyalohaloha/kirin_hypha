@@ -148,11 +148,15 @@ Component::Component() : blind_ui::ScreenComponent ("live-blind"), preferences (
     addChildComponent (*sheet);
     onGuess = [this] (int source)
     {
+        if (activeRounds > 1) { choosePreference (source); return; }
         if (! screen().guessOpen || (source != 1 && source != 2)) return;  // the answer is fixed at REVEAL
         answer = source;
         answerGeneration = current.generation;
         answerEpoch = current.trial.epoch;
         show();
+    };
+    onRounds = [this] (int value) {
+        if (setPreferenceRounds (value) && onPreferenceRoundsChanged) onPreferenceRoundsChanged (rounds);
     };
     onSaveImage = [this] { openImageSheet(); };
     sheet->onSave = [this] { chooseImageFile(); };
@@ -171,10 +175,16 @@ void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPl
 {
     // A new trial starts without an answer and without the last trial's image.
     if (next.generation != current.generation || next.trial.epoch != current.trial.epoch) closeImageSheet();
+    const bool startsTrial = next.stage == Stage::active && !next.trial.invalidated && !next.trial.revealed
+        && (current.stage != Stage::active || current.trial.invalidated || current.generation != next.generation);
     current = next;
+    if (startsTrial && !preferenceBusy) { resetPreference(); activeRounds = rounds;
+        preferenceNameA = blind_image::rememberedName(preferences,current.candidate,false);
+        preferenceNameB = blind_image::rememberedName(preferences,current.candidate,true); }
     playing = hostPlaying;
     actualPost = postActual;
     repeating = repeatingAudio;
+    if (!preferenceBusy) refreshPreference();
     show();
 }
 
@@ -187,7 +197,16 @@ void Component::setGuessing (bool on)
 void Component::show()
 {
     if (current.generation != answerGeneration || current.trial.epoch != answerEpoch) answer = 0;
-    setScreen (screenFor (current, playing, actualPost, repeating, { guessOn, answer }));
+    auto displayed = current;
+    if (activeRounds != 0 && displayed.trial.revealed && preference.answered() > 0) {
+        displayed.trial.usedPostFallback |= preferenceFallback;
+        displayed.trial.fallbackForTiming |= preferenceTimingFallback;
+        displayed.trial.fallbackForCeiling |= preferenceCeilingFallback;
+        if (displayed.contentNoticeMs == 0) displayed.contentNoticeMs = preferenceContentNoticeMs;
+    }
+    auto next = screenFor (displayed, playing, actualPost, repeating, { activeRounds <= 1 && guessOn, answer });
+    if (activeRounds != 0) decoratePreference (next);
+    setScreen (next);
 }
 
 blind_image::Facts Component::resultFacts() const
@@ -198,7 +217,15 @@ blind_image::Facts Component::resultFacts() const
     facts.selected = current.trial.selected;
     facts.guess = guessOn && current.trial.revealed ? answer : 0;
     facts.loweredDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
-    facts.note = resultNote (current);
+    auto noted = current;
+    if (activeRounds != 0 && current.trial.revealed && preference.phase() == blind_preference::Phase::revealed) {
+        facts.preference = preference.summary();
+        noted.trial.usedPostFallback |= preferenceFallback;
+        noted.trial.fallbackForTiming |= preferenceTimingFallback;
+        noted.trial.fallbackForCeiling |= preferenceCeilingFallback;
+        if (noted.contentNoticeMs == 0) noted.contentNoticeMs = preferenceContentNoticeMs;
+    }
+    facts.note = resultNote (noted);
     facts.nameA = blind_image::rememberedName (preferences, current.candidate, false);
     facts.nameB = blind_image::rememberedName (preferences, current.candidate, true);
     return facts;
@@ -220,6 +247,7 @@ bool Component::rememberNames()
     const auto facts = sheet->facts();
     const auto a = blind_image::rememberName (preferences, facts.candidate, false, sheet->nameField (false).getText());
     const auto b = blind_image::rememberName (preferences, facts.candidate, true, sheet->nameField (true).getText());
+    if (a && b) { preferenceNameA = facts.nameA; preferenceNameB = facts.nameB; show(); }
     return a && b;
 }
 

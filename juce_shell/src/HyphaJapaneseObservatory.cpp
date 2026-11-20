@@ -7,6 +7,10 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Meter face", u8"メーターの表示" },
+    { "Choose VU / LU / PSR / CREST / SHARP", u8"VU / LU / PSR / CREST / SHARPを選びます" },
+    { "MEASURING", u8"計測中" },
+    { "UNAVAILABLE", u8"利用できません" },
     // Why a LEVEL history button is greyed (2026-11-11).
     { "No TP events yet", u8"TPの記録はまだありません" },
     { "Select POST for TP events", u8"TPはPOSTを選ぶと見られます" },
@@ -37,6 +41,16 @@ const Entry entries[] = {
       u8"計測を変えずにHybrid VUを表示／非表示にします" },
     { "Set shared 0 VU. Audio, LUFS, TP and needle speed stay unchanged.",
       u8"PRE／POST共通の0 VU基準。音声、LUFS、TP、針の速さは変わりません。" },
+    // The Hybrid VU's LU face: loudness against a Reference song from Kirin OS.
+    { "LU face", u8"LUの面" },
+    { "LU window", u8"LUの窓" },
+    { "Read loudness in LU against the Reference song chosen in B or C",
+      u8"BかCで選んだReferenceの曲を0にして、音量をLUで読みます" },
+    { "Switch Momentary / Short-term / Integrated", u8"Momentary／Short-term／Integratedを切り替えます" },
+    { "CHOOSE A SONG IN B OR C", u8"BかCで曲を選ぶ" },
+    { "CHOOSE A SONG IN POST REFERENCE", u8"POSTのReferenceで曲を選ぶ" },
+    { "NOT MEASURED IN KIRIN OS", u8"Kirin OSで未計測" },
+    { "REF: NO VALUE HERE", u8"REF：この位置の値なし" },
     { "Chain unavailable; previous VU setting retained.", u8"チェーンを確認できません。VUの基準は維持します。" },
     { "VU calibration could not be saved. Previous setting retained.",
       u8"VU基準を保存できませんでした。変更前の設定を保持します。" },
@@ -92,7 +106,7 @@ const Entry entries[] = {
     { "RECORD RESULT", u8"Recordの結果" },
     { "LIVE / TRACE: FIRST PASS ONLY", u8"LIVE / 時系列は最初の1周" },
     { "TRACE: 1ST PASS", u8"時系列は最初の1周" },
-    { "WARMING %1 S", u8"準備中 %1 S" },
+    { "Preparing %1 s", u8"準備中 %1 秒" },
     { "One row per playback, from play to stop", u8"再生1回ごとに1行（再生から停止まで）" },
     { "Play audio to collect run facts in this history range",
       u8"再生すると、この履歴の範囲で再生ごとの値が集まります" },
@@ -134,19 +148,19 @@ const Entry entries[] = {
     { "Loudness range (LRA): how far the loudness moves within the song since the reset. Compare PRE and POST to see how much compression narrowed it.",
       u8"LRA（Loudness Range）：曲の中での音量の幅。PREとPOSTで比べると、Compressionで狭まった量が分かります。" },
     { "Average dynamics of the song (PLR): the highest true peak minus integrated loudness. Compare PRE and POST to see how much limiting reduced it.",
-      u8"曲の平均的なダイナミクス（PLR）：最大TP − LUFS-I。PREとPOSTで比べるとリミッターで詰めた量が分かります。" },
+      u8"曲の平均的なダイナミクス（PLR）：最大TP − LUFS-I。PREとPOSTで比べるとリミッターで縮んだ量が分かります。" },
     { "True peak (TP) in the current window, inter-sample peaks included. Watch it against a ceiling such as -1 dBTP.",
       u8"True Peak（TP）：今の計測区間の、サンプル間を含むPeak。−1 dBTPなどの上限と比べて見ます。" },
     { "Crest factor (CREST): peak minus RMS in this window, the dynamics of the moment. Compare PRE and POST to see how much transients were reduced.",
       u8"CREST：Peak − RMS（瞬間のダイナミクス）。PREとPOSTで比べるとTransientの減り方が分かります。" },
     { "Peak to short-term loudness (PSR) in the current window: the dynamics heard now. Compare PRE and POST to see how much they were reduced.",
-      u8"Peak − Short-term（PSR）：今の区間の、聴こえるダイナミクス。PREとPOSTで比べると詰めた量が分かります。" },
+      u8"Peak − Short-term（PSR）：今の区間の、聴こえるダイナミクス。PREとPOSTで比べると圧縮した量が分かります。" },
     // LEVEL's PSR cell adds the song's figure under the PSR of now.
     { "PSR now: peak minus short-term loudness. SONG: the whole song at its loudest part. Compare PRE and POST.",
       u8"今のPSR：Peak − Short-term。SONG：曲全体の一番大きい所の値。PREとPOSTで比べます。" },
     // TIME HISTORY's own helps (the legend and the PSR row share LEVEL's above).
     { "PSR over time: the 400 ms peak minus the 3 s loudness. It falls where the song is held down; compare verse and chorus.",
-      u8"PSRの推移：400 msのPeak − 3秒の音量。曲を詰めた所で下がるので、Aメロとサビなどを比べます。" },
+      u8"PSRの推移：400 msのPeak − 3秒の音量。曲を圧縮した箇所で下がるので、Aメロとサビなどを比べます。" },
     { "PSR over time: below 0 where the chain reduced the dynamics at that moment of the song.",
       u8"PSRの推移：0より下は、曲のその時点でチェーンがダイナミクスを減らした所です。" },
     { "PSR is PEAK - S of one 100 ms point: the 400 ms sample peak and the 3 s loudness. Read which one moved.",
@@ -210,6 +224,18 @@ const Entry entries[] = {
       u8"RUN：選んだ履歴の範囲の絶対値を、再生1回ごとにまとめて表示します" },
     { "ATTACK: automatic paired comparison or POST-only events",
       u8"ATTACK：ペアでの自動比較、またはPOSTだけの打音です" },
+
+    { "Choose Reference in POST", u8"POSTでReferenceを選びます" },
+    { "Preparing measurement", u8"計測を準備中" },
+    { "Unsupported audio format", u8"対応していない音声形式" },
+    { "Audio could not be read", u8"音声を読み込めません" },
+    { "Audio source changed", u8"参照音声が変更されました" },
+    { "Private copy required", u8"検証済みコピーが必要です" },
+    { "Audio exceeds scan limit", u8"計測できる長さを超えています" },
+    { "Audio is too short", u8"音声が短すぎます" },
+    { "Cue is too short", u8"Cueが短すぎます" },
+    { "No measurable value", u8"有効な測定値がありません" },
+    { "Measurement failed", u8"計測を完了できません" },
 
     // Information button.
     { "Hypha information", u8"Hyphaの情報" },

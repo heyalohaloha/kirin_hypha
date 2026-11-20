@@ -21,6 +21,7 @@ struct Listener
     float weight = 0.0f;
     bool gateOpen = false, pathOpen = false, playsPre = false, slotPre = false, rereading = false;
     std::int64_t address = 0, waited = 0, total = 0;
+    int widest = 0;
     struct Estimate { AlignValue value; std::uint64_t revision; std::int64_t k; int due; };
     std::deque<Estimate> estimates;
     std::vector<Estimate> validated;
@@ -46,6 +47,7 @@ struct World
     int frames = 256, calibrating = 0, stopped = 0, tickEvery = 2, sinceTick = 0, burst = 0;
     bool selectedPre = true, content = true, raceNext = false, unseenK = false, wasValid = false, sameStart = false;
     bool takeoverUnheard = false; // the host took the delay over and no block has been proven at that K yet
+    bool allowClockChangesBeforeAnswer = false;
     bool confirmedCandidate = false; std::uint64_t confirmedConditions = 0;
     Listener listeners[2];
     long blocks = 0, substituted = 0, notices = 0, events = 0, staleEstimates = 0, fallbacks = 0, blindBlocks = 0, races = 0, burstBlocks = 0;
@@ -55,8 +57,8 @@ struct World
     // of lag for each budget, however many clock mappings (K changes) and seeks the wait went through.
     // The one documented addition: a kept correction whose position cannot be read yet is read again
     // for at most half a second, once, before the budget is answered.
-    std::int64_t tickAllowance() const noexcept { return static_cast<std::int64_t> (2 * tickEvery + 2) * 1024; }
-    std::int64_t limit (const Listener& l) const noexcept { return rate + tickAllowance() + (l.rereading ? rate / 2 + static_cast<std::int64_t> (tickEvery) * 1024 : 0); }
+    std::int64_t tickAllowance() const noexcept { return static_cast<std::int64_t> (2 * tickEvery + 2) * frames; }
+    std::int64_t limit (const Listener& l) const noexcept { return rate + static_cast<std::int64_t> (2 * tickEvery + 2) * l.widest + (l.rereading ? rate / 2 + static_cast<std::int64_t> (tickEvery) * l.widest : 0); }
     bool preSelected (int listener) const noexcept { return mode == Mode::blind && listener == 1 ? ! selectedPre : selectedPre; }
 
     // A trial's two assignments are one history up to its start. After an earlier trial the model's
@@ -87,6 +89,8 @@ struct World
         in.event = event; in.context = context; in.host = host; in.active = true; in.agreement = agreement;
         in.revision = l.alignment.readiness.generation(); in.k = l.alignment.readiness.clockK();
         in.clock = &l.alignment.readiness;
+        in.blind = mode == Mode::blind; in.requested = l.alignment.requestFor (context);
+        in.pending = l.alignment.readiness.pending(); in.spent = l.alignment.budgetSpent();
         return in;
     }
 
@@ -97,6 +101,7 @@ struct World
         AlignPlayback playback; playback.context = context; playback.verify = true;
         // As in the renderer, the run's reach is known from the block after the one that calibrates.
         const auto update = l.alignment.update (playback, blind, pre, l.weight, kValid && wasValid ? run : unknown, rate, playing ? frames : 0);
+        if (kValid) l.alignment.resolve (k, l.weight);
         l.address = l.alignment.value().frames;
         const bool accepted = kValid && l.address <= run;
         l.alignment.readiness.observe (true, playing, kValid, k);
@@ -118,7 +123,8 @@ struct World
             check (l.address == 0 || std::llabs (l.address - early) <= agreement, "PRE never plays a correction against another K");
         // The wait: clock-proven playback of PRE's side without PRE (total: since PRE last played at its address).
         const auto told = l.owner.notice (l.alignment.unservedCorrection());
-        if (kValid && (pre || blind) && ! l.gateOpen) { l.waited += frames; l.total += frames; if (index == 0) ++substituted; }
+        if (l.waited == 0) l.widest = frames;
+        if (kValid && (pre || blind) && ! l.gateOpen) { l.widest = std::max (l.widest, frames); l.waited += frames; l.total += frames; if (index == 0) ++substituted; }
         else if (l.gateOpen) l.waited = 0;
         if (l.gateOpen && ! l.alignment.unservedCorrection()) { l.total = 0; l.rereading = false; } // the budget is whole again
         if (l.waited > longestWait) longestWait = l.waited;
@@ -134,7 +140,7 @@ struct World
         // A publication for a mapping the Audio Thread has already left is refused there by its revision.
         if (out.revision == l.alignment.readiness.generation() && l.alignment.readiness.clockK() == k && out.value.frames != 0)
             check (std::llabs (out.value.frames - early) <= agreement, "no correction is published against a K it was not measured with");
-        l.alignment.request (out.value, context, out.revision);
+        l.alignment.request (out.value, context, out.revision, out.resend);
         return out;
     }
 
@@ -143,6 +149,7 @@ struct World
     {
         auto tick = input (l, PreAlignEvent::tick);
         tick.pending = l.alignment.readiness.pending(); tick.spent = l.alignment.budgetSpent();
+        tick.releasedAt = l.alignment.releasedAt();
         tick.reach = l.alignment.servable(); tick.now = static_cast<std::uint64_t> (clock) * 1000000000u / rate; tick.readRetryNanos = 500000000u;
         if (tick.pending) l.alignment.arm();
         const auto out = send (l, tick);
@@ -204,13 +211,16 @@ struct World
         {
             ++blindBlocks;
             auto& x = listeners[0]; auto& y = listeners[1];
+            check (x.alignment.releasedAt() == y.alignment.releasedAt(), "both BLIND assignments release the same budget");
+            if (x.pathOpen && x.alignment.readiness.pending())
+                check (x.address == 0 && y.address == 0, "unconfirmed BLIND paths both use the clock address");
             const auto toldX = x.owner.notice (x.alignment.unservedCorrection()), toldY = y.owner.notice (y.alignment.unservedCorrection());
             check (x.gateOpen == y.gateOpen && x.slotPre == y.slotPre,
                    "both BLIND assignments sound PRE or its substitute at the same blocks");
             check (x.pathOpen == y.pathOpen && x.alignment.pathProven() == y.alignment.pathProven()
                      && x.alignment.readiness.pending() == y.alignment.readiness.pending()
                      && x.alignment.budgetSpent() == y.alignment.budgetSpent() && toldX.unmeasured == toldY.unmeasured
-                     && toldX.notRemeasured == toldY.notRemeasured, "both BLIND assignments wait and are told alike at every block");
+                     && toldX.notRemeasured == toldY.notRemeasured && toldX.unapplied == toldY.unapplied, "both BLIND assignments wait and are told alike at every block");
         }
         wasValid = stopped == 0 && calibrating == 0;
         if (wasValid) takeoverUnheard = false; // the Audio Thread has seen that step of K by itself
@@ -222,6 +232,7 @@ struct World
     // until the service's answer has played (K does not move between the two). Before that K moves freely.
     bool answering() const noexcept
     {
+        if (allowClockChangesBeforeAnswer) return false; // diagnostic only; normal fixture keeps its assumption
         for (const auto& l : listeners) if (l.alignment.budgetSpent() && l.waited > 0) return true;
         return false;
     }

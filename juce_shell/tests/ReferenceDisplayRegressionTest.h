@@ -13,6 +13,7 @@ namespace hypha::tests
 inline void verifyReferenceDisplayRegression()
 {
     verifyBuiltInTermAliases();
+    verifyStoredReferenceNameAliases();
     const auto check = [] (bool valid, const char* message)
     {
         if (!valid) { std::cerr << "Reference display: " << message << '\n'; std::exit (1); }

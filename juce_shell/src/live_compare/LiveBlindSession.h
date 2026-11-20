@@ -3,6 +3,8 @@
 #include "LiveCompareRecovery.h"
 #include <atomic>
 #include <cstdint>
+#include <optional>
+#include <limits>
 
 namespace hypha::live_compare
 {
@@ -41,6 +43,7 @@ public:
 
     void start (bool firstPre) noexcept
     {
+        preferenceAnswers = 0; answeredEpoch = 0;
         const auto next = (static_cast<std::uint64_t> (++serial) << 32);
         terminal.store (next, std::memory_order_release);
         request.store (next | 1u | (firstPre ? 4u : 0u), std::memory_order_release);
@@ -48,6 +51,7 @@ public:
 
     void reset() noexcept // a new preparation, or acknowledged END; message thread only
     {
+        preferenceAnswers = 0; answeredEpoch = 0;
         const auto next = static_cast<std::uint64_t> (++serial) << 32;
         terminal.store (next, std::memory_order_release);
         request.store (next, std::memory_order_release);
@@ -139,8 +143,50 @@ public:
                                                  std::memory_order_acq_rel);
     }
 
+    // Non-RT preference path only. No UI-provided answer count authorises REVEAL.
+    // true means PRE (A in candidate comparison), false means POST (B).
+    std::optional<bool> acceptPreference (int source, std::uint32_t expectedEpoch) noexcept
+    {
+        const auto cmd = command(); const auto state = view();
+        if (source < 1 || source > 2 || cmd.epoch() != expectedEpoch || !valid (cmd)
+            || state.revealed || state.played != 3 || answeredEpoch == expectedEpoch
+            || preferenceAnswers >= 10) return std::nullopt;
+        answeredEpoch = expectedEpoch; ++preferenceAnswers;
+        return (source == 1) == cmd.firstPre();
+    }
+    enum class NextPreference { started, notReady, randomUnavailable };
+    template <typename RandomBit>
+    NextPreference nextPreferenceWith (std::uint32_t expectedEpoch, RandomBit&& randomBit) noexcept
+    {
+        const auto cmd = command();
+        if (cmd.epoch() != expectedEpoch || !valid (cmd) || view().revealed
+            || answeredEpoch != expectedEpoch || preferenceAnswers == 0 || preferenceAnswers >= 10)
+            return NextPreference::notReady;
+        bool firstPre = false;
+        try { firstPre = randomBit(); }
+        catch (...) { end(); return NextPreference::randomUnavailable; }
+        if (!valid (cmd) || command().word != cmd.word || view().revealed) return NextPreference::notReady;
+        if (serial == std::numeric_limits<std::uint32_t>::max())
+        { end(); return NextPreference::randomUnavailable; }
+        const auto next = static_cast<std::uint64_t> (++serial) << 32;
+        terminal.store (next, std::memory_order_release);
+        // Same anonymous source number, independent new assignment. Old played/
+        // audible receipts are rejected by epoch; no RT-owned field is written.
+        request.store (next | 1u | (cmd.stimulus() == 2 ? 2u : 0u) | (firstPre ? 4u : 0u),
+                       std::memory_order_release);
+        return NextPreference::started;
+    }
+    bool revealPreference (std::uint32_t expectedEpoch) noexcept
+    {
+        const auto cmd = command();
+        if (!valid (cmd) || cmd.epoch() != expectedEpoch || preferenceAnswers == 0) return false;
+        auto expected = static_cast<std::uint64_t> (cmd.epoch()) << 32;
+        return terminal.compare_exchange_strong (expected, expected | revealedBit, std::memory_order_acq_rel);
+    }
+
     void end() noexcept
     {
+        preferenceAnswers = 0; answeredEpoch = 0;
         const auto cmd = command();
         auto value = terminal.load (std::memory_order_acquire);
         for (int attempt = 0; attempt < 2 && (value >> 32) == cmd.epoch(); ++attempt)
@@ -178,6 +224,8 @@ private:
     std::int64_t fallbackRun = 0; // audio thread only: contiguous POST frames while PRE was requested
     std::uint32_t fallbackRunEpoch = 0; // audio thread only
     bool fallbackRunTiming = false, fallbackRunCeiling = false; // audio thread only: what filled this run
+    unsigned preferenceAnswers = 0; // message thread only; never persisted
+    std::uint32_t answeredEpoch = 0; // one accepted answer per round
     std::uint32_t serial = 0; // message thread only
     std::atomic<std::uint64_t> request { 0 }, terminal { 0 }, played { 0 }, audible { 0 };
 };

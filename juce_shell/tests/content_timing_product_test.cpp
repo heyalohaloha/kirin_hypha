@@ -4,6 +4,9 @@
 #include "LiveTimingAvailabilityTest.h"
 #include "TestProcessorStorage.h"
 #include "AutoAlignStateProductTest.h"
+#include "LuChoiceStateProductTest.h"
+#include "AlignReleaseServiceProductTest.h"
+#include "AlignHearingReceiptProductTest.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -18,6 +21,8 @@ int main()
     hypha::tests::editor_product::ScopedChainTimingStorage preferences (sandbox.directory());
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     juce::ScopedJuceInitialiser_GUI initialise;
+    hypha::tests::align_release_product::verify (require);
+    hypha::tests::align_hearing_receipt::verify (require);
     const auto availabilityCases = verifyTimingAvailability (require);
     using Processor = KirinHyphaProcessorBase;
     using namespace hypha::live_compare;
@@ -27,6 +32,7 @@ int main()
                           juce::AudioProcessor::wrapperType_AAX })
     {
         verifyAutoAlignState (wrapper, require);
+        verifyLuChoiceState (wrapper, require);
         juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);
         Processor post (Processor::Role::Post);
         auto layout = post.getBusesLayout();

@@ -237,7 +237,7 @@ inline void verifyWaitingRequests()
                  "a staged All Keep waits for its pair to be restored rather than being dropped");
         waiting.since = now() - (keep_ui::preWaitSeconds + 1.0); tick();
         require (waiting.action == live_compare_ui::AfterTail::none
-                 && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: run A/B once, then Keep",
+                 && (e->*privateMember (HiddenToast {})) == live_compare_ui::keepTailEndedNotice,
                  "a missing pair does not extend the original two-minute bound");
     }
     {
@@ -254,7 +254,7 @@ inline void verifyWaitingRequests()
                     now() - (keep_ui::preWaitSeconds + 1.0), now() + 60.0 };
         e->*privateMember (HiddenToast {}) = {}; tick();
         require (waiting.action == live_compare_ui::AfterTail::none && ! processor.isRecording()
-                 && (e->*privateMember (HiddenToast {})) == "A/B tail not cleared: run A/B once, then Keep",
+                 && (e->*privateMember (HiddenToast {})) == live_compare_ui::keepTailEndedNotice,
                  "an expired tail wait ends before a throttled check can start Keep");
     }
     // LISTEN after RETURN and C MATCH: another target drops the press without starting or matching.

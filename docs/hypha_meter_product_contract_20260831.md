@@ -617,6 +617,13 @@ DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更�
 Hybrid VUのlive針は全波整流した線形振幅へ2次系（ζ=0.8127169864、ω=13.5119125625 rad/s、DC gain=1）を掛け、上昇・戻りとも99%へ300 ms、半分へ約112 ms、行き過ぎ1.25%とする。係数はprepare時に求め、44.1〜192 kHzで同じ時間応答とする。針の状態と速度をblockごとに公開し、callbackが途切れたhostでもUIが同じ0入力応答を継続する。公開状態の単調時刻と処理済み音声の先行時間を使い、非表示中の経過を再表示に反映し、正常なcallbackのまとめ処理では戻りを始めない。非有限入力を含むblockは全時間を左右とも0入力で進め、有限入力で自動復帰する。100 msの公開VUへ戻して針を止めない。公開の300 ms矩形平均VU、Capture、Record、足元の数値と校正は変更しない。既存の目盛り座標は保持する。Hybrid VUはこの左右の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
 通知は150%以上で既存の足元左（LIVE／HOLDの位置）に固定し、長文でもLRや解析図の上へ持ち上げない。100%／125%は既存の最下部stripを維持する。短い通知は足元のaction fontで一行に収める。2026-10-09の利用者選択により、同じ通知boundsへaction fontで入りきらない長文だけ既存legend font（最大16 px、最小11 px）を使う。LIVE／HOLD／CHAIN LOADと右のボタンは既存action font（最大18 px）を維持する。小さい文字でも入りきらない末尾は省略表示し、既存tooltipとクリックによる詳細には全文を保持する。Hybrid VUでは同じ最下部行の左通知と中央校正のboundsを分離し、針・LR・三つの測定値の描画領域と校正の中心位置を保持する。
 
+Hybrid VUのLUの面（2026-11-17）: Kirin OSのReferenceを読める間だけ、VUボタンの隣に`LU`と窓（M／S／I）の操作を出す。読めない間は
+VUのまま操作も出さず、保存した選びは保つ。左の盤は−18〜+9 LUの一つの目盛りで、0はBかCで選んだReferenceの曲の音量（Cueの
+Integrated、無ければ曲全体。試聴のgainは足さない）。数の目標は持たない。選んだセットの曲のp10〜p90を帯、FOLLOW Aの間は同じ位置の
+曲の音量を針（M／S）、POSTでは確かめた同時刻のPREを細い針と`POST − PRE`の字で出す。針は選んだ値そのもの（60 msのならしだけ）。
+PREはReferenceを持たないので、同じチェーンのPOSTがこのcomputerで共有する0と帯を読む。面と窓はDAWのprojectへ保存する。表示だけで、
+音声・計測・Record／Keep・Referenceの試聴は変えない。字は全sizeで12 px以上。
+
 Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−14／−16／−18／−20 dBFSから選ぶ。左右は共通の一値とし、exactなPRE／POST pairは同じ基準を使う。選択中の値をcheck markで示す。新しいノブや音量操作は置かない。校正はdBFS値から針位置へ換算する表示設定で、300 msの測定窓・針の時間応答、音声、LUFS、Peak／TP、Session、Record／Keep、plugin_dataとwork.jsonは変更しない。
 基準の全文とクリック範囲は既存のlegend領域に収める。LEVELのLRA待機文字も自身のカード内で幅・高さを合わせ、隣カードやグラフへ描かない。数値・単位の定義は変えない。
 校正の永続正本は、このcomputerのuser設定領域にあるexact project＋PRE instanceごとの小さい設定fileとする。識別子はlength-delimited keyのSHA-256でpath化し、別chainへ流用しない。PREは自身の解決済みidentity、POSTは選択したPREのexact locator、unpaired POSTは自身のidentityを使う。初期値は−18。identityの取得が一時的に競合する場合は採用済み基準を保持し選択を無効にする。新しいscopeの取得成功後にそのchainの設定を採用する。合法64-byte identityは専用additive getterで完全に取得し、旧DTOの切詰めを共有に使わない。message threadだけが250 ms間隔で設定を読み、明示選択だけが完全なtemporary siblingをatomic置換する。保存失敗は旧値を保持して理由を通知する。不在／破損／未知値は既定−18。pair変更と再openはそのchainの設定を読み直し、DAW state restoreは共有fileへ書かず古い値で他側を巻き戻さない。校正fileはDAW chunkへ含めないので、このcomputerのchain別表示設定として扱う。

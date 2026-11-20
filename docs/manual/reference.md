@@ -31,6 +31,12 @@ Reference has four roles, each with its own button in the same place at every si
   C compares A with the song, Cue and frequency bands chosen in Kirin OS. Measured targets are handled on B, not C.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
+**Change notes in V.** When Kirin OS includes change notes with the selected Version, V shows numbered marks at their positions in the source file. Open a mark or the note list to read its plain text; completed notes appear more quietly in the list. These times belong to that source file, not the DAW timeline. Reading a note does not seek, change the playing role or level, or apply an alignment. Notes are hidden during Blind. If the optional notes are missing or cannot be read safely, V remains usable without them.
+
+The Hybrid VU's LU face reads loudness against the song chosen here: the song's loudness is its 0,
+the chosen set's songs give a band, and in FOLLOW A the song at A's position is a needle
+([Watch: the LU face](watch.md#the-lu-face-loudness-against-a-reference-song)).
+
 **LOOP and FOLLOW A.** B and C play in one of two ways, chosen with **LOOP** and **FOLLOW A** on the B and C
 pages; one choice serves both, and the project remembers it.
 
@@ -184,7 +190,7 @@ above 100% and below 300%, FOLLOW A sits beside the song. At 300% LOOP and FOLLO
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
   OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
   right: A over its window, 10 seconds unless you choose another (gold), the chosen song (cyan) and the set's p10–p90 range, each
-  song shifted to the level B plays it at. No genre curves are supplied. B plays and is measured over
+  song shifted to the level B plays it at. Before A is available, songs and targets are drawn at the selected song’s loudness (or the median available song loudness), with MATCHED TO EACH OTHER (各曲の音量をそろえて表示 in Japanese) in the header; when A arrives, the chart uses A matching. Only items without Integrated loudness remain unshifted (LEVEL NOT MATCHED). This drawing alignment never changes MATCH or playback gain. No genre curves are supplied. B plays and is measured over
   its default Cue: for a song left on the whole track in Kirin OS, that is the chorus candidate, or the
   loudest 30 seconds when no chorus is found; the legend names the part and its times
   (B CHORUS 1:02-1:24), and the C page legend names C's part the same way. The list starts with A's row

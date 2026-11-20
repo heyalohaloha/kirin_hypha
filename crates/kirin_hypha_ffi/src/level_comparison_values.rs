@@ -12,12 +12,31 @@ pub(crate) fn level_values(
     engine: &KirinHyphaEngine,
     snapshot: &MeterSessionSnapshot,
 ) -> Result<Option<LevelValues>, LevelBusy> {
+    acquire_level_values(engine, snapshot, false)
+}
+
+/// Reconstruction must never subtract a still-live older difference from a newer absolute value.
+pub(crate) fn exact_level_values(
+    engine: &KirinHyphaEngine,
+    snapshot: &MeterSessionSnapshot,
+) -> Result<Option<LevelValues>, LevelBusy> {
+    acquire_level_values(engine, snapshot, true)
+}
+
+fn acquire_level_values(
+    engine: &KirinHyphaEngine,
+    snapshot: &MeterSessionSnapshot,
+    exact_endpoint: bool,
+) -> Result<Option<LevelValues>, LevelBusy> {
     let Some(exchange) = engine.meter_delta_history.as_ref() else {
         return Ok(None);
     };
     let before = authority(engine).ok_or(LevelBusy)?;
     if before.signal != KIRIN_SIGNAL_STATE_ACTIVE {
         return Err(LevelBusy); // A stop raced an active acquisition; retry the local projection.
+    }
+    if exact_endpoint && (before.role != Some(PluginDataRole::Post) || before.audition_active) {
+        return Ok(None);
     }
     let Some(view) = exchange
         .time_comparison(
@@ -63,6 +82,15 @@ pub(crate) fn level_values(
     if point.wire.observed > snapshot.observed_frames {
         return Ok(None);
     }
+    if exact_endpoint {
+        return Ok(exact_values_for_current(
+            &view,
+            local_span,
+            local.as_ref(),
+            snapshot.observed_frames,
+            Instant::now(),
+        ));
+    }
     Ok(values_for_current(
         &view,
         local_span,
@@ -86,4 +114,17 @@ pub(super) fn values_for_current(
         std::array::from_fn(|i| latest.wire.values[i].and(point.wire.values[i])),
         latest.wire.crest.and(point.wire.crest),
     ))
+}
+
+pub(super) fn exact_values_for_current(
+    view: &TimeComparisonView,
+    span: TimeSourceSpan,
+    local: Option<&TimeRawPoint>,
+    observed: u64,
+    now: Instant,
+) -> Option<LevelValues> {
+    if view.point.as_ref()?.wire.observed != observed {
+        return None;
+    }
+    values_for_current(view, span, local, now)
 }

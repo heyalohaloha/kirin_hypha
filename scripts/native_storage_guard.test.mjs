@@ -5,13 +5,29 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { capture, protectedRoots, run, snapshot, verify } from './native_storage_guard.mjs';
-import { exclusionPaths, exclusionRules } from './native_storage_exclusions.mjs';
+import { capture, protectedRoots, snapshot, verify } from './native_storage_guard.mjs';
+import { assertExclusionOwnership, exclusionPaths, exclusionRules } from './native_storage_exclusions.mjs';
 import { testOwnership } from './native_storage_guard_ownership_cases.mjs';
-import { cleanupChild, contractTimeoutMs, fixture, spawnChild, stopSocket, waitChild } from './native_storage_guard_test_helpers.mjs';
+import { cleanupChild, contractTimeoutMs, fixture, isolatedStorageGuard, spawnChild, stopSocket, waitChild } from './native_storage_guard_test_helpers.mjs';
 
 const script = fileURLToPath(new URL('./native_storage_guard.mjs', import.meta.url));
 test('native storage guard contract', { timeout: contractTimeoutMs }, async suite => {
+// Always rescan real source at both boundaries, including failure/cancellation cleanup.
+assert.ok(assertExclusionOwnership() > 0);
+suite.after(() => { assert.ok(assertExclusionOwnership() > 0); });
+const { run } = await isolatedStorageGuard(suite);
+
+await suite.test('isolated checkout rejects newly added excluded-path writers before setup and cleanup', async t => {
+  const guard = await isolatedStorageGuard(t);
+  const f = fixture(t);
+  assert.equal(guard.run('setup', f.state, f.roots), 1);
+  fs.writeFileSync(path.join(guard.checkout, 'src', 'new.rs'),
+    'fn writer() { std::fs::write(root.join("GPUCache"), [1]); }');
+  assert.throws(() => guard.run('cleanup', f.state, f.roots), { code: 'STORAGE_EXCLUSION_OWNERSHIP' });
+  fs.unlinkSync(f.state);
+  assert.throws(() => guard.run('setup', f.state, f.roots), { code: 'STORAGE_EXCLUSION_OWNERSHIP' });
+  assert.equal(fs.existsSync(f.state), false);
+});
 await suite.test('unchanged nested files pass; repeated snapshots do not change metadata', t => {
   const f = fixture(t);
   fs.mkdirSync(path.join(f.protectedRoot, 'presence'));
@@ -436,25 +452,25 @@ include("${cmakePath(cmakeGuard)}")
   const invoke = (command, args) => spawnSync(command, args, { encoding: 'utf8' });
   const configured = invoke('cmake', ['-S', source, '-B', build]);
   assert.equal(configured.status, 0, configured.stderr);
-  const inventory = invoke('ctest', ['--test-dir', build, '--show-only=json-v1', '-R', '^native_ok$']);
+  const inventory = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--show-only=json-v1', '-R', '^native_ok$']);
   assert.equal(inventory.status, 0, inventory.stderr);
   assert.deepEqual(JSON.parse(inventory.stdout).tests.map(item => item.name).sort(),
     ['kirin_native_path_budget_cleanup', 'kirin_native_path_budget_setup',
       'kirin_native_storage_guard_cleanup', 'kirin_native_storage_guard_setup', 'native_ok']);
-  const contract = invoke('ctest', ['--test-dir', build, '--show-only=json-v1', '-R', '^kirin_native_storage_guard_contract$']);
+  const contract = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--show-only=json-v1', '-R', '^kirin_native_storage_guard_contract$']);
   const timeout = JSON.parse(contract.stdout).tests.find(item => item.name === 'kirin_native_storage_guard_contract')
     .properties.find(item => item.name === 'TIMEOUT').value;
   assert.equal(timeout, 60); assert.ok(contractTimeoutMs < timeout * 1000);
-  const pass = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_ok$']);
+  const pass = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', '^native_ok$']);
   assert.equal(pass.status, 0, pass.stdout + pass.stderr);
-  const fail = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_failure$']);
+  const fail = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', '^native_failure$']);
   assert.notEqual(fail.status, 0);
   assert.match(fail.stdout, /kirin_native_storage_guard_cleanup[^\n]*Failed/);
   assert.match(fail.stdout, /native_failure[^\n]*Failed/);
   // A failed setup must prevent the native body from starting, not silently disable protection.
   fs.unlinkSync(path.join(f.protectedRoot, 'lease'));
   fs.writeFileSync(path.join(scripts, 'native_storage_guard.mjs'), 'process.exit(3);');
-  const blocked = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_failure$']);
+  const blocked = invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', '^native_failure$']);
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stdout, /native_failure[^\n]*Not Run/);
   assert.equal(fs.existsSync(path.join(f.protectedRoot, 'lease')), false);

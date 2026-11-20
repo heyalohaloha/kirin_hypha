@@ -1,5 +1,6 @@
 #include "HyphaHybridVuPainter.h"
 #include "HyphaVuNeedlePainter.h"
+#include "HyphaTruePeakRail.h"
 
 #include <BinaryData.h>
 
@@ -15,7 +16,6 @@ namespace hypha::hybrid_vu
 {
 namespace
 {
-constexpr float pi = juce::MathConstants<float>::pi;
 constexpr std::array<int, 18> vuTickHalves {
     -40, -35, -30, -25, -20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6
 };
@@ -66,24 +66,26 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
 {
     const auto width = area.getWidth();
     auto title = area.reduced (scaled (25.0f, width, 6.5f), 0.0f);
-    // The title engraving in the chassis occupies the left 22.5% of this inset header.
-    // Keep both words inside that physical frame at every supported scale.
-    const auto titleWidth = title.getWidth() * 0.225f;
-    auto titleArea = title.removeFromLeft (titleWidth);
     const auto roleText = state.role == observatory::Role::post ? juce::String ("POST")
                                                                 : juce::String ("PRE");
     const auto roleFont = labelFont (state.presentation, typography::TextRole::shellTitle)
                               .withExtraKerningFactor (0.12f);
-    const auto roleWidth = juce::jmin (
-        titleArea.getWidth() * 0.45f,
-        roleFont.getStringWidthFloat (roleText) + scaled (3.0f, width, 1.0f));
+    // Reserve actual glyph widths: a fixed 45% role share clipped POST at 300 px.
+    const auto roleWidth = std::ceil (roleFont.getStringWidthFloat (roleText))
+                         + scaled (3.0f, width, 1.0f);
+    const juce::String brandText = width >= 700.0f ? "H Y P H A" : "HYPHA";
+    const auto brandFont = labelFont (state.presentation, typography::TextRole::shellTitle);
+    const auto titleGap = scaled (5.0f, width, 1.0f);
+    const auto minimumTitle = roleWidth + titleGap
+                            + std::ceil (brandFont.getStringWidthFloat (brandText)) + 1.0f;
+    auto titleArea = title.removeFromLeft (juce::jmax (title.getWidth() * 0.225f, minimumTitle));
     drawText (g, roleText,
               titleArea.removeFromLeft (roleWidth), state.presentation,
               typography::TextRole::shellTitle, typography::Composition::shell,
               state.role == observatory::Role::post ? COL_FLORA : COL_LED_BLUE,
               juce::Justification::centredLeft, false, 0.12f);
-    titleArea.removeFromLeft (scaled (5.0f, width, 1.0f));
-    drawText (g, width >= 700.0f ? "H Y P H A" : "HYPHA", titleArea,
+    titleArea.removeFromLeft (titleGap);
+    drawText (g, brandText, titleArea,
               state.presentation, typography::TextRole::shellTitle,
               typography::Composition::shell, COL_NORMAL, juce::Justification::centredLeft);
 
@@ -125,85 +127,6 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
         drawText (g, "REC", record, state.presentation, typography::TextRole::status,
                   typography::Composition::shell, recordColour,
                   juce::Justification::centredLeft, false, 0.10f);
-    }
-}
-
-juce::Point<float> peakRailPoint (juce::Rectangle<float> face, int channel, float amount)
-{
-    const auto inner = channel == 0 ? 0.384f : 0.616f;
-    const auto outer = channel == 0 ? 0.071f : 0.929f;
-    const auto x = face.getX() + face.getWidth() * juce::jmap (amount, outer, inner);
-    const auto y = face.getY() + face.getHeight()
-        * (0.225f - 0.060f * std::sin (amount * pi * 0.5f));
-    return { x, y };
-}
-
-void paintPeakRail (juce::Graphics& g, juce::Rectangle<float> face, const State& state,
-                    int channel, bool compact)
-{
-    const auto available = state.currentAvailable && channel < state.meter.channels
-        && std::isfinite (state.meter.channel_instant_true_peak_dbtp[channel]);
-    const auto progress = available
-        ? truePeakNormalized (state.meter.channel_instant_true_peak_dbtp[channel]) : 0.0f;
-    const int segments = compact ? 21 : 49;
-    const auto width = face.getWidth();
-    for (int index = 0; index < segments; ++index)
-    {
-        const auto amount = static_cast<float> (index) / static_cast<float> (segments - 1);
-        const auto point = peakRailPoint (face, channel, amount);
-        const auto lit = amount <= progress;
-        const auto emphasized = lit && amount >= truePeakNormalized (-24.0);
-        const auto height = scaled (index % (compact ? 4 : 7) == 0 ? 12.0f : 9.0f,
-                                    width, compact ? 2.4f : 3.5f);
-        if (emphasized)
-        {
-            const auto segmentWidth = scaled (compact ? 4.0f : 5.6f, width, 1.3f);
-            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.14f));
-            g.fillRoundedRectangle (point.x - segmentWidth,
-                                    point.y - height * 0.75f,
-                                    segmentWidth * 2.0f, height * 1.5f,
-                                    segmentWidth * 0.55f);
-            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
-            g.fillRoundedRectangle (point.x - segmentWidth * 0.5f, point.y - height * 0.5f,
-                                    segmentWidth, height, segmentWidth * 0.28f);
-        }
-        else
-        {
-            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.78f));
-            g.drawVerticalLine (juce::roundToInt (point.x), point.y - height * 0.5f,
-                                point.y + height * 0.5f);
-        }
-    }
-
-    if (state.cumulativeAvailable && channel < state.meter.channels
-        && std::isfinite (state.meter.channel_max_true_peak_dbtp[channel]))
-    {
-        const auto held = peakRailPoint (
-            face, channel, truePeakNormalized (state.meter.channel_max_true_peak_dbtp[channel]));
-        g.setColour (COL_FLORA_BR.withAlpha (0.17f));
-        g.fillRoundedRectangle (held.x - scaled (5.0f, width),
-                                held.y - scaled (15.0f, width),
-                                scaled (10.0f, width), scaled (30.0f, width),
-                                scaled (4.0f, width));
-        g.setColour (COL_FLORA_BR);
-        g.fillRoundedRectangle (held.x - scaled (2.0f, width), held.y - scaled (12.0f, width),
-                                scaled (4.0f, width), scaled (24.0f, width),
-                                scaled (1.5f, width));
-    }
-
-    const std::array<int, 5> labels { -24, -18, -12, -6, 0 };
-    for (const auto value : labels)
-    {
-        if (compact && value != -24)
-            continue;
-        const auto point = peakRailPoint (face, channel, truePeakNormalized (value));
-        const auto labelWidth = scaled (34.0f, width, 14.0f);
-        drawText (g, juce::String (value),
-                  { point.x - labelWidth * 0.5f, point.y - scaled (28.0f, width, 11.0f),
-                    labelWidth, scaled (17.0f, width, 7.0f) },
-                  state.presentation, typography::TextRole::axis,
-                  typography::Composition::instrument, COL_NORMAL.withAlpha (0.82f),
-                  juce::Justification::centred, true);
     }
 }
 
@@ -333,8 +256,8 @@ void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State
     const bool compact = face.getWidth() < 410.0f;
     if (dynamicPart)
     {
-        paintPeakRail (g, inner, state, 0, compact);
-        paintPeakRail (g, inner, state, 1, compact);
+        peak_rail::paint (g, inner, state, 0, compact);
+        peak_rail::paint (g, inner, state, 1, compact);
     }
     if (dynamicPart) drawText (g, compact ? "TP" : "TRUE PEAK (dBTP)",
               { inner.getCentreX() - inner.getWidth() * 0.16f,
@@ -403,9 +326,9 @@ float truePeakNormalized (double dbtp) noexcept
 {
     if (! std::isfinite (dbtp)) return 0.0f;
     // The reference face retains a short unlabelled floor below -24 dBTP.  This keeps the
-    // five labelled 6 dB divisions evenly spaced while preserving that physical lead-in.
+    // labelled divisions and +3 dBTP headroom preserve that physical lead-in.
     constexpr double floorDbtp = -28.0;
-    return static_cast<float> (juce::jlimit (0.0, 1.0, (dbtp - floorDbtp) / -floorDbtp));
+    return static_cast<float> (juce::jlimit (0.0, 1.0, (dbtp - floorDbtp) / (3.0 - floorDbtp)));
 }
 
 static void paintParts (juce::Graphics& g, juce::Rectangle<int> requested, const State& state,

@@ -52,7 +52,7 @@ const Entry entries[] = {
     { "POST Spectrum: current magnitude, six-second field, and rolling peak hold.",
       u8"POSTのSpectrum：今のレベル、6秒間の履歴、Peak Holdです。" },
     { "~ means approximate frequency. Very low tones need a longer window to locate exactly.",
-      u8"~ はおおよその周波数です。とても低い音の位置を正確に求めるには、長い区間が必要です。" },
+      u8"~ はおおよその周波数です。非常に低い音の位置を正確に求めるには、長い区間が必要です。" },
     { "Delta: POST minus PRE on the left dB scale.", u8"Δ：POST − PREの差分です。左のdB目盛りで読みます。" },
     { "PRE: input spectrum on the right dBFS scale.",
       u8"PRE：入力のSpectrumです。右のdBFS目盛りで読みます。" },
@@ -74,7 +74,7 @@ const Entry entries[] = {
     { "Back to the full range", u8"全帯域の表示に戻ります" },
     { "LOW: 20-300 Hz with a longer window, so close bass notes separate",
       u8"LOW：20〜300 Hzを長い窓で見ます。近い低音が分かれて見えます" },
-    { "LOW NEEDS 0.4 SEC OF UNBROKEN AUDIO", u8"LOWは途切れない音が0.4秒要ります" },
+    { "LOW NEEDS 0.4 SEC OF UNBROKEN AUDIO", u8"LOWは途切れない音が0.4秒必要です" },
     { "Show perceptual spectral balance", u8"聴こえ方の帯域バランス（PSB）を表示します" },
     { "LR specific-loudness share", u8"LRの帯域ごとの Loudness の割合" },
     { "FOCUS TRAIL  /  CLICK A BAND", u8"FOCUS TRAIL  /  帯域をクリック" },
@@ -119,7 +119,6 @@ const Entry entries[] = {
     { "POST ONLY", u8"POSTのみ" },
     { "NO PAIR", u8"ペアなし" },
     { "NO HIT", u8"打音なし" },
-    { "UNAVAILABLE", u8"利用不可" },
     { "WARMING UP", u8"準備中" },
 
     // DRUM BAND (B-1097, B-1098): what the engine stated for a hit in the band, the guidance
@@ -137,7 +136,6 @@ const Entry entries[] = {
     { "NONE", u8"音なし" },
     { "LONG", u8"長い" },
     { "UPDATE", u8"要更新" },
-    { "MEASURING", u8"計測中" },
     { "PLAY TO MEASURE", u8"再生すると測ります" },
     { "PLAY TO MEASURE %1", u8"再生すると%1を測ります" },
     { "ALL: every hit measured on the whole signal, as DRUM always has. No audio is kept for the bands while ALL is chosen.",

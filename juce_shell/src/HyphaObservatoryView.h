@@ -1,5 +1,6 @@
 #pragma once
 #include "HyphaLevelReadout.h"
+#include "HyphaSessionPresentation.h"
 #include <functional>
 #include <optional>
 #include <vector>
@@ -21,6 +22,8 @@
 #include "HyphaVuCalibrationControl.h"
 #include "HyphaVuNeedleAnimator.h"
 #include "HyphaVuLayerCache.h"
+#include "HyphaLuFace.h"
+#include "HyphaMetricFaceState.h"
 #include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
@@ -37,7 +40,6 @@ public:
     explicit View (Role roleIn);
     void requestHybridVuToggle();
     std::function<void()> onBodyLayoutChanged;
-
     std::function<void (Domain)> onDomainChange;
     std::function<void (ObservationTarget)> onTargetChange;
     std::function<void (TimeRange)> onTimeRangeChange;
@@ -74,7 +76,6 @@ public:
     juce::Component& operationsMenuAnchor() noexcept { return operationsButton; }
     juce::Component& guideDetailsAnchor() noexcept { return guideButton; }
     juce::Component& feedbackDetailsAnchor() noexcept { return statusButton; }
-
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
     void setSurroundMeasurementOnly (bool enabled);
@@ -171,6 +172,11 @@ public:
     const time_snapshot::Presentation& acceptedTimePresentation() const noexcept { return timePresentation; }
     double meterSampleRateForSnapshot() const noexcept { return frameAvailable ? observatoryFrame.meter.sample_rate : 0.0; }
     void setSessionCoverage (const KirinMeterSessionV2&);
+    bool retainSessionPoll (const KirinObservatoryFrame*, const KirinMeterSessionV2*,
+                            unsigned status, bool packetReady, double nowMs);
+    void invalidateSessionPresentation();
+    const std::vector<KirinMeterHistoryEntry>& sessionHistoryForTest() const noexcept { return history; }
+    const KirinWatchDisplay& sessionWatchForTest() const noexcept { return watchDisplay; }
     const KirinMeterSession& cumulativeMeterForDisplay() const noexcept;
     bool sessionSummaryPending() const noexcept;
     juce::String sessionSummaryScope() const;
@@ -195,6 +201,13 @@ public:
     void setVuCalibration (int value, bool choiceAvailable = true);
     int vuCalibration() const noexcept { return vuCalibrationControl.referenceDbfs(); }
     juce::Component& vuCalibrationAnchor() noexcept { return vuCalibrationControl; }
+    hybrid_vu::LuFace& lu() noexcept { return luFace; }
+    const hybrid_vu::LuFace& lu() const noexcept { return luFace; }
+    void setMetricFace (metric_needle::Face); metric_needle::Face metricFaceSelection() const noexcept { return metricSelection.face; }
+    void setMetricFrame (const metric_needle::Frame&); void setPreSharpAvailable (bool);
+    bool metricFaceActive() const noexcept;
+    std::function<void (metric_needle::Face)> onMetricFaceChoice;
+    bool luFaceShown() const noexcept { return hybridVuVisible() && luFace.active(); }
     bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
     bool hybridVuShownByRecording() const noexcept
     {
@@ -266,7 +279,6 @@ public:
     void setLiveCompareFooter (const LiveCompareFooter&);
     const LiveCompareFooter& liveCompareFooter() const noexcept { return liveCompareState; }
     juce::Component& liveMatchAnchor() noexcept { return liveMatchButton; }
-
     struct HistoryRequest
     {
         uint8_t resolution = KIRIN_METER_HISTORY_10_HZ;
@@ -274,7 +286,6 @@ public:
         size_t maxOutputEntries = 300;
         const char* label = "30 S";
     };
-
     HistoryRequest historyRequest() const noexcept;
     juce::Image createCaptureImage (int pixelWidth, int pixelHeight,
                                     bool includeGuide = false,
@@ -305,7 +316,6 @@ public:
         return ! measurementOnlySurround && role == Role::post
             && (selectedDomain == Domain::frequency || selectedDomain == Domain::reference);
     }
-
     juce::String getTooltip() override;
     juce::String metricHelpAt (juce::Point<int>) const;
     void paint (juce::Graphics&) override;
@@ -318,11 +328,12 @@ public:
     std::uint64_t recordInvalidationsForTest() const noexcept { return recordBodyInvalidations; }
     std::uint64_t footerInvalidationsForTest() const noexcept { return footerInvalidations; }
     bool historyHeldForTest() const noexcept { return levelInspection.held(); }
+    juce::Rectangle<int> levelHistoryBoundsForTest() const noexcept { return levelHistoryArea; }
     void setVuFrameTestMode (bool); void tickVuForTest (double);
     double vuPositionForTest (int) const;
-
 private:
     time_snapshot::Presentation timePresentation;
+    session_presentation::Gate sessionPresentation;
     KirinMeterSessionV2 sessionCoverage {};
     bool haveSessionCoverage = false;
     void cycleDomain();
@@ -371,7 +382,6 @@ private:
     bool cumulativeFactsAvailable() const noexcept;
     bool deltaFactsAvailable() const noexcept;
     bool recordDisplayShowing() const noexcept;
-
     Role role;
     void configureHeaderSelectors();
     void chooseMeterContext (meter_context::MeterContext);
@@ -471,6 +481,7 @@ private:
     Button statusButton { {}, true, Button::Mark::footerNotice };
     Button hybridVuButton { "VU", false };
     vu_calibration::Control vuCalibrationControl;
+    hybrid_vu::LuFace luFace { *this }; metric_face::Selection metricSelection;
     Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };
@@ -484,7 +495,6 @@ private:
     Button liveEndButton { "END", false };
     Button liveReturnButton { "RETURN", false };
     InformationButton informationButton;
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)
 };
 }

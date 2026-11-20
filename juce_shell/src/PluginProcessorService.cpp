@@ -51,9 +51,11 @@ void KirinHyphaProcessorBase::timerCallback()
         || liveCompare.sessionActive.load (std::memory_order_acquire), candidateReturning() || tailNeedsBound);
     serviceReferencePendingAudition();
     serviceReferenceTracking();
+    serviceReferenceMetrics();
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
         && ! heldFormat.held && ! liveCompareNeedsService() && ! referencePendingAuditionNeedsService()
-        && ! referenceTrackingNeedsService() && !nativeHostContext.reaper.needsService())
+        && ! referenceTrackingNeedsService() && !nativeHostContext.reaper.needsService()
+        && role != Role::Post && !metricChainDemand.local())
         stopTimer();
     else
     {

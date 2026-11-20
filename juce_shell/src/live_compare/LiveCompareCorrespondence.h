@@ -53,7 +53,7 @@ public:
     // out receives n frames per channel only when the verdict is accepted; otherwise its contents
     // are unspecified and must not be played. out is preallocated scratch, never the host buffer.
     Decision process (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
-                      const BlockClock& block, float* const* out, int outChannels, AlignValue align = AlignValue()) noexcept
+                      const BlockClock& block, float* const* out, int outChannels, AlignValue align = AlignValue(), AlignLate late = {}) noexcept
     {
         Decision decision;
         TimingSnapshot runtimePeer;
@@ -232,7 +232,7 @@ public:
         // proven K waits for the same token instead of admitting an unverified block.
         if (runtimeTokenSeen && (reaperTokenAbsent (block) || peerTokenAbsent))
         { decision.verdict = Verdict::loopWaiting; return fill (decision); }
-        if (! alignedReadStart (block.clock, k, align, decision.preStart))
+        if (! alignedReadStart (block.clock, k, late.at (k, align), decision.preStart))
         { decision.verdict = Verdict::notWritten; return fill (decision); }
         if ((block.loop.active || runtimeProof) && (! loopVerified || decision.loopFailure != LoopEntryFailure::none))
         {

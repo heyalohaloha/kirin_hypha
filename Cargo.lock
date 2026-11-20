@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "hypha_post"
-version = "1.1.57"
+version = "1.1.58"
 dependencies = [
  "hypha_gui",
  "kirin_measure",
@@ -1050,7 +1050,7 @@ dependencies = [
 
 [[package]]
 name = "hypha_pre"
-version = "1.1.57"
+version = "1.1.58"
 dependencies = [
  "hypha_gui",
  "kirin_measure",
@@ -3470,6 +3470,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
+ "syn 2.0.117",
 ]
 
 [[package]]

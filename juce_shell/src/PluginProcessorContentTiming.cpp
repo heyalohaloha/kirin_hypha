@@ -168,17 +168,21 @@ void KirinHyphaProcessorBase::serviceLiveContentTiming()
     tick.pending = state.active && liveCompareAutoAlign() && liveCompare.renderer.alignPending();
     if (tick.pending) liveCompare.renderer.alignState().arm(); // the wait for content counts from here, once for a budget
     tick.spent = liveCompare.renderer.alignState().budgetSpent();
+    tick.releasedAt = liveCompare.renderer.alignState().releasedAt();
     tick.reach = liveCompare.renderer.alignReach();
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (hypha::live_compare::keptViewMissForTest != nullptr && hypha::live_compare::keptViewMissForTest())
         tick.reach = std::numeric_limits<std::int64_t>::max();
    #endif
     tick.now = now; tick.readRetryNanos = keptReadNanos;
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare::beforeAlignFallbackForTest) hypha::live_compare::beforeAlignFallbackForTest();
+   #endif
     if (const auto fallback = liveCompare.preAlign.transition (tick); fallback.request)
     {
         const bool changed = tick.blind && fallback.value != liveCompare.renderer.alignRequested (context);
         if (changed) { liveCompare.blindHeard.restart(); liveCompare.blindHearing.beginChange(); }
-        liveCompare.renderer.requestAlign (fallback.value, context, fallback.revision);
+        liveCompare.renderer.requestAlign (fallback.value, context, fallback.revision, fallback.resend);
         if (changed) liveCompare.blindHearing.endChange();
     }
     // BLIND: a correction settled during the trial plays once each source has been heard for half a

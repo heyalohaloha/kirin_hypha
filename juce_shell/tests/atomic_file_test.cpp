@@ -1,3 +1,6 @@
+#include "StorageWriteGuardStartup.h"
+#include "AtomicWriteGuardTest.h"
+#include "ShippingDisabledGuardTest.h"
 #include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "TestPathBudget.h"
@@ -31,6 +34,28 @@ struct FailedStream
 
 int main (int argc, char** argv)
 {
+    namespace guard=hypha::storage::write_guard;
+    const auto mode=argc==2 ? juce::String(argv[1]) : juce::String();
+    if (mode=="--guard-failed-enable") {
+        const auto root=juce::SystemStats::getEnvironmentVariable("KIRIN_HYPHA_TEST_STORAGE_ROOT",{});
+        require(guard::validRoot(root),"isolated sticky-failure fixture root");
+        require(!guard::enable({}) && !guard::enable(root),"failed initialization cannot reenable");
+        require(!guard::permitMutation(juce::File(root).getChildFile("never-created")),"failed initialization stays denied");
+        return 0;
+    }
+    if (mode=="--guard-shipping-disabled") {
+        const auto root=juce::SystemStats::getEnvironmentVariable("KIRIN_HYPHA_TEST_STORAGE_ROOT",{});
+        if (!guard::validRoot(root)) return 78;
+        const auto destination=hypha::tests::shippingDisabledFixture(require);
+        const auto before=guard::permittedMutationEntries();
+        const auto file=destination.getNonexistentChildFile("disabled",{},false);
+        require(hypha::storage::writeText(file,"shipping bytes") && file.loadFileAsString()=="shipping bytes",
+                "disabled runtime preserves normal save");
+        require(before==guard::permittedMutationEntries(),"disabled save does not enter guarded mutations");
+        require(file.deleteFile(),"disabled fixture cleanup"); return 0;
+    }
+    if (!hypha::tests::initializeStorageWriteGuard()) return 78;
+    if (mode=="--guard-startup-only") return 0;
     const auto root = hypha::tests::temporaryParent().getNonexistentChildFile ("atom", {}, false);
     require (root.createDirectory().wasOk(), "create fixture");
     const auto name = juce::String::repeatedString ("a", 64) + ".json";
@@ -75,6 +100,7 @@ int main (int argc, char** argv)
         require (hypha::tests::removeFixtureDirectory (root), "boundary cleanup");
         return 0;
     }
+    hypha::tests::verifyAtomicWriteGuard(root, require);
     const auto file = root.getChildFile (name);
     require (hypha::storage::writeText (file, "{\"revision\":1}\n", false, false, "\n"), "first publication");
     require (hypha::storage::writeText (file, "{\"revision\":2}\n", false, false, "\n")

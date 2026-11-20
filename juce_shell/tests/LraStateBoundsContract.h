@@ -11,6 +11,9 @@ inline void verify (KirinObservatoryFrame frame)
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
+        const auto expected = language == i18n::Language::japanese
+            ? juce::String::fromUTF8 (u8"準備中 4 秒") : juce::String ("Preparing 4 s");
+        if (i18n::tr ("Preparing 4 s") != expected) std::exit (1);
         for (const auto role : { observatory::Role::pre, observatory::Role::post })
             for (const auto size : observatory::sizePresets)
             {
@@ -38,12 +41,17 @@ inline void verify (KirinObservatoryFrame frame)
                     frame.lra_elapsed_seconds = seconds;
                     view.setObservatoryFrame (frame, true);
                     const auto image = view.createComponentSnapshot (view.getLocalBounds(), true, 2.0f);
-                    int inside = 0, outside = 0;
+                    int inside = 0, outside = 0, brightChanged = 0;
                     for (int y = 0; y < image.getHeight(); ++y)
                         for (int x = 0; x < image.getWidth(); ++x)
                             if (image.getPixelAt (x, y) != baseline.getPixelAt (x, y))
+                            {
                                 card.contains (x, y) ? ++inside : ++outside;
-                    if (inside == 0 || outside != 0)
+                                const auto colour = image.getPixelAt (x, y);
+                                brightChanged += card.contains (x, y) && colour.getRed() > 200
+                                               && colour.getGreen() > 180;
+                            }
+                    if (inside == 0 || outside != 0 || brightChanged == 0)
                     {
                         std::cerr << "LRA state escaped its card: " << size.width << 'x' << size.height
                                   << " seconds=" << seconds << " outside=" << outside << '\n';
@@ -51,11 +59,11 @@ inline void verify (KirinObservatoryFrame frame)
                     }
                     const auto directory = juce::SystemStats::getEnvironmentVariable (
                         "KIRIN_HYPHA_LRA_PREVIEW_DIR", {});
-                    if (directory.isNotEmpty() && size.width == 900)
+                    if (directory.isNotEmpty())
                     {
                         const auto name = juce::String (role == observatory::Role::pre ? "pre-" : "post-")
                             + (language == i18n::Language::english ? "en-" : "ja-")
-                            + juce::String (int (seconds)) + "-retina.png";
+                            + juce::String (size.width) + "-" + juce::String (int (seconds)) + "-retina.png";
                         auto stream = juce::File (directory).getChildFile (name).createOutputStream();
                         if (!stream || !juce::PNGImageFormat().writeImageToStream (image, *stream)) std::exit (1);
                     }

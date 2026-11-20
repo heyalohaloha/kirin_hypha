@@ -52,7 +52,7 @@ inline void verifyJapaneseWording()
         { "Sources revealed; keep comparing", u8"答えを表示しました。そのまま比較できます" },
         { "Reveal the sources without an answer", u8"回答せずに答えを表示します" },
         { "The previous capture is still releasing its resources.",
-          u8"前の取り込みの後片付けが終わっていません。" },
+          u8"前の取り込みの終了処理が終わっていません。" },
         { "The comparison ownership changed.", u8"出力が別の試聴に移りました。" },
         { "Keep setup failed. Select PRE again.",
           u8"Keepの準備失敗。PREを選び直してください。" },

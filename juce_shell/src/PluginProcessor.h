@@ -1,5 +1,10 @@
 #pragma once
 #include "PreparedFormat.h"
+#include "HyphaMetricNeedle.h"
+#include "HyphaMetricSharedZero.h"
+#include "HyphaMetricChainDemand.h"
+#include "kirin_hypha_pre_sharp.h"
+#include "kirin_hypha_reference_live_metrics.h"
 #include "HyphaSpectrumAverage.h"
 #include "HyphaDisplaySettings.h"
 #include "HyphaPairPreview.h"
@@ -24,6 +29,7 @@
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaVuCalibrationPreference.h"
+#include "HyphaLuSharedZero.h"
 #include "HyphaVuLiveTap.h"
 #include "HyphaSpaceLiveTap.h"
 #include "HyphaAnalysisDemand.h"
@@ -279,6 +285,17 @@ public:
     juce::String hybridVuCalibrationScope() const;
     int refreshHybridVuCalibration(); // message-thread-only presentation preference
     bool setHybridVuCalibration (int value, const juce::String& expectedScope);
+    uint8_t luChoicePreference() const noexcept { return preferredLuChoice.load (std::memory_order_acquire); }
+    hypha::metric_needle::Face metricFacePreference() const noexcept;
+    void setMetricFacePreference (hypha::metric_needle::Face);
+    bool pollReferenceLiveMetrics (KirinReferenceLiveMetricFrame&) const;
+    void setReferenceMetricObservationEnabled (bool); void serviceReferenceMetrics();
+    void setLuChoicePreference (uint8_t packed); // the VU's LU face and its window, saved with the project
+    void setPreSharpObservationEnabled (bool);
+    bool pollPreSharp (KirinPreSharpFrame&) const;
+    void shareMetricZero (const juce::String& scope, const hypha::metric_needle::SharedReferenceZero&);
+    hypha::metric_needle::SharedReferenceZero sharedMetricZero (hypha::metric_needle::Face, bool readable);
+    void shareLuZero (const hypha::lu_needle::Facts&); hypha::lu_needle::Facts sharedLuZero(); // POST to its PRE; message thread
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
     bool isHostRecording() const noexcept
     {
@@ -457,6 +474,11 @@ private:
     // Retained across editor close/reopen for this loaded instance; not a DAW-saved preference.
     std::atomic<bool> manualHybridVuSelected { false };
     hypha::vu_calibration::Preference hybridVuCalibration;
+    std::atomic<uint8_t> preferredMetricFace { 255 }; // absent new state follows the legacy VU/LU selection
+    std::atomic<uint8_t> preferredLuChoice { 0 }; hypha::lu_needle::SharedZero luSharedZero;
+    hypha::metric_needle::SharedMetricZero metricSharedZero;
+    hypha::metric_needle::ChainDemand metricChainDemand;
+    std::uint64_t sharedMetricRevision = 0; // Message-thread publication sequence across B/C roles.
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<bool> preferredSpectrumLowScope { false }; // like M/S: this instance only

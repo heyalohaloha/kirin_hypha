@@ -8,6 +8,7 @@
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceOverlayParts.h"
 #include "HyphaReferencePreviewGain.h"
+#include "HyphaReferenceBalanceGain.h"
 #include "HyphaReferenceSongChoice.h"
 #include "reference_audition/ReferenceVisualTimeline.h"
 
@@ -33,6 +34,7 @@ struct OverlayItem
     const std::vector<float>* medians = nullptr;
     double gainDb = std::numeric_limits<double>::quiet_NaN();  // the level B would play it at; NaN: not matched
     const reference_audition::BalanceOverlay::Line* line = nullptr;  // shown in ALL
+    double drawGainDb = std::numeric_limits<double>::quiet_NaN(); // Chart only, never the MATCH column.
     bool drawable() const noexcept { return centers != nullptr && medians != nullptr && ! medians->empty(); }
 };
 
@@ -61,9 +63,10 @@ inline std::vector<OverlayItem> overlayItems (const State& state)
             const bool chosen = song.id == state.songId;
             item.centers = &fact.centersHz;
             item.medians = &fact.medianDb;
-            // As ONE draws it: the playing song at the gain it plays at, the others at the gain they would.
+            // Keep MATCH/playback preview separate from chart-only alignment before A arrives.
             item.gainDb = chosen && bPlaying && std::isfinite (state.appliedGainDb) ? state.appliedGainDb
                                                                                     : songPreviewGainDb (state, fact, chosen);
+            item.drawGainDb = balanceSongGainDb (state, fact, chosen);
         }
         items.push_back (std::move (item));
     }
@@ -74,6 +77,7 @@ inline std::vector<OverlayItem> overlayItems (const State& state)
             item.centers = &target.spectrum.centersHz;
             item.medians = &target.spectrum.medianDb;
             item.gainDb = targetOverlayGainDb (state, target);
+            item.drawGainDb = balanceTargetGainDb (state, target.integrated, item.gainDb);
             items.push_back (std::move (item));
         }
     if (state.overlay.all)
@@ -82,7 +86,7 @@ inline std::vector<OverlayItem> overlayItems (const State& state)
 }
 
 // SHAPE：出している線（every なら番号に関わらず一覧の全部＝ALL SHAPE）の、帯域ごとの平均（dB）と最小〜最大。
-// どれも B で鳴る音量にそろえた値（そろえられない線はそのままの高さで入れ、unmatched）。値の無い線と、帯域の
+// 描画専用の音量にそろえた値（A 待ちは曲間、欠測の線だけそのままで unmatched）。値の無い線と、帯域の
 // 並びが最初の線と違う線は入れない（数えない）。
 struct OverlayShape
 {
@@ -113,8 +117,8 @@ inline OverlayShape overlayShape (const std::vector<OverlayItem>& items, bool ev
             shape.high.assign (shape.centers.size(), std::numeric_limits<float>::lowest());
         }
         else if (! sameBands (*item.centers)) continue;
-        shape.unmatched = shape.unmatched || ! std::isfinite (item.gainDb);
-        const auto gain = static_cast<float> (std::isfinite (item.gainDb) ? item.gainDb : 0.0);
+        shape.unmatched = shape.unmatched || ! std::isfinite (item.drawGainDb);
+        const auto gain = static_cast<float> (std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0);
         for (size_t band = 0; band < shape.centers.size(); ++band)
         {
             const auto level = (*item.medians)[band] + gain;

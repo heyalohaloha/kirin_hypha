@@ -1,4 +1,5 @@
 #pragma once
+#include "InitialSourcePhaseWait.h"
 #include "../src/reference_audition/ReferenceSourceSnapshot.h"
 #include "../src/reference_audition/ReferencePinnedSource.h"
 #include "../src/reference_audition/ReferenceVerifiedReader.h"
@@ -13,6 +14,7 @@ inline void failEditorSourceOpen (const ref::RuntimeSource& source)
     if (source.absolutePath != editorOpenSource.getFullPathName() || editorOpenClaimed.exchange (true)) return;
     require (editorOpenSource.moveFileTo (editorOpenSaved), "make only the real fixture open unavailable after verification");
     editorOpenFailed.store (true);
+    InitialSourcePhaseWait::notify();
 }
 // B keeps its registered file so another role cannot consume C's injected open failure.
 inline juce::File writeInitialCheckSource (const juce::File& root, const OneSongLibrary& song)
@@ -34,6 +36,7 @@ inline juce::File writeInitialCheckSource (const juce::File& root, const OneSong
 }
 inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
 {
+    InitialSourcePhaseWait phases;
     for (int failure = 0; failure < 5; ++failure)
     for (const bool stopped : { false, true })
     for (const bool cancel : { false, true })
@@ -72,18 +75,32 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
         r.post->refreshLicenseForUserAction();
         r.view().onDomainChange (observatory::Domain::reference);
         auto due = std::chrono::steady_clock::now();
+        const auto period = std::chrono::nanoseconds (512LL * 1'000'000'000LL / 48000);
+        std::uint64_t callbackCount = 0;
+        const auto advance = [&] { r.block(); ++callbackCount; due += period; };
+        // The due time only paces actual audio callbacks, never proves a source state.
         const auto feed = [&] {
-            r.block(); due += std::chrono::nanoseconds (512LL * 1'000'000'000LL / 48000);
-            if (std::chrono::steady_clock::now() < due) std::this_thread::sleep_until (due);
+            advance();
+            while (std::chrono::steady_clock::now() < due)
+                phases.waitAfter (phases.sequence(), due);
         };
-        // A slow host takes longer to verify and retry a source; the boundary is a state, not a time.
         const auto wait = [&] (auto predicate) {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (60);
-            while (!predicate() && std::chrono::steady_clock::now() < deadline) feed();
-            return predicate();
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                const auto observed = phases.sequence(); // before predicate: no lost publication
+                if (predicate()) return std::chrono::steady_clock::now() < deadline;
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= deadline) return false;
+                if (now >= due) advance();
+                else phases.waitAfter (observed, std::min (due, deadline));
+            }
+            return false;
         };
         require (wait ([&] {
             const auto state = r.post->referenceAuditionSnapshot();
+            // A worker publication is not an audio callback: wait for the actual transport too.
+            if (state.transportPlaying != !stopped) return false;
             if (failure >= 2 && !editorOpenFailed.load()) return false;
             // A failed open first reads as revalidating and then as read_failed once the retry finds no file;
             // the held press treats both alike, so a slow host may stop at either.
@@ -99,6 +116,11 @@ inline void verifyInitialSourceRecoveryFromEditor (const juce::File& sandbox)
             return false; }(), "the shipping processor reaches the actual initial source open boundary");
         (r.editor.get()->*privateMember (NoticeEditorTick {}))();
         const auto* panel = component<reference_ui::Component> (*r.editor);
+        std::cerr << "initial source pre-press: panel=" << (panel != nullptr)
+                  << " transportPlaying=" << (panel ? int (panel->state().transportPlaying) : -1)
+                  << " checkArmable=" << (panel ? int (panel->state().checkArmable) : -1)
+                  << " callbacks=" << callbackCount << " expectedPlaying=" << !stopped
+                  << " expectedArmable=" << (failure == 1) << std::endl;
         require (panel && panel->state().transportPlaying == !stopped && panel->state().checkArmable == (failure == 1),
                  "the real editor exposes the source state before the press");
         auto* button = dynamic_cast<juce::Button*> (find (*r.editor, "reference-c"));

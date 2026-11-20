@@ -14,6 +14,26 @@ bool pendingSummary (const KirinMeterSession& meter, const KirinMeterSessionV2* 
 }
 }
 
+void View::invalidateSessionPresentation()
+{
+    sessionPresentation.invalidate();
+    const bool changed = haveSessionCoverage;
+    haveSessionCoverage = false;
+    if (changed) repaint (bodyArea);
+}
+
+bool View::retainSessionPoll (const KirinObservatoryFrame* frame,
+    const KirinMeterSessionV2* coverage, unsigned status, bool packetReady, double nowMs)
+{
+    const auto decision = sessionPresentation.decide ({ frame, coverage, status, packetReady }, nowMs);
+    if (decision == session_presentation::Decision::retain) return true;
+    if (decision == session_presentation::Decision::accept && coverage != nullptr)
+        setSessionCoverage (*coverage);
+    else
+        invalidateSessionPresentation();
+    return false;
+}
+
 void View::setSessionCoverage (const KirinMeterSessionV2& value)
 {
     if (value.version != 2 || value.struct_size != sizeof (value)

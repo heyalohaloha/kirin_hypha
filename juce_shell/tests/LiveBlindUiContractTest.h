@@ -140,8 +140,12 @@ inline void verifyLiveBlindUiContract()
                         const auto* hyphaAction = dynamic_cast<HyphaTextButton*> (action);
                         const auto shown = hyphaAction ? hyphaAction->displayedText()
                                                        : text_style::shownText (action->getButtonText());
-                        require (text_style::shownWidth (font, shown, text_style::LabelPolicy::fixed) <= action->getWidth() - 12,
-                                 "action fits whole");
+                        const auto textWidth = text_style::shownWidth (font, shown, text_style::LabelPolicy::fixed);
+                        if (textWidth > action->getWidth() - 12)
+                            std::cerr << "Action fit: " << action->getComponentID() << " text=" << shown
+                                      << " width=" << textWidth << " available=" << action->getWidth() - 12
+                                      << " preset=" << preset.width << "x" << preset.height << " phase=" << phase << '\n';
+                        require (textWidth <= action->getWidth() - 12, "action fits whole");
                         if (phase == 2 || phase == 3)
                             require (! action->getTitle().contains ("PRE") && ! action->getTitle().contains ("POST"),
                                      "anonymous titles never disclose the mapping");

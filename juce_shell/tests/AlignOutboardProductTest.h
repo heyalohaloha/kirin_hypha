@@ -14,7 +14,8 @@ namespace aax_analysis_product
 struct HeardRow
 {
     int audible = 0, early = 0, late = 0, unmeasured = 0, notRemeasured = 0, firstAudible = -1;
-    std::int64_t maxEarly = 0, lastAlign = 0;
+    int firstUnmeasured = -1;
+    std::int64_t maxEarly = 0, firstAlign = 0, lastAlign = 0;
 };
 
 inline HeardRow heardOver (ChunkedPost& chain, int chunks, bool blind = false)
@@ -28,10 +29,18 @@ inline HeardRow heardOver (ChunkedPost& chain, int chunks, bool blind = false)
         const auto s = post.liveCompareStatus();
         const auto align = post.liveCompareAlignFrames();
         row.lastAlign = align;
-        if (s.contentUnmeasured) ++row.unmeasured;
+        if (s.contentUnmeasured)
+        {
+            if (row.firstUnmeasured < 0) row.firstUnmeasured = i;
+            ++row.unmeasured;
+        }
         if (s.contentNotRemeasured && (! blind || post.liveBlindStatus().contentNotRemeasured)) ++row.notRemeasured;
         if (! s.preAudible) continue;
-        if (row.firstAudible < 0) row.firstAudible = i;
+        if (row.firstAudible < 0)
+        {
+            row.firstAudible = i;
+            row.firstAlign = align;
+        }
         ++row.audible;
         const auto early = chain.contentK - (chain.k + align);
         if (early > 1) ++row.early;
@@ -128,17 +137,29 @@ inline void outboardKeepsTheConfirmedCorrection (int channels)
         chain.leaveLoop();
         chain.setDelay (512 + 256); chain.contentK = 512 + 256 + uncompensated;
         requireHeard (chain, "LISTEN 2-mix after a new K", 150, Heard::kept);
-        // A read that keeps missing ends in K and the label 0.5 s after the bound: PRE is heard at most
-        // that much later than with a readable kept position (a retry of 1.5 s fails here).
+        // K can sound before the service finishes retrying. Neither PRE onset nor the unmeasured
+        // label may be delayed beyond half a second relative to its respective reference.
         finishListen (chain);
-        keptViewMissForTest = [] { return true; };
+        static int persistentMisses = 0;
+        persistentMisses = 0;
+        keptViewMissForTest = [] { ++persistentMisses; return true; };
         startListen (chain, "LISTEN starts with the history unreadable");
         const auto missing = requireHeard (chain, "LISTEN with the kept read missing", 150, Heard::unmeasured);
         keptViewMissForTest = nullptr;
         const auto later = missing.firstAudible - readable.firstAudible;
-        std::printf ("outboard kept read missing: PRE heard %d chunks (%.2f s) later than with the read\n", later, later * 1024.0 / 48000.0);
-        require (missing.firstAudible >= 0 && readable.firstAudible >= 0 && later > 0
-                 && later * ChunkedPost::chunkFrames <= 48000 * 6 / 10, "the retries end within 0.5 s of the bound");
+        const auto labelAfterK = missing.firstUnmeasured - missing.firstAudible;
+        constexpr int halfSecondFrames = 48000 / 2;
+        std::printf ("outboard kept read missing: readable onset %d, K onset %d (align %lld), unmeasured %d; "
+                     "onset delta %d chunks, label delta %d chunks, forced misses %d\n",
+                     readable.firstAudible, missing.firstAudible, static_cast<long long> (missing.firstAlign),
+                     missing.firstUnmeasured, later, labelAfterK, persistentMisses);
+        require (persistentMisses > 1, "the unreadable kept position is retried");
+        require (missing.firstAudible >= 0 && readable.firstAudible >= 0 && later >= 0
+                 && later * ChunkedPost::chunkFrames <= halfSecondFrames,
+                 "PRE at K starts no earlier than the readable position and within 0.5 s of it");
+        require (missing.firstAlign == 0 && missing.firstUnmeasured >= 0 && labelAfterK >= 0
+                 && labelAfterK * ChunkedPost::chunkFrames <= halfSecondFrames,
+                 "the unmeasured label follows the first K output within 0.5 s");
         // A pair change ends the kept correction: the next session is a first one.
         finishListen (chain);
         post.clearPairCandidate();

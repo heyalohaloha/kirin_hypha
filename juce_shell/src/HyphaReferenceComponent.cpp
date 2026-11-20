@@ -42,6 +42,9 @@ Component::Component()
     setOpaque (false);
     addMouseListener (this, true);  // 子の上でも、指している項目の説明を下の行に出す（HyphaReferenceHoverHelp.cpp）
     addChildComponent (comparisonView);
+    changeNotesView.setComponentID("reference-change-notes");
+    addChildComponent(changeNotesView);
+    changeNotesView.onExpansionChanged = [this](bool) { setState(State(current)); };
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
@@ -224,7 +227,11 @@ void Component::setState (State next)
     actionButton.setAttention (false);
     actionButton.setTooltip ("Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
-    comparisonView.setVisible (! guideShown && current.separateComparisons && current.comparisonSlot == 1 && ! blindSession);
+    const bool notesHidden = guideShown || !versionPage() || blindSession;
+    changeNotesView.setNotes(current.changeNotes, notesHidden, presentationContext, current.versionId);
+    changeNotesView.setVisible(!notesHidden && current.changeNotes != nullptr);
+    comparisonView.setVisible (! guideShown && current.separateComparisons && current.comparisonSlot == 1 && ! blindSession
+        && !(changeNotesView.isVisible() && changeNotesView.isExpanded()));
     const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")
         : current.versionStep == SourceStep::ready ? juce::String ("Preparing V overview")
         : stepText (current.versionStep);

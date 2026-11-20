@@ -48,6 +48,9 @@ the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
+The True Peak rails in both VU and LU extend to **+3 dBTP**. Above 0 dBTP, the live bar and held
+marker change to the Clip lamp's colour family; this does not change the sample-clip lamp's condition.
+Values above +3 stop at the end of the rail.
 
 The live needles use a second-order moving-coil response on full-wave rectified input, with unity
 steady gain: 300 ms to the first 99% crossing, 1.25% overswing, and about 112 ms to halfway,
@@ -67,3 +70,97 @@ reference. It changes the needle's displayed level only. Audio, LUFS, True Peak 
 300 ms response stay unchanged. Temporary identity contention retains the adopted reference and
 disables selection until the chain is resolved. A failed save retains the previous choice and reports
 the reason.
+
+### The LU face: loudness against a Reference song
+
+With a Kirin OS license, while POST can read Kirin OS's Reference library, the Hybrid VU has a
+second face. **LU** beside the VU button switches to it and back; the control is not shown when the
+library cannot be read, and the VU is then exactly as before. The choice and its window are saved
+with the DAW project. A project reopened where Reference cannot be read shows the VU and keeps the
+choice for the day it can be read again.
+
+The box, the True Peak rails, the Clip indicators and the three value cells stay as on the VU. The
+left dial reads M or S, and the right dial always reads I (the Meter Session so far). Both use
+the same LU scale from −18 to +9 (the EBU +9 scale); the song defining 0 is named below the dials.
+There is no numeric target: the 0 comes from Reference, in three ways.
+
+- **The song is the 0.** 0 LU is the loudness of the Reference song chosen in B or C: its Cue's
+  Integrated loudness from Kirin OS, or the whole song's when the Cue has no value. The face names
+  it, for example **0 = North Road** and **−9.8 LUFS**. When B and C both hold a song, the one
+  that is heard decides, then the page in view. The value is Kirin OS's own; the audition's MATCH gain
+  is never added. A mono song on a stereo track plays 3.01 LU above its value: the needles use the
+  played level and the face adds **MONO +3.0**. A measured target dropped on B is not a Kirin OS
+  song and is never the 0. With no song chosen the needle rests on the left stop, the readout shows
+  **---** and the face says **CHOOSE A SONG IN B OR C**; a song Kirin OS has not measured says
+  **NOT MEASURED IN KIRIN OS**.
+- **The set's range is a band.** The songs of the chosen Reference set that have a Cue loudness
+  from Kirin OS give a band on the **right I scale only** from their p10 to their p90, as B's TARGET RANGE does for
+  the spectrum. It takes two songs with a value; otherwise there is no band. It sits behind the
+  needles and the figures.
+- **The song at the same place is a needle.** While **FOLLOW A** places the song at A's position
+  in the DAW, a cyan needle (**REF**) shows the song's own loudness at that position, the offset
+  included: Kirin OS's LUFS-M for the M window and LUFS-S for the S window. Where Kirin OS has no
+  value at that position (outside the measured part, or before or after the song) the needle is not
+  drawn and the face says **REF: NO VALUE HERE**. It is not drawn in LOOP, during a Blind, or for
+  the I window, whose 0 is already the song's Integrated loudness.
+
+The control beside LU chooses the left window: **M** (Momentary, 0.4 s) or **S** (Short-term, 3 s).
+The right window stays **I**: POST shows its own Integrated loudness, and PRE shows its own.
+There is no PRE comparison needle on POST's right dial. Older projects that selected I for the left
+dial reopen on M. The needle points at the value itself, not through
+the VU's 300 ms response; between two publications it only eases over 60 ms so that it does not
+step. The readout under the dial repeats the window and the value in LU (**M −2.1**). A value that
+does not exist rests the needle on the left stop and reads **---**; values beyond the scale rest
+on its ends while the readout keeps the figure.
+
+In POST, a thinner needle in PRE's colour shows the PRE of the same moment, and the face says the
+difference, for example **POST − PRE +1.2 LU**. It appears only where POST confirmed a PRE of the
+same moment (M and S); it is never estimated, and I has none. PRE has no Reference page: PRE's LU
+face reads the 0 and the band that the POST of the same chain shares on this computer, shows PRE's
+own needle, and offers LU once that POST has read Reference. Without a song it says **CHOOSE A SONG
+IN POST REFERENCE**. The REF needle belongs to POST's window.
+
+All of this is display only. Audio, the measurements, Record and Keep, Reference's audition and
+MATCH are unchanged.
+
+### PSR, CREST, and SHARP needle faces
+
+When Kirin OS Reference is readable, the face selector also offers **PSR**, **CREST**, and, in
+POST, **SHARP**. Each has one large dial rather than a second dial with a different definition.
+PSR and CREST use a −9 to +9 dB scale; SHARP uses −1 to +1 acum. The zero is the median of the
+chosen Reference Cue, not an ideal value or a target score.
+
+These faces measure Reference's audio in Hypha, using the same measurement engines and windows
+as the live values. They do not substitute Kirin OS's differently defined PSR, crest, or sharpness
+summaries. Reference is measured at the host's supported sample rate and mono/stereo format,
+without MATCH gain. The native reader is separate from audition playback.
+
+The own needle shows the current value minus that zero. POST can add a PRE needle only when the
+same-time paired observation is valid. Its REF needle requires FOLLOW A and a measured value at
+that position; missing data is not drawn as zero. The set band is the p10–p90 range of the songs'
+Cue medians, with each song counted once. It stays absent until every member has completed the
+same-definition measurement. A failed, missing, or still-preparing song is not silently dropped
+from the set.
+
+**MEASURING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
+usable baseline is available. Changing a face never changes audio, Record, Keep, or MATCH.
+PRE measures its own PSR and CREST and uses the Reference selected by POST in the same chain.
+Opening a PRE metric face can request that measurement without opening POST's window or
+selecting the same face in POST. If no POST or Reference selection is available, PRE explains
+where to select the Reference; it does not invent a baseline. Only one POST publishes that
+chain's metric baseline at a time, and expired or mismatched publications are rejected.
+
+Completed observations are reused between the Reference roles. The memory-only cache keeps up
+to eight songs or 32 MiB of observation storage, whichever limit is reached first, evicting the
+least recently used song. It does not store whole PCM or write a disk cache. Cancelled unfinished
+analysis may restart when the selected source or role changes. Display snapshots and working
+buffers are separate from this cache budget.
+
+At 44.1, 48, and 96 kHz, a later Cue can be prepared from five seconds before its
+start; those preceding samples warm up the existing measurement engine and are not
+included in the Cue statistics. Other rates retain source-origin measurement.
+Full-song analysis follows in the background. A Cue outside the prepared range
+returns to **MEASURING** until its own observations are available.
+
+**SHARP is available in POST's window only**: the optional PRE sharpness worker exceeded its CPU
+acceptance budget, so PRE does not offer that menu item or run that optional worker.

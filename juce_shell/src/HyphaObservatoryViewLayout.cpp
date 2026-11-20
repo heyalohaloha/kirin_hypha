@@ -32,6 +32,7 @@ void View::resized()
     const auto context = presentationContext();
     vuCalibrationControl.setPresentationContext (context);
     vuCalibrationControl.setVisible (hybridVuVisible());
+    luFace.hideControls();
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                           &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
@@ -85,6 +86,7 @@ void View::resized()
         hybridVuButton.setVisible (true);
         hybridVuButton.setBounds (calibration.removeFromLeft (vuWidth)
                                       .withSizeKeepingCentre (vuWidth, buttonHeight));
+        luFace.layout (calibration, buttonHeight, context); // LU and its window, only while Reference can be read
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
@@ -95,7 +97,9 @@ void View::resized()
         const auto legendWidth = juce::jmin (calibration.getWidth(),
             juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12);
         vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (legendWidth, buttonHeight));
-        sessionArea = calibration.withRight (vuCalibrationControl.getX() - 6);
+        // The LU face names its own 0 on the dial: the 0 VU legend gives its place to the notice line.
+        vuCalibrationControl.setVisible (! luFace.active() && ! metricFaceActive());
+        sessionArea = (luFace.active() || metricFaceActive()) ? calibration : calibration.withRight (vuCalibrationControl.getX() - 6);
         statusStrip = sessionArea;
         statusButton.setBounds (sessionArea.withSizeKeepingCentre (sessionArea.getWidth(), buttonHeight));
         statusButton.setVisible (! captureFrame && feedbackText.isNotEmpty());
@@ -260,6 +264,7 @@ void View::resized()
     {
         const auto font = feedbackText == "Cannot write to folder. Check access."
                        || feedbackText == "2MIX has no DRUM; showing TIME / HISTORY"
+                       || feedbackText == live_compare_ui::keepTailEndedNotice
                        || feedbackText == record_ui::wavWaiting
                        || feedbackText == live_compare_ui::preProcessingNotice
                        || feedbackText.startsWith ("Waiting up to 10 s, then ")

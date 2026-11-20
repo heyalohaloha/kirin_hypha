@@ -12,11 +12,19 @@
 //! is neither a local `macro_rules!` nor a std allowlisted one, an import that puts another macro
 //! under one of those names, or a shadowed `catch_unwind`.
 
+#[path = "ffi_unwind_fallback.rs"]
+mod fallback;
 #[path = "ffi_unwind_scope.rs"]
 mod scope;
+#[path = "ffi_unwind_sources.rs"]
+mod sources;
 #[cfg(test)]
 #[path = "ffi_unwind_guard_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ffi_unwind_fallback_tests.rs"]
+mod fallback_tests;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Kind {
@@ -207,7 +215,7 @@ fn after_path<'t, 'a>(tokens: &'t [Token<'a>], name: &str) -> Option<&'t [Token<
 }
 
 /// The whole body is `[let _ =] catch_unwind(<closure or path>)` plus `;` or a constant fallback.
-fn body_is_guarded(body: &[Token]) -> bool {
+fn body_is_guarded(body: &[Token], source: &[Token]) -> bool {
     let (rest, discarded) = if starts_with(body, &["let", "_", "="]) {
         (&body[3..], true)
     } else {
@@ -230,7 +238,7 @@ fn body_is_guarded(body: &[Token]) -> bool {
     tail.is_empty()
         || (starts_with(tail, &[".", "unwrap_or", "("])
             && closing(tail, 2) == Some(tail.len() - 1)
-            && constant(&tail[3..tail.len() - 1]))
+            && fallback::constant(&tail[3..tail.len() - 1], source))
 }
 
 fn guarded_argument(argument: &[Token]) -> bool {
@@ -243,8 +251,19 @@ fn guarded_argument(argument: &[Token]) -> bool {
         t.first()
             .is_some_and(|first| first.is("||") || first.is("|"))
     };
-    let path = |t: &[Token]| !t.is_empty() && t.iter().all(|t| t.kind == Kind::Ident || t.is("::"));
-    if closure(argument) {
+    let path = |t: &[Token]| {
+        let t = if starts_with(t, &["::"]) { &t[1..] } else { t };
+        !t.is_empty()
+            && t.len() % 2 == 1
+            && t.iter().enumerate().all(|(i, t)| {
+                if i % 2 == 0 {
+                    t.kind == Kind::Ident
+                } else {
+                    t.is("::")
+                }
+            })
+    };
+    if closure(argument) || path(argument) {
         return true;
     }
     let Some(wrapped) = after_path(argument, "AssertUnwindSafe") else {
@@ -255,26 +274,9 @@ fn guarded_argument(argument: &[Token]) -> bool {
         && (closure(&wrapped[1..wrapped.len() - 1]) || path(&wrapped[1..wrapped.len() - 1]))
 }
 
-/// A fallback evaluated after the guard returns: names, literals and casts only, or a null pointer.
-fn constant(tokens: &[Token]) -> bool {
-    !tokens.is_empty()
-        && tokens
-            .iter()
-            .enumerate()
-            .all(|(index, token)| match token.kind {
-                Kind::Literal | Kind::Ident => true,
-                Kind::Punct => match token.text {
-                    "::" | "-" => true,
-                    "(" => index > 0 && matches!(tokens[index - 1].text, "null" | "null_mut"),
-                    ")" => index > 0 && tokens[index - 1].is("("),
-                    _ => false,
-                },
-            })
-}
-
 #[cfg(test)]
 fn scan(source: &str) -> Scan {
-    scan_with(source, &[])
+    scan_with(source, &[], &[])
 }
 
 /// The `macro_rules!` names one source defines; a crate's macros may be invoked in its other files.
@@ -288,8 +290,10 @@ fn defined_macros(source: &str) -> Vec<String> {
 }
 
 /// Scans one source; `crate_macros` are the `macro_rules!` names defined anywhere in its crate.
-fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
+fn scan_with(source: &str, crate_macros: &[String], owned_crates: &[&str]) -> Scan {
     let tokens = tokens(source);
+    let mut owned_roots = scope::module_roots(&tokens);
+    owned_roots.extend_from_slice(owned_crates);
     let line = |at: usize| source[..at].matches('\n').count() + 1;
     let mut scan = Scan::default();
     let mut entry_fns = Vec::new();
@@ -314,7 +318,7 @@ fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
         scan.entries.push(Entry {
             name: name.text.to_string(),
             line: line(token.start),
-            guarded: body_is_guarded(&tokens[open..close]),
+            guarded: body_is_guarded(&tokens[open..close], &tokens),
         });
     }
     let mut macros: Vec<&str> = tokens
@@ -339,9 +343,17 @@ fn scan_with(source: &str, crate_macros: &[String]) -> Scan {
                 token.text
             ));
         }
-        if token.is("use") && imports_under_allowed_name(&tokens[at + 1..], &macros) {
+        if token.is("use")
+            && scope::imports_under_allowed_name(&tokens[at + 1..], &macros, &owned_roots)
+        {
             scan.problems.push(format!(
                 "line {}: import under an allowed macro name",
+                line(token.start)
+            ));
+        }
+        if token.is("macro_use") && attribute_name(&tokens, at) {
+            scan.problems.push(format!(
+                "line {}: unverified macro_use import",
                 line(token.start)
             ));
         }
@@ -426,26 +438,6 @@ fn allowed_item_macro(tokens: &[Token], at: usize, macros: &[&str]) -> bool {
         }
         _ => false,
     }
-}
-
-/// A `use` tree that could put another macro under an allowed name: a rename to it
-/// (`use x::emit as thread_local;`), or an import of it whose path starts outside std and the crate.
-fn imports_under_allowed_name(after_use: &[Token], macros: &[&str]) -> bool {
-    let end = after_use.iter().position(|t| t.is(";"));
-    let tree = &after_use[..end.unwrap_or(after_use.len())];
-    let trusted = ["std", "core", "crate", "$crate", "self", "super"];
-    let trusted_root = tree.first().is_some_and(|t| trusted.contains(&t.text));
-    let precise_capture = tree.first().is_some_and(|t| t.is("<")); // `impl Trait + use<'a>`
-    !precise_capture
-        && tree.iter().enumerate().any(|(i, t)| {
-            let allowed =
-                ["thread_local", "assert", "include"].contains(&t.text) || macros.contains(&t.text);
-            let raw = i >= 2 && tree[i - 1].is("#") && tree[i - 2].is("r");
-            let before = i.checked_sub(if raw { 3 } else { 1 });
-            t.kind == Kind::Ident
-                && allowed
-                && (!trusted_root || before.is_some_and(|b| tree[b].is("as")))
-        })
 }
 
 /// The braces of the body after a signature that starts at `from`, or `None` when `;` ends it.

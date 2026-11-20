@@ -1,4 +1,5 @@
 #include "HyphaSpectrumComponent.h"
+#include "HyphaSpectrumCadenceProfile.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumPresentation.h"
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace hypha
 {
@@ -64,6 +66,11 @@ namespace
 }
 
 SpectrumComponent::SpectrumComponent()
+    : SpectrumComponent ([] { return juce::Time::getMillisecondCounterHiRes(); }) {}
+
+SpectrumComponent::SpectrumComponent (ReceiptClock clock)
+    : receiptClock (clock ? std::move (clock)
+                         : ReceiptClock ([] { return juce::Time::getMillisecondCounterHiRes(); }))
 {
     setInterceptsMouseClicks (true, true);
     addChildComponent (averageButton);
@@ -174,7 +181,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     curveDirty = false;
     numericDirty = false;
     resumeCurve = false;
-    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    const auto nowMs = receiptClock();
     lastCurvePresentationMs = nowMs;
     lastCurveUpdateMs = nowMs;
     lastNumericPresentationMs = nowMs;
@@ -185,6 +192,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 
 void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch, uint64_t postContinuity, uint64_t deltaContinuity)
 {
+    KIRIN_FREQ_CADENCE(batchCalls);
     if (batch.count > KIRIN_SPECTRUM_BATCH_CAPACITY)
         return;
     const bool latestValid = validSnapshot (batch.latest, absoluteObservation);
@@ -228,6 +236,7 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch, uint64_t post
     {
         peakReadout.clear();
         if (continuityChanged) haveSnapshot = false;
+        KIRIN_FREQ_CADENCE(batchSeed);
         setSnapshot (batch.frames[0]);
         spectrumContinuity = continuity;
         first = 1u;
@@ -237,8 +246,10 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch, uint64_t post
         if (batch.frames[index].presentation_end_samples
             > pendingSnapshot.presentation_end_samples)
         {
+            KIRIN_FREQ_CADENCE(batchForwarded);
             queueSnapshot (batch.frames[index], continuity);
         }
+        else { KIRIN_FREQ_CADENCE(batchOldSkip); }
     }
     if (continuityChanged)
     {
@@ -246,6 +257,7 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch, uint64_t post
         // History rejects this duplicate endpoint; a new identity still resets identical curves.
         peakReadout.clear();
         haveSnapshot = false;
+        KIRIN_FREQ_CADENCE(batchReseed);
         setSnapshot (batch.latest);
         spectrumContinuity = continuity;
     }
@@ -253,9 +265,13 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch, uint64_t post
 
 void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next, uint64_t continuity)
 {
+    KIRIN_FREQ_CADENCE(queueCalls);
     if (havePendingSnapshot && continuity == spectrumContinuity
         && std::memcmp (&pendingSnapshot, &next, sizeof (next)) == 0)
+    {
+        KIRIN_FREQ_CADENCE(queueIdentical);
         return;
+    }
     const bool previousValid = havePendingSnapshot
                             && validSnapshot (pendingSnapshot, absoluteObservation);
     const bool nextValid = validSnapshot (next, absoluteObservation);
@@ -296,7 +312,7 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next, uint64_t c
     pendingSnapshot = next;
     havePendingSnapshot = true;
     curveDirty = numericDirty = true;
-    notePeak (juce::Time::getMillisecondCounterHiRes());
+    notePeak (receiptClock());
     if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
         channelMode = next.channel_mode;
     if (next.channels == 1u || next.channels == 2u)
@@ -362,6 +378,7 @@ void SpectrumComponent::presentationTick()
 
 void SpectrumComponent::presentationTickAt (double nowMs)
 {
+    KIRIN_FREQ_CADENCE(tickCalls);
     const bool noticeExpired = modeActionNotice.isNotEmpty()
         && nowMs >= modeActionNoticeUntilMs;
     bool needsRepaint = hoverNeedsRepaint || noticeExpired;
@@ -369,6 +386,7 @@ void SpectrumComponent::presentationTickAt (double nowMs)
     if (psbObservation && psbMotion.advance (nowMs)) needsRepaint = true;
     if (curveDirty && havePendingSnapshot && nowMs > lastCurveUpdateMs)
     {
+        KIRIN_FREQ_CADENCE(curveBranch);
         const auto elapsedMs = nowMs - lastCurveUpdateMs;
         snapshot = pendingSnapshot;
         const auto spatial = [&] (const auto& bins) { return spectrum_display::spatial (
@@ -397,6 +415,7 @@ void SpectrumComponent::presentationTickAt (double nowMs)
         && nowMs - lastNumericPresentationMs >= 1'000.0
             / (double) ui_contract::analysisNumericPresentationHz)
     {
+        KIRIN_FREQ_CADENCE(numericBranch);
         const double intervalMs = 1'000.0
             / (double) ui_contract::analysisNumericPresentationHz;
         readoutPre = pendingPre;
@@ -411,7 +430,7 @@ void SpectrumComponent::presentationTickAt (double nowMs)
     if (noticeExpired) { modeActionNotice.clear(); modeActionNoticeUntilMs = 0.0; }
     // The slow PEAK line falls by time alone; once it rests on the line nothing is repainted.
     if (signalActive && peakFall.advance (displayedPost, nowMs) && absoluteObservation) needsRepaint = true;
-    if (needsRepaint) { ++tickRepaints; repaint(); }
+    if (needsRepaint) { KIRIN_FREQ_CADENCE(tickRepaint); ++tickRepaints; repaint(); }
 }
 
 }

@@ -131,6 +131,7 @@ std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& ro
         return reject ("reference_library_sets_rejected");
     // Kirin OS は manifest を先に書き、sets はその直後に続く。別の manifest の sets はまだ今のものではない。
     if (manifestRevision != workspace.manifest.revision) return reject ("reference_library_sets_stale");
+    sets.manifestRevision = manifestRevision;
     sets.hash = juce::SHA256 (bytes).toHexString();
 
     const auto* songSets = json["song_sets"].getArray();

@@ -311,7 +311,7 @@ inline void verifyShapeValues()
     const auto item = [&] (const std::vector<float>& levels, double gain, const std::vector<double>* bands = nullptr)
     {
         reference_ui::OverlayItem result;
-        result.centers = bands != nullptr ? bands : &centers; result.medians = &levels; result.gainDb = gain; result.line = &on;
+        result.centers = bands != nullptr ? bands : &centers; result.medians = &levels; result.gainDb = gain; result.drawGainDb = gain; result.line = &on;
         return result;
     };
     const auto three = reference_ui::overlayShape ({ item (low, 2.0), item (mid, -4.0), item (other, std::numeric_limits<double>::quiet_NaN()),
@@ -415,7 +415,7 @@ inline void verifyShape()
         // The level warning is read whole beside the switches.
         auto unmatched = panel.state(); unmatched.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
         panel.setState (unmatched);
-        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "LEVEL NOT MATCHED");
+        reference_text_repairs::requireWhole (a_direction::drawnTexts (panel), "MATCHED TO EACH OTHER");
         unmatched.aWindowLoudness = state.aWindowLoudness;
         panel.setState (unmatched);
         if (const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_OVERLAY_PREVIEW", {}); preview.isNotEmpty())

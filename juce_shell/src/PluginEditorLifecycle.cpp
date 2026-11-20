@@ -1,8 +1,11 @@
 #include "PluginEditor.h"
+#include "PluginEditorLu.h"
 #include "HyphaLocalBlindUiContract.h"
 
 KirinHyphaEditor::~KirinHyphaEditor()
 {
+    processorRef.setReferenceMetricObservationEnabled (false);
+    processorRef.setPreSharpObservationEnabled (false);
     stopTimer();
     removeMouseListener (&unavailableClicks);
     processorRef.vuLive().setEnabled (false);
@@ -55,6 +58,7 @@ void KirinHyphaEditor::timerCallback()
         pairPreviewObservedGeneration = 0;
         processorRef.setReferenceViewPresented (false);
         processorRef.vuLive().setEnabled (false);
+        processorRef.setPreSharpObservationEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         // AUTO rests while hidden: nothing below runs, so it neither measures nor moves (INV-LC16).
         matchChoicePopup.close();
@@ -68,6 +72,7 @@ void KirinHyphaEditor::timerCallback()
     // The Hybrid VU needle follows the audio thread's moving-coil state at frame rate
     // (HyphaVuLiveTap.h); the 100 ms meter publication stays the footer's and Capture's source.
     processorRef.vuLive().setEnabled (observatoryView.hybridVuVisible());
+    if (! isPost) hypha::lu_editor::refreshPre (observatoryView, processorRef); // PRE reads the 0 its POST shares
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);

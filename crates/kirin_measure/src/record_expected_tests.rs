@@ -455,3 +455,6 @@ fn empty_session_lifecycle_binds_only_drop_selected_at_finalize() {
     assert_eq!(marker.bounce_id, selected.bounce_id);
     assert!(marker.closed_at_ms.is_some());
 }
+
+#[path = "record_expected_durable_tests.rs"]
+mod durable_tests;

@@ -5,6 +5,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
 void runReferenceBSwitchTests (const juce::File&);
 void testReferenceLibraryContract (const juce::File&);
+void testReferenceChangeNotesContract (const juce::File&);
 void testReferenceAbcv (const juce::File&);
 bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
 void testReferenceComparisons (const juce::File&);
@@ -40,3 +41,13 @@ void testReferenceMonoVersion (const juce::File&, const juce::String& mode = "al
 bool runReferenceMonoInvocation (int, char**);
 
 void testReferenceLibraryFormat (const juce::File&);
+
+
+template<typename Require>
+inline bool runReferenceChangeNotes(int argc, char** argv, const juce::File& sandbox, Require require)
+{
+    if (argc != 2 || juce::String(argv[1]) != "--change-notes-only") return false;
+    testReferenceChangeNotesContract(sandbox);
+    require(hypha::tests::removeFixtureDirectory(sandbox), "change notes fixtures removed");
+    return true;
+}

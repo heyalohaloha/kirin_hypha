@@ -1,5 +1,6 @@
 #pragma once
 #include "HyphaObservationEquality.h"
+#include "HyphaSessionPresentation.h"
 #include "HyphaObservatoryContract.h"
 #include "kirin_hypha_level_snapshot.h"
 #include "kirin_hypha_navigation_snapshot_ffi.h"
@@ -11,6 +12,7 @@
 // External UI, settings and processor ports for the complete shipping methods.
 // No Watch assignment, publication decision, or display equality is copied here.
 namespace juce {
+struct Time { inline static double nowMs = 0; static double getMillisecondCounterHiRes() { return nowMs; } };
 struct String { bool isNotEmpty() const { return false; } };
 template <typename T> T jlimit(T low, T high, T value) { return std::max(low, std::min(high, value)); }
 template <typename T> T jmin(T a, T b) { return std::min(a, b); }
@@ -20,12 +22,17 @@ namespace hypha::comparison_presentation { inline juce::String spectrumStatusTex
 using Domain = hypha::observatory::Domain;
 using Target = hypha::observatory::ObservationTarget;
 namespace observation_equality = hypha::observation_equality;
+namespace session_presentation = hypha::session_presentation;
 struct Bounds { int getWidth() const { return 300; } bool operator!=(const Bounds&) const { return false; } };
 struct View {
     KirinWatchDisplay watchDisplay {}; bool watchDisplayAvailable = false;
     Domain selectedDomain = Domain::level; Target selectedTarget = Target::absolute;
     int bodyArea = 0, paints = 0;
     double numericInterval = -1;
+    hypha::session_presentation::Gate sessionPresentation;
+    KirinMeterSessionV2 sessionCoverage {}; bool haveSessionCoverage = false;
+    void invalidateSessionPresentation();
+    bool retainSessionPoll(const KirinObservatoryFrame*,const KirinMeterSessionV2*,unsigned,bool,double);
     void setLevelNumericInterval(double ms) { numericInterval = ms; }
     void repaint(int) { ++paints; }
     void setWatchDisplay(const KirinWatchDisplay&, bool);
@@ -44,7 +51,7 @@ struct View {
     uint64_t levelChainRevision(bool) const { return 0; }
     template <typename... T> void setLevelObservation(T&&...) {}
     void setObservatoryFrame(const KirinObservatoryFrame&, bool) {} void clearChainObservation() {}
-    void setShortTermLoudness(bool) {} void setSessionCoverage(const KirinMeterSessionV2&) {}
+    void setShortTermLoudness(bool) {} void setSessionCoverage(const KirinMeterSessionV2&);
     struct Capabilities { bool historyRange = false; }; Capabilities capabilities() const { return {}; }
     void setHistory(std::vector<KirinMeterHistoryEntry>) {} void setConnection(int, int, int) {} void clearGuide() {}
 };
@@ -53,9 +60,11 @@ struct Processor {
     struct DisplayPreference { DisplayOptions options; DisplayOptions get() const { return options; } } displaySettings;
     KirinWatchDisplay next {}; bool available = false, levelReady = false;
     Target preferredTarget = Target::absolute;
+    KirinObservatoryFrame frame {};
+    KirinMeterSessionV2 coverage {}; unsigned coverageStatus = KIRIN_SNAPSHOT_BUSY;
     bool pollWatchDisplay(KirinWatchDisplay& value) { value = next; return available; }
-    template <typename... T> bool pollLevelSnapshot(T&&...) { return levelReady; }
-    bool pollObservatoryFrame(KirinObservatoryFrame&) { return true; }
+    template <typename... T> bool pollLevelSnapshot(KirinLevelSnapshot& value,T&&...) { value.frame = frame; return levelReady; }
+    bool pollObservatoryFrame(KirinObservatoryFrame& value) { value = frame; return true; }
     bool surroundMeasurementOnly() const { return false; } bool measurementFormatHeld() const { return false; }
     uint64_t hostProcessHeartbeatValue() const { return 0; } bool isHostRecording() const { return false; }
     bool hybridVuOnRecordPreference() const { return false; } int refreshHybridVuCalibration() { return 0; }
@@ -72,7 +81,8 @@ struct Processor {
     bool localBlindProductSupported() const { return true; }
 };
 namespace hypha::snapshots {
-struct Source { explicit Source(Processor&) {} uint32_t session(KirinMeterSessionV2&) { return KIRIN_SNAPSHOT_BUSY; } };
+struct Source { Processor& processor; explicit Source(Processor& p):processor(p) {}
+ uint32_t session(KirinMeterSessionV2& value) { value = processor.coverage; return processor.coverageStatus; } };
 }
 inline int observatoryPairText(bool, int, juce::String) { return 0; }
 inline int observatoryPairColour(bool, int) { return 0; }

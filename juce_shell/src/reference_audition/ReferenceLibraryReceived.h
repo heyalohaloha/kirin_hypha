@@ -41,7 +41,8 @@ private:
     const std::shared_ptr<std::atomic<bool>> stopped = std::make_shared<std::atomic<bool>> (false);
     std::map<juce::String, std::int64_t> highestRevisions;  // instance ごと
     juce::String latestId, latestText;
-    std::int64_t latestRevision = 0;
+    std::int64_t latestRevision = 0, latestSetsRevision = 0;
+    juce::String latestSetsHash;
     std::vector<RuntimeSkippedItem> latestSkipped;
     bool writePending = false;  // 今の内容がまだ走っていない
     bool latestStored = false;  // 今の内容を書けた（消えていたら書き直す）

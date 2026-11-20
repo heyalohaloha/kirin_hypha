@@ -105,7 +105,7 @@ plug-in must report latency correctly and REAPER must compensate it. No clock-on
 an unreported delay. The REAPER results do not establish native Windows REAPER acceptance or coverage of every
 rate, buffer size, delay, and plug-in configuration. [Timing contract and regression coverage](../planning/hypha_reaper_listen_timing.md).
 
-Some DAWs, including Logic Pro, take letter keys first. Click the Hypha window before pressing a key;
+Some DAWs, including Logic Pro and Cakewalk (Sonar), take letter keys first. Click the Hypha window before pressing a key;
 if it still does not work, use the on-screen buttons to do the same thing instead.
 
 1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
@@ -145,9 +145,10 @@ if it still does not work, use the on-screen buttons to do the same thing instea
    experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
-   then restores normal POST level within half a second. While the DAW is stopped it returns at
-   once; when the DAW sends no audio at all, the return finishes after half a second of quiet and
-   the next playback starts at normal level.
+   then restores normal POST level within half a second. While the DAW is stopped, the rise uses
+   a short ramp of up to 5 ms. If the DAW sends no audio callbacks for half a second, Hypha completes
+   the return state during that quiet. The first audio block afterward starts on POST and uses the
+   same short ramp to reach normal level; the ramp may continue across short blocks.
 6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running.
    A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
@@ -246,6 +247,11 @@ closed. If lowering POST is needed, it still asks for approval when the editor i
   clock mapping with the same pair, format and PRE: when audio that confirms no position follows
   (a dense loop through outboard, for example), PRE plays with that amount after the first second
   and the status line says **Delay not re-measured** until new audio confirms a position. A
+  further clock-mapping change after the wait budget is spent, before its answer has played,
+  drops the retained correction and uses the proven clock position from that block. Two strong
+  agreeing windows can align it again. This decision is the same for both anonymous BLIND sources.
+  Only an actual change of K triggers this exception, not an alignment toggle or content recheck.
+  It commits after clock, token and continuity checks; resending a retained correction cannot undo it. A
   different pair or format, a restored session, or a host that starts compensating that amount
   itself (the clock mapping moves by it) drops it. An amount PRE cannot serve yet (more than a
   second, right after a start) stays: PRE plays where the clocks put it with **Delay unmeasured**

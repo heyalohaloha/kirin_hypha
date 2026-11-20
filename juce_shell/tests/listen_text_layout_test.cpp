@@ -1,5 +1,6 @@
 #include "ValidationStorageSandbox.h"
 #include "ListenTextLayoutTest.h"
+#include "KeepTailNoticeLayoutTest.h"
 #include "RecoveryGuidanceTest.h"
 #include "LiveCompareFooterContractTest.h"
 #include "LiveBlindUiContractTest.h"
@@ -15,6 +16,12 @@ try
     ValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI initialise;
     hypha::i18n::holdLanguage (true);
+    if (argc == 2 && juce::String (argv[1]) == "--keep-tail-notice-only")
+    {
+        hypha::tests::verifyKeepTailNoticeLayout ([] (bool ok, const char* why)
+            { if (!ok) throw std::runtime_error (why); });
+        return 0;
+    }
     hypha::tests::verifyBlindImageNameEditing();
     hypha::tests::verifyListenAccessibleNames();
     hypha::tests::verifyRecoveryGuidance ([] (bool ok, const char* why)

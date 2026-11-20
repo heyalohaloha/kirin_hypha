@@ -14,9 +14,54 @@ double targetFor (const KirinMeterSession& meter, bool available, int channel)
 }
 }
 
+bool View::metricFaceActive() const noexcept
+{
+    return luFace.available() && metric_needle::metric (metricSelection.face)
+        && (role != Role::pre || metricSelection.face != metric_needle::Face::sharp || metricSelection.preSharpAvailable);
+}
+
+void View::setMetricFace (metric_needle::Face choice)
+{
+    choice = metric_needle::normaliseFace (static_cast<int> (choice));
+    const bool changed = !metricSelection.configured || metricSelection.face != choice;
+    metricSelection.configured = true;
+    metricSelection.face = choice;
+    luFace.onFaceMenu = [this] {
+        juce::PopupMenu menu;
+        for (int value = 0; value < 5; ++value) {
+            const auto face = static_cast<metric_needle::Face> (value);
+            const bool allowed = face != metric_needle::Face::sharp || role != Role::pre || metricSelection.preSharpAvailable;
+            if (allowed) menu.addItem (value + 1, metric_needle::label (face), true, metricSelection.face == face);
+        }
+        const juce::Component::SafePointer<View> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&luFace.faceControl()), [safe] (int result) {
+            if (safe == nullptr || result < 1 || result > 5 || !safe->luFace.available()) return;
+            const auto face = static_cast<metric_needle::Face> (result - 1);
+            if (face == metric_needle::Face::sharp && safe->role == Role::pre && !safe->metricSelection.preSharpAvailable) return;
+            safe->setMetricFace (face);
+            if (safe->onMetricFaceChoice) safe->onMetricFaceChoice (face);
+        });
+    };
+    luFace.setCommonFace (choice == metric_needle::Face::lu, metric_needle::label (choice));
+    if (changed) { updateVuVisibility(); resized(); repaint(); }
+}
+
+void View::setPreSharpAvailable (bool available)
+{
+    if (metricSelection.preSharpAvailable == available) return;
+    metricSelection.preSharpAvailable = available;
+    updateVuVisibility(); resized(); repaint();
+}
+
+void View::setMetricFrame (const metric_needle::Frame& frame)
+{
+    metricSelection.frame = frame;
+    repaint();
+}
+
 void View::updateVuVisibility()
 {
-    const auto visible = hybridVuVisible() && (vuFrameTestMode || (isShowing() && getPeer() != nullptr));
+    const auto visible = hybridVuVisible() && ! luFace.active() && ! metricFaceActive() && (vuFrameTestMode || (isShowing() && getPeer() != nullptr));
     if (! vuAnimator)
         vuAnimator = std::make_unique<hybrid_vu::NeedleAnimator> (*this, [this]
         {
@@ -80,6 +125,25 @@ void View::paintHybridVu (juce::Graphics& g)
         jungleAppearance, presentationContext(), vuCalibration()
     };
     updateVuVisibility();
+    if (metricFaceActive())
+    {
+        hybrid_vu::paintStatic (g, getLocalBounds(), state);
+        auto frame = metricSelection.frame;
+        if (frame.face != metricSelection.face) frame = {};
+        frame.face = metricSelection.face;
+        frame.ownIsPre = role == Role::pre;
+        if (!currentFactsAvailable()) { frame.own = metric_needle::missing; frame.pre = metric_needle::missing; }
+        metric_face::paint (g, hybrid_vu::needle_painter::faceBounds (getLocalBounds()).toNearestInt(),
+                            frame, presentationContext(), nullptr, true);
+        hybrid_vu::paintDynamic (g, getLocalBounds(), state);
+        return;
+    }
+    if (luFace.active()) // the LU face reads the published loudness; the VU's moving-coil path rests
+    {
+        luFace.paint (g, getLocalBounds(), state, observatoryFrame.delta, deltaFactsAvailable(),
+                      g.getInternalContext().getPhysicalPixelScaleFactor());
+        return;
+    }
     // Offscreen rendering uses the published values and has no dependency on frame timing.
     if (! vuAnimator->isVisible()) { hybrid_vu::paint (g, getLocalBounds(), state); return; }
     // Only the frame callback consumes live state. Paint must use exactly the position for

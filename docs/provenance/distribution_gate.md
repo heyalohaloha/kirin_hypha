@@ -331,3 +331,62 @@ provenance/, without adding, deleting or rewriting files. Promotion adds the ori
 manifest, candidate artifact receipt and transition record to the retained producer/qualification
 evidence. The coordinator compares all archive and local-delivery files and their hashes;
 the installer and its top-level sidecars alone are not the complete factory handoff.
+
+
+### Native metric face build-contract review
+
+The native metric face change adds a UI contract test and includes the native metric test targets
+before the storage guard. The material source list also adds the metric face painter translation
+unit. These are test and rendering-code registrations, not new embedded image assets.
+The embedded data source declarations, optional font conditions and BinaryData handling are
+unchanged. All three embedded PNGs retain their registry hashes and approved binary, preview
+and source uses. The build-contract fingerprint is updated for this reviewed CMake source only;
+asset hashes, holds, rights evidence and use permissions are unchanged. This review does not
+qualify distribution payloads or authorize publication.
+
+
+### 2026-11-18 BLIND preference and BALANCE test build-contract review
+
+The implementation coordinator and a separate read-only reviewer inspected the complete
+CMake difference from the preceding reviewed revision. It adds four registrations only:
+`PluginProcessorBlindPreference.cpp` once, `HyphaLiveBlindPreference.cpp` twice,
+and `include(cmake/ReferenceBalanceAlignmentTests.cmake)`. Removing those four lines
+restores the preceding reviewed CMake bytes exactly. The included BALANCE module registers seven
+existing-component test invocations and their timeout; the related `LiveCompare.cmake`
+change registers the original preference-trial and details-collector native fixtures.
+Neither module adds embedded materials, fonts or new external dependencies.
+
+The embedded DATA_SOURCES declaration, optional licensed-font conditions, BinaryData
+handling and `ObservatoryMaterial.cmake` retain their preceding reviewed bytes. All three embedded
+PNG files and the verified documentation alias remain byte-identical to the preceding reviewed revision and
+match their existing registry hashes. Asset hashes, rights evidence, allowed uses,
+individual holds and license/NOTICE files are unchanged. This is a technical code
+review by the two implementation reviewers, not a new material approval by the owner.
+
+Only `embedContractSha256` advances from
+`497a9145570b4d03ab075f7b58ff0aeeb88a9ca7da1dd5f065e2a69254114404` to
+`8b97d9d83ea53c2f1e3852aa0b1404e271e0c4f85e362ffac0341509e7ccef63`.
+The whole-file fail-closed check and its tests remain unchanged. This bounded source
+review does not establish test execution, actual payload linkage, new material rights,
+release acceptance or permission to distribute. Exact-candidate provenance, source
+delivery, signing and publication gates remain required separately.
+
+
+### 1.1.58 build-contract review (build options, Windows platform sources and test registrations)
+
+After the BLIND preference and BALANCE review above, `juce_shell/CMakeLists.txt` changed only in
+build and test registration: an opt-in compiler-cache option (`cmake/CompilerCache.cmake`, off by
+default), a Windows-only static library that moves existing Windows implementation sources out of
+headers (`cmake/WindowsPlatform.cmake`), test-only sources and Windows system libraries for two
+existing test executables, the reference component test registrations moved into
+`cmake/ReferenceComponentTests.cmake` with one added UI test, and CTest labels
+(`cmake/NativeTestLabels.cmake`), and the reference metric test registrations moved before the shared
+native test libraries so that their product sources are compiled once in the shared archives. The embedded DATA_SOURCES declaration, optional licensed-font
+conditions, BinaryData handling and `ObservatoryMaterial.cmake` are unchanged, and all three
+embedded PNG files keep their registry hashes, rights evidence and allowed uses.
+
+Only `embedContractSha256` advances from
+`8b97d9d83ea53c2f1e3852aa0b1404e271e0c4f85e362ffac0341509e7ccef63` to
+`81917b5ac4c5c2595558dbd5506862673f5b391fbc1fa395ca4991b616f331af`.
+This bounded source review does not establish test execution, payload linkage, release
+acceptance or permission to distribute.

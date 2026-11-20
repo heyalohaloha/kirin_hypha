@@ -42,8 +42,16 @@ static void print (const char* name, const Tally& t)
 #include "LiveCompareClockProvenanceTest.h"
 #include "AaxChunkChainTest.h"
 #include "LiveCompareAlignTest.h"
+#include "LiveCompareAlignWatchTest.h"
 #include "LiveCompareAlignStormTest.h"
 #include "LiveCompareKeptAlignTest.h"
+#include "LiveCompareLateAlignTest.h"
+#include "LiveCompareSpentClockTest.h"
+#include "LiveCompareReleaseResendTest.h"
+#include "LiveCompareTakeoverFenceTest.h"
+#include "LiveCompareRetryHandoffTest.h"
+#include "LiveCompareTakeoverBlockPcmTest.h"
+#include "LiveCompareAlignUnrestrictedStormTest.h"
 
 // The G1 protocol: loops, seeks, stop and play, a backward seek within one pass, a forward seek into
 // silence, a PRE-only sleep during playback and a POST-only sleep of about 5 s during a stop.
@@ -266,9 +274,31 @@ int main()
     keptCorrectionWaitsForPresNewRun();
     takeoverIsKnownByItsOwnStepOfK();
     takeoverDuringPromotion();
+    alignWatchRaces();
+    live_compare_retry_handoff_test::retiresUncheckedMarker();
+    live_compare_retry_handoff_test::holdsFallbackAcrossRequestPublication();
+    live_compare_retry_handoff_test::twoEarlyOwnerTicksPreserveTheFallback();
+    live_compare_takeover_block_pcm_test::verify();
+    takeoverReceiptCompletesBeforeFallback();
+    blindUnappliedNoticeIsSymmetric();
+    comparisonContinuesAfterWatchExhaustion();
     takeoverOfBothWatchSlots();
     spentBudgetNeverWaitsAgainInTheRenderer();
+    clockChangeInsideABlockCostsNoPostBlock();
     alignTransportStorm();
+    alignClockStormAfterTheBudget();
+    spentBudgetReleasesOnceAtAMovedClock();
+    clockReleaseStartsAfterTheSpentBlock();
+    repeatedRefusalsKeepTheCorrectionUntilProof();
+    live_compare_release_resend_test::staleResendAfterReleaseIsRefused();
+    live_compare_release_resend_test::resendBeforeProofKeepsTheRelease();
+    live_compare_release_resend_test::freshEstimateIsNeverRefused();
+    live_compare_release_resend_test::freshEstimateAfterReleaseSurvives();
+    live_compare_release_resend_test::unreachedBlockNeverReleases();
+    live_compare_release_resend_test::settingChangeIsNoClockMove();
+    live_compare_release_resend_test::blindPathUsesTheSameRequestSnapshot();
+    live_compare_release_resend_test::releaseSurvivesAnEndedContext();
+    alignTransportStormWithoutHostStability();
     std::printf ("live compare correspondence: all checks passed\n");
     return 0;
 }

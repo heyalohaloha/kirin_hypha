@@ -1,3 +1,4 @@
+#include "BlindPreferenceSessionTest.h"
 #include "../../src/live_compare/LiveBlindSession.h"
 #include "../../src/live_compare/LiveCompareRecovery.h"
 #include "../../src/HyphaLiveCompareRecoveryText.h"
@@ -11,6 +12,7 @@ static void require (bool value, const char* message)
 
 int main()
 {
+    runBlindPreferenceSessionTests();
     using namespace hypha::live_compare;
     NamedSelection selection;
     selection.select (true);

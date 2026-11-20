@@ -93,7 +93,9 @@ pub(super) fn enter_pre_record_if_barrier_ready(
         PluginDataRole::Pre,
         ctx.pre_instance_id,
     ) {
-        Ok(()) => {}
+        Ok(owner) => {
+            record_sm.remember_io_entry_owner(&signal.session_id, next_generation, owner);
+        }
         Err(crate::record_entry_lock::RecordEntryLockError::AlreadyActive { .. }) => {
             log::warn!(
                 "[signal] PRE Record start withheld: record entry already owned \
@@ -167,16 +169,19 @@ fn wait_for_entry_measure(
         && record_sm.generation() == generation
         && record_sm.record_session_id().as_deref() == Some(signal.session_id.as_str())
     {
-        if let Err(error) = crate::record_entry_lock::publish_measure_preparation(
-            ctx.base,
-            ctx.project_hash,
-            crate::plugin_data::Role::Pre,
-            ctx.pre_instance_id,
-            signal,
-            generation,
-            record_sm.measure_preparation_samples(generation),
-        ) {
-            log::warn!("PRE preparation progress could not be published: {error}");
+        if let Some(owner) = record_sm.io_entry_owner(&signal.session_id, generation) {
+            if let Err(error) = crate::record_entry_lock::publish_measure_preparation(
+                ctx.base,
+                ctx.project_hash,
+                crate::plugin_data::Role::Pre,
+                ctx.pre_instance_id,
+                signal,
+                generation,
+                record_sm.measure_preparation_samples(generation),
+                &owner,
+            ) {
+                log::warn!("PRE preparation progress could not be published: {error}");
+            }
         }
     }
     ready

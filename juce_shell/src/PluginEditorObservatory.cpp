@@ -2,6 +2,7 @@
 #include "HyphaNoteDialog.h"
 #include "HyphaSnapshotSource.h"
 #include "HyphaComparisonPresentation.h"
+#include "PluginEditorLu.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -121,6 +122,7 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.setVuCalibration (processorRef.refreshHybridVuCalibration(),
                                     processorRef.hybridVuCalibrationScope().isNotEmpty());
     observatoryView.onNote = [this] { showNoteDialog(); };
+    hypha::lu_editor::configure (observatoryView, processorRef);
 }
 
 void KirinHyphaEditor::showNoteDialog()
@@ -346,10 +348,15 @@ void KirinHyphaEditor::refreshObservatory()
     const bool frameAvailable = levelReady || processorRef.pollObservatoryFrame (frame);
     if (levelReady)
         frame = levelSnapshot.frame;
-    if (levelAbsolute)
+    KirinMeterSessionV2 coverage {};
+    const auto coverageStatus = hypha::snapshots::Source (processorRef).session (coverage);
+    const bool retainPacket = observatoryView.retainSessionPoll (
+        frameAvailable ? &frame : nullptr, &coverage, coverageStatus,
+        levelAbsolute ? levelReady : frameAvailable, juce::Time::getMillisecondCounterHiRes());
+    if (! retainPacket && levelAbsolute)
         observatoryView.setLevelObservation (levelReady ? &levelSnapshot : nullptr,
             std::move (levelHistory), chainPoints.data(), frameAvailable ? &frame : nullptr);
-    else
+    else if (! retainPacket)
     {
         observatoryView.setObservatoryFrame (frame, frameAvailable);
         observatoryView.clearChainObservation();
@@ -363,17 +370,13 @@ void KirinHyphaEditor::refreshObservatory()
             : juce::String());
    #endif
     if (frameAvailable) refreshComparisonNotice (frame);
-    if (! levelAbsolute || levelReady)
+    if (! retainPacket && (! levelAbsolute || levelReady))
         observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
         refreshReferenceAudition (frame, frameAvailable);
    #endif
-
-    KirinMeterSessionV2 coverage {};
-    if (hypha::snapshots::Source (processorRef).session (coverage) == KIRIN_SNAPSHOT_SUCCESS)
-        observatoryView.setSessionCoverage (coverage);
 
     const auto pairStatus = processorRef.pairStatus();
 
@@ -382,7 +385,7 @@ void KirinHyphaEditor::refreshObservatory()
     {
         refreshTimeSnapshot();
     }
-    else if (observatoryDomain == hypha::observatory::Domain::level
+    else if (! retainPacket && observatoryDomain == hypha::observatory::Domain::level
              && observatoryView.fullCockpit() && ! levelAbsolute)
     {
         std::vector<KirinMeterHistoryEntry> history;

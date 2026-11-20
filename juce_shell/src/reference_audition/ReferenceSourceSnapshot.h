@@ -204,15 +204,28 @@ class SourceSnapshotCache final
     struct Entry { std::weak_ptr<SourceSnapshot> copy; std::weak_ptr<Request> request; };
     std::mutex mutex;
     std::map<juce::String, Entry> copies;
+    static juce::String keyFor (const RuntimeSource& source)
+    { return source.absolutePath + "\n" + source.sourceFileSha256 + "\n"
+           + source.revision.deviceId + ":" + source.revision.fileId + ":" + source.revision.sizeBytes; }
 public:
+    // Non-RT lookup only. Never initiate a copy, hash, or call_once wait.
+    // Retain the returned owner until a dedicated reader has acquired its snapshot.
+    std::shared_ptr<SourceSnapshot> prepared (const RuntimeSource& source)
+    {
+        const auto key = keyFor (source);
+        const std::lock_guard<std::mutex> lock (mutex);
+        if (source.preparedAudio && source.preparedAudio->key == key)
+            if (auto copy = source.preparedAudio->snapshot) return copy;
+        const auto found = copies.find (key);
+        return found == copies.end() ? nullptr : found->second.copy.lock();
+    }
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     ~SourceSnapshotCache() { if (auto hook = snapshotCacheDestroyedHookForTest.load()) hook(); }
 #endif
     std::shared_ptr<SourceSnapshot> get (const RuntimeSource& source, bool* freshlyVerified = nullptr)
     {
         if (freshlyVerified) *freshlyVerified = false;
-        const auto key = source.absolutePath + "\n" + source.sourceFileSha256 + "\n"
-            + source.revision.deviceId + ":" + source.revision.fileId + ":" + source.revision.sizeBytes;
+        const auto key = keyFor (source);
         std::shared_ptr<Request> request;
         {
             const std::lock_guard<std::mutex> lock (mutex);

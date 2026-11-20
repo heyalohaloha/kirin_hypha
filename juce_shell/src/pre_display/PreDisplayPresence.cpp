@@ -97,22 +97,9 @@ namespace hypha::pre_display
 
         bool replaceJsonAtomically (const juce::File& target, const juce::var& value)
         {
-            if (! target.getParentDirectory().createDirectory())
-                return false;
-            const auto temporaryPath = hypha::storage::temporarySibling (target);
-            juce::TemporaryFile temporary (target, temporaryPath);
-            {
-                auto stream = temporary.getFile().createOutputStream();
-                if (stream == nullptr || ! stream->openedOk())
-                    return false;
-                if (! stream->writeText (juce::JSON::toString (value, true) + "\n",
-                                         false, false, "\n"))
-                    return false;
-                stream->flush();
-                if (stream->getStatus().failed())
-                    return false;
-            }
-            return temporary.overwriteTargetFileWithTemporary();
+            if (!hypha::storage::write_guard::permitMutation(target)) return false;
+            if (! target.getParentDirectory().createDirectory()) return false;
+            return hypha::storage::writeText(target,juce::JSON::toString(value,true)+"\n",false,false,"\n");
         }
 
         juce::String clockSourceName (ClockSource source)
@@ -335,19 +322,22 @@ namespace hypha::pre_display
 
     void removePresence (const juce::File& file)
     {
-        if (file != juce::File() && file.existsAsFile())
+        if (file != juce::File() && file.existsAsFile()
+            && hypha::storage::write_guard::permitMutation(file))
             file.deleteFile();
     }
 
     void removeAcknowledgement (const juce::File& file)
     {
-        if (file != juce::File() && file.existsAsFile())
+        if (file != juce::File() && file.existsAsFile()
+            && hypha::storage::write_guard::permitMutation(file))
             file.deleteFile();
     }
 
     void removeCapability (const juce::File& file)
     {
-        if (file != juce::File() && file.existsAsFile())
+        if (file != juce::File() && file.existsAsFile()
+            && hypha::storage::write_guard::permitMutation(file))
             file.deleteFile();
     }
 }

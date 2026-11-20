@@ -229,3 +229,17 @@ test('no Windows pwsh step hides an earlier native command failure', () => {
   assert.equal(hiddenWindowsNativeFailures(step('          cargo test a\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n          cargo test b\n')).length, 0);
   assert.equal(hiddenWindowsNativeFailures(step('          cargo test a\n          cargo test b\n').replace('        run: |', '        shell: bash\n        run: |')).length, 0);
 });
+
+
+test('Windows requires final storage fixture registry before native build inventory', () => {
+  const configure = ci.indexOf('id: native-configure');
+  const fixture = ci.indexOf('id: native-fixtures');
+  const inventory = ci.indexOf('id: native-inventory');
+  assert.ok(configure >= 0 && fixture > configure && inventory > fixture);
+  const step = ci.slice(fixture, inventory);
+  assert.match(step, /shell: bash/);
+  assert.match(step, /node scripts\/check_native_test_inventory\.mjs --fixtures-only/);
+  assert.match(step, /--build-dir "\$HYPHA_WINDOWS_BUILD_DIR" --config Release/);
+  assert.doesNotMatch(step, /continue-on-error|\|\| true/);
+  assert.match(ci.slice(inventory, ci.indexOf('id: native-build')), /steps\.native-fixtures\.outcome == 'success'/);
+});

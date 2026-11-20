@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Read-only preparation checks. No application launch, login, chmod, dispatch or budget change.
 import fs from 'node:fs';
+import { inspectManufacturingInputs } from './release_preflight_inputs.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadApiKey, probeLsProduct } from './ls_api_readback.mjs';
@@ -19,7 +20,7 @@ function writableTree(directory) {
   }
   return true;
 }
-export async function inspectPreflight(config, { lsKey = loadApiKey, fetcher = fetch, wait, github = endpoint => {
+export async function inspectPreflight(config, { lsKey = loadApiKey, fetcher = fetch, wait, verifyJuce, github = endpoint => {
   const r = spawnSync('gh', ['api', '--method', 'GET', endpoint], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (r.status !== 0) throw new Error('GitHub read unavailable');
   return JSON.parse(r.stdout);
@@ -66,6 +67,7 @@ export async function inspectPreflight(config, { lsKey = loadApiKey, fetcher = f
   check('ls-api-product-readable', () => productReadable);
   for (const id of ['chrome-current-profile-and-settings', 'ls-upload-login', 'ilok-active-side',
     'windows-login', 'actions-budget-and-signing-allowance']) checks.push({ id, result: 'MANUAL' });
+  checks.push(...inspectManufacturingInputs(config, { verifyJuce }));
   return { schema: 'hypha-release-preflight-v1', checks };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

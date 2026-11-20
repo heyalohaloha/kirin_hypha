@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.22)
-
 if(APPLE)
     # B-092: minimum macOS deployment target for the shipped JUCE bundles (judgment A-1: next
     # Release = JUCE universal AU+VST3). Set BEFORE project() so compiler/SDK detection uses it.
@@ -20,6 +19,7 @@ if(NOT CMAKE_MATCH_1)
     message(FATAL_ERROR "B-114: failed to parse [package] version from crates/hypha_pre/Cargo.toml")
 endif()
 project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
+include(cmake/CompilerCache.cmake)
 
 # The Windows SDK exposes min/max as function-like macros unless NOMINMAX is
 # defined before any platform header is parsed.  Keep that macro out of every
@@ -121,6 +121,7 @@ add_subdirectory(JUCE)
 # directory setting MSVC may parse Japanese comments as CP932 and swallow a following line.
 add_compile_options(${KIRIN_SOURCE_ENCODING_ARGS})
 include(cmake/UpdateChecking.cmake)
+include(cmake/WindowsPlatform.cmake)
 if(KIRIN_HYPHA_AAX_ENABLED)
     juce_set_aax_sdk_path("${KIRIN_HYPHA_AAX_SDK_PATH}")
 endif()
@@ -310,6 +311,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorLiveCompare.cpp
         src/PluginProcessorLiveCompareRealtime.cpp
         src/PluginProcessorLiveBlind.cpp
+        src/PluginProcessorBlindPreference.cpp
         src/PluginProcessorLiveComparePin.cpp
         src/live_compare/LiveCompareSharedRing.cpp
         src/live_compare/LiveCompareMatch.cpp
@@ -404,6 +406,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             ${KIRIN_HYPHA_SHORTCUT_POST_SOURCES}
             src/HyphaBlindScreen.cpp
             src/HyphaLiveBlindComponent.cpp
+        src/HyphaLiveBlindPreference.cpp
             src/HyphaVersionBlindScreen.cpp
             src/PluginEditorLiveCompare.cpp
             src/PluginEditorLiveCompareAuto.cpp
@@ -695,6 +698,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/HybridVuContractTest.cpp
+        tests/LuNeedleContractTest.cpp
+        tests/LuNeedleFaceContractTest.cpp
+        tests/MetricFaceContractTest.cpp
         tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
         tests/LiveCompareFooterContractTest.cpp
@@ -713,6 +719,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/ReferenceAuditionComponentContractTest.cpp
         src/HyphaBlindScreen.cpp
         src/HyphaLiveBlindComponent.cpp
+        src/HyphaLiveBlindPreference.cpp
         src/HyphaVersionBlindScreen.cpp
         src/HyphaLocalBlindComponent.cpp
         src/HyphaLocalBlindSteps.cpp
@@ -828,6 +835,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     include(cmake/ReferenceVisualMeasurementTest.cmake)
     kirin_reference_visual_measurement_test(KirinUiRenderContractTests)
     add_test(NAME kirin_hybrid_vu_contract COMMAND KirinUiRenderContractTests --hybrid-vu-only)
+    add_test(NAME kirin_lu_needle_contract COMMAND KirinUiRenderContractTests --lu-needle-only)
     add_test(NAME kirin_vu_animator_lifecycle COMMAND KirinUiRenderContractTests --vu-animation-only)
     add_test(NAME kirin_vu_frame_performance COMMAND KirinUiRenderContractTests --vu-performance-only)
     add_test(NAME kirin_vu_layer_parity COMMAND KirinUiRenderContractTests --vu-layer-only)
@@ -848,6 +856,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin Appearance Contract Tests")
     target_sources(KirinAppearanceContractTests PRIVATE
         tests/appearance_contract_test.cpp
+        src/appearance/AppearanceTestWriteGuard.cpp
         src/appearance/AppearanceContract.cpp
         src/appearance/AppearanceFileLock.cpp
         src/appearance/AppearanceStorage.cpp
@@ -855,6 +864,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_compile_definitions(KirinAppearanceContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
+    if(WIN32)
+        target_link_libraries(KirinAppearanceContractTests PRIVATE shell32 ole32)
+    endif()
     target_compile_options(KirinAppearanceContractTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
     target_link_libraries(KirinAppearanceContractTests PRIVATE
@@ -1127,6 +1139,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
         ${KIRIN_HYPHA_LANGUAGE_SOURCES}
+        src/HyphaTextButton.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
         JUCE_WEB_BROWSER=0
@@ -1143,8 +1156,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_recommended_warning_flags)
     include(cmake/ReferenceVisualMeasurementTest.cmake)
     kirin_reference_visual_measurement_test(KirinReferenceAuditionComponentTests)
-    add_test(NAME kirin_reference_audition_component
-        COMMAND KirinReferenceAuditionComponentTests)
+    include(cmake/ReferenceComponentTests.cmake)
 endif()
 
 include(cmake/UpdateIntegrationTests.cmake)
@@ -1152,7 +1164,9 @@ include(cmake/ShellRepairTests.cmake)
 include(cmake/ContentTimingTests.cmake)
 include(cmake/ProductTestClock.cmake)
 include(cmake/ShortcutTests.cmake)
+include(cmake/ReferenceMetricTests.cmake)
 include(cmake/NativeTestLibraries.cmake)
-
+include(cmake/ReferenceBalanceAlignmentTests.cmake)
 include(cmake/NativeStorageGuard.cmake)
 include(cmake/NativeTestTargets.cmake)
+include(cmake/NativeTestLabels.cmake)

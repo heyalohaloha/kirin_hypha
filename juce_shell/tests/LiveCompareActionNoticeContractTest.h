@@ -70,7 +70,9 @@ inline void verifyComparisonHelpSaysBounce()
         const auto japanese = i18n::translate (help, i18n::Language::japanese);
         if (! help.endsWith (juce::String ("\n") + live_compare_ui::realtimeBounceNotice)) fail ("the help says what a bounce records");
         if (help_line::forLine (help, false).contains ("bounce")) fail ("the help line keeps the first line");
-        if (! japanese.contains (juce::String::fromUTF8 (u8"リアルタイム書き出し")) || japanese.contains ("Realtime")
+        const auto japaneseNotice = japanese.fromLastOccurrenceOf ("\n", false, false);
+        if (japaneseNotice != juce::String::fromUTF8 (u8"リアルタイム書き出しは、ENDで音量が戻ってから")
+            || ! japaneseNotice.contains (juce::String::fromUTF8 (u8"リアルタイム")) || japanese.contains ("Realtime")
             || japanese.contains (first)) fail ("both lines of the help have Japanese");
     }
 }
