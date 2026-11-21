@@ -99,6 +99,26 @@ inline void verifyStandaloneBalanceA()
     a->frames = 30;
     waiting.songFacts.front() = page (1, 0).songFacts.front(); // a different grid is now being drawn for B
     require (! read (waiting), "compact BALANCE does not overlay incompatible A onto a measured B grid");
+
+    waiting.songFacts.front().centersHz = a->centersHz;
+    waiting.songFacts.front().medianDb = { -50, -50, -50 };
+    require (read (waiting), "compact BALANCE accepts a fully compatible measured B grid");
+    waiting.songFacts.front().centersHz[1] = 1700.0;
+    require (! read (waiting), "compact BALANCE rejects a B whose interior band differs despite matching count and last band");
+    waiting.overlay.all = true;
+    waiting.overlay.lines.push_back ({ waiting.songId, 0 });
+    require (! read (waiting), "ALL lines rejects a displayed B with a mismatched interior band");
+
+    auto targetState = page (0, 1);
+    targetState.aKirin = a;
+    targetState.chartPointer = chart.getCentre();
+    auto& target = targetState.targets.collection.items.front();
+    targetState.targets.collection.selected = target.id;
+    target.spectrum.centersHz = a->centersHz;
+    target.spectrum.medianDb = { -50, -50, -50 };
+    require (read (targetState), "compact BALANCE accepts a fully compatible target grid");
+    target.spectrum.centersHz[1] = 1700.0;
+    require (! read (targetState), "compact BALANCE rejects a target whose interior band differs despite matching count and last band");
 }
 
 inline void verifyCompactBalanceRangeReading()

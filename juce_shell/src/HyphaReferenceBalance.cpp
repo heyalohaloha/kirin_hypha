@@ -96,14 +96,14 @@ BalanceSources balanceSources (const State& state, bool allowStandaloneA = false
     const bool comparing = state.overlay.all
         ? (state.overlay.drawing == Drawing::lines ? ! sources.shown.empty() : sources.shape.count > 0)
         : sources.chosen != nullptr || sources.target != nullptr || sources.rangeShown (state);
+    const auto aligned = [&state] (const auto& compared)
+    { return reference_audition::blauertBandsAligned (state.aKirin->centersHz, compared); };
     sources.aShown = state.aKirin && state.aKirin->frames >= 30 && state.aKirin->centersHz.size() >= 2
-        && ! state.aKirin->medianDb.empty()
-        && ((allowStandaloneA && ! comparing) || (! sources.centers.empty()
-            && state.aKirin->centersHz.size() == sources.centers.size()
-            && std::abs (state.aKirin->centersHz.back() / sources.centers.back() - 1.0) < 1.0e-3));
+        && ! state.aKirin->medianDb.empty() && ((allowStandaloneA && ! comparing) || (! state.overlay.all || ! comparing
+            ? aligned (sources.centers) : state.overlay.drawing != Drawing::lines ? aligned (sources.shape.centers)
+            : std::all_of (sources.shown.begin(), sources.shown.end(), [&aligned] (const auto& item) { return aligned (*item.centers); })));
     return sources;
 }
-
 // 凡例の 1 項目：文字・見本の色と太さ・右の余白（A の窓の矢印）。
 struct LegendEntry
 {
