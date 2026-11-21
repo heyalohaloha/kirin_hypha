@@ -1,3 +1,4 @@
+#include "../src/HyphaCompactLevelRows.h"
 #include "ObservatoryCaptureContractTest.h"
 
 #include "../src/HyphaCaptureHistoryPainter.h"
@@ -316,6 +317,15 @@ void verifyObservatoryCaptureContract (
     small.setSize (375, 250); // 100% is view-only and has no summary row (INV-S38).
     small.setDomain (observatory::Domain::level);
     small.setObservatoryFrame (activeFrame, true);
+    {
+        auto card = juce::Rectangle<int> (0, 0, 268, 93);
+        const auto upper = observatory::compact_level_rows::take (card, 3);
+        const auto middle = observatory::compact_level_rows::take (card, 2);
+        const auto peak = observatory::compact_level_rows::take (card, 1);
+        KIRIN_OBSERVATORY_CAPTURE_REQUIRE (card.isEmpty() && upper.getWidth() == middle.getWidth()
+            && middle.getWidth() == peak.getWidth() && upper.getBottom() < middle.getY()
+            && middle.getBottom() < peak.getY());
+    }
     const auto withoutSummary = render (small);
     auto [onePoint, historyPoints] = fullMinuteChainPreview();
     onePoint.version = KIRIN_CHAIN_VERSION_LATEST;
