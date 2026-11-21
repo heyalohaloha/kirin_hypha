@@ -276,6 +276,7 @@ juce::Rectangle<int> Component::observationWindowBounds() const noexcept
     // REF の枠は、実際に見える主役の窓を一つだけ囲む：V の比較の窓か、C の設定された図の群。B の一覧と BALANCE、
     // 耳で聴き比べる Check の案内は囲まない（paint と同じ条件）。
     if (guideShown || isBlindSession (current.blindPhase)) return {};
+    if (changeNotesView.isVisible() && changeNotesView.isExpanded()) return changeNotesView.getBounds();
     if (comparisonView.isVisible()) return observationArea;
     if (detailedLayout() && ! songList.isVisible() && ! (current.separateComparisons && current.comparisonSlot == 3)
         && ! (current.separateComparisons && current.comparisonSlot == 2 && listeningCheck())

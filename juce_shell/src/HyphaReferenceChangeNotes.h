@@ -23,10 +23,10 @@ public:
         list.setModel(this); list.setComponentID("reference-change-notes-list");
         list.setColour(juce::ListBox::backgroundColourId,BG);
         list.setColour(juce::ListBox::outlineColourId,COL_MUTED);
-        list.setOutlineThickness(1);
+        list.setOutlineThickness(0);
         addChildComponent(list);
         body.setComponentID("reference-change-notes-body");
-        body.setMultiLine(true); body.setReadOnly(true); body.setScrollbarsShown(true);
+        body.setMultiLine(true, true); body.setReadOnly(true); body.setScrollbarsShown(true);
         body.setColour(juce::TextEditor::backgroundColourId,BG);
         body.setColour(juce::TextEditor::textColourId,COL_NORMAL);
         addChildComponent(body);
@@ -62,7 +62,7 @@ public:
     {
         // External state replacement is already inside the parent layout update.
         // Only explicit local expand/back actions may notify the parent.
-        data.reset(); key.clear(); order.clear(); selected=-1; opened=false;
+        data.reset(); key.clear(); order.clear(); selected=-1; opened=false; rowWidth=0;
         list.deselectAllRows(); list.updateContent(); list.setTitle({}); list.setDescription({}); list.setTooltip({});
         body.clear(); body.setTitle({}); body.setDescription({}); body.setTooltip({});
         toggle.setTitle({}); toggle.setDescription({}); toggle.setTooltip({}); toggle.setButtonText({});
@@ -149,16 +149,15 @@ public:
     }
     void resized() override
     {
-        list.setVisible(data && opened && (!compact() || selected<0));
+        list.setVisible(data && opened && selected<0);
         body.setVisible(data && selected>=0);
         const int actionWidth=toggleWidth();
         toggle.setBounds(juce::jmax(0,getWidth()-actionWidth-6),2,actionWidth,24);
         auto area=getLocalBounds().withTrimmedTop(28).reduced(6,0);
-        if (compact()) { list.setBounds(area); body.setBounds(area); }
-        else { auto left=area.removeFromLeft(area.getWidth()*2/5); area.removeFromLeft(6); list.setBounds(left); body.setBounds(area); }
+        list.setBounds(area); body.setBounds(area);
+        if (opened && selected<0) updateWrappedRowHeight();
     }
 private:
-    bool compact() const { return getWidth()<450 || getHeight()<180; }
     double duration() const { return data && data->sampleRateHz>0 ? static_cast<double>(data->totalSampleFrames)/data->sampleRateHz : 0; }
     double position(const reference_audition::ChangeNote& note) const
     { return data && data->totalSampleFrames>1 ? juce::jlimit(0.0,1.0,static_cast<double>(note.atSample)/(data->totalSampleFrames-1)) : 0; }
@@ -185,7 +184,31 @@ private:
         const auto index=order[static_cast<size_t>(row)];
         g.fillAll(BG);
         if (chosen) {g.setColour(COL_SPECTRUM_DELTA);g.drawRect(0,0,width,height,1);}
-        draw(g,rowText(index),{4,0,width-8,height},data->notes[index].done ? COL_TEXT_SECONDARY : COL_NORMAL);
+        const auto colour = data->notes[index].done ? COL_TEXT_SECONDARY : COL_NORMAL;
+        const auto layout = rowLayout(index, width-8, colour);
+        layout.draw(g, juce::Rectangle<float>(4.0f, 3.0f, static_cast<float>(width-8),
+                                             static_cast<float>(height-6)));
+    }
+    juce::TextLayout rowLayout(size_t index, int width, juce::Colour colour) const
+    {
+        const auto text = rowText(index);
+        juce::AttributedString attributed;
+        attributed.setWordWrap(juce::AttributedString::WordWrap::byChar);
+        attributed.append(text, fontFor(text), colour);
+        juce::TextLayout layout;
+        layout.createLayout(attributed, static_cast<float>(juce::jmax(1, width)));
+        return layout;
+    }
+    void updateWrappedRowHeight()
+    {
+        const int contentWidth = juce::jmax(1, list.getWidth() - list.getViewport()->getScrollBarThickness() - 8);
+        const auto font = fontFor("0");
+        if (contentWidth == rowWidth && font == rowFont) return;
+        rowWidth = contentWidth; rowFont = font;
+        int height = 24;
+        for (auto index : order)
+            height = juce::jmax(height, static_cast<int>(std::ceil(rowLayout(index, rowWidth, COL_NORMAL).getHeight()))+6);
+        list.setRowHeight(height);
     }
     void selectedRowsChanged(int row) override
     { if (data && row>=0 && row<getNumRows()) selectNote(order[static_cast<size_t>(row)]); }
@@ -198,8 +221,7 @@ private:
         toggle.setButtonText(opened ? "Back" : "Details");
         toggle.setTitle(i18n::tr("Change notes")); toggle.setVisible(true);
         list.setTitle(i18n::tr("Change notes"));
-        list.setRowHeight(juce::jmax(24,juce::roundToInt(fontFor("0").getHeight())+6));
-        list.updateContent(); list.setVisible(opened && (!compact() || selected<0));
+        list.updateContent(); list.setVisible(opened && selected<0);
         body.setFont(displayTextFont(body.getText(),context,typography::TextRole::listenChoice,typography::Composition::information));
         body.applyFontToAllText(body.getFont());
         body.setVisible(selected>=0); resized(); repaint();
@@ -210,6 +232,8 @@ private:
     int selected=-1; bool opened=false;
     presentation::Context context=presentation::defaultContext();
     juce::ListBox list;
+    int rowWidth=0;
+    juce::Font rowFont;
     juce::TextEditor body;
     HyphaTextButton toggle {"Change notes"};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChangeNotesView)

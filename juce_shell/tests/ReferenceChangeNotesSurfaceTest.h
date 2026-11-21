@@ -38,6 +38,20 @@ inline void verifyReferenceChangeNotesSurface(const juce::String& preview)
         require(panel.getLocalBounds().contains(view->getBounds()),"V notes strip inside parent");
         require(comparison && comparison->isVisible() && !comparison->getBounds().intersects(view->getBounds()),
             "collapsed notes do not cover comparison");
+        auto* toggle=dynamic_cast<juce::Button*>(view->findChildWithID("reference-change-notes-toggle"));
+        auto* notesList=dynamic_cast<juce::ListBox*>(view->findChildWithID("reference-change-notes-list"));
+        require(toggle && notesList, "change notes have local controls");
+        const auto original=notes->notes[0].text;
+        auto longNotes=std::make_shared<reference_audition::ChangeNotes>(*notes);
+        longNotes->notes[0].text=juce::String::repeatedString(original.upToFirstOccurrenceOf("\n",false,false)+" ",20)+"TAIL";
+        state.changeNotes=longNotes; panel.setState(state);
+        toggle->onClick();
+        require(notesList->isVisible() && notesList->getWidth()>=view->getWidth()-12,
+            "V notes list uses the full pane at every width");
+        require(notesList->getRowHeight()>24 && notesList->getModel()->getNameForRow(0).endsWith("TAIL"),
+            "long note wraps to a taller row and keeps its tail");
+        toggle->onClick();
+        state.changeNotes=notes; panel.setState(state);
         const auto save=[&](const juce::String& stage){
             if(preview.isEmpty())return;
             const auto path=juce::File(preview).getChildFile("notes-surface-"+juce::String(language==i18n::Language::japanese?"ja-":"en-")+juce::String(width)+"-"+stage+".png");
