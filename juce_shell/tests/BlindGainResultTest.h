@@ -1,5 +1,7 @@
 #pragma once
 #include "BlindPreferenceComponentTest.h"
+#include "../src/HyphaBlindImageSheet.h"
+#include "../src/HyphaBlindResultSharedCapture.h"
 namespace hypha::tests
 {
 template<typename Require, typename Fits>
@@ -76,6 +78,18 @@ void verifyBlindGainResult(Require require,Fits fits,const juce::File& root,cons
             const auto layout=blind_image::layoutFor(h.view.resultFacts());
             juce::String saved; for(const auto& item:layout.items) saved+=item.text;
             require(!saved.contains("+1.2") && !saved.contains(juce::String::fromUTF8(u8"−2.3")),"saved image excludes compensation gains");
+            // Use the actual frozen save sheet and its capture model, not only the legacy layout.
+            h.view.setState(h.status,true,static_cast<float>(std::pow(10.0,-3.5/20.0)));
+            require(h.view.screen().matchedGainText==text,"approved per-source gain remains in the live result");
+            h.view.openImageSheet();
+            require(h.view.imageSheetOpen(),"approved-gain result opens the production save sheet");
+            const auto exportModel=blind_image::captureScreen(h.view.imageSheet().facts());
+            const auto exportNotes=exportModel.instruction+" "+exportModel.preferenceResultNote+" "+exportModel.detail;
+            require(exportModel.matchedGainText.isEmpty() && !exportNotes.contains("+1.2")
+                && !exportNotes.contains(juce::String::fromUTF8(u8"−2.3")) && exportNotes.contains("3.5"),
+                "frozen export excludes actual approved per-source gains but keeps its clipping-avoidance note");
+            h.view.closeImageSheet();
+            h.publish();
             h.view.setCovered(true); require(!body->isVisible(),"image sheet covers gain");
             h.view.setCovered(false); require(body->isVisible(),"gain returns after sheet closes");
             auto changed=gain; ++changed.revision;
