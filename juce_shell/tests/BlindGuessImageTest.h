@@ -69,10 +69,17 @@ void requireScreenFits (juce::Component& view, Require require, const juce::Stri
         if (auto* label = dynamic_cast<juce::Label*> (child); label != nullptr && label->getText().isNotEmpty())
         {
             const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-            require (text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth()) <= bounds.getHeight() + 0.5f,
-                     where + ": text fits " + text_style::shownText (label->getText()) + " in " + bounds.toString() + " needs "
-                         + juce::String (text_style::shownWidth (label->getFont(), label->getText())) + " x "
-                         + juce::String (text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth())));
+            const auto* screen = dynamic_cast<const blind_ui::ScreenComponent*> (&view);
+            const bool fixedQuestion = screen != nullptr && screen->screen().guessQuestionFixed
+                && label->getComponentID().endsWith ("-guess-question");
+            const auto policy = fixedQuestion ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized;
+            const auto shown = text_style::shownText (label->getText(), policy);
+            const auto height = fixedQuestion ? text_style::wrappedHeight (shown, label->getFont(), bounds.getWidth())
+                : text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth());
+            require (height <= bounds.getHeight() + 0.5f,
+                     where + ": text fits " + shown + " in " + bounds.toString() + " needs "
+                         + juce::String (text_style::shownWidth (label->getFont(), label->getText(), policy)) + " x "
+                         + juce::String (height));
         }
     }
     editor_reachability::checkAtDisplayScales (view, [&] (float scale, const juce::String& problem)
