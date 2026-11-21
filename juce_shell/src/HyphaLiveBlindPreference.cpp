@@ -156,6 +156,7 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
     if (singleListen) return; // Preserve the ordinary listen/reveal surface.
     screen.guessShown = true; screen.guessOpen = preference.canAnswer(); screen.guessAnswer = 0;
     screen.guessQuestion = "Which do you prefer?";
+    screen.guessQuestionFixed = true;
     screen.guessOutcome = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
     screen.revealEnabled = preference.canReveal();
     screen.revealTitle = "Reveal the results after at least one answer";

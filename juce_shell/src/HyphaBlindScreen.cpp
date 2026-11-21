@@ -19,7 +19,7 @@ bool Screen::operator== (const Screen& other) const noexcept
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
                          screen.endEnabled, screen.endTitle, screen.guessShown, screen.guessOpen, screen.guessRight,
-                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.matchedGainText, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress);
+                         screen.guessAnswer, screen.guessQuestion, screen.guessOutcome, screen.saveImageShown, screen.matchedGainText, screen.preferenceResultText, screen.preferenceResultNote, screen.roundsShown, screen.roundsEnabled, screen.roundsValue, screen.roundsProgress, screen.guessQuestionFixed);
     };
     return key (*this) == key (other);
 }
@@ -199,6 +199,7 @@ void ScreenComponent::apply()
     approve.setButtonText (shown.approveText);
     approve.setTitle (shown.approveTitle);
     approve.setDescription (shown.approveDescription);
+    look.fixedQuestion = shown.guessQuestionFixed ? &question : nullptr;
     question.setText (shown.guessQuestion, juce::dontSendNotification);
     question.setVisible (shown.guessShown);
     outcome.setText (shown.guessOutcome, juce::dontSendNotification);
@@ -450,9 +451,10 @@ void ScreenComponent::resized()
         // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
         auto row = area.removeFromBottom (actionHeight);
         const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
-        const auto textWidth = [] (const juce::Label& label)
+        const auto textWidth = [&] (const juce::Label& label)
         {
-            return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText())))
+            return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText(),
+                &label == look.fixedQuestion ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized)))
                 + label.getBorderSize().getLeftAndRight() + 2 : 0;
         };
         const auto asked = textWidth (question), told = compact && shown.roundsShown ? 0 : textWidth (outcome);

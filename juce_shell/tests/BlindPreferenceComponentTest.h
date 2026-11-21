@@ -274,7 +274,8 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             require(selector && progress && selector->isVisible()==(width>=450),"selector is available at 600/900 and hidden at 300");
             auto* count = dynamic_cast<juce::Label*>(progress);
             auto* prefer = dynamic_cast<juce::Label*>(childById("live-blind-guess-question"));
-            require(count && count->getText()=="ROUNDS" && prefer && prefer->getText()=="Which do you prefer?",
+            require(h.view.screen().guessQuestionFixed && count && count->getText()=="ROUNDS"
+                && prefer && prefer->getText()=="Which do you prefer?",
                 "fixed selector and choice prompt keep English in both languages");
             for (int value : { 1, 5, 10 }) {
                 const auto id = "live-blind-rounds-" + juce::String(value);

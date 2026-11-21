@@ -32,7 +32,7 @@ struct Screen
     bool guessShown = false, guessOpen = false, guessRight = false;
     int guessAnswer = 0;
     juce::String guessQuestion, guessOutcome;
-    bool roundsShown = false, roundsEnabled = false;
+    bool roundsShown = false, roundsEnabled = false, guessQuestionFixed = false;
     int roundsValue = 1;
     juce::String roundsProgress;
     juce::String matchedGainText, preferenceResultText, preferenceResultNote;
@@ -70,7 +70,15 @@ private:
     void apply();
     juce::String actionNotice;
     bool covered = false;
-    TextLookAndFeel look;
+    struct ScreenLook : TextLookAndFeel
+    {
+        const juce::Label* fixedQuestion = nullptr;
+        void drawLabel (juce::Graphics& g, juce::Label& label) override
+        {
+            if (&label == fixedQuestion) juce::LookAndFeel_V4::drawLabel (g, label);
+            else TextLookAndFeel::drawLabel (g, label);
+        }
+    } look;
     presentation::Context context = presentation::defaultContext();
     Screen shown;
     unsigned languageRevision = 0;

@@ -138,3 +138,4 @@ LEVEL / NUM RATE	LEVEL display cadence menu label
 /oct	FREQ compact tilt unit
 Application Support	OS filesystem directory component in StorageWritePathPolicy protected-root discovery; never displayed UI text
 KIRIN_HYPHA_LU_LEASE_V2	LU shared-zero owner lease file version marker; never displayed UI text
+Which do you prefer?	Fixed English label for the BLIND choice; explanatory text still localizes.
