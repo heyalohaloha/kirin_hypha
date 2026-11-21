@@ -4,6 +4,7 @@
 #include "kirin_hypha_ffi.h"
 
 #include <functional>
+#include <optional>
 #include <vector>
 
 namespace hypha::hybrid_vu
@@ -34,8 +35,8 @@ public:
     void hideControls();
     // Takes the controls' places from the left of the VU row.
     void layout (juce::Rectangle<int>& row, int buttonHeight, const presentation::Context&);
-    void layoutReferenceStatus (juce::Rectangle<int>& row, int height);
-    juce::String referenceStatus() const;
+    void layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady = std::nullopt);
+    juce::String referenceStatus (std::optional<bool> metricReady = std::nullopt) const;
     void paint (juce::Graphics&, juce::Rectangle<int> bounds, const State&, const KirinDelta&,
                 bool deltaAvailable, float pixelScale);
 

@@ -14,5 +14,11 @@ struct Selection
     // Test fixtures may enable it only to exercise shared geometry.
     bool preSharpAvailable = false;
     bool configured = false;
+
+    std::optional<bool> referenceReady() const noexcept
+    {
+        if (! metric_needle::metric (face)) return std::nullopt;
+        return frame.face == face && frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
+    }
 };
 }

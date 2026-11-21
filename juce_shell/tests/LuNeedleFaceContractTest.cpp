@@ -224,6 +224,50 @@ void verifyIntegratedAvailability (observatory::Role role, observatory::SizePres
     check (-10.5, false);
 }
 
+void verifySelectedMetricReferenceBadge()
+{
+    using metric_needle::Face;
+    using metric_needle::Status;
+    const auto read = [] (observatory::View& view)
+    {
+        for (int index = 0; index < view.getNumChildComponents(); ++index)
+            if (auto* label = dynamic_cast<juce::Label*> (view.getChildComponent (index));
+                label != nullptr && label->getComponentID() == "observatory-reference-status" && label->isVisible())
+                return label->getText();
+        return juce::String();
+    };
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        observatory::View view (observatory::Role::post);
+        view.setSize (300, 200);
+        view.setManualHybridVuVisible (true);
+        view.lu().setFacts (readyFacts (-4.0));
+        for (const auto face : { Face::psr, Face::crest, Face::sharp })
+        {
+            view.setMetricFace (face);
+            metric_needle::Frame frame;
+            frame.face = face;
+            frame.status = Status::measuring;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+            frame.status = Status::ready; frame.median = 1.0;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
+            frame.face = face == Face::psr ? Face::crest : Face::psr;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+            frame.face = face; frame.status = Status::unavailable;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+        }
+        view.setMetricFace (Face::lu);
+        KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
+        view.lu().setFacts (Facts {});
+        KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF not linked"));
+    }
+}
+
 void verifyFace (observatory::Role role, observatory::SizePreset preset)
 {
     const bool post = role == observatory::Role::post;
@@ -381,6 +425,7 @@ void verifyFace (observatory::Role role, observatory::SizePreset preset)
 
 void verifyLuNeedleFace()
 {
+    verifySelectedMetricReferenceBadge();
     for (const auto role : { observatory::Role::pre, observatory::Role::post })
         for (const auto preset : observatory::sizePresets)
         {

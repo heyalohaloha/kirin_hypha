@@ -144,19 +144,21 @@ void LuFace::layout (juce::Rectangle<int>& row, int buttonHeight, const presenta
     if (active()) place (*windowButton, juce::jlimit (28, 56, juce::roundToInt (owner.getWidth() * 0.065f)));
 }
 
-juce::String LuFace::referenceStatus() const
+juce::String LuFace::referenceStatus (std::optional<bool> metricReady) const
 {
     if (! current.readable) return i18n::tr ("REF not linked");
+    if (metricReady.has_value())
+        return i18n::tr (*metricReady ? "REF ready" : "REF unmeasured");
     if (current.zero == lu_needle::Zero::noSong) return i18n::tr ("REF no song");
     if (current.zero == lu_needle::Zero::noValue) return i18n::tr ("REF unmeasured");
     return i18n::tr ("REF ready");
 }
 
-void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height)
+void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady)
 {
     referenceStatusLabel.setVisible (commonFace);
     if (! commonFace) return;
-    const auto text = referenceStatus();
+    const auto text = referenceStatus (metricReady);
     referenceStatusLabel.setFont (nativeTextFont (presentation::forEditor (owner.getWidth(), owner.getHeight()),
                                                   typography::TextRole::legend, typography::Composition::instrument));
     const auto font = referenceStatusLabel.getFont();
