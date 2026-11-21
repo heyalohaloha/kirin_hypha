@@ -65,7 +65,7 @@ struct BalanceSources
     bool rangeShown (const State& state) const noexcept { return ! state.overlay.all && comparable.size() >= 2; }  // 帯は 2 曲から
 };
 
-BalanceSources balanceSources (const State& state)
+BalanceSources balanceSources (const State& state, bool allowStandaloneA = false)
 {
     BalanceSources sources;
     if (state.targetsEnabled) sources.target = state.targets.collection.find (state.targets.collection.selected);
@@ -84,9 +84,6 @@ BalanceSources balanceSources (const State& state)
     // 曲が無い時は目標の帯域の並びで A を描く（目標だけでも A と比べられる）。
     if (sources.centers.empty() && state.targetsEnabled && ! state.targets.collection.items.empty())
         sources.centers = state.targets.collection.items.front().spectrum.centersHz;
-    sources.aShown = state.aKirin && state.aKirin->frames >= 30 && ! sources.centers.empty()
-        && state.aKirin->centersHz.size() == sources.centers.size()
-        && std::abs (state.aKirin->centersHz.back() / sources.centers.back() - 1.0) < 1.0e-3;
     if (state.overlay.all)
         for (auto& item : overlayItems (state))
         {
@@ -96,6 +93,14 @@ BalanceSources balanceSources (const State& state)
     using Drawing = reference_audition::BalanceOverlay::Drawing;
     if (state.overlay.all && state.overlay.drawing == Drawing::shape) sources.shape = overlayShape (sources.shown);
     if (state.overlay.all && state.overlay.drawing == Drawing::allShape) sources.shape = overlayShape (overlayItems (state), true);
+    const bool comparing = state.overlay.all
+        ? (state.overlay.drawing == Drawing::lines ? ! sources.shown.empty() : sources.shape.count > 0)
+        : sources.chosen != nullptr || sources.target != nullptr || sources.rangeShown (state);
+    sources.aShown = state.aKirin && state.aKirin->frames >= 30 && state.aKirin->centersHz.size() >= 2
+        && ! state.aKirin->medianDb.empty()
+        && ((allowStandaloneA && ! comparing) || (! sources.centers.empty()
+            && state.aKirin->centersHz.size() == sources.centers.size()
+            && std::abs (state.aKirin->centersHz.back() / sources.centers.back() - 1.0) < 1.0e-3));
     return sources;
 }
 
@@ -420,7 +425,7 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
 void paintCompactBalanceChart (juce::Graphics& g, juce::Rectangle<float> chart, const State& state,
                                presentation::Context context)
 {
-    (void) paintBalancePlot (g, chart, state, balanceSources (state), context);
+    (void) paintBalancePlot (g, chart, state, balanceSources (state, true), context);
 }
 
 juce::Rectangle<int> referenceBalanceAWindowArea (juce::Rectangle<float> bounds, const State& state, presentation::Context context)

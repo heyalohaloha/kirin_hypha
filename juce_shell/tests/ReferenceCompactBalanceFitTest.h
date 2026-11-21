@@ -73,9 +73,37 @@ inline void verifyWrappedBalanceNotice()
     }
 }
 
+inline void verifyStandaloneBalanceA()
+{
+    const auto context = presentation::forEditor (300, 200);
+    const juce::Rectangle<float> chart (10.0f, 10.0f, 275.0f, 72.0f);
+    auto waiting = page (1, 0);
+    waiting.songFacts.front().medianDb.clear(); // the selected song has no measured B yet
+    auto a = std::make_shared<ref::KirinSpectrumWindow> (*waiting.aKirin);
+    a->centersHz = { 100.0, 1500.0, 10000.0 }; a->medianDb = { -41, -41, -41 };
+    a->frames = 30;
+    waiting.aKirin = a;
+    waiting.chartPointer = chart.getCentre();
+    const auto read = [&] (const auto& state)
+    {
+        juce::Image image (juce::Image::ARGB, 300, 100, true);
+        juce::Graphics g (image);
+        const text_style::ShownTextLog log;
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+        return log.texts().contains (text_style::shownText ("A -41.0 dB"));
+    };
+    require (read (waiting), "compact BALANCE reads A on its own bands while B is unmeasured");
+    a->frames = 29;
+    require (! read (waiting), "compact BALANCE keeps the existing three-second A minimum");
+    a->frames = 30;
+    waiting.songFacts.front() = page (1, 0).songFacts.front(); // a different grid is now being drawn for B
+    require (! read (waiting), "compact BALANCE does not overlay incompatible A onto a measured B grid");
+}
+
 // Exercise the real shell: the notice changes the space available to Reference.
 inline void verifyCompactBalanceFit()
 {
+    verifyStandaloneBalanceA();
     juce::StringArray failures;
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_COMPACT_BALANCE_IMAGES", {});
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
