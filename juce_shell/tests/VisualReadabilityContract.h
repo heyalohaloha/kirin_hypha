@@ -93,8 +93,12 @@ inline void frequency (int width, const juce::String& suffix)
         juce::Image image (juce::Image::ARGB, width, 210, true);
         juce::Graphics g (image);
         surface_material::paintObservationWell (g, plot);
+        const auto backing = notes ? spectrum_terrain::paintInstrumentNotes (
+            g, plot, view, false, context, false, true) : juce::Rectangle<int>{};
         if (crossing)
         {
+            juce::Graphics::ScopedSaveState clip (g);
+            if (! backing.isEmpty()) g.excludeClipRegion (backing);
             // Deterministic high-contrast ridge crosses the entire bottom information row.
             g.setColour (COL_SPECTRUM_POST);
             g.drawLine (plot.getX(), plot.getBottom() - 15, plot.getRight(), plot.getBottom() - 15, 4);

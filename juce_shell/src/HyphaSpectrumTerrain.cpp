@@ -387,12 +387,12 @@ bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
     return true;
 }
 
-void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
+juce::Rectangle<int> paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
                            const KirinSpectrumView& view, bool delta,
                            presentation::Context context, bool shape, bool backgroundOnly)
 {
     if (plot.getWidth() < minimumPlotWidth || plot.getHeight() < 140.0f)
-        return;
+        return {};
     const auto inner = plot.reduced (2.0f);
     const auto notes = inner.reduced (10.0f, 6.0f).toNearestInt();
     g.setFont (monoFont (context, typography::TextRole::axis, typography::Composition::visualization));
@@ -433,7 +433,9 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
         if (backgroundOnly)
         {
             g.setColour (surface_material::uncached::observationGlass().withAlpha (1.0f));
-            g.fillRect (label.expanded (2, 1)); // Under the data, never over the curve.
+            const auto backing = label.expanded (2, 1);
+            g.fillRect (backing);
+            return backing; // The plot data must not draw inside this information row.
         }
         else
         {
@@ -441,5 +443,6 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
             text_style::drawText (g, text, label, juce::Justification::bottomLeft, false);
         }
     }
+    return {};
 }
 }

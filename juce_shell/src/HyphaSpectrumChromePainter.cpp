@@ -411,23 +411,27 @@ void paint (juce::Graphics& g,
     if (state.guideOverlay.visible())
         KIRIN_FREQ_CALL(guide_overlay, guide_frequency::paint (g, plot, scale, state.guideOverlay,
                                 minimumHz, maximumHz));
-    if (! state.midSideObservation)
-        spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
-                                                state.presentation, state.shapeObservation, true);
-    if (state.midSideObservation)
-        KIRIN_FREQ_CALL(mid_side_curves, spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness, state.paths));
-    else if (state.absoluteObservation && state.absoluteHistory != nullptr)
-        KIRIN_FREQ_CALL(absolute_curves, spectrum_painter::paintAbsolute (g, plot, scale, post,
-                                         hold,
-                                         *state.absoluteHistory, state.presentation,
-                                         state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz, state.paths));
-    else
-        KIRIN_FREQ_CALL(paired_curves, spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
-                                       state.delta, state.deltaValid,
-                                       state.haveMark ? &state.mark : nullptr,
-                                       state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill(), state.paths));
-    if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
-        KIRIN_FREQ_CALL(peak_tags, paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range));
+    const auto noteBacking = state.midSideObservation ? juce::Rectangle<int>{}
+        : spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
+                                                   state.presentation, state.shapeObservation, true);
+    {
+        juce::Graphics::ScopedSaveState clip (g);
+        if (! noteBacking.isEmpty()) g.excludeClipRegion (noteBacking);
+        if (state.midSideObservation)
+            KIRIN_FREQ_CALL(mid_side_curves, spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness, state.paths));
+        else if (state.absoluteObservation && state.absoluteHistory != nullptr)
+            KIRIN_FREQ_CALL(absolute_curves, spectrum_painter::paintAbsolute (g, plot, scale, post,
+                                             hold,
+                                             *state.absoluteHistory, state.presentation,
+                                             state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR, state.settings, state.backdrop, minimumHz, maximumHz, state.paths));
+        else
+            KIRIN_FREQ_CALL(paired_curves, spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
+                                           state.delta, state.deltaValid,
+                                           state.haveMark ? &state.mark : nullptr,
+                                           state.haveMark ? &state.markValid : nullptr, range, brightness, state.settings.richFill(), state.paths));
+        if (state.lowScope && state.peaks != nullptr && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
+            KIRIN_FREQ_CALL(peak_tags, paintPeakTags (g, plot, scale, *state.peaks, post, minimumHz, maximumHz, state.presentation, range));
+    }
     if (! state.midSideObservation)
         KIRIN_FREQ_CALL(instrument_notes, spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
                                                 state.presentation, state.shapeObservation));
