@@ -126,9 +126,10 @@ MATCH are unchanged.
 ### PSR, CREST, and SHARP needle faces
 
 When Kirin OS Reference is readable, the face selector also offers **PSR**, **CREST**, and, in
-POST, **SHARP**. Each has one large dial rather than a second dial with a different definition.
-PSR and CREST use a −9 to +9 dB scale; SHARP uses −1 to +1 acum. The zero is the median of the
-chosen Reference Cue, not an ideal value or a target score.
+POST, **SHARP**. PRE uses a single central dial. POST uses two dials, PRE on the left and POST
+on the right. The left reading is available only when PRE and POST have a valid paired observation.
+PSR and CREST span −24 to +24 dB; SHARP spans −1.5 to +1.5 acum. Zero is the median of the
+selected Reference Cue, not an ideal value or a target score.
 
 These faces measure Reference's audio in Hypha, using the same measurement engines and windows
 as the live values. They do not substitute Kirin OS's differently defined PSR, crest, or sharpness
@@ -142,7 +143,7 @@ Cue medians, with each song counted once. It stays absent until every member has
 same-definition measurement. A failed, missing, or still-preparing song is not silently dropped
 from the set.
 
-**MEASURING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
+**PREPARING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
 usable baseline is available. Changing a face never changes audio, Record, Keep, or MATCH.
 PRE measures its own PSR and CREST and uses the Reference selected by POST in the same chain.
 Opening a PRE metric face can request that measurement without opening POST's window or
@@ -160,7 +161,7 @@ At 44.1, 48, and 96 kHz, a later Cue can be prepared from five seconds before it
 start; those preceding samples warm up the existing measurement engine and are not
 included in the Cue statistics. Other rates retain source-origin measurement.
 Full-song analysis follows in the background. A Cue outside the prepared range
-returns to **MEASURING** until its own observations are available.
+returns to **PREPARING** until its own observations are available.
 
 **SHARP is available in POST's window only**: the optional PRE sharpness worker exceeded its CPU
 acceptance budget, so PRE does not offer that menu item or run that optional worker.
