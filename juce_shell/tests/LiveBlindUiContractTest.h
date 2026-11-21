@@ -72,6 +72,16 @@ inline void verifyLiveBlindUiContract()
         require (text_style::shownText ("END") == (language == i18n::Language::japanese
             ? juce::String::fromUTF8 (u8"終了") : juce::String ("END")),
             "other END controls retain their default localization");
+        for (const auto& entry : { std::pair { "align-off", juce::String ("ALIGN OFF") },
+                                   std::pair { "save-image", juce::String ("SAVE IMAGE") },
+                                   std::pair { "guess-1", juce::String ("1") },
+                                   std::pair { "guess-2", juce::String ("2") } })
+        {
+            auto* action = dynamic_cast<HyphaTextButton*> (button (
+                (juce::String ("live-blind-") + entry.first).toRawUTF8()));
+            require (action && action->displayedText() == entry.second,
+                "BLIND source actions and result save keep literal labels in both languages");
+        }
         for (auto preset : observatory::sizePresets)
             for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++phase)
             {

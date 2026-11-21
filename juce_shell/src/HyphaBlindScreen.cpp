@@ -277,14 +277,14 @@ void ScreenComponent::resized()
     detail.setVisible (showDetail);
     roundsLabel.setVisible (showRounds);
     outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !showRounds);
-    roundsLabel.setText (shown.roundsEnabled ? i18n::tr ("ROUNDS") : shown.roundsProgress, juce::dontSendNotification);
+    roundsLabel.setText (shown.roundsEnabled ? juce::String ("ROUNDS") : shown.roundsProgress, juce::dontSendNotification);
     roundsLabel.setFont (labelFont (context, typography::TextRole::listenAction, typography::Composition::information));
     int roundIndex = 0;
     for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
     {
         const int values[] { 1, 5, 10 }; const int value = values[roundIndex++];
         button->setPresentationContext (context);
-        button->setButtonText (i18n::tr (juce::String (value) + juce::String::fromUTF8 (u8"×")));
+        button->setButtonText (juce::String (value) + juce::String::fromUTF8 (u8"×"));
         button->setVisible (showRounds && shown.roundsEnabled);
         unavailable::set (*button, shown.roundsEnabled, "Rounds cannot change after the first answer");
         button->setToggleState (shown.roundsValue == value, juce::dontSendNotification);

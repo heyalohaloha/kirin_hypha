@@ -75,11 +75,11 @@ private:
     Screen shown;
     unsigned languageRevision = 0;
     juce::Label title, status, detail, cause, recovery, question, outcome;
-    HyphaTextButton one { "SOURCE 1" }, two { "SOURCE 2" };
-    HyphaTextButton reveal { "REVEAL" }, alignOff { "ALIGN OFF" };
-    HyphaTextButton end { "END" }, approve { "LOWER POST" };
+    HyphaTextButton one { "SOURCE 1", true, text_style::LabelPolicy::fixed }, two { "SOURCE 2", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton reveal { "REVEAL", true, text_style::LabelPolicy::fixed }, alignOff { "ALIGN OFF", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST", true, text_style::LabelPolicy::fixed };
     HyphaTextButton guessOne { "1", true, text_style::LabelPolicy::fixed }, guessTwo { "2", true, text_style::LabelPolicy::fixed };
-    HyphaTextButton saveImage { "SAVE IMAGE" };
+    HyphaTextButton saveImage { "SAVE IMAGE", true, text_style::LabelPolicy::fixed };
     juce::Label roundsLabel;
     HyphaTextButton roundsOne { "1", true, text_style::LabelPolicy::fixed }, roundsFive { "5", true, text_style::LabelPolicy::fixed }, roundsTen { "10", true, text_style::LabelPolicy::fixed };
     juce::TextEditor matchedGainBody, preferenceResultBody, preferenceNoteBody;

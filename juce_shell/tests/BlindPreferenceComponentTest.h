@@ -272,6 +272,16 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             const auto selector = childById("live-blind-rounds-5");
             const auto progress = childById("live-blind-rounds-label");
             require(selector && progress && selector->isVisible()==(width>=450),"selector is available at 600/900 and hidden at 300");
+            auto* count = dynamic_cast<juce::Label*>(progress);
+            auto* prefer = dynamic_cast<juce::Label*>(childById("live-blind-guess-question"));
+            require(count && count->getText()=="ROUNDS" && prefer && prefer->getText()=="Which do you prefer?",
+                "fixed selector and choice prompt keep English in both languages");
+            for (int value : { 1, 5, 10 }) {
+                const auto id = "live-blind-rounds-" + juce::String(value);
+                auto* option = dynamic_cast<HyphaTextButton*>(childById(id.toRawUTF8()));
+                require(option && option->displayedText()==juce::String(value)+juce::String::fromUTF8(u8"×"),
+                    "fixed count control keeps its numeric mark");
+            }
             const auto verifyCoverRoundTrip = [&] (bool answered) {
                 auto* one=childById("live-blind-rounds-1");
                 auto* ten=childById("live-blind-rounds-10");
@@ -301,7 +311,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             require(answerOne->getHeight()==sourceOne->getHeight() && sourceOne->getHeight()==end->getHeight()
                 && (!selector->isVisible() || selector->getHeight()==end->getHeight()),
                 "source, vote, rounds and action controls share one height at this scale");
-            require(reveal->displayedText()==i18n::tr("REVEAL"),"Reveal follows the current display language");
+            require(reveal->displayedText()=="REVEAL","Reveal stays English in both languages");
             h.choose(1); h.heard(3); h.choose(2);
             require(h.view.preferenceTrial().roundNumber()==3 && !selector->isVisible(),"answered selector buttons replaced by progress");
             require(progress->isVisible()==(width>=450),"small-size progress fallback does not overlap");
