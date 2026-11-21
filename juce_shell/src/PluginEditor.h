@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaKirinPopupMenu.h"
 #include "HyphaLocalBlindReturnIntent.h"
 
 #include <memory>
@@ -96,16 +97,7 @@ private:
     void updateHelpLine();
     // The window, rows, marks and headers are TextLookAndFeel's one Kirin Select drawing; this
     // look only chooses the native menu font, which carries Japanese (INV-S40).
-    class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
-    {
-    public:
-        juce::Font getPopupMenuFont() override
-        {
-            return hypha::nativeTextFont (hypha::presentation::forOutput (
-                450, 300, hypha::presentation::OutputTarget::popup),
-                hypha::typography::TextRole::menu);
-        }
-    };
+    using PairMenuLookAndFeel = hypha::kirin_popup::LookAndFeel;
 
     void timerCallback() override;
     // The language every hosted editor shows follows LanguagePreference; a change lays the whole

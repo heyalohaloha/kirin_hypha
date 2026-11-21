@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaKirinPopupMenu.h"
 #include <cmath>
 #include <limits>
 
@@ -28,13 +29,14 @@ void View::setMetricFace (metric_needle::Face choice)
     metricSelection.face = choice;
     luFace.onFaceMenu = [this] {
         juce::PopupMenu menu;
+        menu.setLookAndFeel (&kirin_popup::appearance());
         for (int value = 0; value < 5; ++value) {
             const auto face = static_cast<metric_needle::Face> (value);
             const bool allowed = face != metric_needle::Face::sharp || role != Role::pre || metricSelection.preSharpAvailable;
             if (allowed) menu.addItem (value + 1, metric_needle::label (face), true, metricSelection.face == face);
         }
         const juce::Component::SafePointer<View> safe (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&luFace.faceControl()), [safe] (int result) {
+        menu.showMenuAsync (kirin_popup::options (luFace.faceControl(), *this, getWidth()), [safe] (int result) {
             if (safe == nullptr || result < 1 || result > 5 || !safe->luFace.available()) return;
             const auto face = static_cast<metric_needle::Face> (result - 1);
             if (face == metric_needle::Face::sharp && safe->role == Role::pre && !safe->metricSelection.preSharpAvailable) return;
