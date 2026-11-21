@@ -1,4 +1,5 @@
 #include "HyphaBlindScreen.h"
+#include "HyphaBlindResultLayout.h"
 #include "HyphaLanguage.h"
 #include "HyphaPreProcessingNotice.h"
 #include "HyphaComparisonSurfaceMaterial.h"
@@ -312,25 +313,7 @@ void ScreenComponent::resized()
         std::array<int, 3> heights {};
         auto measure = [&] (juce::Rectangle<int> bounds, float scale, int padding)
         {
-            int total = 0;
-            bool fitsWidth = true;
-            for (size_t i = 0; i < bodies.size(); ++i)
-            {
-                auto& body = *bodies[i];
-                heights[i] = 0;
-                if (! body.isVisible() || body.getText().trim().isEmpty()) continue;
-                body.setScrollbarsShown (false);
-                body.setBounds (bounds.getX(), bounds.getY(), bounds.getWidth(), juce::jmax (1, bounds.getHeight()));
-                body.setFont (&body == &preferenceResultBody
-                    ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information, scale)
-                    : displayTextFont (body.getText(), context, typography::TextRole::listenChoice,
-                                       typography::Composition::information, scale));
-                body.applyFontToAllText (body.getFont());
-                heights[i] = body.getTextHeight() + padding;
-                total += heights[i];
-                fitsWidth = fitsWidth && body.getTextWidth() <= bounds.getWidth();
-            }
-            return std::pair { total, fitsWidth };
+            return result_layout::measureRows (bodies, heights, context, bounds, scale, padding);
         };
         const auto [neededHeight, normalWidthFits] = measure (normal, 1.0f, 8);
         const bool denseResult = neededHeight > normal.getHeight() || ! normalWidthFits;
