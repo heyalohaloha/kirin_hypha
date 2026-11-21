@@ -157,9 +157,9 @@ void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height)
     referenceStatusLabel.setVisible (commonFace);
     if (! commonFace) return;
     const auto text = referenceStatus();
-    const auto font = nativeTextFont (presentation::forEditor (owner.getWidth(), owner.getHeight()),
-                                      typography::TextRole::legend, typography::Composition::instrument);
-    referenceStatusLabel.setFont (font);
+    referenceStatusLabel.setFont (nativeTextFont (presentation::forEditor (owner.getWidth(), owner.getHeight()),
+                                                  typography::TextRole::legend, typography::Composition::instrument));
+    const auto font = referenceStatusLabel.getFont();
     referenceStatusLabel.setText (text, juce::dontSendNotification);
     referenceStatusLabel.setTitle (text);
     const auto width = juce::jmin (row.getWidth(), juce::roundToInt (std::ceil (font.getStringWidthFloat (text))) + 8);

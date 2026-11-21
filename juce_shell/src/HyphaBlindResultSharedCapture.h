@@ -66,13 +66,13 @@ inline juce::Image renderShared (const Facts& facts, int pixels = pixelSize)
     g.fillAll (BG);
     g.drawImage (content, juce::Rectangle<float> (12.0f, 62.0f, 516.0f, 344.0f));
     g.setColour (COL_NORMAL);
-    g.setFont (detail::imageFont (typography::BlindImageText::closing));
+    g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture), typography::BlindImageText::closing, 34));
     const auto caption = facts.preference.total() >= 2
         ? i18n::tr ("%1 blind rounds at matched level.").replace ("%1", juce::String (facts.preference.total()))
         : i18n::tr (closingSentence);
     text_style::drawText (g, caption, juce::Rectangle<int> (18, 423, 504, 32), juce::Justification::centred);
     g.setColour (COL_SPECTRUM_DELTA_BR);
-    g.setFont (detail::imageFont (typography::BlindImageText::address));
+    g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture), typography::BlindImageText::address, 34));
     text_style::drawText (g, address, juce::Rectangle<int> (18, 459, 504, 27), juce::Justification::centred);
     return result;
 }
