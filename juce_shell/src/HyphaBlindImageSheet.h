@@ -2,7 +2,7 @@
 
 #include <functional>
 
-#include "HyphaBlindResultImage.h"
+#include "HyphaBlindResultSharedCapture.h"
 #include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaTextButton.h"
 #include "HyphaTextLookAndFeel.h"
@@ -159,7 +159,7 @@ private:
     {
         if (previewArea.isEmpty()) return;
         // Drawn at twice its place so it stays sharp on a high-density display.
-        preview = render (facts(), previewArea.getWidth() * 2);
+        preview = renderShared (facts(), previewArea.getWidth() * 2);
         repaint();
     }
 

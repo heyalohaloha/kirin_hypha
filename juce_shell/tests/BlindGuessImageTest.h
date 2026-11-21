@@ -305,6 +305,11 @@ void verifyBlindGuessAndImage (Require check)
             && view.imageSheet().reasonShown() == "This folder cannot be written; choose another", "a locked folder says so");
         locked.setReadOnly (false, false);
        #endif
+        const auto frozenExport = view.imageSheet().facts();
+        const auto safeScreen = blind_image::captureScreen (frozenExport);
+        require (safeScreen.sourcesShown && ! safeScreen.revealShown && ! safeScreen.saveImageShown
+                    && safeScreen.title == "BLIND RESULT", "PNG is formed by the same static RESULT component");
+        const auto expectedImage = blind_image::renderShared (frozenExport);
         const auto target = folder.getChildFile ("result.png");
         require (view.saveImageTo (target) && ! view.imageSheetOpen() && view.actionNoticeShown() == "Image saved", "saved");
         require (ui_preferences::read (preferenceFixture, "blind-image-folder")
@@ -316,6 +321,10 @@ void verifyBlindGuessAndImage (Require check)
         require (reopened.imageSaveInitialDirectory() == folder, "a new editor remembers the saved folder");
         const auto saved = juce::ImageFileFormat::loadFrom (target);
         require (saved.getWidth() == blind_image::pixelSize && saved.getHeight() == blind_image::pixelSize, "a 1080 square PNG");
+        for (int y : { 0, 270, 540, 810, 1079 })
+            for (int x = 0; x < saved.getWidth(); ++x)
+                require (saved.getPixelAt (x, y) == expectedImage.getPixelAt (x, y),
+                         "saved PNG uses the same RESULT projection as the image-sheet preview");
         require (hypha::tests::removeFixtureDirectory (folder), "remove the saved folder fixture");
         require (view.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory)
                  && reopened.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory),

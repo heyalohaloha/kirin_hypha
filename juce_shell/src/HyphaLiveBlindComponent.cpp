@@ -226,6 +226,12 @@ blind_image::Facts Component::resultFacts() const
         if (noted.contentNoticeMs == 0) noted.contentNoticeMs = preferenceContentNoticeMs;
     }
     facts.note = resultNote (noted);
+    facts.hasMatchedLevel = approvedGainsValid && approvedGainGeneration == current.generation;
+    if (facts.hasMatchedLevel)
+    {
+        facts.matchedLevelA = approvedPreDb;
+        facts.matchedLevelB = approvedPostDb;
+    }
     facts.nameA = blind_image::rememberedName (preferences, current.candidate, false);
     facts.nameB = blind_image::rememberedName (preferences, current.candidate, true);
     return facts;
@@ -314,7 +320,7 @@ juce::File Component::imageSaveInitialDirectory() const
 bool Component::saveImageTo (const juce::File& file)
 {
     // Made on the message thread from the frozen RESULT; the audio is never touched.
-    const auto saved = capture::writePng (blind_image::render (sheet->facts()), file);
+    const auto saved = capture::writePng (blind_image::renderShared (sheet->facts()), file);
     if (saved != capture::PngSave::saved)
     {
         sheet->setReason (saved == capture::PngSave::notMade ? "The image could not be made; try again"
