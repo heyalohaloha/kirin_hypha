@@ -13,9 +13,9 @@ namespace hypha::reference_ui
 class ChangeNoteRows final : public juce::Viewport
 {
 public:
-    struct Item { juce::String excerpt; juce::Font font; juce::Colour colour; int height = 0; };
+    struct Item { juce::String noteId, excerpt; juce::Font font; juce::Colour colour; int height = 0; };
     std::function<void(int)> onSelect;
-    ChangeNoteRows() { setViewedComponent(&content,false); setScrollBarsShown(true,false); }
+    ChangeNoteRows() { setViewedComponent(&content,false); setScrollBarsShown(true,false); setWantsKeyboardFocus(true); }
     ~ChangeNoteRows() override { setViewedComponent(nullptr,false); }
     int rowCount() const { return static_cast<int>(items.size()); }
     int visibleButtonCount() const
@@ -63,10 +63,17 @@ private:
         {
             if(key==juce::KeyPress::upKey || key==juce::KeyPress::downKey)
             { owner.focusRow(index+(key==juce::KeyPress::upKey?-1:1)); return true; }
+            if(key==juce::KeyPress::returnKey || key==juce::KeyPress::spaceKey)
+            {
+                // The base Button may post a delayed click to a row reused after scrolling.
+                if(hasKeyboardFocus(false) && isShowing() && index>=0 && owner.onSelect) owner.onSelect(index);
+                return true;
+            }
             return juce::Button::keyPressed(key);
         }
         ChangeNoteRows& owner;
         int index=-1;
+        juce::String noteId;
     };
     void focusRow(int index)
     {
@@ -81,6 +88,10 @@ private:
     {
         const auto top=getViewPositionY(), bottom=top+getViewHeight();
         int index=static_cast<int>(std::upper_bound(offsets.begin(),offsets.end(),top)-offsets.begin())-1;
+        Row* previousFocus=nullptr;
+        for(const auto& row:pool) if(row->hasKeyboardFocus(false)) {previousFocus=row.get();break;}
+        const auto focusedId=previousFocus!=nullptr ? previousFocus->noteId : juce::String{};
+        Row* nextFocus=nullptr;
         size_t used=0;
         for(index=juce::jmax(0,index); index<rowCount() && offsets[static_cast<size_t>(index)]<bottom;++index)
         {
@@ -91,10 +102,21 @@ private:
             }
             auto& row=*pool[used++];
             row.index=index;
+            row.noteId=items[static_cast<size_t>(index)].noteId;
+            if(previousFocus!=nullptr && focusedId.isNotEmpty() && row.noteId==focusedId) nextFocus=&row;
             row.setTitle(excerpt(index)); row.setDescription(excerpt(index));
             row.setBounds(rowBounds(index)); row.setVisible(true); row.repaint();
         }
-        for(;used<pool.size();++used) {pool[used]->index=-1;pool[used]->setVisible(false);}
+        if(previousFocus!=nullptr && nextFocus!=previousFocus)
+        {
+            if(nextFocus!=nullptr && nextFocus->isShowing()) nextFocus->grabKeyboardFocus();
+            else if(isShowing()) grabKeyboardFocus();
+            if(previousFocus->hasKeyboardFocus(false)) previousFocus->giveAwayKeyboardFocus();
+        }
+        for(;used<pool.size();++used)
+        {
+            pool[used]->index=-1; pool[used]->noteId.clear(); pool[used]->setVisible(false);
+        }
     }
     juce::Component content;
     std::vector<Item> items;

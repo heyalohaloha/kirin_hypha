@@ -205,7 +205,7 @@ private:
                 text=text.substring(0,low).trimEnd()+ellipsis;
                 wrapped=measure(text);
             }
-            rows.push_back({std::move(text),font,colour,juce::jmax(24,
+            rows.push_back({data->notes[index].noteId,std::move(text),font,colour,juce::jmax(24,
                 static_cast<int>(std::ceil(wrapped.getHeight()))+6)});
         }
         list.setItems(std::move(rows),width);
