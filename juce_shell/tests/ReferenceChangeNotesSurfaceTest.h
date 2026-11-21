@@ -116,7 +116,18 @@ inline void verifyReferenceChangeNotesSurface(const juce::String& preview)
             }
             require(view->selectNote(0),"leave new V open for next replacement or Blind");
         }
+        back->onClick(); // Detail to list; capture actual populated pooled row objects.
+        require(list->isVisible() && list->visibleButtonCount()>0,"the real note list is open before VERSION BLIND");
+        const auto* rowSurface=list->getViewedComponent();
+        require(rowSurface!=nullptr && rowSurface->getNumChildComponents()>0,"visible note rows have accessible controls");
+        bool hadNamedRow=false;
+        for(const auto* row:rowSurface->getChildren())
+            hadNamedRow|=row->isVisible() && row->getTitle().isNotEmpty() && row->getDescription().isNotEmpty();
+        require(hadNamedRow,"the prior note was exposed to accessibility before VERSION BLIND");
         state.blindPhase=reference_ui::BlindPhase::active; panel.setState(state);
+        for(const auto* row:rowSurface->getChildren())
+            require(!row->isVisible() && row->getTitle().isEmpty() && row->getDescription().isEmpty(),
+                "VERSION BLIND clears the old note title and description in every pooled control");
         require(!view->isVisible() && view->noteCount()==0 && view->displayedBody().isEmpty(),"actual V surface hides and clears notes in Blind");
         text_style::ShownTextLog log;
         shell.createComponentSnapshot(shell.getLocalBounds());

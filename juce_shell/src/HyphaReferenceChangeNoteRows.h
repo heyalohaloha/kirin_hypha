@@ -115,7 +115,10 @@ private:
         }
         for(;used<pool.size();++used)
         {
-            pool[used]->index=-1; pool[used]->noteId.clear(); pool[used]->setVisible(false);
+            auto& row=*pool[used];
+            row.index=-1; row.noteId.clear();
+            row.setTitle({}); row.setDescription({});
+            row.setVisible(false);
         }
     }
     juce::Component content;
