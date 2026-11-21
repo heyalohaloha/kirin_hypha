@@ -13,7 +13,7 @@ namespace hypha::blind_ui
 {
 struct Screen
 {
-    juce::String title, instruction, detail;
+    juce::String title, instruction, detail, compactReturnDetail;
     bool guidanceShown = false;  // 止まった・待っている理由（cause）と直し方（recovery）の 2 行
     juce::String cause, recovery;
     bool sourcesShown = false, sourceOneEnabled = false, sourceTwoEnabled = false;

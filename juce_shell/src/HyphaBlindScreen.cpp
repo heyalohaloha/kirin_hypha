@@ -14,7 +14,7 @@ bool Screen::operator== (const Screen& other) const noexcept
 {
     const auto key = [] (const Screen& screen)
     {
-        return std::tie (screen.title, screen.instruction, screen.detail, screen.guidanceShown, screen.cause, screen.recovery,
+        return std::tie (screen.title, screen.instruction, screen.detail, screen.compactReturnDetail, screen.guidanceShown, screen.cause, screen.recovery,
                          screen.sourcesShown, screen.sourceOneEnabled, screen.sourceTwoEnabled, screen.audible,
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
@@ -375,7 +375,11 @@ void ScreenComponent::resized()
         label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
-    detail.setFont (labelFont (context, typography::TextRole::status, typography::Composition::information));
+    const bool tightSingle = getWidth() <= 300 && getHeight() <= 200 && shown.sourcesShown && !shown.guessShown;
+    detail.setText (tightSingle && shown.compactReturnDetail.isNotEmpty()
+        ? shown.compactReturnDetail + "\n" + shown.detail : shown.detail, juce::dontSendNotification);
+    detail.setFont (labelFont (context, tightSingle ? typography::TextRole::compactExplanation
+        : typography::TextRole::status, typography::Composition::information));
     const auto guidanceRole = shown.cause == live_compare_ui::preProcessingCause
         ? typography::TextRole::listenChoice : typography::TextRole::body;
     cause.setFont (labelFont (context, guidanceRole, typography::Composition::information));
@@ -399,23 +403,23 @@ void ScreenComponent::resized()
     // A RESULT with two facts takes the lines it needs; a text that fits keeps the fixed height
     // (needed() adds 2 px of slack, so a tight single line does not move the sources).
     const auto fixedStatus = compact || shortLiveLayout ? 30 : 48;
-    const auto statusHeight = shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
+    const auto statusHeight = tightSingle || shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
     const int actionHeight = compact ? 28 : shortLiveLayout ? 32 : 40;
-    const int verticalInset = compact || shortLiveLayout ? 5 : 12;
-    const int detailHeight = shortLiveLayout ? juce::jmax (34, needed (detail)) : compact ? 34 : 46;
+    const int verticalInset = tightSingle ? 2 : compact || shortLiveLayout ? 5 : 12;
+    const int detailHeight = tightSingle ? needed (detail) : shortLiveLayout ? juce::jmax (34, needed (detail)) : compact ? 34 : 46;
     const auto causeHeight = needed (cause), recoveryHeight = needed (recovery);
     const int progressHeight = compactPreference && outcome.isVisible() ? juce::jmin (24, needed (outcome)) : 0;
     const int actionRows = 1 + static_cast<int> (showRounds) + static_cast<int> (shown.guessShown);
     const int minimumSources = shown.sourcesShown ? sourceMinHeight : 0;
     const int usable = area.getHeight() - 2 * verticalInset - progressHeight - minimumSources;
-    // END exposes the long explanation when its optional row won't fit beside all controls.
     const int requiredHeight = actionRows * actionHeight
         + (shown.guidanceShown ? causeHeight + recoveryHeight : 0);
-    detail.setVisible (showDetail && (!shown.sourcesShown || usable >= requiredHeight + detailHeight));
+    detail.setVisible (showDetail && (tightSingle || !shown.sourcesShown || usable >= requiredHeight + detailHeight));
     detail.setBounds (detail.isVisible() ? area.removeFromBottom (detailHeight) : juce::Rectangle<int>());
     const int fittedAction = shown.sourcesShown
-        ? juce::jlimit (1, actionHeight, (usable - (detail.isVisible() ? detailHeight : 0)) / actionRows)
+        ? juce::jlimit (1, actionHeight, (usable - (detail.isVisible() ? detailHeight : 0)
+            - (tightSingle && shown.guidanceShown ? causeHeight + recoveryHeight : 0)) / actionRows)
         : actionHeight;
     auto actions = area.removeFromBottom (fittedAction);
     if (shown.saveImageShown && shown.alignOffShown)

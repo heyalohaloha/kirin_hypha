@@ -100,7 +100,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             ? juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice()
             : current.contentUnapplied ? juce::String (live_compare_ui::unappliedNotice())
             : juce::String (live_compare_ui::notRemeasuredNotice());
-        if (! (returnDb > 0.05)) screen.detail = label;
+        if (! (returnDb > 0.05)) { screen.compactReturnDetail = screen.detail; screen.detail = label; }
         else if (! screen.guidanceShown && (! revealed || instruction == "Sources revealed; keep comparing")) screen.instruction = label;
     }
     const char* firstA = current.candidate ? "1: A" : "1: PRE";
