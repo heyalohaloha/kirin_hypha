@@ -126,13 +126,23 @@ inline void verifyVersionBlindScreen()
                         require (layout.getHeight() <= bounds.getHeight(), "instruction fits without truncation: " + label->getText());
                     }
                 }
-                // 見た目は PRE/POST Blind と同じ：同じ大きさなら、1・2・開示・終了は同じ場所に同じ大きさで出る。
-                live.setSize (preset.width, preset.height);
-                for (const auto* id : { "source-1", "source-2", "reveal", "end" })
+                // Compare the same active surface, not idle LIVE bounds or hidden widgets.
+                if (which == bothHeard)
                 {
-                    const auto* mine = view.findChildWithID (juce::String ("version-blind-") + id);
-                    const auto* theirs = live.findChildWithID (juce::String ("live-blind-") + id);
-                    require (mine && theirs && mine->getBounds() == theirs->getBounds(), juce::String ("same place as LIVE BLIND: ") + id);
+                    live_compare::LiveBlindStatus active;
+                    active.stage = live_compare::BlindStage::active;
+                    active.trial.played = 3;
+                    active.trial.selected = active.trial.audible = 2;
+                    live.setSize (preset.width, preset.height);
+                    live.setState (active, true, 1.0f);
+                    for (const auto* id : { "source-1", "source-2", "reveal", "end" })
+                    {
+                        const auto* mine = view.findChildWithID (juce::String ("version-blind-") + id);
+                        const auto* theirs = live.findChildWithID (juce::String ("live-blind-") + id);
+                        require (mine && theirs && mine->isVisible() && theirs->isVisible()
+                            && !mine->getBounds().isEmpty() && mine->getBounds() == theirs->getBounds(),
+                            juce::String ("same visible place as active LIVE BLIND: ") + id);
+                    }
                 }
                 // Every shown control is pressed and reached by Tab at each display scale (2026-10-18).
                 editor_reachability::checkAtDisplayScales (view, [&] (float scale, const juce::String& problem)
