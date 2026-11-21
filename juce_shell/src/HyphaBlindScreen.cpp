@@ -56,7 +56,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     {
         const char* ids[] { "source-1", "source-2", "reveal", "end", "approve", "align-off", "guess-1", "guess-2", "save-image" };
         button->setComponentID (idPrefix + "-" + juce::String (ids[index++]));
-        button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        button->setMouseCursor (juce::MouseCursor::PointingHandCursor); button->setColour (juce::TextButton::textColourOffId, COL_NORMAL);
         button->setWantsKeyboardFocus (true);
         addAndMakeVisible (*button);
     }
@@ -78,7 +78,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
     {
         const int values[] { 1, 5, 10 }; const int value = values[roundIndex++];
-        button->setComponentID (idPrefix + "-rounds-" + juce::String (value));
+        button->setComponentID (idPrefix + "-rounds-" + juce::String (value)); button->setColour (juce::TextButton::textColourOffId, COL_NORMAL);
         button->onClick = [this, value] { if (shown.roundsShown && shown.roundsEnabled && onRounds) onRounds (value); };
         addChildComponent (button);
     }
@@ -401,7 +401,6 @@ void ScreenComponent::resized()
     const auto statusHeight = shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
     status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
     const int actionHeight = compact ? 28 : shortLiveLayout ? 32 : 40;
-    const int voteHeight = compact ? 26 : shortLiveLayout ? 32 : 40;
     const int verticalInset = compact || shortLiveLayout ? 5 : 12;
     const int detailHeight = shortLiveLayout ? juce::jmax (34, needed (detail)) : compact ? 34 : 46;
     const auto causeHeight = needed (cause);
@@ -410,8 +409,8 @@ void ScreenComponent::resized()
     {
         // First budget the source cards, interactive rows and visible recovery. END already
         // exposes the explanation to hover and accessibility if the extra detail row will not fit.
-        const int requiredHeight = sourceMinHeight + actionHeight + (showRounds ? 32 : 0)
-            + (shown.guessShown ? voteHeight : 0) + 2 * verticalInset
+        const int requiredHeight = sourceMinHeight + actionHeight + (showRounds ? actionHeight : 0)
+            + (shown.guessShown ? actionHeight : 0) + 2 * verticalInset
             + (shown.guidanceShown ? causeHeight + recoveryHeight : 0);
         detail.setVisible (showDetail && area.getHeight() >= requiredHeight + detailHeight);
     }
@@ -433,7 +432,7 @@ void ScreenComponent::resized()
     }
     if (showRounds)
     {
-        auto row = area.removeFromBottom (32).reduced (0, 2);
+        auto row = area.removeFromBottom (actionHeight);
         row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), 360), row.getHeight());
         roundsLabel.setBounds (shown.roundsEnabled ? row.removeFromLeft (120) : row);
         roundsOne.setBounds (row.removeFromLeft (80).reduced (2, 0));
@@ -449,8 +448,7 @@ void ScreenComponent::resized()
         }
         else outcome.setJustificationType (juce::Justification::centredLeft);
         // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
-        auto row = area.removeFromBottom (voteHeight)
-                       .withTrimmedBottom (compact || shortLiveLayout ? 3 : 6);
+        auto row = area.removeFromBottom (actionHeight);
         const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
         const auto textWidth = [] (const juce::Label& label)
         {
@@ -479,6 +477,7 @@ void ScreenComponent::resized()
         : area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
     cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);
+    area = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), actionHeight));
     approve.setBounds (area);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
     two.setBounds (area.reduced (3, 0));

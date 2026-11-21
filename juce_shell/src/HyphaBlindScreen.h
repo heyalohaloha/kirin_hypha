@@ -76,10 +76,8 @@ private:
     unsigned languageRevision = 0;
     juce::Label title, status, detail, cause, recovery, question, outcome;
     HyphaTextButton one { "SOURCE 1" }, two { "SOURCE 2" };
-    // REVEAL と END はどちらの言語でもこの綴りのまま（説明の文は訳す）。
-    HyphaTextButton reveal { "REVEAL", true, text_style::LabelPolicy::fixed };
-    HyphaTextButton alignOff { "ALIGN OFF", true, text_style::LabelPolicy::fixed };
-    HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST" };
+    HyphaTextButton reveal { "REVEAL" }, alignOff { "ALIGN OFF" };
+    HyphaTextButton end { "END" }, approve { "LOWER POST" };
     HyphaTextButton guessOne { "1", true, text_style::LabelPolicy::fixed }, guessTwo { "2", true, text_style::LabelPolicy::fixed };
     HyphaTextButton saveImage { "SAVE IMAGE" };
     juce::Label roundsLabel;

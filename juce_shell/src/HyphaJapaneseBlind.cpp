@@ -362,6 +362,7 @@ const Entry entries[] = {
     { "The answer was fixed at REVEAL", u8"答えはREVEALで決まりました" },
     { u8"— right", u8"— 当たり" },
     { u8"— not this time", u8"— はずれ" },
+    { "ALIGN OFF", u8"自動合わせOFF" },
     { "SAVE IMAGE", u8"画像を保存" },
     { "Selected", u8"選択中" },
     { "Save the result as an image", u8"結果を画像で保存します" },

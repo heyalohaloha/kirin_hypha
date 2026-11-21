@@ -290,7 +290,19 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             };
             verifyCoverRoundTrip(false);
             save("selector");
-            h.heard(3); h.choose(1); h.heard(3); h.choose(2);
+            h.heard(3);
+            auto* answerOne=dynamic_cast<HyphaTextButton*>(childById("live-blind-guess-1"));
+            auto* sourceOne=childById("live-blind-source-1");
+            auto* reveal=dynamic_cast<HyphaTextButton*>(childById("live-blind-reveal"));
+            auto* end=childById("live-blind-end");
+            require(answerOne && sourceOne && reveal && end && answerOne->isEnabled()
+                && answerOne->findColour(juce::TextButton::textColourOffId)==COL_NORMAL,
+                "available preference choice contrasts with disabled lettering");
+            require(answerOne->getHeight()==sourceOne->getHeight() && sourceOne->getHeight()==end->getHeight()
+                && (!selector->isVisible() || selector->getHeight()==end->getHeight()),
+                "source, vote, rounds and action controls share one height at this scale");
+            require(reveal->displayedText()==i18n::tr("REVEAL"),"Reveal follows the current display language");
+            h.choose(1); h.heard(3); h.choose(2);
             require(h.view.preferenceTrial().roundNumber()==3 && !selector->isVisible(),"answered selector buttons replaced by progress");
             require(progress->isVisible()==(width>=450),"small-size progress fallback does not overlap");
             if (auto* label=dynamic_cast<juce::Label*>(progress); label && label->isVisible())
