@@ -63,7 +63,7 @@ public:
         // External state replacement is already inside the parent layout update.
         // Only explicit local expand/back actions may notify the parent.
         data.reset(); key.clear(); order.clear(); selected=-1; opened=false; rowWidth=0;
-        list.setItems({},0); list.setViewPosition(0,0); list.setTitle({}); list.setDescription({}); list.setTooltip({});
+        list.setItems({},0); list.setViewPosition(0,0); list.setTitle({}); list.setDescription({});
         body.clear(); body.setTitle({}); body.setDescription({}); body.setTooltip({});
         toggle.setTitle({}); toggle.setDescription({}); toggle.setTooltip({}); toggle.setButtonText({});
         setTitle({}); setDescription({}); setTooltip({});
