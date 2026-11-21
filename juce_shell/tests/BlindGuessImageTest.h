@@ -309,6 +309,13 @@ void verifyBlindGuessAndImage (Require check)
         const auto safeScreen = blind_image::captureScreen (frozenExport);
         require (safeScreen.sourcesShown && ! safeScreen.revealShown && ! safeScreen.saveImageShown
                     && safeScreen.title == "BLIND RESULT", "PNG is formed by the same static RESULT component");
+        require (safeScreen.matchedGainText.isEmpty(), "shared export never contains per-source matched gains");
+        auto loweredExport = frozenExport;
+        loweredExport.loweredDb = 3.5;
+        const auto loweredScreen = blind_image::captureScreen (loweredExport);
+        require (loweredScreen.matchedGainText.isEmpty()
+            && (loweredScreen.instruction + loweredScreen.preferenceResultNote).contains ("3.5 dB"),
+            "shared export retains the separate clipping-avoidance note");
         const auto expectedImage = blind_image::renderShared (frozenExport);
         const auto target = folder.getChildFile ("result.png");
         require (view.saveImageTo (target) && ! view.imageSheetOpen() && view.actionNoticeShown() == "Image saved", "saved");

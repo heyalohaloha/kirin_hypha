@@ -44,10 +44,6 @@ inline blind_ui::Screen captureScreen (const Facts& facts)
         screen.instruction = notes[0];
         if (notes.size() > 1) screen.detail = notes[1];
     }
-    if (facts.hasMatchedLevel)
-        screen.matchedGainText = i18n::tr ("Matched level: %1 %2 dB; %3 %4 dB")
-            .replace ("%1", nameA).replace ("%2", blind_preference::signedDb (facts.matchedLevelA))
-            .replace ("%3", nameB).replace ("%4", blind_preference::signedDb (facts.matchedLevelB));
     return screen;
 }
 

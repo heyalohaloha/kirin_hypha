@@ -30,8 +30,6 @@ struct Facts
     int selected = 0;        // the source selected on the RESULT, 1 or 2
     blind_preference::Summary preference;
     int guess = 0;           // the GUESS answer, 1 or 2; 0 when none was given
-    bool hasMatchedLevel = false;
-    double matchedLevelA = 0.0, matchedLevelB = 0.0;
     double loweredDb = 0.0;  // both sources played this much lower to avoid clipping
     juce::String note;       // the RESULT's own note: a source that stood in, an audio estimate
     juce::String nameA, nameB;

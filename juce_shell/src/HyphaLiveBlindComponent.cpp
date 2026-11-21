@@ -226,12 +226,6 @@ blind_image::Facts Component::resultFacts() const
         if (noted.contentNoticeMs == 0) noted.contentNoticeMs = preferenceContentNoticeMs;
     }
     facts.note = resultNote (noted);
-    facts.hasMatchedLevel = approvedGainsValid && approvedGainGeneration == current.generation;
-    if (facts.hasMatchedLevel)
-    {
-        facts.matchedLevelA = approvedPreDb;
-        facts.matchedLevelB = approvedPostDb;
-    }
     facts.nameA = blind_image::rememberedName (preferences, current.candidate, false);
     facts.nameB = blind_image::rememberedName (preferences, current.candidate, true);
     return facts;
