@@ -105,13 +105,18 @@ void verifySmallPreferenceLayout (Require require, const juce::File& root, const
             + " x" + juce::String(rounds) + (candidate ? " A/B" : " PRE/POST")
             + (migrated ? " migrated" : "");
         require(h.view.activePreferenceRounds()==rounds,tag + " exact round count");
-        const int minimum = width == 450 ? 60 : 24;
+        const int minimum = 60;
         verifySmallSources(h,require,tag + " before a vote",minimum,true);
         if (width == 450)
         {
             auto* selector = h.view.findChildWithID("live-blind-rounds-5");
             auto* end = dynamic_cast<juce::Button*>(h.view.findChildWithID("live-blind-end"));
             require(selector && selector->isVisible() && !selector->getBounds().isEmpty(),tag + " retained selector row");
+            auto* reveal = h.view.findChildWithID("live-blind-reveal");
+            auto* vote = h.view.findChildWithID("live-blind-guess-1");
+            require(end && reveal && vote && selector->getHeight()==end->getHeight()
+                && reveal->getHeight()==end->getHeight() && (rounds==1 || vote->getHeight()==end->getHeight()),
+                tag + " equal action heights at 450 without shrinking sources");
             require(end && end->getDescription().contains(h.view.screen().detail)
                     && end->getTooltip().contains(h.view.screen().detail),tag + " END preserves explanation");
             if (!candidate && !migrated && rounds != 10 && preview.isNotEmpty())
@@ -309,9 +314,10 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
             require(answerOne && sourceOne && reveal && end && answerOne->isEnabled()
                 && answerOne->findColour(juce::TextButton::textColourOffId)==COL_NORMAL,
                 "available preference choice contrasts with disabled lettering");
-            require(answerOne->getHeight()==sourceOne->getHeight() && sourceOne->getHeight()==end->getHeight()
+            require(sourceOne->getHeight()>=60 && answerOne->getHeight()==end->getHeight()
+                && reveal->getHeight()==end->getHeight()
                 && (!selector->isVisible() || selector->getHeight()==end->getHeight()),
-                "source, vote, rounds and action controls share one height at this scale");
+                "source cards retain their minimum; other interactive rows use one common height");
             require(reveal->displayedText()=="REVEAL","Reveal stays English in both languages");
             h.choose(1); h.heard(3); h.choose(2);
             require(h.view.preferenceTrial().roundNumber()==3 && !selector->isVisible(),"answered selector buttons replaced by progress");

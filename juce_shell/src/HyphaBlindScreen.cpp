@@ -404,19 +404,20 @@ void ScreenComponent::resized()
     const int actionHeight = compact ? 28 : shortLiveLayout ? 32 : 40;
     const int verticalInset = compact || shortLiveLayout ? 5 : 12;
     const int detailHeight = shortLiveLayout ? juce::jmax (34, needed (detail)) : compact ? 34 : 46;
-    const auto causeHeight = needed (cause);
-    const auto recoveryHeight = needed (recovery);
-    if (shortLiveLayout)
-    {
-        // First budget the source cards, interactive rows and visible recovery. END already
-        // exposes the explanation to hover and accessibility if the extra detail row will not fit.
-        const int requiredHeight = sourceMinHeight + actionHeight + (showRounds ? actionHeight : 0)
-            + (shown.guessShown ? actionHeight : 0) + 2 * verticalInset
-            + (shown.guidanceShown ? causeHeight + recoveryHeight : 0);
-        detail.setVisible (showDetail && area.getHeight() >= requiredHeight + detailHeight);
-    }
+    const auto causeHeight = needed (cause), recoveryHeight = needed (recovery);
+    const int progressHeight = compactPreference && outcome.isVisible() ? juce::jmin (24, needed (outcome)) : 0;
+    const int actionRows = 1 + static_cast<int> (showRounds) + static_cast<int> (shown.guessShown);
+    const int minimumSources = shown.sourcesShown ? sourceMinHeight : 0;
+    const int usable = area.getHeight() - 2 * verticalInset - progressHeight - minimumSources;
+    // END exposes the long explanation when its optional row won't fit beside all controls.
+    const int requiredHeight = actionRows * actionHeight
+        + (shown.guidanceShown ? causeHeight + recoveryHeight : 0);
+    detail.setVisible (showDetail && (!shown.sourcesShown || usable >= requiredHeight + detailHeight));
     detail.setBounds (detail.isVisible() ? area.removeFromBottom (detailHeight) : juce::Rectangle<int>());
-    auto actions = area.removeFromBottom (actionHeight);
+    const int fittedAction = shown.sourcesShown
+        ? juce::jlimit (1, actionHeight, (usable - (detail.isVisible() ? detailHeight : 0)) / actionRows)
+        : actionHeight;
+    auto actions = area.removeFromBottom (fittedAction);
     if (shown.saveImageShown && shown.alignOffShown)
     {
         const auto third = actions.getWidth() / 3;
@@ -433,7 +434,7 @@ void ScreenComponent::resized()
     }
     if (showRounds)
     {
-        auto row = area.removeFromBottom (actionHeight);
+        auto row = area.removeFromBottom (fittedAction);
         row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), 360), row.getHeight());
         roundsLabel.setBounds (shown.roundsEnabled ? row.removeFromLeft (120) : row);
         roundsOne.setBounds (row.removeFromLeft (80).reduced (2, 0));
@@ -445,11 +446,11 @@ void ScreenComponent::resized()
         if (compact && shown.roundsShown && outcome.isVisible())
         {
             outcome.setJustificationType (juce::Justification::centred);
-            outcome.setBounds (area.removeFromBottom (24));
+            outcome.setBounds (area.removeFromBottom (progressHeight));
         }
         else outcome.setJustificationType (juce::Justification::centredLeft);
         // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
-        auto row = area.removeFromBottom (actionHeight);
+        auto row = area.removeFromBottom (fittedAction);
         const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
         const auto textWidth = [&] (const juce::Label& label)
         {
@@ -471,7 +472,7 @@ void ScreenComponent::resized()
     area.reduce (0, verticalInset);
     // A live trial retains source controls during long timing loss. Reserve guidance above
     // them instead of reusing the same rectangle as an ended-trial screen.
-    const auto guidanceHeight = shortLiveLayout
+    const auto guidanceHeight = shown.sourcesShown
         ? juce::jmin (causeHeight + recoveryHeight, juce::jmax (0, area.getHeight() - sourceMinHeight))
         : causeHeight + recoveryHeight;
     auto guidance = shown.guidanceShown && (shown.sourcesShown || shown.approveShown)
@@ -479,7 +480,8 @@ void ScreenComponent::resized()
         : area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
     cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);
-    area = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), actionHeight));
+    area = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(),
+        shown.sourcesShown ? sourceMinHeight : fittedAction));
     approve.setBounds (area);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
     two.setBounds (area.reduced (3, 0));
