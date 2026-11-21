@@ -225,6 +225,59 @@ void verifyEmbeddedMidReference()
     }
 }
 
+void verifyEmbeddedPreLabelOutsideNeedle()
+{
+    namespace mf = metric_face;
+    const auto mid = embeddedMid();
+    for (const int physical : {300, 600, 900, 1350})
+    for (const auto face : {Face::psr, Face::crest})
+    {
+        const auto v = observatory::displayViewport (physical, physical * 2 / 3);
+        check (physical != 1350 || (v.width == 900 && v.height == 600 && v.scale == 1.5f), "450% uses actual magnification");
+        context = "embedded PRE headline at " + juce::String (physical);
+        observatory::View view (observatory::Role::pre, mid);
+        view.setSize (v.width, v.height);
+        view.setDisplayedEditorSize (physical, physical * 2 / 3);
+        view.setMeterSnapshot (meter(), true); view.setManualHybridVuVisible (true);
+        view.lu().setFacts (reference()); view.setMetricFace (face);
+        check (view.metricFaceActive(), "real mid PRE face active");
+        const auto chassis = mf::pre_preview::chassisBounds (view.getLocalBounds());
+        const auto title = mf::candidateHeadlineBounds (chassis, true);
+        const auto dial = mf::candidateDial (chassis, *mid, observatory::Role::pre, 0);
+        const auto cap = mid->pre.frontCapRadius3072 * chassis.getWidth() / 3072.0f + 1.5f;
+        for (int turn = 0; turn <= 100; ++turn)
+        {
+            const auto ray = mf::candidateNeedleLine (dial, turn / 100.0f, 1.11f, cap);
+            for (int step = 0; step <= 40; ++step)
+                check (! title.toFloat().expanded (3.0f).contains (ray.getPointAlongLineProportionally (step / 40.0f)),
+                       "PRE heading outside entire swept needle and its glow, including centre zero");
+        }
+        Frame zero; zero.face = face; zero.status = Status::ready; zero.ownIsPre = true;
+        zero.own = zero.median = 12.0;
+        const auto drawAtScale = [&] (const Frame& frame) {
+            view.setMetricFrame (frame);
+            juce::Image image (juce::Image::RGB, physical, physical * 2 / 3, true);
+            juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (v.scale));
+            view.paintEntireComponent (g, true);
+            return image;
+        };
+        text_style::ShownTextLog log;
+        const auto ready = drawAtScale (zero);
+        bool titlePainted = false;
+        for (int i = 0; i < log.texts().size(); ++i)
+            if (log.texts()[i] == metric_needle::label (face) && log.areas()[static_cast<std::size_t> (i)] == title.toFloat()) titlePainted = true;
+        check (titlePainted, "PSR/CREST title is drawn in the safe box, not just calculated");
+        zero.own = metric_needle::missing;
+        const auto noNeedle = drawAtScale (zero);
+        const auto scale = juce::AffineTransform::scale (v.scale);
+        const auto protectedTitle = title.toFloat().transformedBy (scale).getSmallestIntegerContainer();
+        check (differences (ready, noNeedle, protectedTitle) == 0, "real centre needle must not cover any title pixel");
+        const auto midRay = mf::candidateNeedleLine (dial, 0.5f, 1.11f, cap).getPointAlongLineProportionally (0.56f) * v.scale;
+        check (differences (ready, noNeedle, juce::Rectangle<int> (7, 7).withCentre (midRay.roundToInt())) > 0,
+               "positive control: a centre needle really was drawn");
+    }
+}
+
 void controls (observatory::View& view)
 {
     check (view.lu().controlFontHeightForTest() >= 12, "control font floor");
@@ -402,6 +455,7 @@ void verifyMetricFaceContract()
     verifyChassisSelectionAndStaticCache();
     verifyEmbeddedMidReference();
     const i18n::ScopedLanguage english (i18n::Language::english);
+    verifyEmbeddedPreLabelOutsideNeedle();
     for (const auto role : {observatory::Role::pre, observatory::Role::post})
         for (const int width : {300,450,600,900})
             for (const auto face : {Face::psr,Face::crest,Face::sharp}) verify (role,width,face);

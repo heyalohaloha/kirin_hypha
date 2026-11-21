@@ -198,6 +198,16 @@ inline void paintCandidateDetails (juce::Graphics& g, juce::Rectangle<int> chass
         drawDetail (song, summary, COL_TEXT_SECONDARY);
 }
 
+inline juce::Rectangle<int> candidateHeadlineBounds (juce::Rectangle<int> chassis, bool singleReady)
+{
+    if (singleReady)
+        return {chassis.getX() + juce::roundToInt (chassis.getWidth() * 0.045f),
+                chassis.getY() + juce::roundToInt (chassis.getHeight() * 0.495f),
+                juce::roundToInt (chassis.getWidth() * 0.185f), 18};
+    return chassis.withTrimmedTop (juce::roundToInt (chassis.getHeight() * 0.31f))
+        .removeFromTop (18).withSizeKeepingCentre (chassis.getWidth() / 4, 18);
+}
+
 inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
     const hybrid_vu::State& state, const metric_needle::Frame& frame,
     const MetricChassisPair* mid, MeterBackdrop& backdrop)
@@ -225,8 +235,8 @@ inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
     const auto headline = frame.status == metric_needle::Status::measuring ? juce::String ("PREPARING")
         : frame.status != metric_needle::Status::ready || ! std::isfinite (frame.median) ? juce::String ("UNAVAILABLE")
         : juce::String (metric_needle::label (frame.face));
-    const auto line = chassis.withTrimmedTop (juce::roundToInt (chassis.getHeight()*0.31f))
-        .removeFromTop (18).withSizeKeepingCentre (chassis.getWidth()/4, 18);
+    const bool ready = frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
+    const auto line = candidateHeadlineBounds (chassis, one && ready);
     text_style::draw (g, headline, line, context, typography::TextRole::legend,
         juce::Justification::centred, 1, typography::Composition::instrument);
     return true;
