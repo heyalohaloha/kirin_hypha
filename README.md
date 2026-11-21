@@ -175,8 +175,8 @@ These targets contain measurements only and cannot play audio. Up to 16 targets 
 DAW project; audio and source paths are never saved. A Kirin OS license is required; registration and
 measurement preparation in Kirin OS are unnecessary for these targets. File support uses JUCE's
 basic formats: WAV, AIFF and FLAC; MP3 and M4A depend on the operating system.
-See the [Reference manual](docs/manual/reference.md) before saving a project with more than eight
-targets in Hypha 1.1.55 or 1.1.56.
+Hypha 1.1.55 and 1.1.56 read only the first eight targets, and saving the project in those versions
+keeps only those eight. See the [Reference manual](docs/manual/reference.md).
 
 Also inside: the Hybrid VU with true-peak bars and clip lamps, the SHARP and LIVE timelines, the
 time your chain takes between PRE and POST, and a screen in English or Japanese.
