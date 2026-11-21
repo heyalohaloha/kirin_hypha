@@ -7,6 +7,10 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "REF not linked", u8"REF未接続" },
+    { "REF no song", u8"REF曲なし" },
+    { "REF unmeasured", u8"REF未計測" },
+    { "REF ready", u8"REFあり" },
     { "Meter face", u8"メーターの表示" },
     { "Choose VU / LU / PSR / CREST", u8"VU / LU / PSR / CRESTを選びます" },
     { "Choose VU / LU / PSR / CREST / SHARP", u8"VU / LU / PSR / CREST / SHARPを選びます" },

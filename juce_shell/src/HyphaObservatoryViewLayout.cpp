@@ -90,6 +90,7 @@ void View::resized()
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
+        luFace.layoutReferenceStatus (calibration, buttonHeight);
         // Keep the existing calibration centred; its clickable text and the footer notice
         // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendFont = labelFont (context, typography::TextRole::legend,

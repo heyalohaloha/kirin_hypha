@@ -34,6 +34,8 @@ public:
     void hideControls();
     // Takes the controls' places from the left of the VU row.
     void layout (juce::Rectangle<int>& row, int buttonHeight, const presentation::Context&);
+    void layoutReferenceStatus (juce::Rectangle<int>& row, int height);
+    juce::String referenceStatus() const;
     void paint (juce::Graphics&, juce::Rectangle<int> bounds, const State&, const KirinDelta&,
                 bool deltaAvailable, float pixelScale);
 
@@ -53,6 +55,7 @@ private:
 
     juce::Component& owner;
     std::unique_ptr<Control> faceButton, windowButton;
+    juce::Label referenceStatusLabel;
     lu_needle::Facts current;
     bool luSelected = false, snapNext = true, commonFace = false;
     lu_needle::Window chosenWindow = lu_needle::Window::momentary;

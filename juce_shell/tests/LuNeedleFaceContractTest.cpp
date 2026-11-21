@@ -1,4 +1,5 @@
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -155,6 +156,23 @@ void verifyIntegratedAvailability (observatory::Role role, observatory::SizePres
     juce::Component owner;
     owner.setSize (preset.width, preset.height);
     hybrid_vu::LuFace face (owner);
+    face.setCommonFace (true, "LU");
+    {
+        const i18n::ScopedLanguage english (i18n::Language::english);
+        auto row = juce::Rectangle<int> (0, 0, 170, 20);
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF not linked");
+        face.layoutReferenceStatus (row, 20);
+        KIRIN_LU_FACE_REQUIRE (row.getWidth() < 170);
+        auto facts = readyFacts (-4.0);
+        facts.zero = lu_needle::Zero::noSong;
+        face.setFacts (facts);
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF no song");
+        facts.zero = lu_needle::Zero::noValue;
+        face.setFacts (facts);
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF unmeasured");
+        face.setFacts (readyFacts (-4.0));
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF ready");
+    }
     face.restore (true, Window::momentary);
     auto meter = meterFixture();
     KirinWatchDisplay watch {};

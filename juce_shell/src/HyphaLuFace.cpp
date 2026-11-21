@@ -61,6 +61,11 @@ LuFace::LuFace (juce::Component& ownerIn)
     windowButton->onClick = [this] { choose (luSelected, lu_needle::nextWindow (chosenWindow)); };
     owner.addChildComponent (*faceButton);
     owner.addChildComponent (*windowButton);
+    referenceStatusLabel.setComponentID ("observatory-reference-status");
+    referenceStatusLabel.setJustificationType (juce::Justification::centred);
+    referenceStatusLabel.setColour (juce::Label::textColourId, COL_NORMAL);
+    referenceStatusLabel.setInterceptsMouseClicks (false, false);
+    owner.addChildComponent (referenceStatusLabel);
 }
 
 LuFace::~LuFace() { stopTimer(); }
@@ -102,7 +107,7 @@ void LuFace::choose (bool luFace, lu_needle::Window window)
 void LuFace::setFacts (const lu_needle::Facts& next)
 {
     if (current == next) return;
-    const bool layoutChanged = current.readable != next.readable;
+    const bool layoutChanged = current.readable != next.readable || current.zero != next.zero;
     // A different song or a different 0 is a new reading, not a move of the old one.
     if (current.zero != next.zero || current.song != next.song || current.playedZero() != next.playedZero())
         snapNext = true;
@@ -115,6 +120,7 @@ void LuFace::hideControls()
 {
     faceButton->setVisible (false);
     windowButton->setVisible (false);
+    referenceStatusLabel.setVisible (false);
     stopTimer();
     snapNext = true;
 }
@@ -136,6 +142,28 @@ void LuFace::layout (juce::Rectangle<int>& row, int buttonHeight, const presenta
     place (*faceButton, commonFace ? juce::jlimit (56, 80, juce::roundToInt (owner.getWidth() * 0.10f))
                                   : juce::jlimit (34, 72, juce::roundToInt (owner.getWidth() * 0.08f)));
     if (active()) place (*windowButton, juce::jlimit (28, 56, juce::roundToInt (owner.getWidth() * 0.065f)));
+}
+
+juce::String LuFace::referenceStatus() const
+{
+    if (! current.readable) return i18n::tr ("REF not linked");
+    if (current.zero == lu_needle::Zero::noSong) return i18n::tr ("REF no song");
+    if (current.zero == lu_needle::Zero::noValue) return i18n::tr ("REF unmeasured");
+    return i18n::tr ("REF ready");
+}
+
+void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height)
+{
+    referenceStatusLabel.setVisible (commonFace);
+    if (! commonFace) return;
+    const auto text = referenceStatus();
+    const auto font = nativeTextFont (presentation::forEditor (owner.getWidth(), owner.getHeight()),
+                                      typography::TextRole::legend, typography::Composition::instrument);
+    referenceStatusLabel.setFont (font);
+    referenceStatusLabel.setText (text, juce::dontSendNotification);
+    referenceStatusLabel.setTitle (text);
+    const auto width = juce::jmin (row.getWidth(), juce::roundToInt (std::ceil (font.getStringWidthFloat (text))) + 8);
+    referenceStatusLabel.setBounds (row.removeFromRight (width).withSizeKeepingCentre (width, height));
 }
 
 lu_face::Frame LuFace::frame (const State& state, const KirinDelta& delta, bool deltaAvailable) const
