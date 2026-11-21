@@ -85,7 +85,8 @@ template <typename YFor>
 void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double minimumHz,
                         double maximumHz, juce::Point<float> pointer,
                         const std::vector<ReadCurve>& curves, YFor&& yFor,
-                        presentation::Context context, const ReadRange* range = nullptr)
+                        presentation::Context context, const ReadRange* range = nullptr,
+                        const char* levelUnit = "")
 {
     const auto xFor = [=] (float hz)
     {
@@ -122,11 +123,11 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
             continue;
         g.setColour (curve.colour);
         g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ pointer.x, reading->y }));
-        parts.push_back ({ juce::String (curve.name) + " " + juce::String (reading->level, 1), curve.colour });
+        parts.push_back ({ juce::String (curve.name) + " " + juce::String (reading->level, 1) + levelUnit, curve.colour });
     }
     if (range != nullptr)
         if (const auto low = readAt (range->low, hz, yFor), high = readAt (range->high, hz, yFor); low && high)
-            parts.push_back ({ "TARGET " + juce::String (low->level, 1) + " TO " + juce::String (high->level, 1),
+            parts.push_back ({ "TARGET " + juce::String (low->level, 1) + " TO " + juce::String (high->level, 1) + levelUnit,
                                COL_NORMAL.withAlpha (0.86f) });
     // What does not fit a row of the chart goes to the next row: no reading is dropped.
     const auto partWidth = [&g] (const Part& part) { return text_style::shownWidth (g.getCurrentFont(), part.first) + 10.0f; };
