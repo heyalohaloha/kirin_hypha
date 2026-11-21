@@ -404,23 +404,24 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
         g.strokePath (linePath (sources.target->spectrum.centersHz, values, 0.0f, chart), juce::PathStrokeType (1.4f));
         readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, sources.target->spectrum.centersHz, values, 0.0, minimumHz, maximumHz));
     }
-    g.restoreState();  // A compact hover plate can also use its chart caption above the plot.
-    // 指した所の値（C の図と同じ読み）。図を描いた値をそのまま読む。
+    g.restoreState();
+    const auto contrasts = chosen != nullptr && aShown && ! state.overlay.all
+        ? blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb, chosen->centersHz, chosen->medianDb) : AVersus {};
+    const bool reserveBlauert = context.referenceCompact && chart.getWidth() >= 160.0f && chart.getHeight() >= 40.0f
+        && std::isfinite (contrasts.aMinusOther());
+    // 指した所の値は図の線から。小窓でも常設の比較と同じ行を使わない。
     if (! readings.empty() || sources.rangeShown (state))
     {
-        const auto headroom = context.referenceCompact && sources.rangeShown (state) ? 14.0f : 0.0f;
+        const auto headroom = context.referenceCompact && ! reserveBlauert && sources.rangeShown (state) ? 14.0f : 0.0f;
         const ReadRange range { drawnCurve ("", COL_NORMAL, centers, rangeLow, 0.0, minimumHz, maximumHz),
                                 drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz),
-                                blauertReadoutHeight, headroom };
+                                ! context.referenceCompact || reserveBlauert ? blauertReadoutHeight : 0.0f, headroom, reserveBlauert };
         const juce::Graphics::ScopedSaveState readout (g);
         g.reduceClipRegion (chart.withTop (chart.getY() - headroom).toNearestInt());
         paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
                            [chart] (float level) { return yFor (level, chart); }, context, &range, " dB");
     }
-    if (chosen != nullptr && aShown && ! state.overlay.all && ! (context.referenceCompact && chart.contains (state.chartPointer)))
-        paintBlauertReadout (g, chart, 'B', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
-                                                          chosen->centersHz, chosen->medianDb),
-                             minimumHz, maximumHz, context);
+    paintBlauertReadout (g, chart, 'B', contrasts, minimumHz, maximumHz, context);
     return unmatched;
 }
 }
