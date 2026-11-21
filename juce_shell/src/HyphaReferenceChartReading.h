@@ -35,6 +35,7 @@ struct ReadRange
 {
     ReadCurve low, high;
     float plateTop = 0.0f;
+    float plateHeadroom = 0.0f;  // Compact BALANCE may use its own caption row while pointed.
 };
 
 // The bands a chart really draws. `right` stands for a chart that draws its last band at the edge.
@@ -131,7 +132,9 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
                                COL_NORMAL.withAlpha (0.86f) });
     // What does not fit a row of the chart goes to the next row: no reading is dropped.
     const auto partWidth = [&g] (const Part& part) { return text_style::shownWidth (g.getCurrentFont(), part.first) + 10.0f; };
-    constexpr float padding = 8.0f, rowHeight = 15.0f, rowGap = 1.0f;
+    constexpr float padding = 8.0f;
+    const bool littleHeight = range != nullptr && range->plateHeadroom > 0.0f && chart.getHeight() < 31.0f;
+    const float rowHeight = littleHeight ? 14.0f : 15.0f, rowGap = littleHeight ? 0.0f : 1.0f;
     std::vector<std::pair<float, std::vector<Part>>> rows (1, { padding, {} });
     for (const auto& part : parts)
     {
@@ -141,7 +144,9 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         rows.back().second.push_back (part);
     }
     const auto height = static_cast<float> (rows.size()) * (rowHeight + rowGap) - rowGap;
-    auto top = chart.getY() + (range != nullptr ? juce::jlimit (0.0f, juce::jmax (0.0f, chart.getHeight() - height), range->plateTop) : 0.0f);
+    const float headroom = range != nullptr ? range->plateHeadroom : 0.0f;
+    const float latest = juce::jmax (-headroom, chart.getHeight() - height);
+    auto top = chart.getY() + (range != nullptr ? juce::jlimit (-headroom, latest, range->plateTop) : 0.0f);
     for (const auto& [width, row] : rows)
     {
         const juce::Rectangle<float> plate (chart.getX(), top, juce::jmin (width, chart.getWidth()), rowHeight);

@@ -339,8 +339,7 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
                        const BalanceSources& sources, presentation::Context context)
 {
     if (chart.isEmpty()) return false;
-    const juce::Graphics::ScopedSaveState guard (g);
-    g.reduceClipRegion (chart.toNearestInt());
+    g.saveState(); g.reduceClipRegion (chart.toNearestInt());
     paintBlauertZones (g, chart, minimumHz, maximumHz);
     const bool shaped = state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines;
     const auto* chosen = sources.chosen;
@@ -405,16 +404,20 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
         g.strokePath (linePath (sources.target->spectrum.centersHz, values, 0.0f, chart), juce::PathStrokeType (1.4f));
         readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, sources.target->spectrum.centersHz, values, 0.0, minimumHz, maximumHz));
     }
+    g.restoreState();  // A compact hover plate can also use its chart caption above the plot.
     // 指した所の値（C の図と同じ読み）。図を描いた値をそのまま読む。
     if (! readings.empty() || sources.rangeShown (state))
     {
+        const auto headroom = context.referenceCompact && sources.rangeShown (state) ? 14.0f : 0.0f;
         const ReadRange range { drawnCurve ("", COL_NORMAL, centers, rangeLow, 0.0, minimumHz, maximumHz),
-                                drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz), blauertReadoutHeight };
+                                drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz),
+                                blauertReadoutHeight, headroom };
+        const juce::Graphics::ScopedSaveState readout (g);
+        g.reduceClipRegion (chart.withTop (chart.getY() - headroom).toNearestInt());
         paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
-                           [chart] (float level) { return yFor (level, chart); }, context,
-                           context.referenceCompact ? nullptr : &range, " dB");
+                           [chart] (float level) { return yFor (level, chart); }, context, &range, " dB");
     }
-    if (chosen != nullptr && aShown && ! state.overlay.all)  // 曲の中の帯どうしの差なので、音量をそろえられない曲でも出せる
+    if (chosen != nullptr && aShown && ! state.overlay.all && ! (context.referenceCompact && chart.contains (state.chartPointer)))
         paintBlauertReadout (g, chart, 'B', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
                                                           chosen->centersHz, chosen->medianDb),
                              minimumHz, maximumHz, context);

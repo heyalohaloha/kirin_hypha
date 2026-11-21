@@ -100,10 +100,57 @@ inline void verifyStandaloneBalanceA()
     require (! read (waiting), "compact BALANCE does not overlay incompatible A onto a measured B grid");
 }
 
+inline void verifyCompactBalanceRangeReading()
+{
+    auto context = presentation::forEditor (300, 200);
+    context.referenceCompact = true;
+    auto state = page (2, 0);
+    state.aWindowLoudness = std::numeric_limits<double>::quiet_NaN(); // equal B loudness => zero drawing gain
+    auto a = std::make_shared<ref::KirinSpectrumWindow> (*state.aKirin);
+    a->frames = 30;
+    std::fill (a->medianDb.begin(), a->medianDb.end(), -40.0f);
+    state.aKirin = a;
+    for (size_t index = 0; index < state.songFacts.size(); ++index)
+    {
+        auto& fact = state.songFacts[index];
+        fact.lufsI = -20.0; fact.loudnessOffsetLu = 0.0;
+        std::fill (fact.medianDb.begin(), fact.medianDb.end(), index == 0 ? -50.0f : -30.0f);
+    }
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const float height : { 14.0f, 52.0f })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const juce::Rectangle<float> chart (10.0f, 30.0f, 220.0f, height);
+        const auto allowed = chart.withTop (chart.getY() - 14.0f).expanded (0.5f);
+        juce::Image image (juce::Image::ARGB, 300, 120, true);
+        juce::Graphics g (image);
+        const text_style::ShownTextLog log;
+        state.chartPointer = chart.getCentre();
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+
+        const int aIndex = log.texts().indexOf (text_style::shownText ("A -40.0 dB"));
+        const int bIndex = log.texts().indexOf (text_style::shownText ("B -50.0 dB"));
+        int rangeIndex = -1;
+        for (int index = 0; index < log.texts().size(); ++index)
+            if (log.texts()[index].contains ("-48.0") && log.texts()[index].contains ("-32.0")) rangeIndex = index;
+        require (aIndex >= 0 && bIndex >= 0 && rangeIndex >= 0,
+                 "100% BALANCE hover reads both compared curves and the true p10/p90 endpoints: " + log.texts().joinIntoString (" | "));
+        for (const auto index : { aIndex, bIndex, rangeIndex })
+            require (allowed.contains (log.areas()[static_cast<size_t> (index)]), "hover values stay in the compact chart or its own caption");
+        require (log.areas()[static_cast<size_t> (rangeIndex)].getY() > log.areas()[static_cast<size_t> (aIndex)].getY(),
+                 "range reading wraps to a lower row instead of being dropped");
+        log.clear();
+        state.chartPointer = { -1.0f, -1.0f };
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+        require (! log.texts().joinIntoString (" | ").contains ("-48.0"), "compact BALANCE range values disappear when pointer leaves");
+    }
+}
+
 // Exercise the real shell: the notice changes the space available to Reference.
 inline void verifyCompactBalanceFit()
 {
     verifyStandaloneBalanceA();
+    verifyCompactBalanceRangeReading();
     juce::StringArray failures;
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_COMPACT_BALANCE_IMAGES", {});
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
