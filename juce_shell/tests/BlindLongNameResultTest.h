@@ -11,7 +11,8 @@ template<typename Require>
 void verifyBlindProbabilityResultRows (Require require)
 {
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
-    for (const int width : { 300, 600, 1350 })
+    // 450% uses the 900x600 inspection layout before the display transform.
+    for (const int width : { 300, 450, 600, 900 })
     for (const auto counts : { std::pair { 6u, 4u }, std::pair { 5u, 5u }, std::pair { 4u, 1u } })
     for (const bool withLoweringNote : { false, true })
     {
@@ -74,6 +75,24 @@ void verifyBlindProbabilityResultRows (Require require)
         auto* result = dynamic_cast<juce::TextEditor*> (view.findChildWithID ("preference-probability-preference-result"));
         auto* notes = dynamic_cast<juce::TextEditor*> (view.findChildWithID ("preference-probability-preference-note"));
         require (result && result->getText() == state.preferenceResultText, "full unchanged summary and probability");
+        if (result != nullptr)
+        {
+            const auto context = presentation::forEditor (width, width * 2 / 3);
+            const auto role = nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information);
+            require (result->getFont().getTypefaceName() == role.getTypefaceName()
+                     && result->getFont().getTypefaceStyle() == role.getTypefaceStyle(),
+                     "both languages use the same result-role family and weight");
+            if (! japanese && counts.first == 6)
+            {
+                const auto last = result->getText().lastIndexOf ("times.");
+                const auto prior = result->getText().lastIndexOf ("100 times.");
+                require (last >= 0 && prior >= 0, "exact 6-of-10 probability words remain");
+                if (last >= 0 && prior >= 0)
+                    require (result->getCaretRectangleForCharIndex (last + 1).getY()
+                             == result->getCaretRectangleForCharIndex (prior + 1).getY(),
+                             "times. does not hang alone on a last line");
+            }
+        }
         require (notes && (! withLoweringNote || (notes->getText().contains (note)
                     && notes->getText().contains (state.recovery))), "level and continuing guidance are not lost");
     }

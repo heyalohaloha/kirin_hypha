@@ -291,9 +291,14 @@ void ScreenComponent::resized()
 
     for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
     {
-        body->setFont (displayTextFont (body->getText(), context,
-                                       body == &preferenceResultBody ? typography::TextRole::primaryValue : typography::TextRole::listenChoice, typography::Composition::information));
-        body->applyFontToAllText (body->getFont());
+        const auto result = body == &preferenceResultBody;
+        // Give the result one family and weight in both scripts. Its own metrics then drive
+        // wrapping at the final width, without changing strings or shrinking other roles.
+        const auto font = result ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information)
+                                 : displayTextFont (body->getText(), context, typography::TextRole::listenChoice,
+                                                    typography::Composition::information);
+        body->setFont (font);
+        body->applyFontToAllText (font);
     }
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
