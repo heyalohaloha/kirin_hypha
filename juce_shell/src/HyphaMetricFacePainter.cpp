@@ -105,7 +105,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const metric_needle:
             if (step == 0) arc.startNewSubPath (p); else arc.lineTo (p);
         }
         g.setColour (ivory.withAlpha (0.7f)); g.strokePath (arc, juce::PathStrokeType (1.0f));
-        const int divisions = frame.face == metric_needle::Face::sharp ? 4 : 6;
+        const int divisions = 6;
         for (int tick = 0; tick <= divisions; ++tick)
         {
             const auto fraction = static_cast<float> (tick) / static_cast<float> (divisions);
@@ -114,7 +114,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const metric_needle:
             g.drawLine ({point (dial, fraction, 0.94f), point (dial, fraction, 1.0f)}, 1.2f);
             const auto p = point (dial, fraction, 1.0f);
             const auto value = -range + static_cast<double> (tick) * 2.0 * range / divisions;
-            const int decimals = frame.face == metric_needle::Face::sharp && tick % 2 != 0 ? 1 : 0;
+            const int decimals = frame.face == metric_needle::Face::sharp ? 1 : 0;
             const auto label = zero ? juce::String ("0")
                 : (value > 0.0 ? "+" : "") + juce::String (value, decimals);
             auto tickContext = context; tickContext.referenceCompact = true;
@@ -131,6 +131,16 @@ void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const metric_needle:
                   zero ? COL_FLORA_BR : ivory, trace);
         }
     }
+    // Keep exact values in the readout; a cap at the affected end indicates a clamped needle.
+    for (auto direction : {-1, 1})
+        if (metric_needle::rangeEdge (frame.face, facts.own) == direction
+            || metric_needle::rangeEdge (frame.face, facts.pre) == direction
+            || metric_needle::rangeEdge (frame.face, facts.reference) == direction)
+        {
+            const auto end = point (dial, direction < 0 ? 0.0f : 1.0f, 1.0f);
+            g.setColour (COL_FLORA_BR);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (end));
+        }
     needle (g, dial, facts.referencePosition, COL_SPECTRUM_DELTA, false);
     needle (g, dial, facts.prePosition, COL_SPECTRUM_PRE, false);
     needle (g, dial, facts.ownPosition, ivory, true);
@@ -149,8 +159,8 @@ void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const metric_needle:
                   context, colours[index], trace);
     juce::String status;
     const bool unavailable = frame.status != metric_needle::Status::ready || !std::isfinite (frame.median);
-    if (unavailable && !frame.reason.empty()) status = text_style::shownText (metric_needle::reasonText (frame.reason));
-    else if (frame.status == metric_needle::Status::measuring) status = text_style::shownText ("MEASURING");
+    if (frame.status == metric_needle::Status::measuring) status = text_style::shownText ("PREPARING");
+    else if (unavailable && !frame.reason.empty()) status = text_style::shownText (metric_needle::reasonText (frame.reason));
     else if (frame.status != metric_needle::Status::ready || !std::isfinite (frame.median)) status = text_style::shownText ("UNAVAILABLE");
     else status = "0 = " + juce::String (frame.median, 2) + " " + metric_needle::unit (frame.face);
     if (compact) status = juce::String (metric_needle::label (frame.face)) + "  " + status

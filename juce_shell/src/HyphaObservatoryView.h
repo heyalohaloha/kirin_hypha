@@ -37,7 +37,7 @@ namespace hypha::observatory
 class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    explicit View (Role roleIn);
+    explicit View (Role roleIn, std::shared_ptr<const metric_face::MetricChassisPair> candidateChassis = {});
     void requestHybridVuToggle();
     std::function<void()> onBodyLayoutChanged;
     std::function<void (Domain)> onDomainChange;

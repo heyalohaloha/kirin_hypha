@@ -1,11 +1,15 @@
 #pragma once
 #include "HyphaMetricFacePainter.h"
+#include "HyphaMetricInstrumentCandidate.h"
+#include <memory>
 namespace hypha::metric_face
 {
 struct Selection
 {
     metric_needle::Face face = metric_needle::Face::vu;
     metric_needle::Frame frame;
+    std::shared_ptr<const MetricChassisPair> candidateChassis;
+    MeterBackdrop candidateBackdrop;
     // PRE local SHARP exceeds the optional CPU gate; production keeps it absent.
     // Test fixtures may enable it only to exercise shared geometry.
     bool preSharpAvailable = false;

@@ -129,12 +129,19 @@ void View::paintHybridVu (juce::Graphics& g)
     updateVuVisibility();
     if (metricFaceActive())
     {
-        hybrid_vu::paintStatic (g, getLocalBounds(), state);
         auto frame = metricSelection.frame;
-        if (frame.face != metricSelection.face) frame = {};
+        if (frame.face != metricSelection.face)
+        {
+            frame = {};
+            frame.status = metric_needle::Status::measuring;
+        }
         frame.face = metricSelection.face;
         frame.ownIsPre = role == Role::pre;
         if (!currentFactsAvailable()) { frame.own = metric_needle::missing; frame.pre = metric_needle::missing; }
+        if (metric_face::paintMetricCandidate (g, getLocalBounds(), state, frame,
+                metricSelection.candidateChassis.get(), metricSelection.candidateBackdrop))
+            return;
+        hybrid_vu::paintStatic (g, getLocalBounds(), state);
         metric_face::paint (g, hybrid_vu::needle_painter::faceBounds (getLocalBounds()).toNearestInt(),
                             frame, presentationContext(), nullptr, true);
         hybrid_vu::paintDynamic (g, getLocalBounds(), state);

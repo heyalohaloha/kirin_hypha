@@ -39,8 +39,9 @@ void styleButton (juce::TextButton& button)
 }
 }
 
-View::View (Role roleIn) : role (roleIn)
+View::View (Role roleIn, std::shared_ptr<const metric_face::MetricChassisPair> candidateChassis) : role (roleIn)
 {
+    metricSelection.candidateChassis = std::move (candidateChassis);
     setOpaque (true);
     setMouseClickGrabsKeyboardFocus (false);
     initializeLevelHistoryControls(); initializeVuCalibrationControl();

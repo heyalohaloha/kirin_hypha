@@ -32,7 +32,7 @@ constexpr const char* label (Face face) noexcept
     return "VU";
 }
 constexpr const char* unit (Face face) noexcept { return face == Face::sharp ? "acum" : metric (face) ? "dB" : ""; }
-inline double extent (Face face) noexcept { return face == Face::sharp ? 1.0 : metric (face) ? 9.0 : missing; }
+inline double extent (Face face) noexcept { return face == Face::sharp ? 1.5 : metric (face) ? 24.0 : missing; }
 inline double relative (double measured, double median) noexcept
 {
     const auto result = measured - median;
@@ -43,6 +43,12 @@ inline std::optional<float> normalized (Face face, double difference) noexcept
     const auto range = extent (face);
     if (!std::isfinite (range) || !std::isfinite (difference)) return std::nullopt;
     return static_cast<float> ((std::clamp (difference, -range, range) + range) / (2.0 * range));
+}
+inline int rangeEdge (Face face, double difference) noexcept
+{
+    const auto range = extent (face);
+    if (!std::isfinite (range) || !std::isfinite (difference)) return 0;
+    return difference < -range ? -1 : difference > range ? 1 : 0;
 }
 struct Band { double low = missing, high = missing; };
 struct Frame
