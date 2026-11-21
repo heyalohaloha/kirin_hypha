@@ -312,12 +312,26 @@
     },
     {
       "path": "crates/hypha_gui/assets/hybrid_vu_chassis.png",
-      "sha256": "6e64a304440f2dedd3483cec0323fbcda82a1d72b3692c579ec6ffa747ac7510",
+      "sha256": "c649cbbd42bcb2fe1ebe021ef977a03bde583029c6ed5c32d5cc9b8039dc50a5",
       "status": "verified",
       "rights": "Maintainer factual declaration accepted for the specified distribution uses; no legal certification.",
-      "reason": "Specified three shipping images accepted on factual declaration plus bounded generation evidence; reopen only on concrete contradictory evidence.",
-      "creation": "Codex-generated: maintainer statement and generation-output/current-file hash match.",
-      "rightsEvidence": "Maintainer declaration 2026-10-05: created with Codex from textual instructions; no third-party image/photo/logo/UI/illustration inputs or specific product/design reproduction instructions. Corroborating generation/hash/copy records retained privately where available; record absence alone is not adverse evidence.",
+      "reason": "Approved meter artwork; the maintainer declaration is supported by the recorded edit lineage and exact output hashes.",
+      "creation": "Generated with the OpenAI image API (gpt-image-2) through successive edits originating only from the product's own hybrid_vu_chassis.png and bg_mycelium.png plus text instructions; reduced to 1536 × 1024 with lossless PNG encoding.",
+      "rightsEvidence": "Maintainer declaration 2026-11-22: the artwork uses only the two existing product images and text instructions, with no third-party image/photo/logo/UI/illustration inputs. Matching source/derivative and edit-lineage evidence is retained privately.",
+      "allowedUses": [
+        "binary",
+        "preview",
+        "source"
+      ]
+    },
+    {
+      "path": "crates/hypha_gui/assets/hybrid_vu_chassis_single.png",
+      "sha256": "1e05a3a097d7f1eb10b51af919095f2e1c7195693443207e1b72cd278e2d9fc6",
+      "status": "verified",
+      "rights": "Maintainer factual declaration accepted for the specified distribution uses; no legal certification.",
+      "reason": "Approved meter artwork; the maintainer declaration is supported by the recorded edit lineage and exact output hashes.",
+      "creation": "Generated with the OpenAI image API (gpt-image-2) through successive edits originating only from the product's own hybrid_vu_chassis.png and bg_mycelium.png plus text instructions; reduced to 1536 × 1024 with lossless PNG encoding.",
+      "rightsEvidence": "Maintainer declaration 2026-11-22: the artwork uses only the two existing product images and text instructions, with no third-party image/photo/logo/UI/illustration inputs. Matching source/derivative and edit-lineage evidence is retained privately.",
       "allowedUses": [
         "binary",
         "preview",
@@ -472,5 +486,5 @@
       "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
     }
   ],
-  "embedContractSha256": "81917b5ac4c5c2595558dbd5506862673f5b391fbc1fa395ca4991b616f331af"
+  "embedContractSha256": "72ac287e52a6b4bebe8d756c933903beff4cffa862a57feae73a96371634c4e4"
 }

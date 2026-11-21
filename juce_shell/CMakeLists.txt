@@ -143,6 +143,7 @@ option(KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis_single.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)
