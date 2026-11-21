@@ -8,8 +8,81 @@
 namespace hypha::tests
 {
 template<typename Require>
+void verifyBlindProbabilityResultRows (Require require)
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const int width : { 300, 600, 1350 })
+    for (const auto counts : { std::pair { 6u, 4u }, std::pair { 5u, 5u }, std::pair { 4u, 1u } })
+    for (const bool withLoweringNote : { false, true })
+    {
+        i18n::ScopedLanguage lang (language);
+        const bool japanese = language == i18n::Language::japanese;
+        const auto a = japanese && counts.first == 6 ? 4u : counts.first;
+        const auto b = japanese && counts.first == 6 ? 6u : counts.second;
+        const blind_preference::Summary summary { a, b, blind_preference::probability (a, b) };
+        blind_ui::Screen state;
+        state.title = "BLIND RESULT"; state.sourcesShown = true;
+        state.sourceOneEnabled = state.sourceTwoEnabled = true;
+        state.saveImageShown = true; state.sourceOne = "1: PRE"; state.sourceTwo = "2: POST";
+        state.preferenceResultText = blind_preference::summaryLine (summary, false);
+        const auto chance = blind_preference::probabilityLine (summary);
+        if (chance.isNotEmpty()) state.preferenceResultText += "\n" + chance;
+        else require (counts.first == counts.second, "only the tied case has no probability line");
+        state.preferenceResultNote = i18n::tr ("Sources revealed; keep comparing");
+        const auto note = japanese ? juce::String::fromUTF8 (u8"終了すると通常の音量に戻ります")
+                                   : juce::String ("Lowered 8.0 dB to avoid clipping; END restores it");
+        if (withLoweringNote)
+        {
+            state.preferenceResultNote += "\n" + note;
+            state.matchedGainText = japanese ? juce::String::fromUTF8 (u8"音量の補正：PRE −0.9 dB、POST 0.0 dB")
+                                             : juce::String::fromUTF8 (u8"Matched level: PRE −0.9 dB; POST 0.0 dB");
+        }
+        blind_ui::ScreenComponent view ("preference-probability");
+        view.setSize (width, width * 2 / 3);
+        auto live = state;
+        live.preferenceResultText.clear(); live.preferenceResultNote.clear(); live.matchedGainText.clear();
+        live.guidanceShown = true;
+        live.cause = i18n::tr ("Preparing the sources");
+        live.recovery = i18n::tr ("Try both sources while playing");
+        view.setScreen (live);
+        // A surviving guidance belongs to measured notes, never stale centre bounds.
+        if (withLoweringNote)
+        {
+            state.guidanceShown = live.guidanceShown;
+            state.cause = live.cause;
+            state.recovery = live.recovery;
+        }
+        view.setScreen (state);
+        std::vector<juce::Component*> visible;
+        int shownActions = 0;
+        for (auto* child : view.getChildren())
+        {
+            if (! child->isVisible() || child->getBounds().isEmpty()) continue;
+            visible.push_back (child);
+            shownActions += dynamic_cast<juce::Button*> (child) != nullptr ? 1 : 0;
+            require (view.getLocalBounds().contains (child->getBounds()), "visible result controls stay in the viewport");
+            if (auto* text = dynamic_cast<juce::TextEditor*> (child))
+            {
+                require (text->getTextHeight() <= text->getHeight(), "the entire result row fits vertically");
+                require (text->getTextWidth() <= text->getWidth(), "the entire result row fits horizontally");
+            }
+        }
+        require (shownActions == 4, "source one, source two, save and end are available");
+        for (size_t i = 0; i < visible.size(); ++i)
+            for (size_t j = i + 1; j < visible.size(); ++j)
+                require (! visible[i]->getBounds().intersects (visible[j]->getBounds()), "no visible result lines or actions intersect");
+        auto* result = dynamic_cast<juce::TextEditor*> (view.findChildWithID ("preference-probability-preference-result"));
+        auto* notes = dynamic_cast<juce::TextEditor*> (view.findChildWithID ("preference-probability-preference-note"));
+        require (result && result->getText() == state.preferenceResultText, "full unchanged summary and probability");
+        require (notes && (! withLoweringNote || (notes->getText().contains (note)
+                    && notes->getText().contains (state.recovery))), "level and continuing guidance are not lost");
+    }
+}
+
+template<typename Require>
 void verifyBlindLongNameResult (Require require, const juce::String& preview)
 {
+    verifyBlindProbabilityResultRows (require);
     int cases = 0;
     for (const bool longName : { false, true })
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })

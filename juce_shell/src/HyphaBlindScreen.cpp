@@ -4,6 +4,7 @@
 #include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaUnavailableReason.h"
 
+#include <array>
 #include <tuple>
 
 namespace hypha::blind_ui
@@ -102,6 +103,9 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
         body->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         body->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         body->setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        body->setBorder ({});
+        body->setIndents (3, 0);
+        body->setScrollToShowCursor (false);
     }
     apply();
 }
@@ -211,8 +215,17 @@ void ScreenComponent::apply()
     const bool preferenceResult = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
     preferenceResultBody.setVisible (shown.preferenceResultText.isNotEmpty());
     const auto resultText = shown.preferenceResultText;
-    preferenceNoteBody.setVisible (preferenceResult);
-    const auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText(shown.instruction) + "\n" + text_style::shownText(shown.detail);
+    auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText(shown.instruction) + "\n" + text_style::shownText(shown.detail);
+    if (preferenceResult && shown.guidanceShown)
+    {
+        // A guidance label can still be valid after REVEAL. Give its text a measured row
+        // in the result notes instead of painting the old LIVE BLIND labels at stale bounds.
+        juce::StringArray notes;
+        for (const auto& entry : { text_style::shownText (shown.cause), text_style::shownText (shown.recovery), noteText })
+            if (entry.trim().isNotEmpty()) notes.addIfNotAlreadyThere (entry);
+        noteText = notes.joinIntoString ("\n");
+    }
+    preferenceNoteBody.setVisible (preferenceResult && noteText.trim().isNotEmpty());
     if (preferenceNoteBody.getText() != noteText) preferenceNoteBody.setText(noteText,false);
     if (preferenceResultBody.getText() != resultText) preferenceResultBody.setText (resultText, false);
     matchedGainBody.setVisible(shown.matchedGainText.isNotEmpty());
@@ -226,7 +239,8 @@ void ScreenComponent::apply()
     end.setDescription (shown.endTitle + " / " + shown.detail);
     end.setTooltip (end.getDescription());
     for (auto* always : std::initializer_list<juce::Component*> { &title, &detail, &end }) always->setVisible (true);
-    if (preferenceResult) { status.setVisible (false); detail.setVisible (false); }
+    if (preferenceResult)
+        for (auto* label : { &status, &detail, &cause, &recovery }) label->setVisible (false);
     if (covered)
         for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
                                      &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
@@ -290,13 +304,32 @@ void ScreenComponent::resized()
         // at its final width. A narrow width alone does not select dense mode.
         auto normal = getLocalBounds().reduced (24);
         normal.removeFromTop (40); normal.removeFromBottom (80);
-        int neededHeight = 0;
-        for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
+        const std::array<juce::TextEditor*, 3> bodies { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody };
+        const std::array<juce::Font, 3> normalFonts { bodies[0]->getFont(), bodies[1]->getFont(), bodies[2]->getFont() };
+        std::array<int, 3> heights {};
+        auto measure = [&] (juce::Rectangle<int> bounds, float scale, int padding)
         {
-            body->setBounds (normal.getX(), normal.getY(), normal.getWidth(), 100);
-            if (body->getText().isNotEmpty()) neededHeight += body->getTextHeight() + 8;
-        }
-        const bool denseResult = neededHeight > normal.getHeight();
+            int total = 0;
+            bool fitsWidth = true;
+            for (size_t i = 0; i < bodies.size(); ++i)
+            {
+                auto& body = *bodies[i];
+                heights[i] = 0;
+                if (! body.isVisible() || body.getText().trim().isEmpty()) continue;
+                body.setScrollbarsShown (false);
+                body.setBounds (bounds.getX(), bounds.getY(), bounds.getWidth(), juce::jmax (1, bounds.getHeight()));
+                const auto height = normalFonts[i].getHeight();
+                const auto font = normalFonts[i].withHeight (juce::jmax (juce::jmin (12.0f, height), height * scale));
+                body.setFont (font);
+                body.applyFontToAllText (font);
+                heights[i] = body.getTextHeight() + padding;
+                total += heights[i];
+                fitsWidth = fitsWidth && body.getTextWidth() <= bounds.getWidth();
+            }
+            return std::pair { total, fitsWidth };
+        };
+        const auto [neededHeight, normalWidthFits] = measure (normal, 1.0f, 8);
+        const bool denseResult = neededHeight > normal.getHeight() || ! normalWidthFits;
         auto panel = getLocalBounds().reduced (denseResult ? 4 : 24);
         if (denseResult) panel.removeFromTop (20); // same 24px top inset as normal
         title.setBounds (panel.removeFromTop (denseResult ? 18 : 40));
@@ -318,20 +351,36 @@ void ScreenComponent::resized()
             one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
             two.setBounds (sources.reduced (3, 0));
         }
-        // Size every wrapped body at its final width, with no hidden overflow.
-        // Notes stay at the bottom; the primary result and its smaller gain line
-        // form a centred group in the remaining space at 600/900 as well as 300.
-        for (auto* body : { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody })
-            body->setBounds(panel.getX(),panel.getY(),panel.getWidth(),100);
-        const int padding = denseResult ? 4 : 8;
-        const int resultHeight=shown.preferenceResultText.isEmpty()?0:preferenceResultBody.getTextHeight()+padding;
-        const int gainHeight=shown.matchedGainText.isEmpty()?0:matchedGainBody.getTextHeight()+padding;
-        const int noteHeight=preferenceNoteBody.getTextHeight()+padding;
-        preferenceNoteBody.setBounds(panel.removeFromBottom(noteHeight));
-        const int groupHeight=resultHeight+gainHeight;
-        auto centred=panel.withSizeKeepingCentre(panel.getWidth(),groupHeight);
-        preferenceResultBody.setBounds(centred.removeFromTop(resultHeight));
-        matchedGainBody.setBounds(centred);
+        // An actual line count at the final width reserves separate strips for the result,
+        // compensation and notes. Never centre a block taller than its remaining space.
+        auto measured = measure (panel, 1.0f, denseResult ? 4 : 8);
+        auto fits = [&] { return measured.first <= panel.getHeight() && measured.second; };
+        for (const auto scale : { 0.95f, 0.90f, 0.85f, 0.80f, 0.70f, 0.60f })
+        {
+            if (fits()) break;
+            measured = measure (panel, scale, 3);
+        }
+        if (! fits())
+        {
+            // A very long name or note can exhaust even a dense panel. Keep every body
+            // bounded and scrollable rather than letting it paint over an adjacent row.
+            auto remaining = static_cast<int> (std::count_if (heights.begin(), heights.end(), [] (int h) { return h > 0; }));
+            for (size_t i = 0; i < bodies.size(); ++i)
+            {
+                auto& body = *bodies[i];
+                if (heights[i] == 0) { body.setBounds ({}); continue; }
+                const auto height = juce::jmin (heights[i], panel.getHeight() / juce::jmax (1, remaining));
+                body.setBounds (panel.removeFromTop (height));
+                body.setScrollbarsShown (true);
+                --remaining;
+            }
+            return;
+        }
+        preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
+        const auto groupHeight = heights[0] + heights[1];
+        auto centred = panel.withSizeKeepingCentre (panel.getWidth(), groupHeight);
+        preferenceResultBody.setBounds (centred.removeFromTop (heights[0]));
+        matchedGainBody.setBounds (centred);
         return;
     }
     for (auto* label : { &question, &outcome })
