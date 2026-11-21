@@ -82,13 +82,13 @@ void LuFace::restore (bool luFace, lu_needle::Window window)
     if (onLayoutChange) onLayoutChange();
 }
 
-void LuFace::setCommonFace (bool isLu, const juce::String& label)
+void LuFace::setCommonFace (bool isLu, const juce::String& label, bool sharpOffered)
 {
     const bool changed = !commonFace || luSelected != isLu || faceButton->getButtonText() != label;
     commonFace = true; luSelected = isLu;
     faceButton->setButtonText (label);
     faceButton->setTitle (hypha::i18n::tr ("Meter face"));
-    faceButton->setTooltip (hypha::i18n::tr ("Choose VU / LU / PSR / CREST / SHARP"));
+    faceButton->setTooltip (hypha::i18n::tr (sharpOffered ? "Choose VU / LU / PSR / CREST / SHARP" : "Choose VU / LU / PSR / CREST"));
     faceButton->setToggleState (isLu, juce::dontSendNotification);
     if (changed) { snapNext = true; if (onLayoutChange) onLayoutChange(); }
 }

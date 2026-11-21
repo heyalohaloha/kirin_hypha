@@ -22,7 +22,7 @@ public:
     std::function<void()> onLayoutChange;                          // the owner lays out and repaints
 
     void restore (bool luFace, lu_needle::Window);
-    void setCommonFace (bool isLu, const juce::String& label);
+    void setCommonFace (bool isLu, const juce::String& label, bool sharpOffered = true);
     std::function<void()> onFaceMenu;
     void setFacts (const lu_needle::Facts&);
     const lu_needle::Facts& facts() const noexcept { return current; }

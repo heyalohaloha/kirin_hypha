@@ -42,7 +42,8 @@ void View::setMetricFace (metric_needle::Face choice)
             if (safe->onMetricFaceChoice) safe->onMetricFaceChoice (face);
         });
     };
-    luFace.setCommonFace (choice == metric_needle::Face::lu, metric_needle::label (choice));
+    luFace.setCommonFace (choice == metric_needle::Face::lu, metric_needle::label (choice),
+                          role != Role::pre || metricSelection.preSharpAvailable);
     if (changed) { updateVuVisibility(); resized(); repaint(); }
 }
 
@@ -50,6 +51,7 @@ void View::setPreSharpAvailable (bool available)
 {
     if (metricSelection.preSharpAvailable == available) return;
     metricSelection.preSharpAvailable = available;
+    if (metricSelection.configured) setMetricFace (metricSelection.face);
     updateVuVisibility(); resized(); repaint();
 }
 

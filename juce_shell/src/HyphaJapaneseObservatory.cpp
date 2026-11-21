@@ -8,6 +8,7 @@ namespace
 {
 const Entry entries[] = {
     { "Meter face", u8"メーターの表示" },
+    { "Choose VU / LU / PSR / CREST", u8"VU / LU / PSR / CRESTを選びます" },
     { "Choose VU / LU / PSR / CREST / SHARP", u8"VU / LU / PSR / CREST / SHARPを選びます" },
     { "MEASURING", u8"計測中" },
     { "UNAVAILABLE", u8"利用できません" },

@@ -221,6 +221,21 @@ void verify (observatory::Role role, int width, Face face)
         view.setPreSharpAvailable (false);
         check (!view.metricFaceActive() && view.metricFaceSelection() == face, "PRE SHARP gate revocation retains choice");
     }
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage currentLanguage (language);
+        view.setMetricFace (face);
+        if (pre) view.setPreSharpAvailable (false);
+        check (view.lu().faceControl().getTooltip() == i18n::tr (pre
+                ? "Choose VU / LU / PSR / CREST" : "Choose VU / LU / PSR / CREST / SHARP"),
+               "meter face hint matches options in the current role and language");
+        if (pre)
+        {
+            view.setPreSharpAvailable (true);
+            check (view.lu().faceControl().getTooltip() == i18n::tr ("Choose VU / LU / PSR / CREST / SHARP"),
+                   "PRE tooltip offers SHARP only when the actual menu does");
+        }
+    }
     check (callbacks == 0, "programmatic face changes remain silent");
 }
 }
