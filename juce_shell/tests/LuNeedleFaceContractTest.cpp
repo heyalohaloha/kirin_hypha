@@ -251,8 +251,14 @@ void verifySelectedMetricReferenceBadge()
             frame.status = Status::measuring;
             view.setMetricFrame (frame);
             KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+            auto noSong = readyFacts (-4.0);
+            noSong.zero = Zero::noSong; noSong.song.clear(); noSong.zeroLufs = lu_needle::nan;
+            view.lu().setFacts (noSong);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF no song"));
             frame.status = Status::ready; frame.median = 1.0;
             view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF no song")); // old ready frame after clearing the selection
+            view.lu().setFacts (readyFacts (-4.0));
             KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
             frame.face = face == Face::psr ? Face::crest : Face::psr;
             view.setMetricFrame (frame);
