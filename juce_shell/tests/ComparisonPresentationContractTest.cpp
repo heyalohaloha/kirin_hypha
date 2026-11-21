@@ -213,7 +213,7 @@ void verify()
     post.setObservatoryFrame (live, true);
     KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "HOLD");
     post.setRecordDisplay ({}, false);
-    // MEASURING resolves by itself; a matched wait that stalled asks for a new run, quietly.
+    // MEASURING and unverified timing are distinct; stop/replay is not a guarantee.
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
@@ -222,6 +222,7 @@ void verify()
         const auto stalled = comparison_presentation::statusText (
             KIRIN_COMPARISON_STATE_PREPARING, KIRIN_COMPARISON_REASON_JOIN_STALLED);
         KIRIN_COMPARISON_REQUIRE (stalled.isNotEmpty() && stalled != waiting);
+        KIRIN_COMPARISON_REQUIRE (! stalled.contains ("STOP AND PLAY"));
         KIRIN_COMPARISON_REQUIRE ((language == i18n::Language::japanese)
                                   == (text_style::shownText (stalled) != stalled));
         for (const auto& footer : { juce::String ("LIVE / TRACE: FIRST PASS ONLY"),

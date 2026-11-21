@@ -124,7 +124,7 @@ const Entry entries[] = {
     { u8"POST BYPASSED — ENABLE POST TO COMPARE", u8"POSTをバイパス中 — POSTを有効にして比較" },
     // PRE / POST comparison states.
     { u8"MATCHED PAIR — MEASURING", u8"ペア一致 — 計測中" },
-    { u8"MATCHED PAIR — NO COMMON TIME — STOP AND PLAY", u8"ペア一致 — 時刻が揃わない — 停止して再生" },
+    { u8"MATCHED PAIR — NO COMMON TIME", u8"ペア一致 — 時刻が揃わない" },
     { u8"PRE UPDATE DELAYED — HOLDING MATCHED Δ", u8"PRE更新待ち — 時刻の揃ったΔを保持" },
     { u8"PRE UPDATE DELAYED — WAITING FOR MATCHED DATA", u8"PRE更新待ち — 時刻の揃ったデータを待機中" },
     { u8"POST STOPPED — COMPARISON PAUSED", u8"POST停止中 — 比較を停止" },

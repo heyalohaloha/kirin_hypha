@@ -14,10 +14,9 @@ inline juce::String statusText (uint8_t state, uint8_t reason)
         case KIRIN_COMPARISON_REASON_NONE: return {};
         case KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT:
             return juce::CharPointer_UTF8 ("MATCHED PAIR — MEASURING");
-        // The progressing wait above resolves by itself; this one has measured 3 s of POST audio
-        // without a common PRE / POST window and needs the user to start a new run.
+        // No common PRE / POST window after 3 s. Do not promise that replay fixes it.
         case KIRIN_COMPARISON_REASON_JOIN_STALLED:
-            return juce::CharPointer_UTF8 ("MATCHED PAIR — NO COMMON TIME — STOP AND PLAY");
+            return juce::CharPointer_UTF8 ("MATCHED PAIR — NO COMMON TIME");
         case KIRIN_COMPARISON_REASON_STALE:
             return state == KIRIN_COMPARISON_STATE_HOLDING
                 ? juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — HOLDING MATCHED Δ")

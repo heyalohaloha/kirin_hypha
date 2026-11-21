@@ -381,6 +381,8 @@ private:
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
     bool deltaFactsAvailable() const noexcept;
+    bool levelHistoryFactsAvailable() const noexcept
+    { return target() != ObservationTarget::delta || deltaFactsAvailable(); }
     bool recordDisplayShowing() const noexcept;
     Role role;
     void configureHeaderSelectors();

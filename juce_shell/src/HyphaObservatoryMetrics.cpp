@@ -453,6 +453,14 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
         ? juce::String ("MAX M ") + juce::String (observatoryFrame.meter.max_lufs_m, 1) + " LUFS"
         : juce::String();
     const auto held = levelInspection.held();
+    if (! levelHistoryFactsAvailable())
+    {
+        static const std::vector<KirinMeterHistoryEntry> noVerifiedHistory;
+        capture_history::paint (g, levelHistoryArea, noVerifiedHistory, true,
+            static_cast<double> (observatoryFrame.meter.sample_rate), presentationContext(), std::nullopt,
+            comparison_presentation::statusText (observatoryFrame.comparison_state, observatoryFrame.comparison_reason));
+        return;
+    }
     capture_history::paint (g, levelHistoryArea, held ? levelInspection.snapshot : history,
                             target() == ObservationTarget::delta,
                             held ? levelInspection.sampleRate : static_cast<double> (observatoryFrame.meter.sample_rate),
