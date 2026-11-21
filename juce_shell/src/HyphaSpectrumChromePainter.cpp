@@ -274,10 +274,12 @@ namespace
         text_style::drawText (g, "MARK", labelBounds.toNearestInt(), juce::Justification::centred);
         if (state.haveMark)
         {
-            g.setColour (COL_TEXT_SECONDARY);
-            text_style::drawText (g, juce::CharPointer_UTF8 ("×"),
-                        spectrum_geometry::markClearBoundsFor (mark, scale).toNearestInt(),
-                        juce::Justification::centred);
+            const auto clear = spectrum_geometry::markClearBoundsFor (mark, scale);
+            g.setColour (COL_TEXT_SECONDARY.withAlpha (0.45f));
+            g.drawLine (clear.getX(), clear.getY()+scaled (2.0f), clear.getX(), clear.getBottom()-scaled (2.0f));
+            g.setColour (COL_NORMAL);
+            text_style::drawText (g, juce::CharPointer_UTF8 ("×"), clear.toNearestInt(),
+                                  juce::Justification::centred);
         }
     }
 }

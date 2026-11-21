@@ -58,7 +58,7 @@ const Entry entries[] = {
       u8"PRE：入力のSpectrumです。右のdBFS目盛りで読みます。" },
     { "POST: output spectrum on the right dBFS scale.",
       u8"POST：出力のSpectrumです。右のdBFS目盛りで読みます。" },
-    { "Clear the MARK reference.", u8"MARKの基準線を消します。" },
+    { "Remove MARK", u8"印を消す" },
     { "MARK: freeze the current full-band Delta curve.",
       u8"MARK：今の全帯域の差分カーブを固定して残します。" },
     { "Release the frequency lock.", u8"周波数の固定を解除します。" },
