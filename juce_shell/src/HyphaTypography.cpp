@@ -203,6 +203,30 @@ juce::Font displayTextFont (const juce::String& text,
                                          : labelFont (context, role, composition);
 }
 
+namespace
+{
+juce::Font withBlindResultDensity (const juce::Font& font, float scale)
+{
+    const auto height = font.getHeight();
+    return font.withHeight (juce::jmax (juce::jmin (12.0f, height), height * scale));
+}
+}
+
+juce::Font nativeTextFont (const presentation::Context& context,
+                           typography::TextRole role,
+                           typography::Composition composition, float densityScale)
+{
+    return withBlindResultDensity (nativeTextFont (context, role, composition), densityScale);
+}
+
+juce::Font displayTextFont (const juce::String& text,
+                            const presentation::Context& context,
+                            typography::TextRole role,
+                            typography::Composition composition, float densityScale)
+{
+    return withBlindResultDensity (displayTextFont (text, context, role, composition), densityScale);
+}
+
 juce::Font displayTextFont (const juce::String& text,
                             const presentation::Context& context,
                             typography::TextRole role,

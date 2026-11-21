@@ -294,11 +294,10 @@ void ScreenComponent::resized()
         const auto result = body == &preferenceResultBody;
         // Give the result one family and weight in both scripts. Its own metrics then drive
         // wrapping at the final width, without changing strings or shrinking other roles.
-        const auto font = result ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information)
-                                 : displayTextFont (body->getText(), context, typography::TextRole::listenChoice,
-                                                    typography::Composition::information);
-        body->setFont (font);
-        body->applyFontToAllText (font);
+        body->setFont (result ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information)
+                              : displayTextFont (body->getText(), context, typography::TextRole::listenChoice,
+                                                 typography::Composition::information));
+        body->applyFontToAllText (body->getFont());
     }
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
@@ -310,7 +309,6 @@ void ScreenComponent::resized()
         auto normal = getLocalBounds().reduced (24);
         normal.removeFromTop (40); normal.removeFromBottom (80);
         const std::array<juce::TextEditor*, 3> bodies { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody };
-        const std::array<juce::Font, 3> normalFonts { bodies[0]->getFont(), bodies[1]->getFont(), bodies[2]->getFont() };
         std::array<int, 3> heights {};
         auto measure = [&] (juce::Rectangle<int> bounds, float scale, int padding)
         {
@@ -323,10 +321,11 @@ void ScreenComponent::resized()
                 if (! body.isVisible() || body.getText().trim().isEmpty()) continue;
                 body.setScrollbarsShown (false);
                 body.setBounds (bounds.getX(), bounds.getY(), bounds.getWidth(), juce::jmax (1, bounds.getHeight()));
-                const auto height = normalFonts[i].getHeight();
-                const auto font = normalFonts[i].withHeight (juce::jmax (juce::jmin (12.0f, height), height * scale));
-                body.setFont (font);
-                body.applyFontToAllText (font);
+                body.setFont (&body == &preferenceResultBody
+                    ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information, scale)
+                    : displayTextFont (body.getText(), context, typography::TextRole::listenChoice,
+                                       typography::Composition::information, scale));
+                body.applyFontToAllText (body.getFont());
                 heights[i] = body.getTextHeight() + padding;
                 total += heights[i];
                 fitsWidth = fitsWidth && body.getTextWidth() <= bounds.getWidth();
