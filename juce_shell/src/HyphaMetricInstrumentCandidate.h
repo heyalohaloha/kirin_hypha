@@ -56,17 +56,49 @@ inline hybrid_vu::needle_painter::DialGeometry candidateDial (
     return dial;
 }
 
+inline juce::Point<float> candidatePoint (const hybrid_vu::needle_painter::DialGeometry& dial,
+                                          float normalized)
+{
+    return hybrid_vu::needle_painter::dialPoint (dial, pre_preview::physicalPosition (normalized));
+}
+
+inline juce::Point<float> candidateReferenceBandPoint (const hybrid_vu::needle_painter::DialGeometry& dial,
+                                                       float normalized)
+{
+    return dial.pivot + (candidatePoint (dial, normalized) - dial.pivot) * 0.91f;
+}
+
+inline juce::Line<float> candidateNeedleLine (const hybrid_vu::needle_painter::DialGeometry& dial,
+                                             float normalized, float reach, float capRadius)
+{
+    const auto ray = (candidatePoint (dial, normalized) - dial.pivot) * reach;
+    const auto length = ray.getDistanceFromOrigin();
+    const auto inner = length > capRadius ? dial.pivot + ray * (capRadius / length) : dial.pivot + ray;
+    return {inner, dial.pivot + ray};
+}
+
 inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     const hybrid_vu::needle_painter::DialGeometry& dial, const metric_needle::Frame& frame,
-    std::optional<float> needle, double difference, bool isPre,
-    float capRadius, presentation::Context context)
+    std::optional<float> needle, double difference, bool isPre, bool ownsReference,
+    const metric_needle::Reading& facts, float capRadius, presentation::Context context)
 {
     const auto faceWidth = hybrid_vu::needle_painter::faceBounds (chassis).getWidth();
     const auto size = [faceWidth] (float p, float minimum) { return juce::jmax (minimum, faceWidth*p/900.0f); };
     const auto point = [&dial] (float normalized)
     {
-        return hybrid_vu::needle_painter::dialPoint (dial, pre_preview::physicalPosition (normalized));
+        return candidatePoint (dial, normalized);
     };
+    if (ownsReference && facts.relativeBand)
+    {
+        const auto low = *metric_needle::normalized (frame.face, facts.relativeBand->low);
+        const auto high = *metric_needle::normalized (frame.face, facts.relativeBand->high);
+        juce::Path band;
+        band.startNewSubPath (candidateReferenceBandPoint (dial, low));
+        for (int step = 1; step <= 32; ++step)
+            band.lineTo (candidateReferenceBandPoint (dial, low + (high - low) * static_cast<float> (step) / 32.0f));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.44f));
+        g.strokePath (band, juce::PathStrokeType (size (6.0f, 2.8f)));
+    }
     const auto ivory = COL_FLORA_BR.interpolatedWith (COL_NORMAL, 0.34f);
     juce::Path arc; arc.startNewSubPath (point (0.0f));
     for (int step = 1; step <= 60; ++step) arc.lineTo (point (step/60.0f));
@@ -95,23 +127,75 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
                 juce::Justification::centred, 1, typography::Composition::instrument);
         }
     }
-    if (! ready || ! needle) return;
-    const auto ray = (point (*needle)-dial.pivot)*1.11f;
-    const auto reach = ray.getDistanceFromOrigin();
-    if (reach > capRadius)
+    const auto endMark = [&] (double value, juce::Colour colour)
     {
+        if (const auto edge = metric_needle::rangeEdge (frame.face, value); edge != 0)
+        {
+            g.setColour (colour);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (point (edge < 0 ? 0.0f : 1.0f)));
+        }
+    };
+    if (ready && needle)
+    {
+        const auto line = candidateNeedleLine (dial, *needle, 1.11f, capRadius);
         const auto colour = isPre ? COL_SPECTRUM_PRE : COL_FLORA_BR;
-        const auto start = dial.pivot + ray * (capRadius/reach);
-        g.setColour (colour.withAlpha (0.23f));
-        g.drawLine ({start, dial.pivot+ray}, size (5.2f, 1.5f));
-        g.setColour (colour.brighter (0.15f));
-        g.drawLine ({start, dial.pivot+ray}, size (2.7f, 0.95f));
+        g.setColour (colour.withAlpha (0.23f)); g.drawLine (line, size (5.2f, 1.5f));
+        g.setColour (colour.brighter (0.15f)); g.drawLine (line, size (2.7f, 0.95f));
+        endMark (difference, COL_FLORA_BR);
     }
-    if (const auto edge = metric_needle::rangeEdge (frame.face, difference); edge != 0)
+    // FOLLOW A, measured position and matching definition are checked upstream. Missing REF
+    // remains absent; drawing a needle at zero would invent a matched comparison.
+    if (ownsReference && facts.referencePosition)
     {
-        g.setColour (COL_FLORA_BR);
-        g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (point (edge < 0 ? 0.0f : 1.0f)));
+        g.setColour (COL_SPECTRUM_DELTA);
+        g.drawLine (candidateNeedleLine (dial, *facts.referencePosition, 1.0f, capRadius), size (2.1f, 1.0f));
+        endMark (facts.reference, COL_SPECTRUM_DELTA);
     }
+}
+
+inline juce::String candidateSignedNumber (double value)
+{
+    if (! std::isfinite (value)) return juce::String::charToString (0x2014);
+    return (value > 0 ? "+" : "") + juce::String (value, 2);
+}
+
+inline void paintCandidateDetails (juce::Graphics& g, juce::Rectangle<int> chassis,
+    const metric_needle::Frame& frame, const metric_needle::Reading& facts,
+    bool one, presentation::Context context)
+{
+    context.referenceCompact = true;
+    g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::instrument));
+    const auto lineHeight = juce::jlimit (12, 24, juce::roundToInt (chassis.getHeight() * 0.047f));
+    const auto fitted = [&] (float x, float y, float width) {
+        return juce::Rectangle<int> (juce::roundToInt (chassis.getWidth() * width), lineHeight)
+            .withCentre ({chassis.getX() + juce::roundToInt (chassis.getWidth() * x),
+                          chassis.getY() + juce::roundToInt (chassis.getHeight() * y)});
+    };
+    const auto drawDetail = [&] (const juce::String& text, juce::Rectangle<int> box, juce::Colour colour) {
+        g.setColour (colour);
+        text_style::draw (g, text, box, context, typography::TextRole::legend, juce::Justification::centred,
+                          1, typography::Composition::instrument, text_style::LabelPolicy::fixed);
+    };
+    drawDetail ("PRE " + candidateSignedNumber (one ? facts.own : facts.pre),
+                fitted (0.145f, 0.615f, 0.24f), COL_SPECTRUM_PRE);
+    drawDetail ("REF " + candidateSignedNumber (facts.reference),
+                fitted (one ? 0.855f : 0.50f, 0.615f, 0.24f), COL_SPECTRUM_DELTA);
+    if (! one)
+        drawDetail ("POST " + candidateSignedNumber (facts.own), fitted (0.855f, 0.615f, 0.24f), COL_FLORA_BR);
+    const auto summary = fitted (0.5f, 0.685f, 0.90f);
+    const bool ready = frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
+    const auto song = juce::String::fromUTF8 (frame.song.c_str());
+    if (ready)
+    {
+        auto songBox = summary;
+        const auto zeroBox = song.isEmpty() ? summary : songBox.removeFromLeft (summary.getWidth() * 2 / 5);
+        drawDetail ("0 = " + juce::String (frame.median, 2) + " " + metric_needle::unit (frame.face), zeroBox, COL_NORMAL);
+        if (song.isNotEmpty()) drawDetail (song, songBox, COL_TEXT_SECONDARY);
+    }
+    else if (frame.status != metric_needle::Status::measuring && ! frame.reason.empty())
+        drawDetail (text_style::shownText (metric_needle::reasonText (frame.reason)), summary, COL_NORMAL);
+    else if (song.isNotEmpty())
+        drawDetail (song, summary, COL_TEXT_SECONDARY);
 }
 
 inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
@@ -134,14 +218,9 @@ inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
         const bool own = one || slot == 1;
         const auto cap = (one ? mid->pre.frontCapRadius3072 : 57.0f) * chassis.getWidth()/3072.0f + 1.5f;
         paintCandidateDial (g, chassis, dial, frame, own ? facts.ownPosition : facts.prePosition,
-                            own ? facts.own : facts.pre, isPre, cap, context);
-        const auto caption = juce::String (isPre ? "PRE" : "POST") + " / " + metric_needle::unit (frame.face);
-        const auto x = dial.pivot.x + (one ? chassis.getWidth()*0.21f : chassis.getWidth()*0.082f);
-        const auto y = dial.pivot.y + (one ? 5.0f : 3.0f);
-        g.setColour (COL_TEXT_SECONDARY);
-        text_style::draw (g, caption, juce::Rectangle<int> (92, 16).withCentre ({juce::roundToInt (x),juce::roundToInt (y)}),
-            context, typography::TextRole::legend, juce::Justification::centred, 1, typography::Composition::instrument);
+                            own ? facts.own : facts.pre, isPre, own, facts, cap, context);
     }
+    paintCandidateDetails (g, chassis, frame, facts, one, context);
     g.setColour (COL_NORMAL);
     const auto headline = frame.status == metric_needle::Status::measuring ? juce::String ("PREPARING")
         : frame.status != metric_needle::Status::ready || ! std::isfinite (frame.median) ? juce::String ("UNAVAILABLE")

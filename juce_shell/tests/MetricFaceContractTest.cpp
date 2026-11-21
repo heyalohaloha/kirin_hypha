@@ -1,3 +1,4 @@
+#include "BinaryData.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaMetricFacePainter.h"
@@ -150,6 +151,80 @@ void verifyChassisSelectionAndStaticCache()
     check (! metric_face::paintMetricCandidate (g, box, post, frame, &bank, backdrop)
             && backdrop.buildsForTest() == 2, "POST VU is never redirected by the metric candidate");
 }
+std::shared_ptr<const metric_face::MetricChassisPair> embeddedMid()
+{
+    using namespace BinaryData;
+    auto image = [] (const void* data, int n) { return juce::ImageFileFormat::loadFrom (data, static_cast<std::size_t> (n)); };
+    auto mid = std::make_shared<const metric_face::MetricChassisPair> (metric_face::MetricChassisPair {
+        {image (hybrid_vu_chassis_single_png, hybrid_vu_chassis_single_pngSize), {1531.0f, 1251.0f}},
+        image (hybrid_vu_chassis_png, hybrid_vu_chassis_pngSize)});
+    check (mid->isValid() && mid->post.getWidth() == 1536 && mid->post.getHeight() == 1024,
+           "use the embedded shipping images, not surrogate colours or a missing bank");
+    return mid;
+}
+
+void verifyEmbeddedMidReference()
+{
+    namespace mf = metric_face;
+    const auto mid = embeddedMid();
+    for (const auto role : {observatory::Role::pre, observatory::Role::post})
+    for (const auto language : {i18n::Language::english, i18n::Language::japanese})
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const bool pre = role == observatory::Role::pre;
+        context = pre ? "embedded PRE PSR" : "embedded POST PSR";
+        observatory::View view (role, mid);
+        view.setSize (600, 400);
+        view.setMeterSnapshot (meter(), true);
+        view.setManualHybridVuVisible (true);
+        view.lu().setFacts (reference());
+        view.setMetricFace (Face::psr);
+        check (view.metricFaceActive(), "embedded metric must actually be selected");
+        Frame frame; frame.face = Face::psr; frame.status = Status::ready; frame.ownIsPre = pre;
+        frame.median = 12.0; frame.own = 14.25; frame.pre = 10.75; frame.song = "Synthetic Cue";
+        const auto imageFor = [&] (const Frame& sample) { view.setMetricFrame (sample); return render (view); };
+        const auto plain = imageFor (frame);
+        const auto roi = [] (juce::Point<float> p) { return juce::Rectangle<int> (9, 9).withCentre (p.roundToInt()); };
+        const auto chassis = mf::pre_preview::chassisBounds (view.getLocalBounds());
+        const auto own = mf::candidateDial (chassis, *mid, role, pre ? 0 : 1);
+        // An absent FOLLOW value is different from zero; only the admitted display fact changes here.
+        if (! pre)
+        {
+            auto followed = frame; followed.reference = 22.5;
+            const auto at = *metric_needle::normalized (Face::psr, 10.5);
+            const auto refPoint = [&] (auto geometry) {
+                return geometry.pivot + (mf::candidatePoint (geometry, at) - geometry.pivot) * .60f;
+            };
+            const auto followedImage = imageFor (followed);
+            check (differences (plain, followedImage, roi (refPoint (own))) > 0, "FOLLOW A displays a REF needle on POST");
+            check (differences (plain, followedImage, roi (refPoint (mf::candidateDial (chassis, *mid, role, 0)))) == 0,
+                   "FOLLOW A must not add its needle to the paired PRE dial");
+            frame = followed;
+        }
+        const auto noBand = imageFor (frame);
+        frame.band = {-6, 4};  // differences −18 and −8: visibly away from own and REF needles
+        const auto middle = *metric_needle::normalized (Face::psr, -13.0);
+        text_style::ShownTextLog log;
+        const auto withBand = imageFor (frame);
+        check (differences (noBand, withBand, roi (mf::candidateReferenceBandPoint (own, middle))) > 0,
+               "finished set shows its band on the current dial");
+        if (!pre)
+            check (differences (noBand, withBand, roi (mf::candidateReferenceBandPoint (mf::candidateDial (chassis, *mid, role, 0), middle))) == 0,
+                   "set band is not on the paired PRE dial");
+        check (log.texts().contains ("0 = 12.00 dB") && log.texts().contains ("Synthetic Cue"), "zero and Cue title");
+        check (log.texts().contains (pre ? "PRE +2.25" : "POST +2.25"), "signed own difference");
+        if (!pre) check (log.texts().contains ("PRE -1.25") && log.texts().contains ("REF +10.50"), "signed independent comparisons");
+        log.clear();
+        frame.status = Status::unavailable; frame.reason = "read_failed";
+        imageFor (frame);
+        check (log.texts().contains (i18n::tr ("Audio could not be read")), "known failure appears in the requested language");
+        log.clear();
+        frame.reason = "/private/fixture-placeholder.wav";
+        imageFor (frame);
+        check (!log.texts().joinIntoString (" ").contains (juce::String (frame.reason.c_str())), "unknown reason never exposes its raw value");
+    }
+}
+
 void controls (observatory::View& view)
 {
     check (view.lu().controlFontHeightForTest() >= 12, "control font floor");
@@ -325,6 +400,7 @@ void verify (observatory::Role role, int width, Face face)
 void verifyMetricFaceContract()
 {
     verifyChassisSelectionAndStaticCache();
+    verifyEmbeddedMidReference();
     const i18n::ScopedLanguage english (i18n::Language::english);
     for (const auto role : {observatory::Role::pre, observatory::Role::post})
         for (const int width : {300,450,600,900})
