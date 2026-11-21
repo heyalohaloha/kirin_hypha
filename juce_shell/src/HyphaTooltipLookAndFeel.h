@@ -33,9 +33,12 @@ public:
         const auto layout = makeLayout (text, widthLimit - horizontalPadding);
         const int width = juce::jmin (
             widthLimit, juce::roundToInt (std::ceil (layout.getWidth())) + horizontalPadding);
+        // The narrower window can wrap differently from the first sizing pass.
+        // Measure the very same inner width used by drawTooltip.
+        const auto fitted = makeLayout (text, width - horizontalPadding);
         const int height = juce::jmin (
             available.getHeight(),
-            juce::roundToInt (std::ceil (layout.getHeight())) + verticalPadding);
+            juce::roundToInt (std::ceil (fitted.getHeight())) + verticalPadding);
         auto bounds = juce::Rectangle<int> (
             position.x > available.getCentreX() ? position.x - width - pointerGap
                                                 : position.x + pointerGap,
