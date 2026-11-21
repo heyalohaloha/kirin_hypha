@@ -169,12 +169,14 @@ compares another version of the same song from the same place.
 <br><sub>A tour: Hybrid VU, LEVEL, TIME, DRUM, FREQ, SPACE, LISTEN and PRE/POST Blind</sub>
 </p>
 
-In REF, drop an audio file to measure a target in the background, or use **MAKE TARGET** to save
-the current A window (at least three seconds). Select it for C to compare its spectrum and Balance.
-These targets contain measurements only and cannot play audio. Up to eight targets are kept in the
+In REF, drop an audio file on B to measure a target in the background, or use **MAKE TARGET** to save
+the current A window (at least three seconds). Select a target on B to compare its spectrum and Balance.
+These targets contain measurements only and cannot play audio. Up to 16 targets are kept in the
 DAW project; audio and source paths are never saved. A Kirin OS license is required; registration and
 measurement preparation in Kirin OS are unnecessary for these targets. File support uses JUCE's
 basic formats: WAV, AIFF and FLAC; MP3 and M4A depend on the operating system.
+Hypha 1.1.55 and 1.1.56 read only the first eight targets, and saving the project in those versions
+keeps only those eight. See the [Reference manual](docs/manual/reference.md).
 
 Also inside: the Hybrid VU with true-peak bars and clip lamps, the SHARP and LIVE timelines, the
 time your chain takes between PRE and POST, and a screen in English or Japanese.
@@ -237,10 +239,9 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 <a id="optional-update-information"></a>
 ## Update information in 1.1.58
 
-When Kirin OS provides a Reference, the VU meter can switch to LU, PSR, CREST or SHARP, with 0 on the
-scale at the selected Reference song's value. BLIND can run 5 or 10 rounds with the sources shuffled
-between rounds. After at least two answers, the result shows how often a result at least this uneven
-would occur at random (not shown when it rounds to 100%). The True Peak scale now reaches +3 dBTP. The
+BLIND can run 5 or 10 rounds with the sources shuffled between rounds. After at least two answers,
+the result shows how often a result at least this uneven would occur at random (not shown when it
+rounds to 100%). The True Peak scale now reaches +3 dBTP. The
 [release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58) list all changes. To update, download the installer for your platform above, close your
 DAW, run the installer and reopen the DAW.
 
