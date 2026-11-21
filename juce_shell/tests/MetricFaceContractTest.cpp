@@ -278,6 +278,21 @@ void verifyEmbeddedPreLabelOutsideNeedle()
     }
 }
 
+void verifyEmbeddedMidTypography()
+{
+    auto style = presentation::forEditor (300, 200); style.referenceCompact = true;
+    constexpr auto family = typography::Composition::instrument;
+    juce::Image image (juce::Image::RGB, 300, 200, true); juce::Graphics g (image);
+    for (const auto role : {typography::TextRole::axis, typography::TextRole::legend})
+    {
+        g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::unit, family));
+        check (g.getCurrentFont().getHeight() < 12.0f, "the initial unit font must be smaller than the required role");
+        metric_face::drawCandidateText (g, "+24", {10, 10, 60, 18}, style, role, COL_NORMAL);
+        check (g.getCurrentFont().getHeight() == labelFont (style, role, family).getHeight()
+               && g.getCurrentFont().getHeight() >= 12.0f, "axis and legend explicitly replace the prior unit font");
+    }
+}
+
 void controls (observatory::View& view)
 {
     check (view.lu().controlFontHeightForTest() >= 12, "control font floor");
@@ -456,6 +471,7 @@ void verifyMetricFaceContract()
     verifyEmbeddedMidReference();
     const i18n::ScopedLanguage english (i18n::Language::english);
     verifyEmbeddedPreLabelOutsideNeedle();
+    verifyEmbeddedMidTypography();
     for (const auto role : {observatory::Role::pre, observatory::Role::post})
         for (const int width : {300,450,600,900})
             for (const auto face : {Face::psr,Face::crest,Face::sharp}) verify (role,width,face);

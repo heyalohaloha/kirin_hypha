@@ -77,6 +77,17 @@ inline juce::Line<float> candidateNeedleLine (const hybrid_vu::needle_painter::D
     return {inner, dial.pivot + ray};
 }
 
+inline void drawCandidateText (juce::Graphics& g, const juce::String& text,
+    juce::Rectangle<int> box, presentation::Context context, typography::TextRole role,
+    juce::Colour colour, text_style::LabelPolicy policy = text_style::LabelPolicy::localized)
+{
+    constexpr auto instrument = typography::Composition::instrument;
+    context.referenceCompact = true;
+    g.setFont (labelFont (context, role, instrument));
+    g.setColour (colour);
+    text_style::draw (g, text, box, context, role, juce::Justification::centred, 1, instrument, policy);
+}
+
 inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     const hybrid_vu::needle_painter::DialGeometry& dial, const metric_needle::Frame& frame,
     std::optional<float> needle, double difference, bool isPre, bool ownsReference,
@@ -108,7 +119,6 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     const auto range = metric_needle::extent (frame.face);
     const int groups = frame.face == metric_needle::Face::sharp ? 6 : 8;
     const int sub = chassis.getWidth() <= 300 ? 2 : 3;
-    context.referenceCompact = true;
     for (int step = 0; step <= groups*sub; ++step)
     {
         const auto t = static_cast<float> (step) / static_cast<float> (groups*sub);
@@ -123,8 +133,7 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
             const auto text = zero ? juce::String ("0") : (t > 0.5f ? "+" : "-")
                                 + juce::String (range, frame.face == metric_needle::Face::sharp ? 1 : 0);
             const auto box = juce::Rectangle<int> (juce::roundToInt (size (52.0f, 30.0f)), 16).withCentre (anchor.toInt());
-            text_style::draw (g, text, box, context, typography::TextRole::axis,
-                juce::Justification::centred, 1, typography::Composition::instrument);
+            drawCandidateText (g, text, box, context, typography::TextRole::axis, zero ? COL_FLORA_BR : ivory);
         }
     }
     const auto endMark = [&] (double value, juce::Colour colour)
@@ -163,8 +172,6 @@ inline void paintCandidateDetails (juce::Graphics& g, juce::Rectangle<int> chass
     const metric_needle::Frame& frame, const metric_needle::Reading& facts,
     bool one, presentation::Context context)
 {
-    context.referenceCompact = true;
-    g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::instrument));
     const auto lineHeight = juce::jlimit (12, 24, juce::roundToInt (chassis.getHeight() * 0.047f));
     const auto fitted = [&] (float x, float y, float width) {
         return juce::Rectangle<int> (juce::roundToInt (chassis.getWidth() * width), lineHeight)
@@ -172,9 +179,7 @@ inline void paintCandidateDetails (juce::Graphics& g, juce::Rectangle<int> chass
                           chassis.getY() + juce::roundToInt (chassis.getHeight() * y)});
     };
     const auto drawDetail = [&] (const juce::String& text, juce::Rectangle<int> box, juce::Colour colour) {
-        g.setColour (colour);
-        text_style::draw (g, text, box, context, typography::TextRole::legend, juce::Justification::centred,
-                          1, typography::Composition::instrument, text_style::LabelPolicy::fixed);
+        drawCandidateText (g, text, box, context, typography::TextRole::legend, colour, text_style::LabelPolicy::fixed);
     };
     drawDetail ("PRE " + candidateSignedNumber (one ? facts.own : facts.pre),
                 fitted (0.145f, 0.615f, 0.24f), COL_SPECTRUM_PRE);
@@ -231,14 +236,12 @@ inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
                             own ? facts.own : facts.pre, isPre, own, facts, cap, context);
     }
     paintCandidateDetails (g, chassis, frame, facts, one, context);
-    g.setColour (COL_NORMAL);
     const auto headline = frame.status == metric_needle::Status::measuring ? juce::String ("PREPARING")
         : frame.status != metric_needle::Status::ready || ! std::isfinite (frame.median) ? juce::String ("UNAVAILABLE")
         : juce::String (metric_needle::label (frame.face));
     const bool ready = frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
     const auto line = candidateHeadlineBounds (chassis, one && ready);
-    text_style::draw (g, headline, line, context, typography::TextRole::legend,
-        juce::Justification::centred, 1, typography::Composition::instrument);
+    drawCandidateText (g, headline, line, context, typography::TextRole::legend, COL_NORMAL);
     return true;
 }
 }
