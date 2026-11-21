@@ -389,33 +389,36 @@ bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
 
 void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
                            const KirinSpectrumView& view, bool delta,
-                           presentation::Context context, bool shape)
+                           presentation::Context context, bool shape, bool backgroundOnly)
 {
     if (plot.getWidth() < minimumPlotWidth || plot.getHeight() < 140.0f)
         return;
-    // Corner marks frame the measuring field like the reticle of an instrument.
-    constexpr float corner = 7.0f;
     const auto inner = plot.reduced (2.0f);
-    juce::Path marks;
-    for (const auto& [x, y, dx, dy] : { std::array<float, 4> { inner.getX(), inner.getY(), 1.0f, 1.0f },
-                                        std::array<float, 4> { inner.getRight(), inner.getY(), -1.0f, 1.0f },
-                                        std::array<float, 4> { inner.getX(), inner.getBottom(), 1.0f, -1.0f },
-                                        std::array<float, 4> { inner.getRight(), inner.getBottom(), -1.0f, -1.0f } })
-    {
-        marks.startNewSubPath (x + dx * corner, y);
-        marks.lineTo (x, y);
-        marks.lineTo (x, y + dy * corner);
-    }
-    g.setColour (COL_OBSERVATORY_VALUE.withAlpha (0.42f));
-    g.strokePath (marks, juce::PathStrokeType (0.9f));
-
-    // What the plot draws and the exact analysis it shows, from the snapshot itself.
-    g.setFont (monoFont (context, typography::TextRole::axis, typography::Composition::visualization));
-    g.setColour (COL_TEXT_TERTIARY);
     const auto notes = inner.reduced (10.0f, 6.0f).toNearestInt();
-    text_style::drawText (g, delta ? (shape ? juce::String ("SHAPE(f) = POST(f) - PRE(f) - LEVEL OFFSET  dB")
-                                  : hypha::delta() + "(f) = POST(f) - PRE(f)  dB") : juce::String ("L(f) = POST(f)"),
-                notes, juce::Justification::topLeft, false);
+    g.setFont (monoFont (context, typography::TextRole::axis, typography::Composition::visualization));
+    if (! backgroundOnly)
+    {
+        // Corner marks frame the measuring field like the reticle of an instrument.
+        constexpr float corner = 7.0f;
+        juce::Path marks;
+        for (const auto& [x, y, dx, dy] : { std::array<float, 4> { inner.getX(), inner.getY(), 1.0f, 1.0f },
+                                            std::array<float, 4> { inner.getRight(), inner.getY(), -1.0f, 1.0f },
+                                            std::array<float, 4> { inner.getX(), inner.getBottom(), 1.0f, -1.0f },
+                                            std::array<float, 4> { inner.getRight(), inner.getBottom(), -1.0f, -1.0f } })
+        {
+            marks.startNewSubPath (x + dx * corner, y);
+            marks.lineTo (x, y);
+            marks.lineTo (x, y + dy * corner);
+        }
+        g.setColour (COL_OBSERVATORY_VALUE.withAlpha (0.42f));
+        g.strokePath (marks, juce::PathStrokeType (0.9f));
+
+        // What the plot draws and the exact analysis it shows, from the snapshot itself.
+        g.setColour (COL_TEXT_TERTIARY);
+        text_style::drawText (g, delta ? (shape ? juce::String ("SHAPE(f) = POST(f) - PRE(f) - LEVEL OFFSET  dB")
+                                      : hypha::delta() + "(f) = POST(f) - PRE(f)  dB") : juce::String ("L(f) = POST(f)"),
+                    notes, juce::Justification::topLeft, false);
+    }
     if (view.sample_rate > 0u && view.aperture_samples > 0u)
     {
         const auto apertureMs = 1'000.0 * (double) view.aperture_samples / (double) view.sample_rate;
@@ -427,12 +430,16 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
         const auto width = juce::jmin (notes.getWidth(),
             (int) std::ceil (text_style::shownWidth (g.getCurrentFont(), text)) + 2);
         const auto label = notes.withTop (notes.getBottom() - height).withWidth (width);
-        // Notes are painted after the curves. Opaque glass only beneath this line
-        // keeps a peak behind the text from changing its contrast.
-        g.setColour (surface_material::uncached::observationGlass().withAlpha (1.0f));
-        g.fillRect (label.expanded (2, 1));
-        g.setColour (COL_TEXT_TERTIARY);
-        text_style::drawText (g, text, label, juce::Justification::bottomLeft, false);
+        if (backgroundOnly)
+        {
+            g.setColour (surface_material::uncached::observationGlass().withAlpha (1.0f));
+            g.fillRect (label.expanded (2, 1)); // Under the data, never over the curve.
+        }
+        else
+        {
+            g.setColour (COL_TEXT_TERTIARY);
+            text_style::drawText (g, text, label, juce::Justification::bottomLeft, false);
+        }
     }
 }
 }

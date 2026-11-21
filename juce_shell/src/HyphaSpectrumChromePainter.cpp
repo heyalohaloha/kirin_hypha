@@ -409,6 +409,9 @@ void paint (juce::Graphics& g,
     if (state.guideOverlay.visible())
         KIRIN_FREQ_CALL(guide_overlay, guide_frequency::paint (g, plot, scale, state.guideOverlay,
                                 minimumHz, maximumHz));
+    if (! state.midSideObservation)
+        spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
+                                                state.presentation, state.shapeObservation, true);
     if (state.midSideObservation)
         KIRIN_FREQ_CALL(mid_side_curves, spectrum_painter::paintMidSide (g, plot, scale, pre, post, range, brightness, state.paths));
     else if (state.absoluteObservation && state.absoluteHistory != nullptr)
