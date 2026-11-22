@@ -38,6 +38,7 @@ hypha::shortcuts::Context KirinHyphaEditor::shortcutContext() const
 
 bool KirinHyphaEditor::keyPressed (const juce::KeyPress& key)
 {
+    if (offeredEscape.nativeCopy (key)) return true;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (matchChoicePopup.isVisible() && key.isKeyCode (juce::KeyPress::escapeKey))
     { matchChoicePopup.close(); return true; }
@@ -55,6 +56,27 @@ bool KirinHyphaEditor::keyPressed (const juce::KeyPress& key)
     if (result.binding != nullptr) performShortcut (result.binding->command);
     else showActionNotice (result.refusal);
     return true;
+}
+
+// A host may ask about Esc before it closes its own window with it, and then no native key event
+// follows (JUCE patch 0015). The press goes where a native one would: to whatever holds the focus
+// in this window and up its parents, so a sheet, a list or a text field that Esc closes answers the
+// same way in every host. With the focus outside the window, the window itself is asked. Esc with
+// nothing of ours to close, and Esc with a modifier, stay the host's.
+bool KirinHyphaEditor::kirinHostKeyOffered (const juce::KeyPress& key, bool isKeyDown)
+{
+    const bool used = offeredEscape.offered (key, isKeyDown, [this] (const juce::KeyPress& press)
+    {
+        auto* peer = getPeer();
+        if (! isShowing() || peer == nullptr) return false;
+        // Under a menu or a question the peer sends the press to that layer, and as with a native
+        // press the host is not given a key from under it.
+        if (juce::Component::getNumCurrentlyModalComponents() > 0) { peer->handleKeyPress (press); return true; }
+        auto* focused = juce::Component::getCurrentlyFocusedComponent();
+        return focused == this || isParentOf (focused) ? peer->handleKeyPress (press) : keyPressed (press);
+    });
+    heldShortcutKeys.released();  // no native key-up follows an offered press
+    return used;
 }
 
 bool KirinHyphaEditor::keyStateChanged (bool isKeyDown)
@@ -97,12 +119,12 @@ void KirinHyphaEditor::mouseDown (const juce::MouseEvent&)
 
 void KirinHyphaEditor::focusLost (FocusChangeType)
 {
-    if (! hasKeyboardFocus (true)) heldShortcutKeys.clear();
+    if (! hasKeyboardFocus (true)) { heldShortcutKeys.clear(); offeredEscape.clear(); }
 }
 
 void KirinHyphaEditor::focusOfChildComponentChanged (FocusChangeType)
 {
-    if (! hasKeyboardFocus (true)) heldShortcutKeys.clear();
+    if (! hasKeyboardFocus (true)) { heldShortcutKeys.clear(); offeredEscape.clear(); }
 }
 
 // Said where it can be seen: a Blind covers the footer, and its screen says it (without a name).

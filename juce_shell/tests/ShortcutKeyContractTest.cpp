@@ -1,5 +1,6 @@
 #include "ShortcutKeyRig.h"
 #include "BlindNoticeFocusContractTest.h"
+#include "HostOfferedEscapeContractTest.h"
 #include "../src/HyphaShortcutText.h"
 #include <algorithm>
 #include <chrono>
@@ -264,6 +265,8 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
     require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
     blind_notice_focus_test::verify (rig, blind, require);
     blind.setBounds (originalBounds);
+    offered_escape_test::verifyImageSheet (rig, blind, require);
+    offered_escape_test::verifyImageSheetName (rig, require);
     open = false;
     blind.setVisible (false);
     rig.editor->grabKeyboardFocus();
@@ -399,6 +402,7 @@ void verifyShortcutKeys()
     verifyTextAndMenusComeFirst (rig);
     verifyOnePressOneAction (rig);
     verifyKeysList (rig);
+    offered_escape_test::verifyKeysList (rig, require);
 
     // A control does not keep the keys after a click, so Return stays the host's.
     auto* button = view.findChildWithID ("observatory-time");

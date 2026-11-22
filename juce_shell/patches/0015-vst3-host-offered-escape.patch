@@ -1,0 +1,62 @@
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -1904,6 +1904,43 @@
+             return kResultTrue;
+         }
+
++        // IPlugView keyboard handling: a host may ask the view about a key before it runs its
++        // own command for it, and before any native key event reaches the view. Only Escape is
++        // passed to the editor; every other key keeps the stock answer, so a host's key
++        // commands are never blocked.
++        tresult PLUGIN_API onKeyDown (char16, int16 keyCode, int16 modifiers) override
++        {
++            return kirinOfferEscape (keyCode, modifiers, true);
++        }
++
++        tresult PLUGIN_API onKeyUp (char16, int16 keyCode, int16 modifiers) override
++        {
++            return kirinOfferEscape (keyCode, modifiers, false);
++        }
++
++        tresult kirinOfferEscape (int16 keyCode, int16 modifiers, bool isKeyDown)
++        {
++            // Steinberg::VirtualKeyCodes::KEY_ESCAPE and Steinberg::KeyModifier
++            // (pluginterfaces/base/keycodes.h, which this SDK subset does not carry).
++            constexpr int16 vst3Escape = 6, vst3Shift = 1, vst3Alternate = 2, vst3Command = 4, vst3Control = 8;
++
++            if (keyCode != vst3Escape || component == nullptr
++                 || ! MessageManager::getInstance()->isThisTheMessageThread())
++                return kResultFalse;
++
++            int flags = 0;
++            if ((modifiers & vst3Shift) != 0)      flags |= ModifierKeys::shiftModifier;
++            if ((modifiers & vst3Alternate) != 0)  flags |= ModifierKeys::altModifier;
++            if ((modifiers & vst3Command) != 0)    flags |= ModifierKeys::commandModifier;
++            if ((modifiers & vst3Control) != 0)    flags |= ModifierKeys::ctrlModifier;
++
++            if (auto* editor = component->pluginEditor.get())
++                if (editor->kirinHostKeyOffered (KeyPress (KeyPress::escapeKey, ModifierKeys (flags), 0), isKeyDown))
++                    return kResultTrue;
++
++            return kResultFalse;
++        }
++
+         tresult PLUGIN_API canResize() override
+         {
+             if (component != nullptr)
+--- a/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h
++++ b/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h
+@@ -116,5 +116,13 @@
+     */
+     virtual void setScaleFactor (float newScale);
+
++    /** A host may offer a key to the editor before its own commands and before the native
++        key path (VST3 IPlugView::onKeyDown / onKeyUp, Escape only). Return true only when the
++        editor has used the key: the host then keeps it from its own commands. Called on the
++        message thread. Other formats never call it.
++    */
++    virtual bool kirinHostKeyOffered (const KeyPress& key, bool isKeyDown)
++    { ignoreUnused (key, isKeyDown); return false; }
++
+     //==============================================================================
+     /** Sets whether the editor is resizable by the host and/or user.

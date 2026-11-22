@@ -305,3 +305,24 @@ release gate.
   other formats retain their existing render transport path. No state schema, gain, measurement, or Record is
   changed. Object-only AU compilation and native notification/UI tests cover the hook; actual
   Logic stop/reset delivery must be checked in the host before release acceptance.
+
+## 0015 — VST3 view answers a host-offered Escape
+
+- Files: `modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp` and
+  `modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h`.
+- Patch: `patches/0015-vst3-host-offered-escape.patch`.
+- JUCE 7.0.12 leaves `IPlugView::onKeyDown` / `onKeyUp` at the SDK default, which always answers
+  "not used". A host that asks the view about Escape before running its own command for it, and
+  sends no native key event afterwards, therefore closed the plug-in window while a sheet, a list
+  or a text field of the editor was open: the editor's own key handling never saw the press.
+  REAPER's VST3 hosting asks this way before it closes an FX window with Escape.
+- The view now passes Escape (key down and key up, with its modifiers) to the editor's new virtual
+  `kirinHostKeyOffered` on the message thread and answers `kResultTrue` only when the editor used
+  it. Every other key keeps the stock `kResultFalse`, so a host's key commands are not blocked.
+  The default editor implementation returns false, which is the unpatched behaviour.
+- Contract: [Steinberg IPlugView keyboard handling](https://steinbergmedia.github.io/vst3_doc/base/classSteinberg_1_1IPlugView.html)
+  ("kResultTrue must only be returned if the key has really been handled").
+- Scope: UI thread only; no audio, measurement, state or Record path is touched. AU and AAX have no
+  such host question and keep the native key path. The editor sends the press down its usual focus
+  path, so the native and the offered press share one handler; native tests cover both. The
+  behaviour of each host's own Escape command needs host acceptance.

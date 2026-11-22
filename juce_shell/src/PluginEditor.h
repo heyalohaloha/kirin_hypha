@@ -76,6 +76,8 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool isKeyDown) override;
+    // Esc offered by the host before its own command for it (JUCE patch 0015); true keeps it here.
+    bool kirinHostKeyOffered (const juce::KeyPress&, bool isKeyDown) override;
     void focusLost (FocusChangeType) override;
     void focusOfChildComponentChanged (FocusChangeType) override;
 
@@ -91,6 +93,7 @@ private:
     void closeKeysList();
     void refreshKeysList();
     hypha::shortcuts::HeldKeys heldShortcutKeys;
+    hypha::shortcuts::OfferedEscape offeredEscape;
     juce::Component::SafePointer<juce::Component> keysFocusReturn;
     bool keysOpenedInBlind = false;
     bool helpLineActive() const;
