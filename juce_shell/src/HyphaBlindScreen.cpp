@@ -371,11 +371,13 @@ void ScreenComponent::resized()
         return;
     }
     if (covered) return;
-    for (auto* label : { &status, &question, &recovery })
+    for (auto* label : { &status, &question })
         label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     outcome.setFont (labelFont (context, fixedProgress ? typography::TextRole::listenAction : typography::TextRole::body, typography::Composition::information));
-    cause.setFont (labelFont (context, shown.cause == live_compare_ui::preProcessingCause
-        ? typography::TextRole::listenChoice : typography::TextRole::body, typography::Composition::information));
+    const auto guidanceRole = shown.cause == live_compare_ui::preProcessingCause
+        ? typography::TextRole::listenChoice : typography::TextRole::body;
+    for (auto* label : { &cause, &recovery })
+        label->setFont (labelFont (context, guidanceRole, typography::Composition::information));
     for (auto* label : { &detail, &notice })
         label->setFont (labelFont (context, typography::TextRole::compactExplanation, typography::Composition::information));
     status.setText (actionNotice.isNotEmpty() && !shown.votingComplete ? actionNotice : shown.instruction, juce::dontSendNotification);
