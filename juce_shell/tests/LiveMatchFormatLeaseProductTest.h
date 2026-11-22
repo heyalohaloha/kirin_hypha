@@ -8,6 +8,7 @@ namespace hypha::tests::match_format_fixture
 #if defined(KIRIN_HYPHA_TEST_WALL_CLOCK)
 inline std::function<void()> atPreparedFormatBoundary;
 inline std::function<void()> atCountedMatchRead;
+inline int enteredMatchSpan = -1; // 1: ALL PLAYED, 0: LAST 4 s
 
 inline void verifyReaderFirst (KirinHyphaProcessorBase& post, const juce::String& preId,
                                live_compare::SharedRingMapping& observer, int blockSize,
@@ -46,9 +47,12 @@ inline void verifyReaderFirst (KirinHyphaProcessorBase& post, const juce::String
             retired = true;
         };
         const juce::ScopedValueSetter<decltype (duringLiveMatchReadLeaseForTest)> scopedHook (
-            duringLiveMatchReadLeaseForTest, +[] { atCountedMatchRead(); });
+            duringLiveMatchReadLeaseForTest, +[] (bool entered) { enteredMatchSpan = entered ? 1 : 0; atCountedMatchRead(); });
+        enteredMatchSpan = -1;
         const auto result = post.measureLiveCompare (whole);
         atCountedMatchRead = {};
+        require (enteredMatchSpan == (whole ? 1 : 0),
+                 "the retirement ran inside the measurement of the requested span: ALL PLAYED is not replaced by LAST 4 s");
         require (retired && ! result.ok() && demand.load() == leased,
                  "the retired mapping survived the last read and the retired session yields no proof");
         LiveTimingFixtureAccess::retirePreparedFormatRing (post); // now the same slot can collect

@@ -109,6 +109,9 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     const auto target = span.snapshot();
     const auto owner = gainIdentity(ring, liveCompare.authority.ticket());
     const auto view = liveCompare.renderer.historyView();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest(true);
+   #endif
     const bool drained = span.serviceThrough(target,
         std::numeric_limits<std::uint64_t>::max(), &kirin_hypha_live_match_span_cut);
 

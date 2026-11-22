@@ -8,7 +8,9 @@
 namespace hypha::live_compare
 {
 #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
-inline void (*duringLiveMatchReadLeaseForTest)() = nullptr;
+// Called from inside the measurement that was chosen, while it holds its counted read:
+// true from ALL PLAYED (measureWholeLiveMatch), false from LAST 4 s (computeMatch).
+inline void (*duringLiveMatchReadLeaseForTest)(bool whole) = nullptr;
 #endif
 enum class MatchFailure : std::uint8_t
 {

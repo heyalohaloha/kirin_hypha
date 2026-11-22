@@ -132,6 +132,9 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
 {
     MatchResult result;
     const auto view = renderer.historyView();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest (false);
+   #endif
     if (view.samples == nullptr || ! view.kValid)
         return result;
     const auto available = std::min (view.end - view.start, view.frames - 1);

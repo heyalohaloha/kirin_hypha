@@ -243,9 +243,6 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(boo
             const juce::ScopedTryLock formatLock (handleLock);
             if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)) return;
         } // analysis uses leased storage and the channels LISTEN started with, not a long mutex
-       #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
-        if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest();
-       #endif
         result = selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled()
             ? measureWholeLiveMatch(*ring, mapping.rate()) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);

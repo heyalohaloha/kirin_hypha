@@ -215,10 +215,12 @@ private:
                 && LiveTimingFixtureAccess::wholeSpanPublishedForTest(post) == published;
         };
         onPausedMatchRead = &hook;
-        duringLiveMatchReadLeaseForTest = [] { if (onPausedMatchRead) (*onPausedMatchRead)(); };
+        enteredSpan = -1;
+        duringLiveMatchReadLeaseForTest = [] (bool whole) { enteredSpan = whole ? 1 : 0; if (onPausedMatchRead) (*onPausedMatchRead)(); };
         const auto measurement = post.measureLiveCompare(true);
         duringLiveMatchReadLeaseForTest = nullptr; onPausedMatchRead = nullptr;
         if (notifyingHost.joinable()) notifyingHost.join();
+        require(enteredSpan == 1, "the stop point is inside the ALL PLAYED measurement itself, not ahead of the choice of span");
         require(observedOff && !measurement.ok(),
             "while MATCH is still halfway through a counted read, a new POST callback sees the separate OFF notification, outputs POST and adds no evidence");
       #else
@@ -229,6 +231,7 @@ private:
 
     bool noticeDuringReadChecked = false;
     inline static thread_local std::function<void()>* onPausedMatchRead = nullptr;
+    inline static thread_local int enteredSpan = -1; // 1: ALL PLAYED, 0: LAST 4 s
 
     static hypha::live_compare::MatchChoice choice (const hypha::live_compare::MatchPlan& plan) noexcept
     {
