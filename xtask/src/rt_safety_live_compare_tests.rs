@@ -409,18 +409,34 @@ fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
         PROCESSOR_CPP,
         "void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged",
     );
-    assert!(hook.contains("compensationOff.exchange (! enabled, std::memory_order_acq_rel)"));
-    assert!(hook.contains("compensationRevision.fetch_add (1, std::memory_order_release)"));
+    // The host publishes one packed proof: flag and revision cannot tear between loads.
+    let compact = |source: &str| {
+        without_line_comments(source)
+            .split_whitespace()
+            .collect::<String>()
+    };
+    let publication = compact(hook);
+    assert!(publication.contains("liveCompare.compensationState.store("));
+    assert!(publication.contains("|off,std::memory_order_release)"));
     let receiver = include_str!("../../juce_shell/src/live_compare/CandidateReceiver.h");
     let control = include_str!("../../juce_shell/src/live_compare/CandidateProcessorControl.h");
-    assert!(control.contains("liveCompare.compensationOff.load (std::memory_order_acquire)"));
-    assert!(control.contains("liveCompare.compensationRevision.load (std::memory_order_acquire)"));
+    let receiver_body = "void KirinHyphaProcessorBase::processCandidateReceiver";
+    let candidate = compact(function_body(control, receiver_body));
+    assert_eq!(candidate.matches("compensationState.load(").count(), 1);
+    assert!(candidate
+        .contains("compensation=liveCompare.compensationState.load(std::memory_order_acquire)"));
+    assert!(candidate.contains("(compensation&1u)!=0,compensation,offline"));
     assert!(receiver.contains("block.clockValid = block.clockValid && !compensationOff"));
     assert!(receiver.contains("compensationRevision != compensationSeen"));
     let rt = function_body(
         PROCESSOR_CPP,
         "void KirinHyphaProcessorBase::processLiveCompare",
     );
+    let post = compact(rt);
+    assert_eq!(post.matches("compensationState.load(").count(), 1);
+    assert!(post.contains("compensationRevision=block.compensationProof=liveCompare.compensationState.load(std::memory_order_acquire)"));
+    assert!(post.contains("compensationOff=(compensationRevision&1u)!=0"));
+    assert!(post.contains("compensationRevision!=liveCompare.compensationSeen"));
     assert!(rt.contains("block.afterGap = true;"));
     assert!(rt.contains("preSelected && ! compensationOff"));
     assert!(rt.contains("(preSelected && compensationOff && ! report.guardTripped)"));
