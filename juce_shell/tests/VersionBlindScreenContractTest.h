@@ -10,6 +10,8 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
+#include <array>
+#include <cmath>
 #include <iostream>
 
 namespace hypha::tests
@@ -44,6 +46,28 @@ inline void verifyVersionBlindScreen()
     };
     blind_ui::ScreenComponent view ("version-blind");
     live_blind_ui::Component live;
+    blind_ui::ScreenComponent liveWithoutExtraRows ("live-no-extra-rows");
+    const auto sharedControls = [&] (blind_ui::ScreenComponent& surface, const char* prefix)
+    {
+        std::array<juce::Rectangle<int>, 4> bounds;
+        int index = 0;
+        for (const auto* id : { "source-1", "source-2", "reveal", "end" })
+        {
+            const auto name = juce::String (prefix) + "-" + id;
+            const auto* control = dynamic_cast<const juce::Button*> (surface.findChildWithID (name));
+            require (control && control->isVisible() && control->isEnabled(), name + " is a live common action");
+            const auto box = control->getBounds();
+            require (!box.isEmpty() && surface.getLocalBounds().contains (box), name + " fits within the screen");
+            bounds[index++] = box;
+        }
+        require (bounds[0].getHeight() >= 60 && bounds[0].getHeight() == bounds[1].getHeight()
+                     && bounds[0].getY() == bounds[1].getY() && bounds[0].getRight() <= bounds[1].getX(),
+                 juce::String (prefix) + " keeps the full, equal SOURCE targets in order");
+        require (bounds[2].getHeight() == bounds[3].getHeight() && bounds[2].getY() == bounds[3].getY()
+                     && bounds[2].getRight() <= bounds[3].getX() && bounds[0].getBottom() <= bounds[2].getY(),
+                 juce::String (prefix) + " keeps REVEAL then END on an equal-height row below SOURCE");
+        return bounds;
+    };
     const auto button = [&view] (const char* id) { return dynamic_cast<juce::Button*> (view.findChildWithID (id)); };
     int cases = 0;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -126,22 +150,36 @@ inline void verifyVersionBlindScreen()
                         require (layout.getHeight() <= bounds.getHeight(), "instruction fits without truncation: " + label->getText());
                     }
                 }
-                // Compare the same active surface, not idle LIVE bounds or hidden widgets.
-                if (which == bothHeard)
+                if (which == bothHeard || which == lowered)
                 {
                     live_compare::LiveBlindStatus active;
                     active.stage = live_compare::BlindStage::active;
                     active.trial.played = 3;
                     active.trial.selected = active.trial.audible = 2;
+                    const auto post = static_cast<float> (std::pow (10.0, -state.blindRequiredAAttenuationDb / 20.0));
                     live.setSize (preset.width, preset.height);
-                    live.setState (active, true, 1.0f);
-                    for (const auto* id : { "source-1", "source-2", "reveal", "end" })
+                    live.setState (active, true, post);
+                    require (live.screen().roundsShown && !screen.roundsShown,
+                             "the asymmetric fixture uses the real LIVE rounds model");
+                    const auto versionBounds = sharedControls (view, "version-blind");
+                    sharedControls (live, "live-blind");
+                    const auto liveReachable = editor_reachability::checkAtDisplayScales (live,
+                        [&] (float scale, const juce::String& problem)
+                        { require (false, "common LIVE actions at " + juce::String (scale) + ": " + problem); });
+                    require (liveReachable >= 16, "four common LIVE actions are checked at every display scale");
+
+                    if (which == lowered)
                     {
-                        const auto* mine = view.findChildWithID (juce::String ("version-blind-") + id);
-                        const auto* theirs = live.findChildWithID (juce::String ("live-blind-") + id);
-                        require (mine && theirs && mine->isVisible() && theirs->isVisible()
-                            && !mine->getBounds().isEmpty() && mine->getBounds() == theirs->getBounds(),
-                            juce::String ("same visible place as active LIVE BLIND: ") + id);
+                        // The undecorated LIVE model is the matched active state: both sources heard,
+                        // the same return level/wording, and neither surface has preference controls.
+                        const auto matched = live_blind_ui::screenFor (active, true, post);
+                        require (!matched.roundsShown && !matched.guessShown && !screen.guessShown
+                                     && matched.instruction == screen.instruction && matched.detail == screen.detail,
+                                 "matched active state has the same rows and message content");
+                        liveWithoutExtraRows.setSize (preset.width, preset.height);
+                        liveWithoutExtraRows.setScreen (matched);
+                        require (versionBounds == sharedControls (liveWithoutExtraRows, "live-no-extra-rows"),
+                                 "the same active state retains identical SOURCE, REVEAL and END coordinates");
                     }
                 }
                 // Every shown control is pressed and reached by Tab at each display scale (2026-10-18).
