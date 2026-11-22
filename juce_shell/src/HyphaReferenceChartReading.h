@@ -84,7 +84,7 @@ std::optional<CurveReading> readAt (const ReadCurve& curve, float hz, YFor&& yFo
 }
 
 template <typename YFor>
-void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double minimumHz,
+bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double minimumHz,
                         double maximumHz, juce::Point<float> pointer,
                         const std::vector<ReadCurve>& curves, YFor&& yFor,
                         presentation::Context context, const ReadRange* range = nullptr,
@@ -108,7 +108,7 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
             [] (const spectrum_peaks::Peak& peak)
         { return juce::String (juce::roundToInt (peak.hz)) + " Hz " + juce::String (peak.level, 1); });
     if (! chart.contains (pointer))
-        return;
+        return false;
     const float hz = static_cast<float> (minimumHz * std::pow (
         maximumHz / minimumHz, (pointer.x - chart.getX()) / chart.getWidth()));
     g.setColour (COL_NORMAL.withAlpha (0.34f));
@@ -135,10 +135,6 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
     const auto partWidth = [&g] (const Part& part) { return text_style::shownWidth (g.getCurrentFont(), part.first) + 10.0f; };
     constexpr float padding = 8.0f;
     const bool littleHeight = range != nullptr && range->plateHeadroom > 0.0f && chart.getHeight() < 31.0f;
-    const bool compactBelowBlauert = range != nullptr && range->reservePlateTop
-        && chart.getHeight() - range->plateTop < 31.0f;
-    const float rowHeight = compactBelowBlauert ? 12.0f : littleHeight ? 14.0f : 15.0f;
-    const float rowGap = compactBelowBlauert || littleHeight ? 0.0f : 1.0f;
     std::vector<std::pair<float, std::vector<Part>>> rows (1, { padding, {} });
     for (const auto& part : parts)
     {
@@ -147,11 +143,20 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         rows.back().first += partWidth (part);
         rows.back().second.push_back (part);
     }
-    const auto height = static_cast<float> (rows.size()) * (rowHeight + rowGap) - rowGap;
+    const auto rowCount = static_cast<float> (rows.size());
+    const bool reserveBlauert = range != nullptr && range->reservePlateTop;
+    const auto belowBlauert = reserveBlauert ? chart.getHeight() - range->plateTop : chart.getHeight();
+    const bool compactBelowBlauert = reserveBlauert && rowCount * 16.0f - 1.0f > belowBlauert;
+    const float rowHeight = compactBelowBlauert ? 12.0f : littleHeight ? 14.0f : 15.0f;
+    const float rowGap = compactBelowBlauert || littleHeight ? 0.0f : 1.0f;
+    const auto height = rowCount * (rowHeight + rowGap) - rowGap;
+    // If the complete set of readings still does not fit below the reserved row, give Blauert
+    // the compact Balance caption and use the whole plot for the readings.
+    const bool blauertInCaption = reserveBlauert && height > belowBlauert;
     const float headroom = range != nullptr ? range->plateHeadroom : 0.0f;
     const float latest = juce::jmax (-headroom, chart.getHeight() - height);
-    auto top = chart.getY() + (range == nullptr ? 0.0f
-        : range->reservePlateTop ? range->plateTop : juce::jlimit (-headroom, latest, range->plateTop));
+    auto top = chart.getY() + (range == nullptr || blauertInCaption ? 0.0f
+        : reserveBlauert ? range->plateTop : juce::jlimit (-headroom, latest, range->plateTop));
     for (const auto& [width, row] : rows)
     {
         const juce::Rectangle<float> plate (chart.getX(), top, juce::jmin (width, chart.getWidth()), rowHeight);
@@ -166,5 +171,6 @@ void paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
                                   juce::Justification::centredLeft);
         }
     }
+    return blauertInCaption;
 }
 }

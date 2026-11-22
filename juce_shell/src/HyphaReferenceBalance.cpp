@@ -410,7 +410,7 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
         ? blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb, chosen->centersHz, chosen->medianDb) : AVersus {};
     const bool reserveBlauert = context.referenceCompact && chart.getWidth() >= 160.0f && chart.getHeight() >= 40.0f
         && std::isfinite (contrasts.aMinusOther());
-    // 指した所の値は図の線から。小窓でも常設の比較と同じ行を使わない。
+    bool blauertInCaption = false;
     if (! readings.empty() || sources.rangeShown (state))
     {
         const auto headroom = context.referenceCompact && ! reserveBlauert && sources.rangeShown (state) ? 14.0f : 0.0f;
@@ -419,10 +419,10 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
                                 ! context.referenceCompact || reserveBlauert ? blauertReadoutHeight : 0.0f, headroom, reserveBlauert };
         const juce::Graphics::ScopedSaveState readout (g);
         g.reduceClipRegion (chart.withTop (chart.getY() - headroom).toNearestInt());
-        paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
-                           [chart] (float level) { return yFor (level, chart); }, context, &range, " dB");
+        blauertInCaption = paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
+                                              [chart] (float level) { return yFor (level, chart); }, context, &range, " dB");
     }
-    paintBlauertReadout (g, chart, 'B', contrasts, minimumHz, maximumHz, context);
+    paintBlauertReadout (g, chart, 'B', contrasts, minimumHz, maximumHz, context, blauertInCaption);
     return unmatched;
 }
 }
