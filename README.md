@@ -239,22 +239,21 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 <a id="optional-update-information"></a>
 ## Update information in 1.1.59
 
-The comparison meters have new backgrounds: PRE has one central dial, while POST shows PRE on
-the left and POST on the right. The difference history leaves a gap when PRE and POST timing
-cannot be verified; the POST reading remains available.
+In PRE, the comparison meter is one central dial. In POST, PRE is on the left and POST on the right.
+The meter faces have a new background. The difference history leaves a gap when PRE and POST
+timing cannot be verified; the POST reading remains available.
 
-In Reference BALANCE, point at the chart to see frequency and level details. BLIND results are
-easier to read in English and Japanese. If timing changes during a live BLIND round, listen to both
-sources again before answering.
+BALANCE shows frequency and level only while you point at it. The BLIND result is easier to read
+in English and Japanese. When timing changes during a live BLIND round, listen to both sources
+again before answering.
 
 ## 1.1.59 の更新情報
 
-比較メーターの背景が新しくなりました。PRE は中央に1つの盤、POST は左にPRE、右にPOSTを表示します。
-PREとPOSTの時間位置を確認できない箇所は、差分の履歴に空白が入ります。POST自体の値は引き続き表示します。
+PRE の比較メーターは中央に 1 つの盤、POST は左に PRE、右に POST を表示します。計器の盤の背景を新しくしました。
+PRE と POST の時間位置が確認できないときは、差分の履歴を空けます。POST 自体の値は引き続き表示します。
 
-ReferenceのBALANCEでは、グラフにポインターを合わせると周波数とレベルの詳細が表示されます。
-BLINDの結果表示を日英ともに読みやすくしました。ライブBLINDの途中でタイミングが変わった場合は、
-回答する前に両方のソースを聴き直してください。
+BALANCE の周波数とレベルは、指している間だけ表示します。BLIND の結果表示を日英ともに読みやすくしました。
+ライブ BLIND の途中でタイミングが変わった場合は、回答する前に両方のソースを聴き直します。
 
 ## Update information in 1.1.58
 
