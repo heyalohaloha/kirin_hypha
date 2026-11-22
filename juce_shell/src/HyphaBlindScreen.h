@@ -72,7 +72,7 @@ private:
     void timerCallback() override;
     void apply();
     void layoutTrial (bool choosingRounds, bool fixedProgress);
-    juce::String extraTrialNotice() const { return {}; }
+    juce::String extraTrialNotice() const { return shown.votingComplete ? actionNotice : juce::String(); }
     bool isRoutineTrialHint() const
     {
         return status.getText() == "Try both sources while playing"

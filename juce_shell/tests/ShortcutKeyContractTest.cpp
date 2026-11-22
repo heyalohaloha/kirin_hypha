@@ -204,6 +204,21 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
     blind.setScreen (screen);
     require (rig.press ('2') && chosen == 2 && rig.pressShift ('E') && reveals == 1 && rig.press ('T') && ends == 1,
              "the keys reach the same requests as the buttons");
+    screen.votingComplete = true;
+    screen.instruction = "All rounds answered; reveal when ready";
+    screen.endExplanation = "END restores normal level";
+    blind.setScreen (screen);
+    require (rig.press ('Q'), "Q is refused in the terminal ballot state");
+    const auto* completion = dynamic_cast<juce::Label*> (blind.findChildWithID ("live-blind-text-2"));
+    const auto* inlineNotice = dynamic_cast<juce::Label*> (blind.findChildWithID ("live-blind-notice"));
+    const auto* more = dynamic_cast<juce::Button*> (blind.findChildWithID ("live-blind-more-notices"));
+    const auto refusal = text_style::shownText ("End Blind Compare first");
+    require (completion && completion->isVisible() && completion->getText() == screen.instruction,
+             "Q preserves the required final-vote instruction");
+    require ((inlineNotice && inlineNotice->isVisible() && inlineNotice->getText().contains ("End Blind Compare first"))
+                || (more && more->isVisible() && more->getTooltip().contains (refusal)
+                    && more->getDescription().contains (refusal)), "Q puts its reason in the accessible notice area");
+    require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
     open = false;
     blind.setVisible (false);
     rig.editor->grabKeyboardFocus();
