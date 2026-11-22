@@ -224,18 +224,34 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
                  "Q preserves the required final-vote instruction");
     };
     const auto more = [&] { return blind.findChildWithID ("live-blind-more-notices"); };
+    const auto inlineNotice = [&]
+    {
+        return dynamic_cast<const juce::Label*> (blind.findChildWithID ("live-blind-notice"));
+    };
+    const auto requireFreshQ = [&]
+    {
+        blind.setActionNotice ({});
+        const auto* notice = inlineNotice();
+        const auto* badge = more();
+        require (blind.actionNoticeShown().isEmpty() && notice && badge
+                 && !notice->getText().contains (refusal)
+                 && !badge->getDescription().contains (text_style::shownText (refusal)),
+                 "this language starts without a previous Q refusal in either notice path");
+    };
     {
         const i18n::ScopedLanguage language (i18n::Language::english);
         blind.setScreen (screen);
+        requireFreshQ();
         require (rig.press ('Q'), "Q is refused in the terminal ballot state");
         completionRemains();
-        const auto* inlineNotice = dynamic_cast<const juce::Label*> (blind.findChildWithID ("live-blind-notice"));
-        require (inlineNotice && inlineNotice->isVisible() && inlineNotice->getText().contains (refusal)
+        const auto* notice = inlineNotice();
+        require (notice && notice->isVisible() && notice->getText().contains (refusal)
                  && more() && !more()->isVisible(), "when all notices fit, the Q refusal is shown directly");
     }
     {
         const i18n::ScopedLanguage language (i18n::Language::japanese);
         blind.setScreen (screen);
+        requireFreshQ();
         require (rig.press ('Q'), "Q is refused in the narrow Japanese terminal ballot");
         completionRemains();
         const auto translated = text_style::shownText (refusal);
