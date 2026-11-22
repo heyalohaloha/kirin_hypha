@@ -118,6 +118,38 @@ void verifyBlindTrialLayout (Require check)
             whole (cause, "complete PRE pause cause");
             whole (remedy, "complete PRE pause remedy");
         }
+        // Measure the input notices, not the potentially folded product label's text or height.
+        const auto usableWidth = width - 2 * juce::jlimit (6, 24, width / 40);
+        const auto measured = [&] (const juce::Label* style, const juce::String& text)
+        {
+            if (!style || text.isEmpty()) return 0;
+            const auto border = style->getBorderSize();
+            const auto innerWidth = juce::jmax (1, usableWidth - border.getLeftAndRight());
+            return static_cast<int> (std::ceil (text_style::shownWrappedHeight (text, style->getFont(), innerWidth)))
+                + border.getTopAndBottom() + 2;
+        };
+        auto inlineInput = priority;
+        if (guide.isNotEmpty()) inlineInput.removeString (guide);
+        const auto allNoticesNeeded = measured (note, inlineInput.joinIntoString ("\n"))
+            + measured (cause, actual.cause) + measured (remedy, actual.recovery);
+        auto room = h.view.getHeight() - (actual.sourcesShown ? sourceMinimum : 0)
+            - minimumActionHeight * (1 + int (actual.guessShown) + int (actual.approveShown))
+            - measured (explanation, actual.endExplanation.isNotEmpty() ? actual.endExplanation : actual.detail)
+            - (finalVote ? measured (label (h.view, "text-2"), actual.instruction) : 0);
+        if (const auto* outcome = label (h.view, "guess-outcome"); actual.guessShown && outcome && outcome->isVisible())
+            if (const auto* question = label (h.view, "guess-question"); question && question->getY() != outcome->getY())
+                room -= measured (outcome, actual.guessOutcome);
+
+        if (allNoticesNeeded <= room)
+            for (const auto& raw : priority)
+                must (isInline (raw), "all notices must show directly when their full measured text fits");
+        // Identical demanding content at both widths: compact folds, wide restores every row.
+        const auto foldingPair = language == i18n::Language::japanese && scale == 1.0f && !candidate
+            && rounds == 5 && votePhase == 2 && lowered && delay == Delay::changed && repeating && prePaused;
+        if (foldingPair && width == 300)
+            must (allNoticesNeeded > room && more && more->isVisible(), "300px folds this fixed full stack");
+        if (foldingPair && width == 900)
+            must (allNoticesNeeded <= room && more && !more->isVisible(), "900px restores the same full stack");
         int concealed = 0;
         for (const auto& raw : priority)
         {
