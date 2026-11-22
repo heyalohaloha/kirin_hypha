@@ -368,6 +368,7 @@ public:
             report.reason = guardFailure (block.frames, preGain, ceilingLinear); // at unity: finite samples only
         }
         if (lowerOnCeiling) guardRecovery.releaseCeiling();
+        capture.eligible = candidateToken == 0 && inputPosition && block.playing && !preSelected && spanToken.receipt == 0 && report.reason != RecoveryReason::nonFinite;
         report.reason = guardRecovery.observe (report.reason, block.frames);
         if (report.reason != RecoveryReason::none)
         {
