@@ -57,6 +57,8 @@ test('shipping Watch snapshots reach the display model and respect publication r
 ${method(view, 'bool View::setWatchDisplay')}
 ${method(session, 'void View::invalidateSessionPresentation()')}
 ${method(session, 'bool View::retainSessionPoll')}
+${method(session, 'bool covers (')}
+${method(session, 'auto displayedSummary (')}
 ${method(session, 'void View::setSessionCoverage')}
 ${method(meter, 'void KirinHyphaEditor::refreshWatchSnapshot()')}
 ${method(editor, 'void KirinHyphaEditor::refreshObservatory()')}

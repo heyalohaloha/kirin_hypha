@@ -7,6 +7,7 @@
 #include <array>
 #include <cassert>
 #include <vector>
+#include <tuple>
 #include <utility>
 
 // External UI, settings and processor ports for the complete shipping methods.
@@ -31,6 +32,7 @@ struct View {
     double numericInterval = -1;
     hypha::session_presentation::Gate sessionPresentation;
     KirinMeterSessionV2 sessionCoverage {}; bool haveSessionCoverage = false;
+    KirinObservatoryFrame observatoryFrame {}; bool frameAvailable = false;
     void invalidateSessionPresentation();
     bool retainSessionPoll(const KirinObservatoryFrame*,const KirinMeterSessionV2*,unsigned,bool,double);
     void setLevelNumericInterval(double ms) { numericInterval = ms; }
