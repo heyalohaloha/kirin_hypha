@@ -9,7 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "CrestNeedleStyleContract.h"
-
+#include "MetricFrameRepaintContract.h"
 namespace hypha::tests
 {
 namespace
@@ -224,7 +224,6 @@ void verifyEmbeddedMidReference()
         check (!log.texts().joinIntoString (" ").contains (juce::String (frame.reason.c_str())), "unknown reason never exposes its raw value");
     }
 }
-
 void verifyEmbeddedPreLabelOutsideNeedle()
 {
     namespace mf = metric_face;
@@ -348,6 +347,7 @@ void verify (observatory::Role role, int width, Face face)
     text_style::ShownTextLog log;
     const auto full = render (view);
     check (log.texts().joinIntoString (" ").contains ("0 ="), "real View names its zero");
+    if (face == Face::crest && width == 300) verifyMetricFrameRepaint (view, frame, full, render, differences, check);
     controls (view);
     const auto dial = hybrid_vu::needle_painter::faceBounds (view.getLocalBounds()).toNearestInt();
     for (int which = 0; which < 3; ++which)

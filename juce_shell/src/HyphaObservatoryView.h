@@ -204,7 +204,7 @@ public:
     hybrid_vu::LuFace& lu() noexcept { return luFace; }
     const hybrid_vu::LuFace& lu() const noexcept { return luFace; }
     void setMetricFace (metric_needle::Face); metric_needle::Face metricFaceSelection() const noexcept { return metricSelection.face; }
-    void setMetricFrame (const metric_needle::Frame&); void setPreSharpAvailable (bool);
+    bool setMetricFrame (const metric_needle::Frame&); void setPreSharpAvailable (bool);
     bool metricFaceActive() const noexcept;
     std::function<void (metric_needle::Face)> onMetricFaceChoice;
     bool luFaceShown() const noexcept { return hybridVuVisible() && luFace.active(); }

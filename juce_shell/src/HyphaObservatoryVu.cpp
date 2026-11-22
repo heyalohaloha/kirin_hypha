@@ -57,12 +57,13 @@ void View::setPreSharpAvailable (bool available)
     updateVuVisibility(); resized(); repaint();
 }
 
-void View::setMetricFrame (const metric_needle::Frame& frame)
+bool View::setMetricFrame (const metric_needle::Frame& frame)
 {
     const auto wasReady = metricSelection.referenceReady();
-    metricSelection.frame = frame;
+    if (!metricSelection.frames.replace (frame)) return false;
     if (hybridVuVisible() && wasReady != metricSelection.referenceReady()) resized();
     repaint();
+    return true;
 }
 
 void View::updateVuVisibility()
@@ -133,7 +134,7 @@ void View::paintHybridVu (juce::Graphics& g)
     updateVuVisibility();
     if (metricFaceActive())
     {
-        auto frame = metricSelection.frame;
+        auto frame = metricSelection.frames.current();
         if (frame.face != metricSelection.face)
         {
             frame = {};

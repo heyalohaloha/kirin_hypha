@@ -36,6 +36,15 @@ void wire()
         require (decoded.median == value.median && decoded.band.low == 8.0 && decoded.band.high == 10.0,
                  "native reference values preserve double precision");
         require (decoded.song == "Reference", "song label roundtrip");
+        require (decoded.publisher == owner, "paint key uses the verified publisher, not the song title");
+        const auto successor = juce::String::repeatedString ("d", 32);
+        require (SharedMetricZero::encoded (scope, owner, decoded, instant) == encoded,
+                 "decoded paint identity does not modify wire bytes");
+        require (SharedMetricZero::decoded (scope, face, 48000, 2,
+            SharedMetricZero::encoded (scope, successor, decoded, instant), instant).publisher == successor,
+                 "new publisher is distinguishable even with equal song and generation");
+        require (SharedMetricZero::decoded (scope, face, 48000, 2, encoded,
+            instant + SharedMetricZero::leaseMs).publisher.isEmpty(), "expired publisher cannot survive in the paint key");
         for (const auto now : {instant - 1, instant + SharedMetricZero::leaseMs})
             require (SharedMetricZero::decoded (scope, face, 48000, 2, encoded, now).status == Status::unavailable,
                      "future and expired values rejected at exact lease boundary");

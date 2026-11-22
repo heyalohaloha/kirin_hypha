@@ -51,6 +51,14 @@ inline int rangeEdge (Face face, double difference) noexcept
     return difference < -range ? -1 : difference > range ? 1 : 0;
 }
 struct Band { double low = missing, high = missing; };
+// Presentation-only invalidation; these fields are never drawn.
+struct FrameContext
+{
+    std::string referenceIdentity;
+    std::uint64_t referenceRevision = 0;
+    std::uint32_t playbackRun = 0;
+    bool playing = false;
+};
 struct Frame
 {
     Face face = Face::psr;
@@ -63,6 +71,38 @@ struct Frame
     Band band;
     std::string song;
     std::string reason; // Fixed diagnostic code, never a path or display text.
+    FrameContext context;
+};
+inline bool sameDisplayNumber (double left, double right) noexcept
+{
+    if (left == right) return left != 0.0 || std::signbit (left) == std::signbit (right);
+    return std::isnan (left) && std::isnan (right);
+}
+inline bool sameFrameForPaint (const Frame& a, const Frame& b) noexcept
+{
+    return a.face == b.face && a.status == b.status && a.ownIsPre == b.ownIsPre
+        && a.reason == b.reason && a.song == b.song
+        && a.context.referenceIdentity == b.context.referenceIdentity
+        && a.context.referenceRevision == b.context.referenceRevision
+        && a.context.playbackRun == b.context.playbackRun && a.context.playing == b.context.playing
+        && sameDisplayNumber (a.own, b.own) && sameDisplayNumber (a.pre, b.pre)
+        && sameDisplayNumber (a.reference, b.reference) && sameDisplayNumber (a.median, b.median)
+        && sameDisplayNumber (a.band.low, b.band.low) && sameDisplayNumber (a.band.high, b.band.high);
+}
+class FrameUpdate
+{
+public:
+    const Frame& current() const noexcept { return last; }
+    bool replace (const Frame& next)
+    {
+        if (seen && sameFrameForPaint (last, next)) return false;
+        last = next;
+        seen = true;
+        return true;
+    }
+private:
+    Frame last;
+    bool seen = false;
 };
 struct Reading
 {

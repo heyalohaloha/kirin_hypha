@@ -7,7 +7,7 @@ namespace hypha::metric_face
 struct Selection
 {
     metric_needle::Face face = metric_needle::Face::vu;
-    metric_needle::Frame frame;
+    metric_needle::FrameUpdate frames;
     std::shared_ptr<const MetricChassisPair> candidateChassis;
     MeterBackdrop candidateBackdrop;
     // PRE local SHARP exceeds the optional CPU gate; production keeps it absent.
@@ -18,6 +18,7 @@ struct Selection
     std::optional<bool> referenceReady() const noexcept
     {
         if (! metric_needle::metric (face)) return std::nullopt;
+        const auto& frame = frames.current();
         return frame.face == face && frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
     }
 };
