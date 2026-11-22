@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include "../local_blind/RtPublicationSlot.h"
 #include "AaxChunkPosition.h"
 #include "LiveCompareAaxGroup.h"
@@ -240,7 +242,7 @@ struct ProcessorState
     std::atomic<std::uint64_t> hostResetGeneration { 0 };
     std::uint64_t hostResetSeen = 0, stopSeen = 1; // Audio Thread only
     bool wasPlaying = false;                      // Audio Thread only
-    juce::CriticalSection matchCommitLock; // non-RT: host compensation publication vs final MATCH approval
+    std::recursive_mutex matchCommitLock; // non-RT: host compensation publication vs final MATCH approval
     std::atomic<std::uint64_t> compensationState { 0 }; // INV-LC8: revision and low OFF bit published atomically
     std::uint64_t compensationSeen = 0;
     bool compensationWasOff = false;              // Audio Thread only

@@ -312,7 +312,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         if (! current()) return;
         const auto currentOwner = hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket());
         hypha::live_compare::beforeLiveMatchCommitLock();
-        const juce::ScopedLock commitLock (liveCompare.matchCommitLock);
+        const std::lock_guard<std::recursive_mutex> commitLock (liveCompare.matchCommitLock);
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
         if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)
             || ! current()) return; // no revision was opened for a rejected proof
@@ -357,7 +357,7 @@ bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
 // clock can prove the correspondence: POST sounds and PRE waits until it is on again.
 void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged (bool enabled)
 {
-    const juce::ScopedLock commitLock (liveCompare.matchCommitLock); // non-RT, never waits for a measurement
+    const std::lock_guard<std::recursive_mutex> commitLock (liveCompare.matchCommitLock); // non-RT, never waits for a measurement
     const auto old = liveCompare.compensationState.load(std::memory_order_relaxed);
     const auto off = static_cast<std::uint64_t>(!enabled);
     if ((old & 1u) != off) liveCompare.compensationState.store(((old & ~std::uint64_t{1}) + 2) | off, std::memory_order_release);
