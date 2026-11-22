@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../src/live_compare/LiveCompareSession.h"
+#include "../../src/live_compare/LiveCompareMatch.h"
 
 #include <array>
 #include <cmath>
@@ -50,11 +50,13 @@ struct Pair
         return block;
     }
 
-    RenderReport render (bool preSelected, float gain, float postPeak = 0)
+    RenderReport render (bool preSelected, float gain, float postPeak = 0, AlignPlayback align = {},
+                         LiveMatchSpan::CaptureToken token = {UINT64_MAX, 0})
     {
         const auto block = record (postPeak);
         float* io[] = { post.data() };
-        return renderer.render (*ring, key, rate, block, io, 1, preSelected, gain, level, 1.0f, 0.9f);
+        return renderer.render (*ring, key, rate, block, io, 1, preSelected, gain, level, 1.0f, 0.9f, false,
+            RecoveryReason::none, nullptr, align, 0, false, false, token);
     }
 
     void stage (LiveMatchSpan::CaptureToken token, bool discontinuity = false)
@@ -88,7 +90,7 @@ void verifySeqlock (Require require)
     require (interrupted == 1 && ring.header.writeEnd.load() == end && !staged.copied,
              "same-run PRE overwrite during copy is rejected even before writeEnd advances");
     queue.finish (staged, 1);
-    require (queue.published() == 0 && queue.incomplete (1), "torn data never enters the published measurement");
+    require (queue.published() == 0 && !queue.incomplete (1), "torn proof is an omitted block, not overflow");
     require (!queue.stage (ring, run, block.clock, io, 1, frames, 2, false).copied,
              "an already odd ring cannot be read");
     ring.header.seq.store (seq + 2);
@@ -131,25 +133,31 @@ void verifyBlindAndFrozenSnapshot (Require require)
 }
 
 template <class Require>
-void verifySubstitutePost (Require require)
+void verifySubstitutePost (Require require, std::uint64_t receipt = 0)
 {
     Pair pair;
     auto& span = pair.renderer.wholeMatch;
+    if (receipt != 0) span.restart(receipt);
+    const auto token = span.admitted(span.captureToken(), true, receipt, receipt);
     for (int i = 0; i < 330; ++i)
     {
-        pair.render (false, 1.0f); // user explicitly selected ordinary POST
+        pair.render (false, 1.0f, 0.0f, {}, token); // user explicitly selected ordinary POST
         span.service (1, &kirin_hypha_live_match_span_cut);
     }
     KirinLiveMatchSpanFacts before {}, after {};
     require (span.enough() && span.measure (before), "affirmatively selected, proven POST counts");
     const auto old = span.snapshot();
-    const auto guarded = pair.render (true, 16.0f, 0.98f); // only substitute POST carries the high peak
+    const auto guarded = pair.render (true, 16.0f, 0.98f, {}, token); // only substitute POST carries the high peak
     require (guarded.guardTripped && guarded.reason == RecoveryReason::ceiling && pair.post[100] >= 0.98f,
              "test really substitutes POST carrying the seeded high peak for requested PRE");
     require (span.snapshot() == old && !span.lost(), "substitute is omitted rather than invalidating a proven span");
-    for (int i = 0; i < 20; ++i)
+    const auto recovering = pair.render (false, 1.0f, 0.0f, {}, token);
+    require (recovering.guardTripped && span.snapshot() == old + frames,
+             "explicit POST counts before guard recovery completes");
+    span.service (1, &kirin_hypha_live_match_span_cut);
+    for (int i = 0; i < 19; ++i)
     {
-        pair.render (false, 1.0f);
+        pair.render (false, 1.0f, 0.0f, {}, token);
         span.service (1, &kirin_hypha_live_match_span_cut);
     }
     require (span.snapshot() > old && span.measure (after) && after.post_peak < -15.0
@@ -173,12 +181,77 @@ void verifyQueueReplacement (Require require)
     require (span.snapshot() == frames, "only callback from replacement epoch publishes");
 }
 
+template<class Require>
+void verifyPreClockFence(Require require)
+{
+    Pair pair;
+    for (int i=0; i<32; ++i) pair.render(false, 1.0f);
+    const auto view = pair.renderer.historyView();
+    require(wholeProofCurrent(*pair.ring, view), "positive PRE generation proof");
+    BlockClock noClock; noClock.frames = frames; noClock.playing = true;
+    const float* input[] = {pair.pre.data()};
+    pair.feeder.feed(*pair.ring, noClock, input, 1);
+    require(pair.ring->header.run.load() == view.preRun && pair.renderer.historyView().kValid
+        && pair.ring->header.timing.generation.load() != view.preClock,
+        "real PRE clock loss changes generation before PCM or POST history");
+    require(!wholeProofCurrent(*pair.ring, view), "clock-only PRE change withdraws ALL PLAYED proof");
+}
+
+template<class Require>
+void verifyRunChangeAndCapacity(Require require)
+{
+    Pair pair;
+    const auto block = pair.record();
+    auto& ring = *pair.ring;
+    const auto run = ring.header.run.load();
+    float* io[] = {pair.post.data()};
+    LiveMatchSpanQueue queue(frames);
+    const auto torn = queue.stageObserved(ring,run,block.clock,io,1,frames,3,false,[&] {ring.header.run.store(run+1);});
+    queue.finish(torn,3);
+    require(!torn.copied && !torn.overflow && !queue.incomplete(3), "PCM run replacement is a temporary proof break");
+    ring.header.run.store(run);
+    const auto good = queue.stage(ring,run,block.clock,io,1,frames,3,true);
+    queue.finish(good,3);
+    const auto fullButWrongRun = queue.stage(ring,run+1,block.clock,io,1,frames,4,false);
+    queue.finish(fullButWrongRun,4);
+    require(!fullButWrongRun.overflow && !queue.incomplete(4), "proof failure, even with a full queue, isn't an overflow");
+    const auto fullAndProven = queue.stage(ring,run,block.clock,io,1,frames,5,false);
+    queue.finish(fullAndProven,5);
+    require(fullAndProven.overflow && queue.incomplete(5), "only verified PCM failure marks a permanent overflow");
+    bool first = true, marked = false;
+    queue.drainThrough(queue.published(),frames,[&](const LiveMatchSpanQueue::Frame& frame) {
+        if (first) {marked = frame.gapBefore; first = false;}
+    });
+    require(marked, "boundary marker is carried by the first admitted frame");
+}
+
+template<class Require>
+void verifyAlignWaitingForSelectedPost(Require require)
+{
+    Pair pair;
+    for (int i=0; i<32; ++i) pair.render(false, 1.0f);
+    auto& span = pair.renderer.wholeMatch;
+    const auto token = span.captureToken();
+    const auto initial = span.snapshot();
+    const AlignPlayback checking {{}, true, false, true};
+    const auto postWait = pair.render(false, 1.0f, 0.98f, checking, token);
+    require(postWait.verdict == Verdict::accepted && postWait.alignWaiting && span.snapshot() == initial + frames,
+        "named POST remains eligible during verify with valid raw clock proof");
+    const auto preWait = pair.render(true, 1.0f, 0.98f, checking, token);
+    require(preWait.verdict == Verdict::accepted && preWait.alignWaiting && span.snapshot() == initial + frames,
+        "the same verify-wait must not count fallback for selected PRE");
+}
+
 template <class Require>
 void verify (Require require)
 {
     verifyQueueReplacement (require);
+    verifyPreClockFence (require);
+    verifyRunChangeAndCapacity (require);
+    verifyAlignWaitingForSelectedPost (require);
     verifySeqlock (require);
     verifyBlindAndFrozenSnapshot (require);
     verifySubstitutePost (require);
+    verifySubstitutePost (require, 7);
 }
 }

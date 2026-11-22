@@ -20,6 +20,13 @@ enum class MatchFailure : std::uint8_t
     wholeSpanLost    // ALL PLAYED has a permanent hole until a fresh measurement epoch
 };
 
+// ALL PLAYED's proofs are distinct from the legacy LAST 4 history contract.
+inline bool wholeProofCurrent(const Ring& ring, const PostRenderer::HistoryView& view) noexcept
+{
+    return view.kValid && ring.header.ownerClosed.load(std::memory_order_acquire) == 0
+        && ring.header.run.load(std::memory_order_acquire) == view.preRun
+        && ring.header.timing.generation.load(std::memory_order_acquire) == view.preClock;
+}
 // A MATCH never moves either side by more than this (the TRACK/STEM gate of Local Blind).
 constexpr double maximumMatchDb = 24.0;
 

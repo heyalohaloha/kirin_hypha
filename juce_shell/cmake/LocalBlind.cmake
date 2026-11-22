@@ -132,7 +132,7 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_compile_definitions(KirinLiveReentryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
     target_include_directories(KirinLiveReentryProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinLiveReentryProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
-    foreach(scenario IN ITEMS stop seek clock restore end blind-stop compensation seek-odd pending-odd proof-odd pair-clear pair-set clock-blind preparing-clock preparing-stop reuse pending-end restore-blind failure-named preparing-dc preparing-content preparing-seek)
+    foreach(scenario IN ITEMS stop seek clock restore end blind-stop compensation seek-odd pending-odd proof-odd pair-clear pair-set clock-blind preparing-clock preparing-stop reuse pending-end restore-blind failure-named preparing-dc preparing-content preparing-seek match-span-restart match-span-compensation)
         add_test(NAME kirin_live_reentry_${scenario}_product COMMAND KirinLiveReentryProductTests
             "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" ${scenario})
         set_tests_properties(kirin_live_reentry_${scenario}_product PROPERTIES TIMEOUT 60)

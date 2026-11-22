@@ -288,19 +288,15 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
         || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
         return { MatchFailure::stale };
-    if (plan.proofBound)
+    const auto currentOwner = hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket());
+    if (plan.proofBound || plan.wholeOwnerBound)
     {
         const auto history = liveCompare.renderer.historyView();
-        if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)
+        if (!history.kValid || history.proof != plan.proof || history.preRun != plan.preRun
+            || (plan.wholeOwnerBound && (history.preClock != plan.wholePreClock
+                || !hypha::live_compare::wholeProofCurrent(*mapping->ring(), history) || !plan.wholeOwner.same(currentOwner))))
             return { MatchFailure::stale };
     }
-    const auto currentOwner = hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket());
-    if (plan.wholeOwnerBound
-        && (liveCompare.renderer.historyView().preClock != plan.wholePreClock
-            || mapping->ring()->header.run.load (std::memory_order_acquire) != plan.preRun
-            || mapping->ring()->header.timing.generation.load (std::memory_order_acquire) != plan.wholePreClock
-            || !plan.wholeOwner.same (currentOwner)))
-        return { MatchFailure::stale };
     liveCompare.gainApproval.bind (currentOwner);
     liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
     liveCompare.gain.store (linear (preDb), std::memory_order_release);

@@ -54,6 +54,12 @@ public:
     { processor.serviceLiveContentTiming(); }
     static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
     { processor.timerCallback(); }
+    static bool wholeSpanEnabledForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.wholeMatch.enabled(); }
+    static std::uint64_t wholeSpanPublishedForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.wholeMatch.snapshot(); }
+    static std::uint64_t wholeSpanConsumedForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.wholeMatch.frames(); } // message thread only
     static bool liveCompareNeedsService (KirinHyphaProcessorBase& processor)
     { return processor.liveCompareNeedsService(); }
     static const juce::CriticalSection& handleOwnership (KirinHyphaProcessorBase& processor)

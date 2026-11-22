@@ -6,6 +6,9 @@
 
 namespace hypha::live_compare
 {
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+inline void (*afterWholeMatchTokenForTest)() = nullptr;
+#endif
 // Non-RT lifetime is owned by PostRenderer's existing publication lease. The realtime leg
 // only transfers validated raw PCM; the integrated histogram and true peak are processed here.
 class LiveMatchSpan
@@ -48,16 +51,16 @@ public:
 
     // Only dereference queue while the realtime ring lease protects its non-RT replacement.
     LiveMatchSpanQueue::Staged stage(CaptureToken token, const Ring& ring, std::uint64_t run, std::int64_t start,
-          float* const* post, int channels, int frames, bool discontinuity) noexcept
+          float* const* post, int channels, int frames, bool discontinuity, std::uint64_t expectedClock = UINT64_MAX) noexcept
     {
         return !current(token) || !queue ? LiveMatchSpanQueue::Staged {} : queue->stage(ring, run, start, post,
-            channels, frames, token.epoch, skipped || lastCapturedEpoch != token.epoch || discontinuity);
+            channels, frames, token.epoch, skipped || lastCapturedEpoch != token.epoch || discontinuity, expectedClock);
     }
 
     void finish(CaptureToken token, LiveMatchSpanQueue::Staged staged, bool eligible) noexcept
     {
         if (!current(token)) return;
-        skipped = !eligible;
+        skipped = !eligible || !staged.copied;
         if (eligible && queue)
         {
             queue->finish(staged, token.epoch);

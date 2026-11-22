@@ -15,6 +15,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     using Reason = hypha::live_compare::RecoveryReason;
     auto spanToken = liveCompare.renderer.wholeMatch.captureToken();
     const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (hypha::live_compare::afterWholeMatchTokenForTest) hypha::live_compare::afterWholeMatchTokenForTest();
+   #endif
     const auto preparationCommand = liveCompare.blindTiming.command(); // fixed at callback opening
     const int frames = buffer.getNumSamples();
     const bool projectAnalysis = wrapperType == vst3Wrapper
@@ -55,12 +58,10 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     block.presentationSource = clock.presentationSource;
     block.outputPresentationValid = clock.outputPresentationValid;
     block.outputPresentationSamples = clock.outputPresentationSamples;
-    // The callback's one wall-clock reading serves the gap rule and the chain timing display.
     block.wallNanos = clock.callbackNanos != 0 ? clock.callbackNanos
                                                : hypha::live_compare::callbackWallNanos();
     block.thread = hypha::live_compare::callbackThread();
-    // Guidance only: remember that this host can supply a continuous clock or an output-latency
-    // report, so a later missing clock is told apart from a host that never has one.
+    // Remember host clock support for diagnostics after a missing clock.
     if (continuous.valid) liveCompare.clockSeen.store (true, std::memory_order_relaxed);
     if (clock.outputPresentationValid) liveCompare.outputLatencySeen.store (true, std::memory_order_relaxed);
     const bool wallGap = liveCompare.gaps.observe (block.wallNanos, frames, preparedFormat.sampleRate);
@@ -123,7 +124,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     }
     // BLIND's preparation counts its 30 s of playback in these frames, never in wall time.
     if (block.playing && frames > 0) liveCompare.playedFrames.fetch_add (static_cast<std::uint64_t> (frames), std::memory_order_release);
-    // INV-LC10: a playback run starts at play after stop; a content timing notice ends with its run.
     if (block.playing && ! liveCompare.wasPlaying)
         liveCompare.playbackRun.fetch_add (1, std::memory_order_acq_rel);
     if (! block.playing)
@@ -350,7 +350,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
         spanToken = liveCompare.renderer.wholeMatch.admitted(spanToken,
-            namedEligible && timingEligible && candidateToken == 0 && !candidateReturning && !blindRejected, freshBlind,
+            admitted && namedEligible && timingEligible && candidateToken == 0 && !candidateReturning, freshBlind,
             liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
         const float renderGain = levelGain, renderPost = levelPost (postTarget);
         auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,

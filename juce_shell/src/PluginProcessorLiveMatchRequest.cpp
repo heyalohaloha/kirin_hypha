@@ -111,19 +111,15 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
         std::numeric_limits<std::uint64_t>::max(), &kirin_hypha_live_match_span_cut);
 
     if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
-    if (!drained || !view.kValid || ring.header.ownerClosed.load(std::memory_order_acquire) != 0
-        || ring.header.run.load(std::memory_order_acquire) != view.preRun
-        || ring.header.timing.generation.load(std::memory_order_acquire) != view.preClock) return result;
+    if (!drained || !wholeProofCurrent(ring, view) || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
+        return result;
     if (!span.enough()) { result.failure = MatchFailure::tooShort; return result; }
     KirinLiveMatchSpanFacts facts {};
     if (!span.measure(facts))
     { result.failure = span.lost() ? MatchFailure::wholeSpanLost : MatchFailure::notEnoughSignal; return result; }
     const auto current = liveCompare.renderer.historyView();
-    if (!current.kValid || current.proof != view.proof || current.preRun != view.preRun
-        || ring.header.run.load(std::memory_order_acquire) != view.preRun
-        || ring.header.ownerClosed.load(std::memory_order_acquire) != 0
-        || current.preClock != view.preClock
-        || ring.header.timing.generation.load(std::memory_order_acquire) != view.preClock
+    if (!wholeProofCurrent(ring, current) || current.proof != view.proof
+        || current.preRun != view.preRun || current.preClock != view.preClock
         || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
     { result.failure = MatchFailure::stale; return result; }
     result.measuredDb = facts.post_lufs - facts.pre_lufs;

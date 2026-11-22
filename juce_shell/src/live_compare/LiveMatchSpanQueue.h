@@ -15,25 +15,33 @@ class LiveMatchSpanQueue
 {
 public:
     struct Frame { float pre[2], post[2]; std::uint64_t epoch; bool gapBefore; };
-    struct Staged { std::uint64_t end = 0; bool copied = false; };
+    struct Staged { std::uint64_t end = 0; bool copied = false, overflow = false; };
     static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
     explicit LiveMatchSpanQueue(std::uint64_t n) : capacity(n), pcm(std::make_unique<Frame[]>(n)) {}
 
     Staged stage(const Ring& ring, std::uint64_t run, std::int64_t start, float* const* post, int channels,
-                 int frames, std::uint64_t epoch, bool gapBefore) noexcept
-    { return stageObserved(ring, run, start, post, channels, frames, epoch, gapBefore, [] {}); }
+                 int frames, std::uint64_t epoch, bool gapBefore, std::uint64_t expectedClock = UINT64_MAX) noexcept
+    { return stageObserved(ring, run, start, post, channels, frames, epoch, gapBefore, [] {}, expectedClock); }
 
     template<class EndCopyObserver>
     Staged stageObserved(const Ring& ring, std::uint64_t run, std::int64_t start, float* const* post,
-        int channels, int frames, std::uint64_t epoch, bool gapBefore, EndCopyObserver&& endCopy) noexcept
+        int channels, int frames, std::uint64_t epoch, bool gapBefore, EndCopyObserver&& endCopy, std::uint64_t expectedClock = UINT64_MAX) noexcept
     {
         if (epoch == 0 || frames <= 0 || channels < 1 || channels > 2) return {};
         const auto size = static_cast<std::uint64_t>(frames);
         const auto out = write.load(std::memory_order_relaxed);
-        if (size > capacity || out - read.load(std::memory_order_acquire) > capacity - size) return {};
         const auto seq = ring.header.seq.load(std::memory_order_acquire);
+        const auto proofCurrent = [&] {
+            return ring.header.seq.load(std::memory_order_relaxed) == seq
+                && ring.header.run.load(std::memory_order_acquire) == run
+                && ring.header.ownerClosed.load(std::memory_order_acquire) == 0
+                && (expectedClock == UINT64_MAX || (ring.header.timingGeneration.load(std::memory_order_relaxed) == expectedClock
+                    && ring.header.timing.generation.load(std::memory_order_acquire) == expectedClock));
+        };
         if ((seq & 1u) != 0 || start > std::numeric_limits<std::int64_t>::max() - frames
-            || !readable(ring, run, start, frames)) return {};
+            || !readable(ring, run, start, frames) || !proofCurrent()) return {};
+        if (size > capacity || out - read.load(std::memory_order_acquire) > capacity - size)
+            return {0, false, proofCurrent()};
         for (int i = 0; i < frames; ++i)
         {
             const auto slot = static_cast<std::size_t>((out + static_cast<std::uint64_t>(i)) % capacity);
@@ -48,15 +56,14 @@ public:
         }
         endCopy(); // default compiles away; deterministic seqlock interruption fixture
         std::atomic_thread_fence(std::memory_order_acquire);
-        if (ring.header.seq.load(std::memory_order_relaxed) != seq
-            || ring.header.ownerClosed.load(std::memory_order_acquire) != 0) return {};
+        if (!proofCurrent()) return {};
         return {out + size, true};
     }
 
     void finish(Staged block, std::uint64_t epoch) noexcept
     {
         if (block.copied) write.store(block.end, std::memory_order_release);
-        else lastLost.store(epoch, std::memory_order_release);
+        else if (block.overflow) lastLost.store(epoch, std::memory_order_release);
     }
 
     std::uint64_t published() const noexcept { return write.load(std::memory_order_acquire); }

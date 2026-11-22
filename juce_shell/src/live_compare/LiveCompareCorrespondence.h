@@ -240,8 +240,7 @@ public:
             decision.verdict = Verdict::loopWaiting;
             return fill (decision);
         }
-        decision.preClock = ring.header.timingGeneration.load (std::memory_order_acquire);
-        decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels);
+        decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels, &decision.preClock);
        #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
         if (afterCorrespondenceCopyForTest) afterCorrespondenceCopyForTest (ring);
        #endif
@@ -447,7 +446,7 @@ private:
     }
 
     static Verdict read (const Ring& ring, std::int64_t start, std::int32_t frames,
-                         float* const* out, int outChannels) noexcept
+                         float* const* out, int outChannels, std::uint64_t* preClock = nullptr) noexcept
     {
         const auto& h = ring.header;
         const auto seq = h.seq.load (std::memory_order_acquire);
@@ -455,6 +454,7 @@ private:
             return Verdict::writing;
         const auto runStart = h.runStart.load (std::memory_order_relaxed);
         const auto writeEnd = h.writeEnd.load (std::memory_order_relaxed);
+        if (preClock != nullptr) *preClock = h.timingGeneration.load (std::memory_order_relaxed);
         const auto end = start + frames;
         Verdict verdict = Verdict::accepted;
         if (start < runStart)

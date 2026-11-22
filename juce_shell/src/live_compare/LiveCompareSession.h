@@ -1,5 +1,4 @@
 #pragma once
-
 #include "LiveCompareCorrespondence.h"
 #include "LiveCompareRecovery.h"
 #include "LiveCompareGuardRecovery.h"
@@ -289,7 +288,7 @@ public:
             inputStart, inputEnd, sampleRate)) recordHistory (block, io, channels, decision);
         else invalidateHistory();
         if (candidateToken == 0 && inputPosition && block.playing && timingBlock == RecoveryReason::none && decision.verdict == Verdict::accepted)
-            capture.staged = wholeMatch.stage (spanToken, ring, decision.run, inputStart, io, channels, block.frames, block.afterGap || decision.timelineChanged);
+            capture.staged = wholeMatch.stage (spanToken, ring, decision.run, inputStart, io, channels, block.frames, block.afterGap || decision.timelineChanged, decision.preClock);
         if (candidateToken != 0)
         {
             const auto duration = timingBlock == RecoveryReason::none ? ring.header.candidate.contiguousFrames (
@@ -321,6 +320,7 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
+        const bool proven = candidateToken == 0 && inputPosition && block.playing; capture.eligible = proven && !preSelected;
         const bool sampleMismatch = align.enabled && alignment.value().verifySamples
             && ! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0);
         if (align.verify && sampleMismatch) alignment.readiness.recheck();
@@ -368,7 +368,6 @@ public:
             report.reason = guardFailure (block.frames, preGain, ceilingLinear); // at unity: finite samples only
         }
         if (lowerOnCeiling) guardRecovery.releaseCeiling();
-        capture.eligible = candidateToken == 0 && inputPosition && block.playing && !preSelected && spanToken.receipt == 0 && report.reason != RecoveryReason::nonFinite;
         report.reason = guardRecovery.observe (report.reason, block.frames);
         if (report.reason != RecoveryReason::none)
         {
@@ -379,7 +378,7 @@ public:
             return report;
         }
         const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
-        capture.eligible = candidateToken == 0 && inputPosition && block.playing && (!preSelected || target > 0.0f);
+        capture.eligible = proven && (!preSelected || target > 0.0f);
         if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays or could
         if (weight <= 0.0f && target <= 0.0f)
         {
