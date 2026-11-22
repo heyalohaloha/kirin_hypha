@@ -44,6 +44,20 @@ inline void verifyCompactBalanceReadoutFits()
             reference_ui::paintCompactBalanceChart (g, chart, state, context);
             const auto& texts = log.texts();
             const auto& areas = log.areas();
+            const bool fits = blauertFont.getStringWidthFloat (blauertWords) <= static_cast<float> (width - 8);
+            const auto partial = [&] (const juce::String& shown)
+            {
+                return shown.endsWithChar (0x2026) && blauertWords.startsWith (shown.dropLastCharacters (1).trimEnd())
+                    && shown.length() > 1;
+            };
+            for (const auto& shown : texts)
+                require (!partial (shown), "compact BALANCE never draws a shortened Blauert row");
+            const auto blauert = texts.indexOf (blauertWords);
+            if (height < 40.0f || !fits)
+                require (blauert < 0, "narrow BALANCE hides Blauert entirely");
+            else
+                require (blauert >= 0 && areas[static_cast<size_t> (blauert)].getBottom() <= chart.getY(),
+                         "a full-width Blauert caption does not cover a reading");
             std::set<float> rows;
             std::vector<juce::Rectangle<float>> cells;
             for (int index = 0; index < texts.size(); ++index)
@@ -77,17 +91,9 @@ inline void verifyCompactBalanceReadoutFits()
             else
                 require (rows.size() == 3 && cells.size() == 4 && texts.contains (aText) && texts.contains (bText) && !combined,
                          "the 24px and 40px controls keep all four separate readings in three rows");
-            // A plot narrower than the Blauert words shows as much of them as its row holds, so the
-            // row is recognised by what the production ellipsis leaves for the width it was given.
-            int blauert = -1;
-            for (int index = 0; index < texts.size() && blauert < 0; ++index)
-                if (texts[index].isNotEmpty() && texts[index] == text_style::ellipsizedText (
-                        blauertWords, blauertFont, areas[static_cast<size_t> (index)].getWidth()))
-                    blauert = index;
-            require (height < 40.0f ? blauert < 0 : blauert >= 0 && areas[static_cast<size_t> (blauert)].getBottom() <= chart.getY(),
-                     "Blauert keeps the separate 40px caption instead of covering a reading");
             return true;
         };
+        draw (160, 40.0f, 1250.0f, "1250 Hz", false);  // No shortened caption despite enough height.
         draw (160, 14.0f, 155.0f, "155 Hz D#3", true);  // The exact fifth audit counterexample.
         draw (160, 14.0f, 1250.0f, "1250 Hz", true);     // No note above 1 kHz, but never drop Hz.
         bool found = false;

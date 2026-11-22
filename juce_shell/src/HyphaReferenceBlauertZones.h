@@ -65,10 +65,14 @@ inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart
     if (text.isEmpty() || ! blauertShown (minimumHz, maximumHz) || chart.getWidth() < 160.0f || chart.getHeight() < 40.0f) return;
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
     const auto row = chart.withY (chart.getY() - (useCaption ? 14.0f : 0.0f)).withHeight (14.0f);
+    const auto line = row.reduced (4.0f, 0.0f);
+    const auto shownWidth = text_style::shownWidth (g.getCurrentFont(), text);
+    // Compact BALANCE suppresses this explanation rather than drawing a fragment.
+    if (context.referenceCompact && role == 'B' && shownWidth > static_cast<float> (line.toNearestInt().getWidth()))
+        return;
     if (useCaption) { g.setColour (BG); g.fillRect (row); } // replace only this plot's own caption while pointing
     g.setColour (context.referenceCheck ? COL_NORMAL : COL_TEXT_SECONDARY.withAlpha (0.92f));
-    const auto line = row.reduced (4.0f, 0.0f);
-    const auto textWidth = std::min (line.getWidth(), std::ceil (text_style::shownWidth (g.getCurrentFont(), text)) + 4.0f);
+    const auto textWidth = std::min (line.getWidth(), std::ceil (shownWidth) + 4.0f);
     help::note (line.withLeft (line.getRight() - textWidth), help_text::blauert);
     text_style::drawEllipsized (g, text, line.toNearestInt(), juce::Justification::centredRight);
 }
