@@ -69,7 +69,8 @@ inline juce::Image renderShared (const Facts& facts, int pixels = pixelSize)
     text_style::drawText (g, caption, juce::Rectangle<int> (18, 423, 504, 32), juce::Justification::centred);
     g.setColour (COL_SPECTRUM_DELTA_BR);
     g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture), typography::BlindImageText::address, 34));
-    text_style::drawText (g, address, juce::Rectangle<int> (18, 459, 504, 27), juce::Justification::centred);
+    text_style::drawText (g, address, juce::Rectangle<float> (18.0f, 459.0f, 504.0f, 27.0f),
+                          juce::Justification::centred, true, text_style::LabelPolicy::fixed);
     return result;
 }
 }

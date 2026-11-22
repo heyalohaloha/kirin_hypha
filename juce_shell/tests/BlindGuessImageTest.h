@@ -371,6 +371,17 @@ void verifyBlindGuessAndImage (Require check)
             ? juce::String ("Audio estimate: POST box may have been 12.34 ms off")
             : juce::String::fromUTF8 (u8"音の推定：POST boxが12.34 msずれていた可能性");
         require (blind_image::detail::noteWithNames (namedNote) == expectedEstimate, "A/B estimate uses the typed name");
+        {
+            text_style::ShownTextLog sharedPaint;
+            const auto shared = blind_image::renderShared (namedNote, 540);
+            const auto& lines = sharedPaint.texts();
+            const auto caption = i18n::tr (blind_image::closingSentence);
+            require (shared.isValid() && lines.contains (blind_image::address) && lines.contains (caption),
+                     "the shared export paints the literal address and the localized sentence");
+            if (language == i18n::Language::japanese)
+                require (!misses().contains (blind_image::address) && caption != blind_image::closingSentence,
+                         "the unchanged address does not enter the catalog, but the closing sentence does");
+        }
         if (language == i18n::Language::japanese)
         {
             blind_image::Facts literalName;
