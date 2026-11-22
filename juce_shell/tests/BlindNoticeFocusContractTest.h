@@ -46,7 +46,23 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     blind.setSize (300, 200);
     blind.setScreen (screen);
     window.setContentNonOwned (&blind, true);
-    window.centreWithSize (window.getWidth(), window.getHeight());
+    const auto pointer = juce::Desktop::getMousePosition();
+    const auto displays = juce::Desktop::getInstance().getDisplays().getRectangleList (true);
+    juce::Rectangle<int> placement;
+    for (const auto display : displays)
+    {
+        const auto area = display.reduced (8);
+        if (area.getWidth() < window.getWidth() || area.getHeight() < window.getHeight()) continue;
+        for (const auto x : { area.getX(), area.getRight() - window.getWidth() })
+        for (const auto y : { area.getY(), area.getBottom() - window.getHeight() })
+        {
+            const juce::Rectangle<int> candidate (x, y, window.getWidth(), window.getHeight());
+            if (placement.isEmpty() && !candidate.expanded (4).contains (pointer)) placement = candidate;
+        }
+        if (!placement.isEmpty()) break;
+    }
+    require (!placement.isEmpty(), "fixture window fits a screen area outside the untouched pointer");
+    window.setBounds (placement);
     window.setVisible (true);
     window.toFront (true);
     auto* peer = blind.getPeer();
@@ -63,20 +79,7 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     require (badge && badge->isShowing() && first && disclosure, "Japanese narrow BLIND has a real notice badge");
 
     const auto editorBounds = blind.getScreenBounds();
-    const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (editorBounds);
-    require (display != nullptr, "the hosted BLIND fixture has a display");
-    const auto corners = display->userArea.reduced (4);
-    const auto originalMouse = juce::Desktop::getMousePosition();
-    struct RestorePointer { juce::Point<int> point; ~RestorePointer() { juce::Desktop::setMousePosition (point); } } restore { originalMouse };
-    bool movedOutside = false;
-    for (const auto point : { corners.getTopLeft(), corners.getTopRight(), corners.getBottomLeft(), corners.getBottomRight() })
-    {
-        if (editorBounds.contains (point)) continue;
-        juce::Desktop::setMousePosition (point);
-        movedOutside = !editorBounds.contains (juce::Desktop::getMousePosition());
-        if (movedOutside) break;
-    }
-    require (movedOutside, "pointer initially outside the plug-in editor");
+    require (!editorBounds.contains (juce::Desktop::getMousePosition()), "pointer initially outside the plug-in editor");
 
     const auto tabToBadge = [&]
     {
