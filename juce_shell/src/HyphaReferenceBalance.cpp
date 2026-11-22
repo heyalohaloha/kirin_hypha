@@ -243,9 +243,11 @@ void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& s
     if (shape.count > 0)
         readings.push_back (drawnCurve ("MEAN", COL_SPECTRUM_DELTA, shape.centers, shape.mean, 0.0, minimumHz, maximumHz));
     juce::String pointedName;
-    if (state.overlayPointed.isNotEmpty())
+    const bool every = state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape;
+    if (shape.count > 0 && state.overlayPointed.isNotEmpty())
         for (const auto& item : overlayItems (state))
-            if (item.id == state.overlayPointed && item.drawable())
+            if (item.id == state.overlayPointed && overlayShapeIncludes (item, shape, every)
+                && (! sources.aShown || reference_audition::blauertBandsAligned (state.aKirin->centersHz, *item.centers)))
             {
                 const auto colour = item.line != nullptr ? overlayLineColour (item.line->colour) : COL_NORMAL;
                 const auto gain = std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0;
@@ -264,7 +266,6 @@ void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& s
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
         // ALL SHAPE は番号に関わらず全部：入れる物が無いのは値がまだ届いていない時だけ。
-        const bool every = state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape;
         text_style::drawEllipsized (g, sources.linesOn || every ? "REFERENCE VALUES ARRIVE FROM KIRIN OS" : shapeEmptyText,
                                     chart.toNearestInt(), juce::Justification::centred);
     }
@@ -425,7 +426,6 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
     return unmatched;
 }
 }
-
 void paintCompactBalanceChart (juce::Graphics& g, juce::Rectangle<float> chart, const State& state,
                                presentation::Context context)
 {

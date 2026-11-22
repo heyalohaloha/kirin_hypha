@@ -214,12 +214,54 @@ inline void verifyCompactBalanceBlauertReading()
     }
 }
 
+inline void verifyPointedCurveMustJoinTheShape()
+{
+    using Drawing = ref::BalanceOverlay::Drawing;
+    auto state = page (2, 0);
+    state.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
+    auto a = std::make_shared<ref::KirinSpectrumWindow> (*state.aKirin);
+    a->centersHz = { 100.0, 1500.0, 10000.0 }; a->medianDb = { -41, -41, -41 }; a->frames = 30;
+    state.aKirin = a;
+    state.overlay.all = true;
+    for (size_t index = 0; index < state.songFacts.size(); ++index)
+    {
+        auto& fact = state.songFacts[index];
+        fact.centersHz = a->centersHz; fact.medianDb.assign (3, index == 0 ? -45.0f : -35.0f);
+        fact.lufsI = -20.0; fact.loudnessOffsetLu = 0.0;
+        state.overlay.lines.push_back ({ state.songs[index].id, static_cast<int> (index) });
+    }
+    const juce::Rectangle<float> chart (10.0f, 10.0f, 275.0f, 72.0f);
+    state.chartPointer = chart.getCentre();
+    state.overlayPointed = state.songs.back().id;
+    const auto draw = [&]
+    {
+        juce::Image image (juce::Image::ARGB, 300, 100, true);
+        juce::Graphics g (image);
+        const text_style::ShownTextLog log;
+        reference_ui::paintCompactBalanceChart (g, chart, state, presentation::forEditor (300, 200));
+        return log.texts();
+    };
+    for (const auto mode : { Drawing::shape, Drawing::allShape })
+    {
+        state.overlay.drawing = mode;
+        state.songFacts.back().centersHz[1] = 1500.0;
+        require (draw().contains (text_style::shownText ("2 -35.0 dB")), "a compatible hovered song joins the shape");
+        state.songFacts.back().centersHz[1] = 1700.0;
+        const auto mismatched = draw();
+        require (! mismatched.contains (text_style::shownText ("2 -35.0 dB"))
+                     && mismatched.contains (text_style::shownText ("A -41.0 dB"))
+                     && mismatched.contains (text_style::shownText ("MEAN -45.0 dB")),
+                 "one different interior band excludes the hovered song but preserves A and the valid mean");
+    }
+}
+
 // Exercise the real shell: the notice changes the space available to Reference.
 inline void verifyCompactBalanceFit()
 {
     verifyStandaloneBalanceA();
     verifyCompactBalanceRangeReading();
     verifyCompactBalanceBlauertReading();
+    verifyPointedCurveMustJoinTheShape();
     juce::StringArray failures;
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_COMPACT_BALANCE_IMAGES", {});
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
