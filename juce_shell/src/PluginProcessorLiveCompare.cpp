@@ -92,13 +92,20 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     serviceLiveCompare();
     if (role != Role::Post)
         return StartResult::notPost;
-    if (! writesEnabled.load (std::memory_order_acquire) || permission != liveCompare.authority.ticket())
+    // A host may re-prepare on its own thread. Rate, channels, their prepare, the engine's enable and
+    // the PRE this start is for are read as one under its lock, and once more before the ring opens.
+    const auto format = [this] { const juce::ScopedLock formatLock (handleLock);
+        return std::tuple (preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()),
+                           liveCompare.formatGeneration.load (std::memory_order_acquire),
+                           writesEnabled.load (std::memory_order_acquire), liveComparePreInstance()); };
+    const auto started = format(); const auto rate = static_cast<std::uint32_t> (std::get<0> (started));
+    const auto& pre = std::get<4> (started);
+    if (! std::get<3> (started) || permission != liveCompare.authority.ticket())
         return StartResult::notReady;  // a restore or pair change since the press, checked under the pair lock
     if (! liveCompareSupported())
         return StartResult::unsupportedLayout;
     const auto admission = liveCompareAdmission (false);
     if (admission != StartResult::started) return admission;
-    const auto pre = liveComparePreInstance();
     if (pre.isEmpty())
         return StartResult::noPair;
     // Each admitted candidate start owns a fresh alignment, even for the same peer. A correction this
@@ -113,11 +120,6 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
         liveCompare.preAlign.candidateRestarted (before, permission, hypha::live_compare::pairKeyForPreInstance (pre.toStdString()));
     }
     stopLiveCompare();
-    // A host may re-prepare on its own thread: rate, channels and their prepare are read as one under its lock.
-    const auto format = [this] { const juce::ScopedLock formatLock (handleLock);
-        return std::tuple (preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()),
-                           liveCompare.formatGeneration.load (std::memory_order_acquire)); };
-    const auto started = format(); const auto rate = static_cast<std::uint32_t> (std::get<0> (started));
     if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,
             liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,
             [&] {
@@ -148,7 +150,8 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
             liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
         liveCompare.contentHold.stopped();
     }
-    { // The ring opens only for the prepare it was sized for; a later prepare finds the session open and ends it.
+    { // The ring opens only for the prepare, the enabled engine and the PRE this start read; a later
+      // prepare finds the session open and ends it.
         const juce::ScopedLock formatLock (handleLock);
         if (format() != started) { stopLiveCompare(); return StartResult::notReady; }
         if (! publishMapping (liveCompare.ring, std::move (mapping))) return StartResult::notReady;
@@ -369,15 +372,6 @@ void KirinHyphaProcessorBase::kirinHostInstanceGroup (juce::uint64 group, bool v
 void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
     finishLiveCompare();
-}
-
-bool KirinHyphaProcessorBase::takeLiveCompareGuardTrip() noexcept
-{
-    return liveCompare.guardTripped.exchange (false, std::memory_order_acq_rel);
-}
-std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
-{
-    return liveCompare.playbackRun.load (std::memory_order_acquire);
 }
 // Message thread: all comparison surfaces read the same callback result.
 bool KirinHyphaProcessorBase::analysisPairingLoopBlocked() const noexcept

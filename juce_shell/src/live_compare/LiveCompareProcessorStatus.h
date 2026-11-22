@@ -68,3 +68,11 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
         status.active = status.preSelected = status.preAudible = status.matched = status.matchReady = status.matchHeld = status.matchOff = false;
     return status;
 }
+bool KirinHyphaProcessorBase::takeLiveCompareGuardTrip() noexcept
+{
+    return liveCompare.guardTripped.exchange (false, std::memory_order_acq_rel);
+}
+std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
+{
+    return liveCompare.playbackRun.load (std::memory_order_acquire);
+}
