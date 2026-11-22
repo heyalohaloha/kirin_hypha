@@ -231,6 +231,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
             || liveCompare.blindTiming.failure() != RecoveryReason::none)
         { liveCompare.blind.end(); return; }
         liveCompare.blindTiming.end();
+        liveCompare.renderer.wholeMatch.suspend();
         liveCompare.blindStage = BlindStage::active;
         return;
     }
