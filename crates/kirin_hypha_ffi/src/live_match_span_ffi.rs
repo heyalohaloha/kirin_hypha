@@ -19,9 +19,11 @@ pub extern "C" fn kirin_hypha_live_match_span_create(
 /// The unique owner must supply its live handle, or null; never from the audio callback.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_live_match_span_destroy(handle: *mut KirinLiveMatchSpan) {
-    if !handle.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(handle) })));
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !handle.is_null() {
+            drop(unsafe { Box::from_raw(handle) });
+        }
+    }));
 }
 
 /// # Safety
