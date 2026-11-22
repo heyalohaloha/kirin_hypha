@@ -230,6 +230,8 @@ void verifyBlindTrialLayout (Require check)
             }
         }
         juce::Component surface;
+        // JUCE dispatch skips an invisible root, even if its children were made visible.
+        surface.setVisible (true);
         surface.addAndMakeVisible (h.view);
         h.view.setTransform (juce::AffineTransform::scale (scale));
         surface.setSize (juce::roundToInt (width * scale), juce::roundToInt (width * 2 / 3 * scale));
