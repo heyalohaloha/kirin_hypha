@@ -116,6 +116,18 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     require (disclosure->isShowing() && disclosure->getName() == badge->getDescription()
              && blind.getLocalBounds().contains (disclosure->getBounds()),
              "keyboard focus exposes exactly the hidden text in the editor");
+    // The hosted editor still has its own BLIND open. Its next layout (a language or size change) must
+    // not take the keys from this window, nor from a control inside its own screen.
+    rig.editor->resized();
+    require (badge->hasKeyboardFocus (false) && disclosure->isShowing(),
+             "another editor laying out its open BLIND leaves the keys and the notice text in this window");
+    auto* hostedFirst = activeScreen.findChildWithID ("live-blind-source-1");
+    require (hostedFirst != nullptr && activeScreen.isShowing(), "the hosted BLIND is still open beside the fixture");
+    hostedFirst->grabKeyboardFocus();
+    rig.editor->resized();
+    require (hostedFirst->hasKeyboardFocus (false), "an editor laying out its open BLIND keeps the keys on the chosen control");
+    tabToBadge();
+    require (disclosure->isShowing(), "returning to the badge shows the notice text again");
     DisclosureWait wait;
     require (wait.afterFormerTooltipTicks() && badge->hasKeyboardFocus (false) && disclosure->isShowing()
              && !editorBounds.contains (juce::Desktop::getMousePosition()),
