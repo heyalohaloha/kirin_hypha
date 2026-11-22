@@ -134,7 +134,6 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
     // What does not fit a row of the chart goes to the next row: no reading is dropped.
     const auto partWidth = [&g] (const Part& part) { return text_style::shownWidth (g.getCurrentFont(), part.first) + 10.0f; };
     constexpr float padding = 8.0f;
-    const bool littleHeight = range != nullptr && range->plateHeadroom > 0.0f && chart.getHeight() < 31.0f;
     std::vector<std::pair<float, std::vector<Part>>> rows (1, { padding, {} });
     for (const auto& part : parts)
     {
@@ -147,15 +146,22 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
     const bool reserveBlauert = range != nullptr && range->reservePlateTop;
     const auto belowBlauert = reserveBlauert ? chart.getHeight() - range->plateTop : chart.getHeight();
     const bool compactBelowBlauert = reserveBlauert && rowCount * 16.0f - 1.0f > belowBlauert;
-    const float rowHeight = compactBelowBlauert ? 12.0f : littleHeight ? 14.0f : 15.0f;
-    const float rowGap = compactBelowBlauert || littleHeight ? 0.0f : 1.0f;
+    const float headroom = range != nullptr ? range->plateHeadroom : 0.0f;
+    const bool compactPlot = headroom > 0.0f && chart.getHeight() < 40.0f && rows.size() >= 3;
+    const bool littleHeight = headroom > 0.0f && chart.getHeight() < 31.0f;
+    constexpr float minRowHeight = 12.0f;
+    const bool needsCaption = compactPlot && chart.getHeight() < rowCount * minRowHeight;
+    const auto available = chart.getHeight() + (needsCaption ? headroom : 0.0f);
+    const float rowHeight = compactPlot ? juce::jmax (minRowHeight, available / rowCount)
+                                      : compactBelowBlauert ? minRowHeight : littleHeight ? 14.0f : 15.0f;
+    const float rowGap = compactBelowBlauert || littleHeight || compactPlot ? 0.0f : 1.0f;
     const auto height = rowCount * (rowHeight + rowGap) - rowGap;
     // If the complete set of readings still does not fit below the reserved row, give Blauert
     // the compact Balance caption and use the whole plot for the readings.
     const bool blauertInCaption = reserveBlauert && height > belowBlauert;
-    const float headroom = range != nullptr ? range->plateHeadroom : 0.0f;
     const float latest = juce::jmax (-headroom, chart.getHeight() - height);
-    auto top = chart.getY() + (range == nullptr || blauertInCaption ? 0.0f
+    auto top = chart.getY() + (needsCaption ? chart.getHeight() - height
+        : range == nullptr || blauertInCaption ? 0.0f
         : reserveBlauert ? range->plateTop : juce::jlimit (-headroom, latest, range->plateTop));
     for (const auto& [width, row] : rows)
     {

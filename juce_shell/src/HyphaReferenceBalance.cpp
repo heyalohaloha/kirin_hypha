@@ -413,7 +413,7 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
     bool blauertInCaption = false;
     if (! readings.empty() || sources.rangeShown (state))
     {
-        const auto headroom = context.referenceCompact && ! reserveBlauert && sources.rangeShown (state) ? 14.0f : 0.0f;
+        const auto headroom = context.referenceCompact && ! reserveBlauert && (chart.getHeight() < 40.0f || sources.rangeShown (state)) ? 14.0f : 0.0f;
         const ReadRange range { drawnCurve ("", COL_NORMAL, centers, rangeLow, 0.0, minimumHz, maximumHz),
                                 drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz),
                                 ! context.referenceCompact || reserveBlauert ? blauertReadoutHeight : 0.0f, headroom, reserveBlauert };

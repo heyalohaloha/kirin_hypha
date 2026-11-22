@@ -256,7 +256,7 @@ inline void verifyPointedCurveMustJoinTheShape()
     }
 }
 
-inline void verifyThreeBalanceRowsStayInsidePlot()
+inline void verifyThreeBalanceRowsStayInsidePlot (float height)
 {
     const i18n::ScopedLanguage scoped (i18n::Language::english);
     auto context = presentation::forEditor (300, 200); context.referenceCompact = true;
@@ -274,7 +274,7 @@ inline void verifyThreeBalanceRowsStayInsidePlot()
     bool checked = false;
     for (int width = 160; width <= 225; ++width)
     {
-        const juce::Rectangle<float> chart (10.0f, 30.0f, static_cast<float> (width), 40.0f);
+        const juce::Rectangle<float> chart (10.0f, 30.0f, static_cast<float> (width), height);
         state.chartPointer = { chart.getX() + chart.getWidth() * static_cast<float> (std::log (62.5) / std::log (1000.0)),
                                chart.getCentreY() }; // 1250 Hz, no note added
         juce::Image image (juce::Image::ARGB, 300, 120, true);
@@ -294,12 +294,13 @@ inline void verifyThreeBalanceRowsStayInsidePlot()
         std::set<float> rows;
         for (const auto index : reads) rows.insert (area[static_cast<size_t> (index)].getY());
         if (rows.size() != 3) continue;
-        const auto blauert = log.texts().indexOf (blauertWords); if (blauert < 0) continue;
-        require (area[static_cast<size_t> (blauert)].getBottom() <= chart.getY(),
-                 "a three-row pointer reading relocates Blauert to the chart caption");
-        for (const auto index : reads)
-            require (chart.expanded (0.5f).contains (area[static_cast<size_t> (index)]),
-                     "all three readout rows fit, including the final range endpoints");
+        const auto blauert = log.texts().indexOf (blauertWords);
+        require (height < 40.0f ? blauert < 0 : blauert >= 0 && area[static_cast<size_t> (blauert)].getBottom() <= chart.getY(),
+                 "the 40px case relocates Blauert; a short plot uses its caption for the pointer");
+        const auto visible = chart.withTop (chart.getY() - (height < 40.0f ? 14.0f : 0.0f)).expanded (0.5f);
+        if (height >= 22.0f)
+            for (const auto index : reads) require (visible.contains (area[static_cast<size_t> (index)]), "all three readout rows fit");
+        require (chart.expanded (0.5f).contains (area[static_cast<size_t> (reads.back())]), "the final range endpoints fit in the plot");
         checked = true; break;
     }
     require (checked, "a narrow 100% chart actually exercised three rendered readout rows");
@@ -311,7 +312,7 @@ inline void verifyCompactBalanceFit()
     verifyCompactBalanceRangeReading();
     verifyCompactBalanceBlauertReading();
     verifyPointedCurveMustJoinTheShape();
-    verifyThreeBalanceRowsStayInsidePlot();
+    for (const float height : { 40.0f, 24.0f, 14.0f }) verifyThreeBalanceRowsStayInsidePlot (height);
     juce::StringArray failures;
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_COMPACT_BALANCE_IMAGES", {});
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
