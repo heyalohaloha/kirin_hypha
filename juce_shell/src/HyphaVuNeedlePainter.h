@@ -34,18 +34,23 @@ inline juce::Point<float> dialPoint (const DialGeometry& dial, float normalized)
              dial.pivot.y - dial.topRise + dial.edgeFall * std::pow (edge, 1.72f) };
 }
 
+// Geometry and measurement belong to the face; only the two-layer finish is shared.
+inline void paintStroke (juce::Graphics& g, juce::Line<float> line, float width, juce::Colour colour)
+{
+    const auto scale = [width] (float size, float minimum)
+    { return juce::jmax (minimum, size * width / 900.0f); };
+    const auto ivory = colour.interpolatedWith (COL_NORMAL, 0.34f);
+    g.setColour (colour.withAlpha (0.20f));
+    g.drawLine (line, scale (5.2f, 1.5f));
+    g.setColour (ivory.brighter (0.09f));
+    g.drawLine (line, scale (2.7f, 0.95f));
+}
+
 inline void paint (juce::Graphics& g, juce::Rectangle<float> face, int channel, float normalized)
 {
     const auto dial = dialGeometry (face, channel);
     const auto end = dial.pivot + (dialPoint (dial, normalized) - dial.pivot) * 1.11f;
-    const auto width = face.getWidth();
-    const auto scale = [width] (float size, float minimum)
-    { return juce::jmax (minimum, size * width / 900.0f); };
-    const auto ivory = COL_FLORA_BR.interpolatedWith (COL_NORMAL, 0.34f);
-    g.setColour (COL_FLORA_BR.withAlpha (0.20f));
-    g.drawLine ({ dial.pivot, end }, scale (5.2f, 1.5f));
-    g.setColour (ivory.brighter (0.09f));
-    g.drawLine ({ dial.pivot, end }, scale (2.7f, 0.95f));
+    paintStroke (g, { dial.pivot, end }, face.getWidth(), COL_FLORA_BR);
 }
 
 inline juce::Rectangle<float> faceBounds (juce::Rectangle<int> requested)

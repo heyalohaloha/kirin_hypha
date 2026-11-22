@@ -148,8 +148,13 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     {
         const auto line = candidateNeedleLine (dial, *needle, 1.11f, capRadius);
         const auto colour = isPre ? COL_SPECTRUM_PRE : COL_FLORA_BR;
-        g.setColour (colour.withAlpha (0.23f)); g.drawLine (line, size (5.2f, 1.5f));
-        g.setColour (colour.brighter (0.15f)); g.drawLine (line, size (2.7f, 0.95f));
+        if (frame.face == metric_needle::Face::crest)
+            hybrid_vu::needle_painter::paintStroke (g, line, faceWidth, colour);
+        else
+        {
+            g.setColour (colour.withAlpha (0.23f)); g.drawLine (line, size (5.2f, 1.5f));
+            g.setColour (colour.brighter (0.15f)); g.drawLine (line, size (2.7f, 0.95f));
+        }
         endMark (difference, COL_FLORA_BR);
     }
     // FOLLOW A, measured position and matching definition are checked upstream. Missing REF

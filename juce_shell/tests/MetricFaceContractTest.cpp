@@ -8,6 +8,7 @@
 #include "../src/HyphaTextStyle.h"
 #include <iostream>
 #include <stdexcept>
+#include "CrestNeedleStyleContract.h"
 
 namespace hypha::tests
 {
@@ -162,7 +163,6 @@ std::shared_ptr<const metric_face::MetricChassisPair> embeddedMid()
            "use the embedded shipping images, not surrogate colours or a missing bank");
     return mid;
 }
-
 void verifyEmbeddedMidReference()
 {
     namespace mf = metric_face;
@@ -472,6 +472,7 @@ void verifyMetricFaceContract()
     const i18n::ScopedLanguage english (i18n::Language::english);
     verifyEmbeddedPreLabelOutsideNeedle();
     verifyEmbeddedMidTypography();
+    verifyCrestNeedleStyle (*embeddedMid(), check);
     for (const auto role : {observatory::Role::pre, observatory::Role::post})
         for (const int width : {300,450,600,900})
             for (const auto face : {Face::psr,Face::crest,Face::sharp}) verify (role,width,face);
