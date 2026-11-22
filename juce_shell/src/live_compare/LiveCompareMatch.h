@@ -7,6 +7,9 @@
 
 namespace hypha::live_compare
 {
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+inline void (*duringLiveMatchReadLeaseForTest)() = nullptr;
+#endif
 enum class MatchFailure : std::uint8_t
 {
     none,

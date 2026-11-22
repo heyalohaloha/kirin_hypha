@@ -42,6 +42,19 @@ public:
         return payload != nullptr;
     }
 
+    // Non-realtime readers may run analysis that allocates; always drop the counted
+    // read even if the operation exits exceptionally. Retirement uses the same counter.
+    template <typename Operation>
+    bool withControlReader (Operation&& operation)
+    {
+        readers.fetch_add (1, std::memory_order_seq_cst);
+        struct Release { std::atomic<unsigned int>& count; ~Release() { count.fetch_sub (1, std::memory_order_seq_cst); } } release {readers};
+        auto* payload = current.load (std::memory_order_seq_cst);
+        if (payload == nullptr) return false;
+        std::forward<Operation> (operation) (*payload);
+        return true;
+    }
+
     Payload* control() noexcept { return owned.get(); }
     const Payload* control() const noexcept { return owned.get(); }
     bool hasPublishedRealtime() const noexcept

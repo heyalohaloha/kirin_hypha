@@ -4,6 +4,7 @@
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "LiveMatchSpanLifecycleProductTest.h"
+#include "LiveMatchFormatLeaseProductTest.h"
 #include "reference_rt_probe.h"
 #include <array>
 #include <atomic>
@@ -306,8 +307,29 @@ private:
             case 13:
                 if (matchSpan.tick (*post, [&] { pause.store (true); awaitAudio ([this] { return paused.load(); }); },
                     [&] { pause.store (false); }, require))
-                { post->finishLiveCompare(); stage = 9; }
+                {
+                    if (mode != "match-span-restart") { post->finishLiveCompare(); stage = 9; break; }
+                    // W1's recovery is complete. Acquire both production measurement paths with
+                    // new LISTEN evidence before testing a concurrent host format change (Y1).
+                    pause.store (true); awaitAudio ([this] { return paused.load(); });
+                    post->stopLiveCompare();
+                    matchSpan.begin (*post, require);
+                    pause.store (false); stage = 14;
+                }
                 break;
+            case 14:
+            {
+                post->serviceLiveMatchSpan();
+                if (LiveTimingFixtureAccess::wholeSpanConsumedForTest (*post) < 48000u * 4u) break;
+                pause.store (true); awaitAudio ([this] { return paused.load(); });
+                const auto recent = post->measureLiveCompare (false);
+                const auto whole = post->measureLiveCompare (true);
+                if (! recent.ok() || ! whole.ok()) { pause.store (false); break; }
+                hypha::tests::match_format_fixture::verify (*post, recent, whole, frames, require);
+                // Keep this host paused through teardown. Its clock is still in the old format.
+                stage = 9;
+                break;
+            }
         }
     }
     float source (std::int64_t frame, int channel) const

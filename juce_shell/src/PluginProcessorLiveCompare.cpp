@@ -231,20 +231,26 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
 
 hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(bool selectedSpan)
 {
-    // Message thread: reads the POST history and PRE's ring through atomics only.
-    hypha::live_compare::MatchResult result;
-    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
-        || ! liveCompare.authority.permitted())
-        return result;
-    const auto* mapping = liveCompare.ring.control();
-    if (mapping == nullptr || mapping->ring() == nullptr)
-        return result;
-    const auto generation = liveCompare.sessionGeneration.load (std::memory_order_acquire);
-    if (selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled())
-        result = measureWholeLiveMatch(*mapping->ring());
-    else result = hypha::live_compare::computeMatch (*mapping->ring(), liveCompare.renderer, mapping->rate());
-    if (generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)
-        || ! liveCompare.authority.permitted()) return {};
+    using namespace hypha::live_compare;
+    const juce::ScopedTryLock formatLock (handleLock);
+    MatchResult result;
+    if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)
+        || role != Role::Post || !liveCompare.sessionActive.load(std::memory_order_acquire)
+        || !liveCompare.authority.permitted()) return result;
+    const auto generation = liveCompare.sessionGeneration.load(std::memory_order_acquire);
+    liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
+    {
+        const auto* ring = mapping.ring();
+        if (ring == nullptr || ring->header.ownerClosed.load(std::memory_order_acquire) != 0) return;
+       #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+        if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest();
+       #endif
+        result = selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled()
+            ? measureWholeLiveMatch(*ring) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
+        if (ring->header.ownerClosed.load(std::memory_order_acquire) != 0) result = {};
+    });
+    if (generation != liveCompare.sessionGeneration.load(std::memory_order_acquire)
+        || !liveCompare.authority.permitted()) return {};
     result.generation = generation;
     result.generationBound = true;
     return result;
@@ -255,6 +261,9 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(boo
 hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch (const hypha::live_compare::MatchPlan& plan,
                                                      hypha::live_compare::MatchChoice choice)
 {
+    const juce::ScopedTryLock formatLock (handleLock);
+    if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire))
+        return { hypha::live_compare::MatchFailure::stale };
     using hypha::live_compare::MatchChoice;
     using hypha::live_compare::MatchFailure;
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
@@ -279,37 +288,41 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     // Only END/RETURN can raise POST; remeasure a stale plan rather than undo that approval.
     if (wantedPost > liveCompare.postTarget.load (std::memory_order_acquire))
         return { MatchFailure::stale };
-    hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
-    const auto* mapping = liveCompare.ring.control();
-    if (! update || mapping == nullptr || mapping->ring() == nullptr
-        || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0
-        || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
-        || ! liveCompare.sessionActive.load (std::memory_order_acquire)
-        || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
-        || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
-        return { MatchFailure::stale };
-    const auto currentOwner = hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket());
-    if (plan.proofBound || plan.wholeOwnerBound)
+    bool applied = false;
+    liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
     {
-        const auto history = liveCompare.renderer.historyView();
-        if (!history.kValid || history.proof != plan.proof || history.preRun != plan.preRun
-            || (plan.wholeOwnerBound && (history.preClock != plan.wholePreClock
-                || !hypha::live_compare::wholeProofCurrent(*mapping->ring(), history) || !plan.wholeOwner.same(currentOwner))))
-            return { MatchFailure::stale };
-    }
-    liveCompare.gainApproval.bind (currentOwner);
-    liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
-    liveCompare.gain.store (linear (preDb), std::memory_order_release);
-    liveCompare.postTarget.store (wantedPost, std::memory_order_release);
-    liveCompare.matchRun.store (liveCompare.playbackRun.load (std::memory_order_acquire), std::memory_order_release);
-    liveCompare.matchGeneration.store (plan.generationBound ? plan.generation
-        : liveCompare.sessionGeneration.load (std::memory_order_acquire), std::memory_order_release);
-    liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
-    liveCompare.matched.store (true, std::memory_order_release);
-    liveCompare.matchRetained.store (true, std::memory_order_release);
-    liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
-    liveCompare.matchPeakDbtp = plan.prePeakDbtp; // MATCH on checks a kept boost from here
-    return {};
+        hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
+        if (! update || mapping.ring() == nullptr
+            || mapping.ring()->header.ownerClosed.load (std::memory_order_acquire) != 0
+            || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
+            || ! liveCompare.sessionActive.load (std::memory_order_acquire)
+            || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
+            || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
+            return;
+        const auto currentOwner = hypha::live_compare::gainIdentity (*mapping.ring(), liveCompare.authority.ticket());
+        if (plan.proofBound || plan.wholeOwnerBound)
+        {
+            const auto history = liveCompare.renderer.historyView();
+            if (!history.kValid || history.proof != plan.proof || history.preRun != plan.preRun
+                || (plan.wholeOwnerBound && (history.preClock != plan.wholePreClock
+                    || !hypha::live_compare::wholeProofCurrent(*mapping.ring(), history) || !plan.wholeOwner.same(currentOwner))))
+                return;
+        }
+        liveCompare.gainApproval.bind (currentOwner);
+        liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
+        liveCompare.gain.store (linear (preDb), std::memory_order_release);
+        liveCompare.postTarget.store (wantedPost, std::memory_order_release);
+        liveCompare.matchRun.store (liveCompare.playbackRun.load (std::memory_order_acquire), std::memory_order_release);
+        liveCompare.matchGeneration.store (plan.generationBound ? plan.generation
+            : liveCompare.sessionGeneration.load (std::memory_order_acquire), std::memory_order_release);
+        liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
+        liveCompare.matched.store (true, std::memory_order_release);
+        liveCompare.matchRetained.store (true, std::memory_order_release);
+        liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
+        liveCompare.matchPeakDbtp = plan.prePeakDbtp; // MATCH on checks a kept boost from here
+        applied = true;
+    });
+    return {applied ? MatchFailure::none : MatchFailure::stale};
 }
 
 // Message thread (INV-LC16): AUTO moves PRE's gain only. The ceiling and POST stay as the explicit
@@ -404,7 +417,6 @@ bool KirinHyphaProcessorBase::aaxMultiMonoMember() const noexcept
 {
     return wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2 && ! liveCompare.aaxGroup.alone();
 }
-
 // Message thread. A session belongs to the PRE ring it opened: a changed or cleared pair, or a PRE
 // that closed that ring (re-prepared, removed), ends it. Returns true when it ended the session.
 bool KirinHyphaProcessorBase::serviceLiveCompare()
@@ -483,7 +495,6 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
                                 : hypha::live_compare::RecoveryReason::preUnavailable);
     return true;
 }
-
 #include "live_compare/LiveCompareProcessorStatus.h"
 #include "live_compare/LiveCompareMatchToggle.h"
 #include "live_compare/CandidateProcessorControl.h"
