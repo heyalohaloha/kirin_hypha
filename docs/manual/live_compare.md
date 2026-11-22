@@ -108,13 +108,18 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
 Some DAWs, including Logic Pro and Cakewalk (Sonar), take letter keys first. Click the Hypha window before pressing a key;
 if it still does not work, use the on-screen buttons to do the same thing instead.
 
-1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
-   300% and above) in the footer.
+1. In POST, select the exact PRE pair. Before starting, use **MENU → MATCH SPAN** to choose
+   **LAST 4 s** (the default) or **ALL PLAYED**. At 200% and above, press **LISTEN** (**PRE/POST LISTEN**
+   at 300% and above) in the footer.
 2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms. The next LISTEN
    starts on the side you chose last, saved with the project; BLIND and A/B always start on their
    own terms, and opening or restoring a project never starts LISTEN.
-3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
-   least three, BS.1770 loudness, up to ±24 dB) and applies that gain to PRE only; the PRE control
+3. Press **MATCH** to level PRE to POST. **LAST 4 s** uses the latest four seconds. **ALL PLAYED**
+   uses only confirmed PRE/POST audio heard by the session since LISTEN started, including
+   repeated playback across loops and seeks. It does not scan the file or count skipped audio.
+   Both modes need at least three seconds, use BS.1770 loudness and limit the difference to ±24 dB.
+   The chosen span is saved with the project but does not start LISTEN when it is opened. It
+   does not change AUTO, Reference MATCH or A/B MATCH. The PRE control
    shows it, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
    the measured true peaks, which is common with a loud, limited master, MATCH asks first:
    - **Lower POST** by the whole difference and keep PRE at its own level. POST then reads, for

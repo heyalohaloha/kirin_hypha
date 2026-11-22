@@ -60,9 +60,13 @@ at matched level.** for one round, or **N blind rounds at matched level.** for t
 Hypha address. Song and track names are not collected automatically. When saving fails, the reason
 stays on the screen.
 
-Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
-another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match, and a MATCH
-you turned off is not reused: BLIND then matches on its own.
+For live PRE/POST BLIND, choose **MENU → MATCH SPAN** before starting. **LAST 4 s** is the default.
+With **ALL PLAYED**, BLIND makes its own match from confirmed PRE/POST playback since starting
+its measurement, counting repeats and requiring at least three seconds. A/B is unchanged.
+
+Alternatively use **LISTEN → MATCH → BLIND**. With **LAST 4 s**, a valid, fully applied MATCH
+can be reused without another measurement; AUTO stops and the gain is frozen. TP LIMIT is not
+a full match, and a MATCH you turned off is not reused: BLIND then matches on its own.
 
 BLIND matches by raising the quieter source, as long as it stays under the ceiling (the larger of
 −1 dBTP and the measured true peaks). When raising it would peak above the ceiling, already at MATCH
