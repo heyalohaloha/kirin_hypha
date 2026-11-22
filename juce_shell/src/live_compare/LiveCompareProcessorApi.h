@@ -3,7 +3,7 @@
 // A press that waited passes the restore and pair ticket of its press; a new press takes the latest one.
 // lastSide: the LISTEN press starts on the side LISTEN last chose (INV-LC4); BLIND and A/B start on POST.
 hypha::live_compare::StartResult startLiveCompare (std::optional<std::uint64_t> pressedTicket = std::nullopt,
-                                                   bool lastSide = false);
+                                                   bool lastSide = false, bool captureListenSpan = true);
 // LISTEN（reuseSession なら LIVE BLIND）を始めてよいか。出力の持ち主の表（outputDecision）の答え。
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 // INV-LC16：窓を閉じた間の AUTO（message thread だけ）。開き直した窓が同じ session なら続ける。

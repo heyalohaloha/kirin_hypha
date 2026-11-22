@@ -51,7 +51,7 @@ struct Pair
     }
 
     RenderReport render (bool preSelected, float gain, float postPeak = 0, AlignPlayback align = {},
-                         LiveMatchSpan::CaptureToken token = {UINT64_MAX, 0})
+                         LiveMatchSpan::CaptureToken token = {UINT64_MAX})
     {
         const auto block = record (postPeak);
         float* io[] = { post.data() };
@@ -101,26 +101,24 @@ void verifySeqlock (Require require)
 }
 
 template <class Require>
-void verifyBlindAndFrozenSnapshot (Require require)
+void verifyFrozenSnapshot (Require require)
 {
     Pair pair;
     auto& span = pair.renderer.wholeMatch;
-    const auto listen = span.captureToken(); // real callback-entry snapshot, before BLIND request
-    span.restart (7);
-    const auto pending = span.captureToken();
-    pair.stage (span.admitted (listen, true, 0, 0)); // late old callback completion
-    pair.stage (span.admitted (pending, true, 7, 6)); // new request, still old proof
-    require (pending.epoch != listen.epoch && pending.receipt == 7 && span.snapshot() == 0,
-             "late old callback and a pending BLIND proof publish nothing");
-    span.service (1, &kirin_hypha_live_match_span_cut);
-    require (span.frames() == 0, "new BLIND meter excludes late LISTEN and unacknowledged BLIND PCM");
-    auto capture = span.admitted (pending, true, 7, 7);
+    const auto listen = span.captureToken();
+    span.restart();
+    const auto capture = span.admitted(span.captureToken(), true);
+    pair.stage(span.admitted(listen, true)); // late callback from an earlier LISTEN
+    require(capture.epoch != listen.epoch && span.snapshot() == 0,
+        "previous LISTEN cannot publish into the next LISTEN");
+    span.service(1, &kirin_hypha_live_match_span_cut);
+    require(span.frames() == 0, "new LISTEN meter contains no old PCM");
     for (int i = 0; i < 288; ++i)
     {
         pair.stage (capture);
         span.service (1, &kirin_hypha_live_match_span_cut);
     }
-    require (span.enough() && span.frames() == 288 * frames, "only fresh acknowledged BLIND proof fills its own three seconds");
+    require (span.enough() && span.frames() == 288 * frames, "only fresh LISTEN proof fills its own three seconds");
     const auto target = span.snapshot();
     require (span.serviceThrough (1, target, 65536, &kirin_hypha_live_match_span_cut),
              "consumer caught up to the frozen MATCH target");
@@ -133,12 +131,11 @@ void verifyBlindAndFrozenSnapshot (Require require)
 }
 
 template <class Require>
-void verifySubstitutePost (Require require, std::uint64_t receipt = 0)
+void verifySubstitutePost (Require require)
 {
     Pair pair;
     auto& span = pair.renderer.wholeMatch;
-    if (receipt != 0) span.restart(receipt);
-    const auto token = span.admitted(span.captureToken(), true, receipt, receipt);
+    const auto token = span.admitted(span.captureToken(), true);
     for (int i = 0; i < 330; ++i)
     {
         pair.render (false, 1.0f, 0.0f, {}, token); // user explicitly selected ordinary POST
@@ -172,12 +169,12 @@ void verifyQueueReplacement (Require require)
     auto& span = pair.renderer.wholeMatch;
     const auto old = span.captureToken(); // callback opened before its ring lease
     span.prepare (false, rate); // ALL PLAYED → LAST 4 replaces the backing queue
-    require (span.admitted (old, true, 0, 0).epoch == 0, "old callback cannot touch missing queue");
+    require (span.admitted (old, true).epoch == 0, "old callback cannot touch missing queue");
     pair.stage (old); // defense in stage/finish even if invoked with a stale token
     require (span.snapshot() == 0 && !span.enabled(), "LAST 4 never receives ALL PLAYED PCM");
     span.prepare (true, rate);
-    require (span.admitted (old, true, 0, 0).epoch == 0, "old callback cannot touch replacement queue");
-    pair.stage (span.admitted (span.captureToken(), true, 0, 0));
+    require (span.admitted (old, true).epoch == 0, "old callback cannot touch replacement queue");
+    pair.stage (span.admitted (span.captureToken(), true));
     require (span.snapshot() == frames, "only callback from replacement epoch publishes");
 }
 
@@ -250,8 +247,7 @@ void verify (Require require)
     verifyRunChangeAndCapacity (require);
     verifyAlignWaitingForSelectedPost (require);
     verifySeqlock (require);
-    verifyBlindAndFrozenSnapshot (require);
+    verifyFrozenSnapshot (require);
     verifySubstitutePost (require);
-    verifySubstitutePost (require, 7);
 }
 }

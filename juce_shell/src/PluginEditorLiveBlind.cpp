@@ -188,7 +188,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     if (! processorRef.candidateCompareActive())
     {
         juce::PopupMenu span;
-        span.addSectionHeader ("MATCH span: last 4 seconds or all played");
+        span.addSectionHeader ("LISTEN MATCH span: last 4 seconds or all played");
         span.addItem (498, "LAST 4 s", !live.active, !processorRef.wholeMatchPreferred());
         span.addItem (499, "ALL PLAYED", !live.active, processorRef.wholeMatchPreferred());
         menu.addSubMenu ("MATCH SPAN", span);

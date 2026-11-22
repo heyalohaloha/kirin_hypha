@@ -14,7 +14,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
 {
     using Reason = hypha::live_compare::RecoveryReason;
     auto spanToken = liveCompare.renderer.wholeMatch.captureToken();
-    const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
    #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     if (hypha::live_compare::afterWholeMatchTokenForTest) hypha::live_compare::afterWholeMatchTokenForTest();
    #endif
@@ -316,6 +315,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && (!coherent || !gains.retained || gains.identity.same (
                 hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
         if (trace != nullptr && ! blindCommand.active()) hypha::chain_trace::acceptNamedSelection (*trace, admitted && namedEligible);
+        const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
         if (freshBlind != liveCompare.blindTimingSeen)
         {
             if (namedEligible && liveCompare.blindTimingAuthority.load (std::memory_order_acquire)
@@ -350,8 +350,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
         spanToken = liveCompare.renderer.wholeMatch.admitted(spanToken,
-            admitted && namedEligible && timingEligible && candidateToken == 0 && !candidateReturning, freshBlind,
-            liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
+            admitted && namedEligible && timingEligible && candidateToken == 0 && !candidateReturning);
         const float renderGain = levelGain, renderPost = levelPost (postTarget);
         auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
                                                    buffer.getArrayOfWritePointers(), channels,

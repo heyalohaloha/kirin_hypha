@@ -84,7 +84,7 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
 }
 
 hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket,
-                                                                            bool lastSide)
+                                                                            bool lastSide, bool captureListenSpan)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     using hypha::live_compare::StartResult;
@@ -117,7 +117,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
             liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,
             [&] {
                 liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
-                liveCompare.renderer.wholeMatch.prepare (wholeMatchPreferred() && liveCompare.candidate.selectedPre.empty(),
+                liveCompare.renderer.wholeMatch.prepare (captureListenSpan && wholeMatchPreferred() && liveCompare.candidate.selectedPre.empty(),
                     static_cast<std::uint32_t> (preparedFormat.sampleRate));
             }))
         return StartResult::notReady;

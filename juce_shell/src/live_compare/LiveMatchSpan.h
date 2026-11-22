@@ -22,11 +22,10 @@ public:
         if (enabled) restart();
     }
 
-    void restart(std::uint64_t requiredBlindReceipt = 0) noexcept
+    void restart() noexcept
     {
         meter.reset(); readEpoch = 0; meterChannels = 0; consumed = 0; invalid = false;
         if (queue) queue->discardPublished();
-        blindReceipt.store(requiredBlindReceipt, std::memory_order_relaxed);
         epoch.store(queue ? ++serial : 0, std::memory_order_release);
     }
 
@@ -40,10 +39,10 @@ public:
 
     bool enabled() const noexcept { return epoch.load(std::memory_order_acquire) != 0; }
 
-    struct CaptureToken { std::uint64_t epoch = 0, receipt = 0; };
+    struct CaptureToken { std::uint64_t epoch = 0; };
     CaptureToken captureToken() const noexcept
     {
-        return {epoch.load(std::memory_order_acquire), blindReceipt.load(std::memory_order_relaxed)};
+        return {epoch.load(std::memory_order_acquire)};
     }
 
     bool current(CaptureToken token) const noexcept
@@ -68,10 +67,9 @@ public:
         }
     }
 
-    CaptureToken admitted(CaptureToken token, bool eligible, std::uint64_t callbackRequest,
-                          std::uint64_t acceptedRequest) noexcept
+    CaptureToken admitted(CaptureToken token, bool eligible) noexcept
     {
-        if (eligible && current(token) && queue && (token.receipt == 0 || (token.receipt == callbackRequest && token.receipt == acceptedRequest)))
+        if (eligible && current(token) && queue)
             return token;
         finish(token, {}, false);
         return {};
@@ -140,7 +138,7 @@ private:
     using Meter = std::unique_ptr<KirinLiveMatchSpan, void (*)(KirinLiveMatchSpan*)>;
     std::unique_ptr<LiveMatchSpanQueue> queue;
     Meter meter { nullptr, nullptr };
-    std::atomic<std::uint64_t> epoch {0}, blindReceipt {0};
+    std::atomic<std::uint64_t> epoch {0};
     std::uint64_t lastCapturedEpoch = 0; // audio writer only
     bool skipped = false;
     std::uint64_t serial = 0, readEpoch = 0, consumed = 0;

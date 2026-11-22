@@ -220,7 +220,7 @@ public:
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
                          std::uint64_t candidateToken = 0, bool candidateReceiver = false,
-                         bool lowerOnCeiling = false, LiveMatchSpan::CaptureToken spanToken = {UINT64_MAX, 0}) noexcept
+                         bool lowerOnCeiling = false, LiveMatchSpan::CaptureToken spanToken = {UINT64_MAX}) noexcept
     {
         auto report = renderBlock (ring, pairKey, sampleRate, block, io, channels, preSelected,
             preGain, post, postTarget, ceilingLinear, blind, timingBlock, diagnosticDecision, align, candidateToken,

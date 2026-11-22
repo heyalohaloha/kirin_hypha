@@ -459,7 +459,7 @@ static void matchesAllProvenPlaybackWithoutChangingLastFour()
     require (last.ok() && std::abs(last.measuredDb) < 0.1, "LAST 4 s retains its existing analysis");
     require (facts.post_lufs - facts.pre_lufs > 0.1, "earlier proven intro contributes to ALL PLAYED");
     span.restart();
-    require (!span.enough() && !span.measure (facts), "fresh BLIND epoch cannot reuse earlier LISTEN PCM");
+    require (!span.enough() && !span.measure (facts), "fresh LISTEN epoch cannot reuse earlier PCM");
     span.clear();
     require (!span.enabled() && !span.measure (facts), "END removes accumulated MATCH data");
 }

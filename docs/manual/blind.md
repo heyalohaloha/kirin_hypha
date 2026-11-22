@@ -62,18 +62,12 @@ stays on the screen.
 
 ## Level matching
 
-For live PRE/POST BLIND, choose **MENU → MATCH SPAN** before starting:
-
-- **LAST 4 s** (default) keeps the existing paired measurement, including the short-event
-  method when the loudness comparison has too little signal. With **LISTEN → MATCH → BLIND**,
-  BLIND can reuse a valid, fully applied LISTEN match. AUTO stops and the gain is frozen.
-  **TP LIMIT** is not a full match, and BLIND measures again if you turned MATCH off.
-- **ALL PLAYED** always starts a separate measurement for BLIND, even if LISTEN was already
-  matched. It uses BS.1770 gated integrated loudness from confirmed PRE/POST audio since
-  BLIND's own measurement began. It counts repeats, needs at least three seconds, and never
-  reuses the LISTEN gain or its accumulated playback.
-
-The span setting does not change A/B or Reference MATCH.
+For live PRE/POST comparisons, **MENU → MATCH SPAN** affects LISTEN only. With
+**LISTEN → MATCH → BLIND**, BLIND reuses a valid, fully applied LISTEN match from either
+**LAST 4 s** (the default) or **ALL PLAYED**. The gain, true-peak ceiling and any approved
+attenuation carry over as one match; AUTO stops. BLIND does not collect **ALL PLAYED** audio.
+When you start BLIND directly, turn MATCH off, or have only **TP LIMIT**, BLIND prepares a
+match from its usual recent window. The span setting does not change A/B or Reference MATCH.
 
 BLIND matches by raising the quieter source, as long as it stays under the ceiling (the larger of
 −1 dBTP and the measured true peaks). When raising it would peak above the ceiling, already at MATCH

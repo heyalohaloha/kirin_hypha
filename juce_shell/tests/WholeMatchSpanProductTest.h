@@ -21,7 +21,7 @@ template<class Require> void renderWholeMatchProductBlocks (CandidateHost<Requir
     host.post().serviceLiveMatchSpan();
 }
 
-template<class Require> void verifyWholeMatchBlindStartsFresh (Require require)
+template<class Require> void verifyWholeMatchBlindReusesListen (Require require)
 {
     using namespace live_compare;
     ProductTestClock wall;
@@ -40,36 +40,47 @@ template<class Require> void verifyWholeMatchBlindStartsFresh (Require require)
                 plan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis)),
              "LISTEN whole-span plan applies before entering BLIND");
     renderWholeMatchProductBlocks (host, 64);
-    require (post.liveCompareStatus().matchReady,
-             "the old LISTEN match is eligible for reuse in the recent-window mode");
-
+    const auto approved = post.liveCompareStatus();
+    const auto revision = LiveTimingFixtureAccess::gainRevision(post).load();
+    const auto published = LiveTimingFixtureAccess::wholeSpanPublishedForTest(post);
+    require (approved.matchReady && published >= 3 * 48000u, "LISTEN MATCH is fully applied");
     require (post.beginLiveBlind() == StartResult::started && post.liveBlindStatus().stage == BlindStage::preparing,
-             "the production BLIND entry starts a fresh preparation");
-    require (! post.measureLiveCompare (true).ok(), "the old LISTEN span is not offered as BLIND evidence");
-    renderWholeMatchProductBlocks (host, 120);
-    require (post.liveBlindStatus().stage == BlindStage::preparing && ! post.measureLiveCompare (true).ok(),
-             "a proved but shorter-than-three-seconds BLIND prefix cannot reuse the old match");
-
-    // Hold only the fixture's message-side BLIND service so we can inspect the measured span before
-    // the product approves it. Both processors continue through the normal audio callbacks.
-    host.serviceBlindAfterAudio = false;
-    constexpr int freshBlocks = 376;
-    renderWholeMatchProductBlocks (host, freshBlocks - 120);
-    const auto blind = post.measureLiveCompare (true);
-    require (blind.ok() && blind.wholeOwnerBound && blind.proofBound
-                && blind.analysisUnits >= 3 * 48000u
-                && blind.analysisUnits <= static_cast<std::uint64_t> (freshBlocks) * host.block,
-             "only after the new proof and three seconds does ALL PLAYED expose a new BLIND span");
-    require (blind.generationBound && blind.generation != listen.generation,
-             "the measured BLIND span belongs to its own processor generation");
-
-    host.serviceBlindAfterAudio = true;
-    for (int n = 0; n < 280 && post.liveBlindStatus().stage != BlindStage::active; ++n)
+             "production BLIND starts a new timing proof, not a new whole measurement");
+    require (!LiveTimingFixtureAccess::wholeSpanEnabledForTest(post),
+             "there is no ALL PLAYED capture during BLIND preparation");
+    for (int n = 0; n < 250 && post.liveBlindStatus().stage != BlindStage::active; ++n)
         renderWholeMatchProductBlocks (host, 1);
-    require (post.liveBlindStatus().stage == BlindStage::active,
-             "production BLIND independently measures, applies the match and becomes active");
+    const auto inherited = post.liveCompareStatus();
+    require (post.liveBlindStatus().stage == BlindStage::active
+        && LiveTimingFixtureAccess::gainRevision(post).load() == revision
+        && inherited.gain == approved.gain && inherited.postTarget == approved.postTarget,
+        "before three new seconds BLIND uses exactly the already approved gain, ceiling and attenuation revision");
+    require (LiveTimingFixtureAccess::wholeSpanPublishedForTest(post) == published
+        && !LiveTimingFixtureAccess::wholeSpanEnabledForTest(post),
+        "same LISTEN accumulator never receives BLIND audio");
     post.finishLiveCompare();
     renderWholeMatchProductBlocks (host, 96);
+}
+
+template<class Require> void verifyDirectBlindUsesRecent (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair();
+    auto& post = host.post();
+    post.setWholeMatchPreferred(true);
+    require(post.beginLiveBlind() == StartResult::started, "direct BLIND starts with ALL PLAYED preference saved");
+    require(!LiveTimingFixtureAccess::wholeSpanEnabledForTest(post)
+        && LiveTimingFixtureAccess::wholeSpanPublishedForTest(post) == 0,
+        "direct BLIND never creates a whole-playback capture");
+    for (int n=0; n<560 && post.liveBlindStatus().stage != BlindStage::active; ++n)
+        renderWholeMatchProductBlocks(host,1);
+    require(post.liveBlindStatus().stage == BlindStage::active
+        && LiveTimingFixtureAccess::wholeSpanPublishedForTest(post) == 0,
+        "the established recent measurement still prepares direct BLIND");
+    post.finishLiveCompare();
+    renderWholeMatchProductBlocks(host,96);
 }
 
 template<class Require> void verifyWholeMatchPreClockRace (Require require)
@@ -130,7 +141,8 @@ template<class Require> void verifyWholeMatchPreClockRace (Require require)
 
 template<class Require> void verifyWholeMatchSpanProduct (Require require)
 {
-    verifyWholeMatchBlindStartsFresh (require);
+    verifyWholeMatchBlindReusesListen (require);
+    verifyDirectBlindUsesRecent (require);
     verifyWholeMatchPreClockRace (require);
 }
 

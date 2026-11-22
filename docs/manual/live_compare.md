@@ -125,7 +125,9 @@ if it still does not work, use the on-screen buttons to do the same thing instea
    Both spans require at least three seconds of usable playback and limit the match to ±24 dB.
    The project remembers the span but does not start LISTEN when opened.
    Re-saving in an older Hypha without this setting discards the choice; the next time you open the project in a version with MATCH SPAN, it uses **LAST 4 s**.
-   The choice does not change AUTO, Reference MATCH or A/B MATCH. The PRE control shows the
+   The choice applies to LISTEN only. BLIND carries over an eligible, fully applied LISTEN MATCH
+   from either span; without one it prepares a match using its usual recent window. The choice
+   does not change AUTO, Reference MATCH or A/B MATCH. The PRE control shows the
    applied gain, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
    the measured true peaks, which is common with a loud, limited master, MATCH asks first:
    - **Lower POST** by the whole difference and keep PRE at its own level. POST then reads, for

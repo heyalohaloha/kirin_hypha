@@ -14,7 +14,7 @@ const Entry entries[] = {
     { "MATCH SPAN", u8"MATCH SPAN" },
     { "LAST 4 s", u8"LAST 4 s" },
     { "ALL PLAYED", u8"ALL PLAYED" },
-    { "MATCH span: last 4 seconds or all played", u8"MATCHの範囲：直近4秒／再生した全部" },
+    { "LISTEN MATCH span: last 4 seconds or all played", u8"LISTENのMATCHの範囲：直近4秒／再生した全部" },
     { "MATCH waits for more signal", u8"MATCHに必要な信号を待っています" },
     { "Waiting for the first loop pass (POST)", u8"最初のループが一周するのを待っています（POST出力）" },
     { "Loop timing unavailable; turn loop off to compare (POST)", u8"ループのタイミングは未確認。ループをオフにすると比べられます（POST）" },
