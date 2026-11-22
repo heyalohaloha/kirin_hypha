@@ -19,7 +19,11 @@ void invalidateLiveComparePair() noexcept;
 std::uint64_t restoreOrPairTicket() const noexcept { return liveCompare.authority.ticket(); }
 void selectLiveComparePre (bool pre) noexcept;
 void setLiveCompareGain (float linear) noexcept;
-hypha::live_compare::MatchResult measureLiveCompare();
+hypha::live_compare::MatchResult measureLiveCompare(bool selectedSpan = false);
+void serviceLiveMatchSpan();
+hypha::live_compare::MatchResult measureWholeLiveMatch();
+bool wholeMatchPreferred() const noexcept { return liveCompare.wholeMatchPreferred.load(std::memory_order_acquire); }
+void setWholeMatchPreferred(bool enabled) noexcept;
 void requestLiveCompareMatch();
 void serviceLiveCompareMatch();
 bool takeLiveCompareMatch (hypha::live_compare::MatchPlan&, bool& applied);

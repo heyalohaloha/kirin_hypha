@@ -97,7 +97,7 @@ void KirinHyphaEditor::matchLiveCompare (std::uint64_t menuGeneration)
         if (! hypha::live_compare_ui::currentNamedAction (processorRef.liveCompareStatus(), menuGeneration, false))
             return;
     }
-    const auto result = processorRef.measureLiveCompare();
+    const auto result = processorRef.measureLiveCompare(true);
     if (! result.ok())
     {
         const bool waiting = result.failure == MatchFailure::notProven

@@ -115,7 +115,11 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     stopLiveCompare();
     if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,
             liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,
-            [&] { liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate); }))
+            [&] {
+                liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
+                liveCompare.renderer.wholeMatch.prepare (wholeMatchPreferred() && liveCompare.candidate.selectedPre.empty(),
+                    static_cast<std::uint32_t> (preparedFormat.sampleRate));
+            }))
         return StartResult::notReady;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
@@ -179,6 +183,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
                 ? liveCompare.blindPreparationReason : reason);
     }
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.renderer.wholeMatch.suspend();
     liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // a new LISTEN begins after this stop
     liveCompare.namedMatchPending = liveCompare.namedMatchReady = false;
     liveCompare.blindTiming.end();
@@ -224,7 +229,7 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
     }
 }
 
-hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare()
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(bool selectedSpan)
 {
     // Message thread: reads the POST history and PRE's ring through atomics only.
     hypha::live_compare::MatchResult result;
@@ -235,7 +240,9 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare()
     if (mapping == nullptr || mapping->ring() == nullptr)
         return result;
     const auto generation = liveCompare.sessionGeneration.load (std::memory_order_acquire);
-    result = hypha::live_compare::computeMatch (*mapping->ring(), liveCompare.renderer, mapping->rate());
+    if (selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled())
+        result = measureWholeLiveMatch();
+    else result = hypha::live_compare::computeMatch (*mapping->ring(), liveCompare.renderer, mapping->rate());
     if (generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)
         || ! liveCompare.authority.permitted()) return {};
     result.generation = generation;

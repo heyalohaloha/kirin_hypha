@@ -31,6 +31,7 @@ void KirinHyphaProcessorBase::timerCallback()
     applyHeldFormatIfRecordReleased();
     serviceLocalBlindProductSession();
     serviceLiveContentTiming();
+    serviceLiveMatchSpan();
     serviceLiveBlind();
     serviceLiveCompareMatch();
     // Observe topology independently of substitution permission, including after END.

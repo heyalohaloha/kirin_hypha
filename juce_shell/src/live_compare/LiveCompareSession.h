@@ -5,6 +5,7 @@
 #include "LiveCompareGuardRecovery.h"
 #include "LiveCompareGainRamp.h"
 #include "CandidateTransition.h"
+#include "LiveMatchSpan.h"
 
 #include <algorithm>
 #include <atomic>
@@ -120,8 +121,8 @@ struct RenderReport
 class PostRenderer
 {
 public:
-    // Non-RT: sizes the scratch for the largest realtime block, the fade length and the POST input
-    // history that MATCH reads (a power of two of at least historySeconds).
+    LiveMatchSpan wholeMatch;
+    // Non-RT: scratch, fade and power-of-two POST history.
     void prepare (int maximumFrames, double sampleRate)
     {
         candidateTransition.reset();
@@ -146,7 +147,6 @@ public:
         alignment.newSession(); // each new session confirms its own content, retaining only the value
         weight = 0.0f;
     }
-
     bool adoptInitialTiming (const Ring& ring, const BlockClock& block, const TimingEvidence& evidence) noexcept
     { return consumer.adoptInitialTiming (ring, block, evidence); }
     bool needsNewAdmission() const noexcept { return consumer.needsNewAdmission(); }
@@ -241,7 +241,6 @@ public:
         else candidateTransition.reset();
         return report;
     }
-
     RenderReport renderBlock (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
@@ -290,6 +289,8 @@ public:
         else if (candidateToken == 0 || ring.header.candidate.settled (candidateToken, decision.run,
             inputStart, inputEnd, sampleRate)) recordHistory (block, io, channels, decision);
         else invalidateHistory();
+        if (candidateToken == 0 && inputPosition && block.playing && timingBlock == RecoveryReason::none && decision.verdict == Verdict::accepted)
+            wholeMatch.capture (ring, decision.run, inputStart, io, channels, block.frames);
         if (candidateToken != 0)
         {
             const auto duration = timingBlock == RecoveryReason::none ? ring.header.candidate.contiguousFrames (

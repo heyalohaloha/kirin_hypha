@@ -108,6 +108,7 @@ use record_display_ffi::to_c_record_display;
 mod audio_push_transaction;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
+mod live_match_span_ffi;
 mod signal_state_ffi;
 mod spectrum_mid_side_ffi;
 mod spectrum_view_abi;
@@ -156,7 +157,6 @@ fn keep_phase_is_closed(
         && observed_record_generation >= expected_record_generation
         && !recording
 }
-
 #[cfg(test)]
 mod keep_phase_contract_tests {
     use super::*;

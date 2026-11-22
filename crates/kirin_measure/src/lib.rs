@@ -76,6 +76,7 @@ pub mod record_take;
 pub mod record_writer;
 mod record_writer_claim;
 pub mod reference_gain;
+pub mod live_match_span;
 pub mod resampler;
 pub mod reservation;
 pub mod space_decay;
@@ -420,7 +421,6 @@ fn daw_session_id_cell() -> &'static Arc<RwLock<String>> {
 pub fn generate_project_hash() -> String {
     uuid::Uuid::new_v4().to_string()
 }
-
 /// プロセス単位 `project_uuid` の現在値を読み取る。
 ///
 /// セル空のときは lazy fallback で生成 UUID を返す（テスト・diagnostics 用途）。

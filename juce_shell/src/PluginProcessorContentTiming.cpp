@@ -11,6 +11,7 @@ void KirinHyphaProcessorBase::invalidateLiveComparePair() noexcept
 {
     if (role != Role::Post) return;
     liveCompare.pairRevocationGeneration.store (liveCompare.authority.revoke(), std::memory_order_release);
+    liveCompare.renderer.wholeMatch.suspend();
     liveCompare.selection.end (hypha::live_compare::RecoveryReason::pairChanged);
     requestServiceTimer(); // cleanup is deferred; RT authority already rejects the old ring
 }

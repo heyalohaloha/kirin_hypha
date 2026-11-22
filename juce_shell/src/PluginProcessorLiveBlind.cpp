@@ -12,6 +12,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     endCandidateCompare();
     // End logical ownership now. The published mapping remains leased for the RT fade/ramp.
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.renderer.wholeMatch.suspend();
     liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // END ends this LISTEN
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();
@@ -127,6 +128,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
         if (startedHere) stopLiveCompare();
         return StartResult::notReady;
     }
+    if (!borrowedCandidateScope && liveCompare.renderer.wholeMatch.enabled()) liveCompare.renderer.wholeMatch.restart();
     liveCompare.blindScope = epoch;
     liveCompare.candidate.blindReturned.store (false, std::memory_order_release);
     liveCompare.blind.reset();
@@ -208,7 +210,9 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     // Timing is proven again: what is left is the window filling, said as a signal wait, never a
     // stale timing reason.
     if (liveCompare.blindWaiting == MatchFailure::notProven) liveCompare.blindWaiting = MatchFailure::tooShort;
-    if (status.matchReady)
+    const bool newWholeMeasurement = liveCompare.renderer.wholeMatch.enabled() && !candidateCompareActive()
+        && liveCompare.blindStage == BlindStage::preparing;
+    if (status.matchReady && !newWholeMeasurement)
     {
         const auto gains = readGainSnapshot (liveCompare);
         if (! currentGainReceipt (liveCompare, gains)) return;
@@ -227,7 +231,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         liveCompare.blindStage = BlindStage::active;
         return;
     }
-    if (status.matched && ! status.matchLimited) return; // the RT gain ramp has not settled
+    if (status.matched && ! status.matchLimited && !newWholeMeasurement) return; // the RT gain ramp has not settled
     const auto history = liveCompare.renderer.historyView();
     // A seek back leaves the history behind the last measured end: count fresh audio from its new start,
     // so MATCH measures again half a second after the audio comes, not only past the old end.
@@ -236,7 +240,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     const auto stride = static_cast<std::int64_t> (preparedFormat.sampleRate * 0.5);
     if (history.end - liveCompare.blindMeasuredEnd < stride) return;
     liveCompare.blindMeasuredEnd = history.end;
-    const auto result = measureLiveCompare();
+    const auto result = measureLiveCompare(true);
     liveCompare.blindWaiting = result.failure;
     if (! result.ok()) return;
     const auto held = status.postTarget > 0.0f ? 20.0 * std::log10 (status.postTarget) : 0.0;

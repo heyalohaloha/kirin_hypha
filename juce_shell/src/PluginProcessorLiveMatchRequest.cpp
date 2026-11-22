@@ -36,7 +36,7 @@ void KirinHyphaProcessorBase::serviceLiveCompareMatch()
     const auto now = callbackWallNanos();
     if (now < liveCompare.namedMatchNext) return;
     liveCompare.namedMatchNext = now + 500'000'000;
-    const auto measured = measureLiveCompare();
+    const auto measured = measureLiveCompare(true);
     liveCompare.namedMatchWaiting = measured.failure;
     const auto since = liveCompare.namedMatchSince;
     const bool expired = since != 0 && now >= since && now - since >= namedMatchLimitNanos;
@@ -81,4 +81,41 @@ bool KirinHyphaProcessorBase::takeLiveCompareMatch (hypha::live_compare::MatchPl
     applied = liveCompare.namedMatchApplied;
     liveCompare.namedMatchReady = false;
     return true;
+}
+
+void KirinHyphaProcessorBase::setWholeMatchPreferred(bool enabled) noexcept
+{
+    if (!liveCompare.sessionActive.load(std::memory_order_acquire))
+        liveCompare.wholeMatchPreferred.store(enabled, std::memory_order_release);
+}
+
+void KirinHyphaProcessorBase::serviceLiveMatchSpan()
+{
+    if (role != Role::Post) return;
+    auto& span = liveCompare.renderer.wholeMatch;
+    if (!liveCompare.sessionActive.load(std::memory_order_acquire) || !liveCompare.authority.permitted())
+    { if (!span.enabled()) span.clear(); return; }
+    if (!candidateCompareActive()) span.service(getTotalNumInputChannels());
+}
+
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch()
+{
+    using namespace hypha::live_compare;
+    MatchResult result;
+    auto& span = liveCompare.renderer.wholeMatch;
+    serviceLiveMatchSpan();
+    const auto view = liveCompare.renderer.historyView();
+    if (span.lost()) { result.failure = MatchFailure::overwritten; return result; }
+    if (!view.kValid) return result;
+    if (!span.enough()) { result.failure = MatchFailure::tooShort; return result; }
+    KirinLiveMatchSpanFacts facts {};
+    if (!span.measure(facts)) { result.failure = MatchFailure::notEnoughSignal; return result; }
+    result.measuredDb = facts.post_lufs - facts.pre_lufs;
+    result.prePeakDbtp = facts.pre_peak; result.postPeakDbtp = facts.post_peak;
+    result.ceilingDbtp = std::max({-1.0, facts.pre_peak, facts.post_peak});
+    result.analysisUnits = span.frames();
+    result.seconds = static_cast<double>(span.frames()) / preparedFormat.sampleRate;
+    result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
+    result.failure = std::abs(result.measuredDb) <= maximumMatchDb ? MatchFailure::none : MatchFailure::outOfRange;
+    return result;
 }

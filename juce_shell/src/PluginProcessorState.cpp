@@ -46,6 +46,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("vu_face_metric", static_cast<int> (metricFacePreference()));
     if (luChoicePreference() != 0) xml.setAttribute ("vu_lu_choice", (int) luChoicePreference()); // VU face, M by default
     if (! liveCompareAutoAlign()) xml.setAttribute ("live_auto_align", false); // on by default, never written
+    if (wholeMatchPreferred()) xml.setAttribute ("live_match_all_played", true);
     if (liveCompare.listenPre.load (std::memory_order_acquire)) xml.setAttribute ("live_listen_pre", true); // POST by default
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     {
@@ -85,6 +86,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
     bool restoredHybridVuOnRecord = true, restoredAutoAlign = true, restoredListenPre = false, restored = false;
+    bool restoredWholeMatch = false;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     hypha::reference_audition::ReferenceComparisonSettings restoredReference;
    #endif
@@ -137,6 +139,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             if (displayStateVersion >= 5) restoredHybridVuOnRecord =
                 xml->getBoolAttribute ("hybrid_vu_on_record", true);
             restoredAutoAlign = xml->getBoolAttribute ("live_auto_align", true);
+            restoredWholeMatch = xml->getBoolAttribute ("live_match_all_played", false);
             restoredListenPre = xml->getBoolAttribute ("live_listen_pre", false);
             const auto savedLuChoice = (uint8_t) juce::jlimit (0, 5, xml->getIntAttribute ("vu_lu_choice", 0));
             restoredLuChoice = hypha::lu_needle::packChoice (hypha::lu_needle::packedLuFace (savedLuChoice),
@@ -170,6 +173,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         spectrumAverage.set (restoredSpectrumAverage);
         displaySettings.set (restoredDisplaySettings);
         liveCompare.autoAlign.store (restoredAutoAlign, std::memory_order_release);
+        liveCompare.wholeMatchPreferred.store (restoredWholeMatch, std::memory_order_release);
         liveCompare.listenPre.store (restoredListenPre, std::memory_order_release); // remembered only; never starts LISTEN
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (role == Role::Post)
