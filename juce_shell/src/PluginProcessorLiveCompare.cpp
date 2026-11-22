@@ -284,6 +284,8 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     {
         const auto* ring = mapping.ring();
         // The session and PRE's clock, run and owner: before the commit lock, and again under it.
+        // PRE is another audio thread and can still move its clock after the second check; the level
+        // measured over what was played stays the approved one.
         const auto current = [&]
         {
             if (ring == nullptr || ring->header.ownerClosed.load (std::memory_order_acquire) != 0
@@ -300,16 +302,15 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
                 && plan.wholeOwner.same (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
         };
         if (! current()) return;
-        hypha::live_compare::liveMatchCommitStage (0);
+        const auto currentOwner = hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket());
+        hypha::live_compare::beforeLiveMatchCommitLock();
         const juce::ScopedLock commitLock (liveCompare.matchCommitLock);
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
         if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)
             || ! current()) return; // no revision was opened for a rejected proof
-        hypha::live_compare::liveMatchCommitStage (1);
         hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
         if (!update || wantedPost > liveCompare.postTarget.load(std::memory_order_acquire)) return;
-        liveCompare.gainProof.keep (liveCompare, update.published(), plan.wholeOwnerBound, plan.wholePreClock, plan.preRun);
-        liveCompare.gainApproval.bind (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket()));
+        liveCompare.gainApproval.bind (currentOwner);
         liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
         liveCompare.gain.store (linear (preDb), std::memory_order_release);
         liveCompare.postTarget.store (wantedPost, std::memory_order_release);

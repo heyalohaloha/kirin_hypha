@@ -20,7 +20,7 @@ hypha::live_compare::MatchToggle KirinHyphaProcessorBase::setLiveCompareMatchOn 
         || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0)
         return {};
     const auto identity = gainIdentity (*mapping->ring(), liveCompare.authority.ticket());
-    auto& memory = liveCompare.matchMemory; liveCompare.gainProof.settlePeak (liveCompare.matchPeakDbtp);
+    auto& memory = liveCompare.matchMemory;
     const auto decibels = [] (float linear) { return 20.0 * std::log10 (static_cast<double> (linear)); };
     MatchToggle result;
     if (on)

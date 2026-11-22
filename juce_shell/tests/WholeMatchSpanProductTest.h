@@ -196,8 +196,8 @@ template<class Require> void verifyWholeMatchPreClockRace (Require require)
 }
 
 #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
-// PRE's audio thread moving its clock at one named point of the approval. No sleeps, no threads.
-struct MatchCommitRace { live_compare::Ring* ring = nullptr; int stage = -1, hits = 0; };
+// PRE's audio thread moving its clock between the approval's check and its commit lock. No sleeps, no threads.
+struct MatchCommitRace { live_compare::Ring* ring = nullptr; int hits = 0; };
 inline MatchCommitRace matchCommitRace;
 #endif
 
@@ -206,58 +206,37 @@ template<class Require> void verifyWholeMatchCommitRace (Require require)
   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
     using namespace live_compare;
     ProductTestClock wall;
-    for (const int stage : { 0, 1 })
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair();
+    auto& post = host.post();
+    post.setWholeMatchPreferred (true);
+    require (post.startLiveCompare() == StartResult::started, "commit race fixture starts ordinary ALL PLAYED LISTEN");
+    renderWholeMatchProductBlocks (host, 420);
+    const auto measured = post.measureLiveCompare (true);
+    require (measured.ok() && measured.wholeOwnerBound && measured.proofBound && measured.generationBound,
+             "commit race fixture obtains a real proof- and owner-bound ALL PLAYED result");
+    const auto base = post.liveCompareStatus();
+    const auto plan = planMatch (measured, base.postTarget > 0.0f ? 20.0 * std::log10 (base.postTarget) : 0.0);
+    require (plan.failure == MatchFailure::none && plan.wholeOwnerBound, "the measured plan is otherwise applicable");
+    const auto* publisher = LiveTimingFixtureAccess::publishedRing (host.pre1());
+    require (publisher != nullptr && publisher->ring() != nullptr, "the real PRE publishes the ring POST reads");
+    const auto revision = LiveTimingFixtureAccess::gainRevision (post).load();
+    matchCommitRace = { publisher->ring(), 0 };
+    beforeLiveMatchCommitLockForTest = +[]
     {
-        CandidateHost<Require> host (wall, require, 2, 512);
-        host.pair();
-        auto& post = host.post();
-        post.setWholeMatchPreferred (true);
-        require (post.startLiveCompare() == StartResult::started, "commit race fixture starts ordinary ALL PLAYED LISTEN");
-        renderWholeMatchProductBlocks (host, 420);
-        const auto measured = post.measureLiveCompare (true);
-        require (measured.ok() && measured.wholeOwnerBound && measured.proofBound && measured.generationBound,
-                 "commit race fixture obtains a real proof- and owner-bound ALL PLAYED result");
-        const auto base = post.liveCompareStatus();
-        const auto plan = planMatch (measured, base.postTarget > 0.0f ? 20.0 * std::log10 (base.postTarget) : 0.0);
-        require (plan.failure == MatchFailure::none && plan.wholeOwnerBound, "the measured plan is otherwise applicable");
-        const auto* publisher = LiveTimingFixtureAccess::publishedRing (host.pre1());
-        require (publisher != nullptr && publisher->ring() != nullptr, "the real PRE publishes the ring POST reads");
-        const auto revision = LiveTimingFixtureAccess::gainRevision (post).load();
-        const auto discarded = LiveTimingFixtureAccess::discardedGainProof (post);
-        matchCommitRace = { publisher->ring(), stage, 0 };
-        duringLiveMatchCommitForTest = +[] (int at)
-        {
-            if (at != matchCommitRace.stage) return;
-            ++matchCommitRace.hits; // only the PRE clock moves: run, owner and POST's history stay
-            matchCommitRace.ring->header.timing.generation.fetch_add (1, std::memory_order_acq_rel);
-        };
-        const auto applied = post.applyLiveCompareMatch (plan, plan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis);
-        duringLiveMatchCommitForTest = nullptr;
-        matchCommitRace.ring = nullptr;
-        const auto after = post.liveCompareStatus();
-        if (stage == 0)
-            require (matchCommitRace.hits == 1 && applied.failure == MatchFailure::stale
-                         && LiveTimingFixtureAccess::gainRevision (post).load() == revision
-                         && after.gain == base.gain && after.postTarget == base.postTarget && after.matched == base.matched,
-                     "a PRE clock that moves between the check and the commit lock leaves the gain, the POST target and the revision as they were");
-        else
-        {
-            const auto approved = LiveTimingFixtureAccess::gainRevision (post).load();
-            require (matchCommitRace.hits == 1 && static_cast<bool> (applied) && approved != revision
-                         && LiveTimingFixtureAccess::discardedGainProof (post) == discarded,
-                     "a PRE clock that moves after the last check under the lock is not visible to the message thread");
-            host.pre1Enabled = false; // POST's next callback comes before PRE publishes anything new
-            host.render (1, false, false);
-            host.pre1Enabled = true;
-            const auto used = post.liveCompareStatus();
-            require (LiveTimingFixtureAccess::discardedGainProof (post) == approved
-                         && LiveTimingFixtureAccess::gainRevision (post).load() == approved + 2
-                         && used.gain == base.gain && used.postTarget == base.postTarget && ! used.matched && ! used.matchReady,
-                     "POST's first callback discards the approval whose PRE clock expired and puts the replaced gains back");
-        }
-        post.finishLiveCompare();
-        renderWholeMatchProductBlocks (host, 96);
-    }
+        ++matchCommitRace.hits; // only the PRE clock moves: run, owner and POST's history stay
+        matchCommitRace.ring->header.timing.generation.fetch_add (1, std::memory_order_acq_rel);
+    };
+    const auto applied = post.applyLiveCompareMatch (plan, plan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis);
+    beforeLiveMatchCommitLockForTest = nullptr;
+    matchCommitRace.ring = nullptr;
+    const auto after = post.liveCompareStatus();
+    require (matchCommitRace.hits == 1 && applied.failure == MatchFailure::stale
+                 && LiveTimingFixtureAccess::gainRevision (post).load() == revision
+                 && after.gain == base.gain && after.postTarget == base.postTarget && after.matched == base.matched,
+             "a PRE clock that moves between the check and the commit lock leaves the gain, the POST target and the revision as they were");
+    post.finishLiveCompare();
+    renderWholeMatchProductBlocks (host, 96);
   #else
     require (false, "the commit race requires the MATCH commit boundary hook");
   #endif
