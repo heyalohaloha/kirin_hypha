@@ -6,7 +6,7 @@
 
 Hear what your processing really did — at the same loudness, with the names hidden if you like —
 and see exactly what it changed. In normal measurement it never touches your signal.<br>
-A free, open-source loudness meter and comparison plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
+A free, open-source loudness meter and gain-matched A/B (before/after) comparison plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX). → [kirinmastering.com/hypha](https://kirinmastering.com/hypha)
 
 </div>
 
@@ -237,6 +237,25 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 </details>
 
 <a id="optional-update-information"></a>
+## Update information in 1.1.59
+
+The comparison meters have new backgrounds: PRE has one central dial, while POST shows PRE on
+the left and POST on the right. The difference history leaves a gap when PRE and POST timing
+cannot be verified; the POST reading remains available.
+
+In Reference BALANCE, point at the chart to see frequency and level details. BLIND results are
+easier to read in English and Japanese. If timing changes during a live BLIND round, listen to both
+sources again before answering.
+
+## 1.1.59 の更新情報
+
+比較メーターの背景が新しくなりました。PRE は中央に1つの盤、POST は左にPRE、右にPOSTを表示します。
+PREとPOSTの時間位置を確認できない箇所は、差分の履歴に空白が入ります。POST自体の値は引き続き表示します。
+
+ReferenceのBALANCEでは、グラフにポインターを合わせると周波数とレベルの詳細が表示されます。
+BLINDの結果表示を日英ともに読みやすくしました。ライブBLINDの途中でタイミングが変わった場合は、
+回答する前に両方のソースを聴き直してください。
+
 ## Update information in 1.1.58
 
 BLIND can run 5 or 10 rounds with the sources shuffled between rounds. After at least two answers,

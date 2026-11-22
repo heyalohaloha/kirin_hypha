@@ -33,7 +33,10 @@ may change. If a random assignment cannot be prepared, Hypha stops rather than u
 
 After at least one answer, you can press **REVEAL** without finishing all the rounds. An unanswered
 round is not counted. After the final answer, Hypha invites you to reveal; it does not reveal automatically.
-The result reports the number of times you chose PRE or POST (A or B in A/B), or the equal counts.
+After **REVEAL**, the result identifies the anonymous sources and shows the number of votes for
+each role (PRE/POST or A/B), including equal counts. The result text is available in English and
+Japanese; the main controls, including **REVEAL** and **END**, keep their English labels.
+If timing changes during a live round before you answer, listen to both sources again before voting.
 From two completed rounds onward, except when the percentage rounds to 100%, it also reports how often a preference at least this uneven would
 occur when choosing at random, using a two-sided binomial calculation. This is a description of the
 choices, not an assessment of the listener, an ABX identification test, or proof of better sound.
