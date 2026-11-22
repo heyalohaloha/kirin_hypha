@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <thread>
+#include <tuple>
 
 // Live PRE/POST compare, stage 1 (AGENTS R-12, INV-LC1 to INV-LC3). PRE owns a ring for its own
 // identity; POST opens it for an explicit user session and plays PRE only where the correspondence
@@ -112,18 +113,22 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
         liveCompare.preAlign.candidateRestarted (before, permission, hypha::live_compare::pairKeyForPreInstance (pre.toStdString()));
     }
     stopLiveCompare();
+    // A host may re-prepare on its own thread: rate, channels and their prepare are read as one under its lock.
+    const auto format = [this] { const juce::ScopedLock formatLock (handleLock);
+        return std::tuple (preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()),
+                           liveCompare.formatGeneration.load (std::memory_order_acquire)); };
+    const auto started = format(); const auto rate = static_cast<std::uint32_t> (std::get<0> (started));
     if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,
             liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,
             [&] {
-                liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
+                liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), std::get<0> (started));
                 liveCompare.renderer.wholeMatch.prepare (captureListenSpan && wholeMatchPreferred() && liveCompare.candidate.selectedPre.empty(),
-                    static_cast<std::uint32_t> (preparedFormat.sampleRate), static_cast<int> (preparedFormat.channelRoles.size()));
+                    rate, std::get<1> (started));
             }))
         return StartResult::notReady;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
-    if (! mapping->open (key, static_cast<std::uint32_t> (preparedFormat.sampleRate), false))
-        return StartResult::preUnavailable;
+    if (! mapping->open (key, rate, false)) return StartResult::preUnavailable;
     if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
         return StartResult::preMultiMono;
     liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
@@ -143,17 +148,16 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
             liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
         liveCompare.contentHold.stopped();
     }
-    if (! publishMapping (liveCompare.ring, std::move (mapping)))
-        return StartResult::notReady;
-    if (! liveCompare.authority.arm (permission))
-    {
-        stopLiveCompare();
-        return StartResult::notReady;
+    { // The ring opens only for the prepare it was sized for; a later prepare finds the session open and ends it.
+        const juce::ScopedLock formatLock (handleLock);
+        if (format() != started) { stopLiveCompare(); return StartResult::notReady; }
+        if (! publishMapping (liveCompare.ring, std::move (mapping))) return StartResult::notReady;
+        if (! liveCompare.authority.arm (permission)) { stopLiveCompare(); return StartResult::notReady; }
+        liveCompare.waitNotice.begin (hypha::live_compare::callbackWallNanos());
+        liveCompare.sessionActive.store (true, std::memory_order_release);
+        liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
+        liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
     }
-    liveCompare.waitNotice.begin (hypha::live_compare::callbackWallNanos());
-    liveCompare.sessionActive.store (true, std::memory_order_release);
-    liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
-    liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     // 仕様 A：live 比較を始めたら、停止前の Reference の選択へ自動で戻さない。
     if (referenceAuditionController != nullptr) referenceAuditionController->forgetHeldAudition();
