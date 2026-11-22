@@ -293,8 +293,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     bool applied = false;
     liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
     {
-        hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
-        if (! update || mapping.ring() == nullptr
+        if (mapping.ring() == nullptr
             || mapping.ring()->header.ownerClosed.load (std::memory_order_acquire) != 0
             || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
             || ! liveCompare.sessionActive.load (std::memory_order_acquire)
@@ -312,7 +311,9 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         }
         const juce::ScopedLock commitLock (liveCompare.matchCommitLock);
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
-        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)) return;
+        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)) return; // no revision was opened for a rejected proof
+        hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
+        if (!update || wantedPost > liveCompare.postTarget.load(std::memory_order_acquire)) return;
         liveCompare.gainApproval.bind (currentOwner);
         liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
         liveCompare.gain.store (linear (preDb), std::memory_order_release);

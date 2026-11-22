@@ -156,6 +156,7 @@ public:
                              "new corresponding blocks do not make the old plan reusable");
                     require (post.applyLiveCompareMatch (fresh, choice (fresh)),
                              "ON with new proof applies the freshly measured plan");
+                    freshApproved = fresh;
                     state = 3;
                 }
                 resumeAudio();
@@ -163,6 +164,20 @@ public:
             default:
                 if (! status.matchReady) return false;
                 require (status.matched, "POST acknowledges the newly approved MATCH on a real callback");
+                pauseAudio();
+                const auto beforeStale = post.liveCompareStatus();
+                const auto revision = LiveTimingFixtureAccess::gainRevision(post).load();
+                const auto receipt = LiveTimingFixtureAccess::gainReceipt(post);
+                require(beforeStale.matchReady && receipt == revision, "fresh MATCH is applied before stale-plan probe");
+                post.kirinHostDelayCompensationStateChanged(false);
+                post.kirinHostDelayCompensationStateChanged(true); // deliberately no callback before stale approval
+                require(post.applyLiveCompareMatch(freshApproved, choice(freshApproved)).failure == MatchFailure::stale,
+                    "a previously applied plan is stale after OFF then ON");
+                require(LiveTimingFixtureAccess::gainRevision(post).load() == revision
+                    && LiveTimingFixtureAccess::gainReceipt(post) == receipt
+                    && post.liveCompareStatus().matchReady == beforeStale.matchReady,
+                    "rejecting a stale compensation proof preserves the applied revision, its receipt and readiness");
+                resumeAudio();
                 return true;
         }
     }
@@ -258,6 +273,7 @@ private:
     const bool restartCase, compensationCase;
     int state = 0; // message thread only
     hypha::live_compare::MatchPlan oldPlan;
+    hypha::live_compare::MatchPlan freshApproved {};
     std::uint64_t listenSession = 0, lastBeforeOff = 0, readBeforeOff = 0;
     std::atomic<bool> armed { false }, parked { false }, resumeCallback { false }, returned { false }, adcOff { false };
     std::atomic<std::uint64_t> renderedPulses { 0 };
