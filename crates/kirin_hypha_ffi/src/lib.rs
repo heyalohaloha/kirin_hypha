@@ -106,9 +106,9 @@ mod record_note_ffi;
 use record_display_ffi::to_c_record_display;
 #[path = "audio_push_transaction.rs"]
 mod audio_push_transaction;
+mod live_match_span_ffi;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
-mod live_match_span_ffi;
 mod signal_state_ffi;
 mod spectrum_mid_side_ffi;
 mod spectrum_view_abi;
