@@ -12,6 +12,9 @@ const char* startFailure (live_compare::StartResult result) noexcept;
 inline bool startNeedsPreChoice (live_compare::StartResult result) noexcept
 { return result == live_compare::StartResult::noPair || result == live_compare::StartResult::preUnavailable; }
 inline const char* preUnavailableNotice() noexcept { return "PRE not running; choose again"; }
+// The two MATCH span refusals take different recovery actions; keep both in the full-text ledger.
+inline constexpr const char* matchSpanTooShortNotice = "No MATCH: play at least 3 seconds";
+inline constexpr const char* matchSpanLostNotice = "ALL PLAYED lost audio. END and restart.";
 
 inline const char* cause (Reason reason) noexcept
 {

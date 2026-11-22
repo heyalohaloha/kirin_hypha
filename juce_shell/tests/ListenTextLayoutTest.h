@@ -25,6 +25,10 @@ void verifyAllListenText (Require require, ListenLayoutShard shard = {})
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
+        for (const auto& notice : listen_text::matchSpanNotices)
+            require (i18n::tr (notice.english) == (language == i18n::Language::japanese
+                         ? juce::String::fromUTF8 (notice.japanese) : juce::String (notice.english)),
+                     "MATCH span recovery matches the exact action in each language");
         require (text_style::shownText ("Rendering offline: press again after it finishes")
                      == (language == i18n::Language::japanese
                          ? juce::String::fromUTF8 (u8"書き出し中です。終わってから押してください")
@@ -60,7 +64,8 @@ void verifyAllListenText (Require require, ListenLayoutShard shard = {})
             for (int session : { 0, 1, 2 }) // listening, entry refusal / END, held POST attenuation
             for (const auto& item : notices)
             {
-                if (width > 450 && item.text != "Rendering offline: press again after it finishes"
+                if (width > 450 && ! listen_text::isMatchSpanNotice (item.text)
+                    && item.text != "Rendering offline: press again after it finishes"
                     && item.text != live_compare_ui::bypassHoldsReturnNotice
                     && item.text != live_compare_ui::keepBypassWaitNotice && item.text != live_compare_ui::keepOfflineWaitNotice
                     && item.text != live_compare_ui::keepOtherTailNotice
