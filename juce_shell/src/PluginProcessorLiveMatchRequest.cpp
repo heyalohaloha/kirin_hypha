@@ -99,7 +99,7 @@ void KirinHyphaProcessorBase::serviceLiveMatchSpan()
     if (!candidateCompareActive()) span.service(getTotalNumInputChannels(), &kirin_hypha_live_match_span_cut);
 }
 
-hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(const hypha::live_compare::Ring& ring)
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(const hypha::live_compare::Ring& ring, int channels, std::uint32_t rate)
 {
     using namespace hypha::live_compare;
     MatchResult result;
@@ -107,7 +107,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     const auto target = span.snapshot();
     const auto owner = gainIdentity(ring, liveCompare.authority.ticket());
     const auto view = liveCompare.renderer.historyView();
-    const bool drained = span.serviceThrough(getTotalNumInputChannels(), target,
+    const bool drained = span.serviceThrough(channels, target,
         std::numeric_limits<std::uint64_t>::max(), &kirin_hypha_live_match_span_cut);
 
     if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
@@ -130,7 +130,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     result.prePeakDbtp = facts.pre_peak; result.postPeakDbtp = facts.post_peak;
     result.ceilingDbtp = std::max({-1.0, facts.pre_peak, facts.post_peak});
     result.analysisUnits = span.frames();
-    result.seconds = static_cast<double>(span.frames()) / preparedFormat.sampleRate;
+    result.seconds = static_cast<double>(span.frames()) / rate;
     result.wholeOwner = owner; result.wholeOwnerBound = true; result.wholePreClock = view.preClock;
     result.compensationProof = view.compensationProof; result.compensationProofBound = true;
     result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;

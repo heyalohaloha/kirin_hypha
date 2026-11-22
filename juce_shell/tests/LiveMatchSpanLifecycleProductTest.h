@@ -2,6 +2,8 @@
 #include "LiveTimingFixtureAccess.h"
 #include <atomic>
 #include <cstdint>
+#include <chrono>
+#include <functional>
 #include <thread>
 
 // Uses real Processor callbacks and a qualified synthetic host. The one paused callback is
@@ -76,6 +78,12 @@ public:
             case 0:
             {
                 if (consumed < sampleRate * 3 || status.preSelected) return false;
+                if (!noticeDuringReadChecked)
+                {
+                    post.selectLiveComparePre(true);
+                    state = 10;
+                    return false;
+                }
                 pauseAudio();
                 const auto prior = post.measureLiveCompare (true);
                 if (! prior.ok()) { resumeAudio(); return false; }
@@ -105,6 +113,18 @@ public:
                 state = 1;
                 return false;
             }
+            case 10:
+                if (!status.preSelected || !status.preAudible) return false;
+                pauseAudio();
+                verifyOffDuringRead(post, pauseAudio, resumeAudio, require);
+                post.kirinHostDelayCompensationStateChanged(true);
+                post.selectLiveComparePre(false);
+                adcOff.store(false, std::memory_order_release);
+                renderedPulses.store(0, std::memory_order_release);
+                noticeDuringReadChecked = true;
+                state = 0;
+                resumeAudio();
+                return false;
             case 1:
                 if (renderedPulses.load (std::memory_order_acquire) * blockSize < sampleRate * 2)
                     return false;
@@ -148,6 +168,53 @@ public:
     }
 
 private:
+    template<class Pause, class Resume>
+    void verifyOffDuringRead(Processor& post, Pause& pauseAudio, Resume& resumeAudio,
+                             void (*require)(bool,const char*))
+    {
+      #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+        using namespace hypha::live_compare;
+        using Clock = std::chrono::steady_clock;
+        std::atomic<bool> noticeDone {false};
+        std::thread notifyingHost;
+        bool observedOff = false;
+        const auto published = LiveTimingFixtureAccess::wholeSpanPublishedForTest(post);
+        const auto beforeOff = renderedPulses.load(std::memory_order_acquire);
+        std::function<void()> hook = [&] {
+            notifyingHost = std::thread([&] {
+                post.kirinHostDelayCompensationStateChanged(false);
+                noticeDone.store(true,std::memory_order_release);
+            });
+            auto deadline = Clock::now() + std::chrono::milliseconds(1000);
+            while (!noticeDone.load(std::memory_order_acquire) && Clock::now() < deadline) std::this_thread::yield();
+            if (!noticeDone.load(std::memory_order_acquire)) return; // don't join under the old measurement lock
+            adcOff.store(true,std::memory_order_release);
+            resumeAudio();
+            deadline = Clock::now() + std::chrono::milliseconds(1000);
+            while (renderedPulses.load(std::memory_order_acquire) == beforeOff && Clock::now() < deadline)
+                std::this_thread::yield();
+            pauseAudio();
+            const auto after = post.liveCompareStatus();
+            observedOff = renderedPulses.load(std::memory_order_acquire) > beforeOff
+                && after.compensationOff && after.preSelected && !after.preAudible
+                && LiveTimingFixtureAccess::wholeSpanPublishedForTest(post) == published;
+        };
+        onPausedMatchRead = &hook;
+        duringLiveMatchReadLeaseForTest = [] { if (onPausedMatchRead) (*onPausedMatchRead)(); };
+        const auto measurement = post.measureLiveCompare(true);
+        duringLiveMatchReadLeaseForTest = nullptr; onPausedMatchRead = nullptr;
+        if (notifyingHost.joinable()) notifyingHost.join();
+        require(observedOff && !measurement.ok(),
+            "while MATCH is still halfway through a counted read, a new POST callback sees the separate OFF notification, outputs POST and adds no evidence");
+      #else
+        (void)post; (void)pauseAudio; (void)resumeAudio;
+        require(false,"AA1 requires the MATCH read boundary hook");
+      #endif
+    }
+
+    bool noticeDuringReadChecked = false;
+    inline static thread_local std::function<void()>* onPausedMatchRead = nullptr;
+
     static hypha::live_compare::MatchChoice choice (const hypha::live_compare::MatchPlan& plan) noexcept
     {
         using hypha::live_compare::MatchChoice;

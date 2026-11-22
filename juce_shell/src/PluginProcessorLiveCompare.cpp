@@ -82,7 +82,6 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
         collectWithin (liveCompare.ring);
     }
 }
-
 hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket,
                                                                             bool lastSide, bool captureListenSpan)
 {
@@ -232,21 +231,25 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
 hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(bool selectedSpan)
 {
     using namespace hypha::live_compare;
-    const juce::ScopedTryLock formatLock (handleLock);
     MatchResult result;
-    if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)
-        || role != Role::Post || !liveCompare.sessionActive.load(std::memory_order_acquire)
+    if (role != Role::Post || !liveCompare.sessionActive.load(std::memory_order_acquire)
         || !liveCompare.authority.permitted()) return result;
     const auto generation = liveCompare.sessionGeneration.load(std::memory_order_acquire);
     liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
     {
         const auto* ring = mapping.ring();
         if (ring == nullptr || ring->header.ownerClosed.load(std::memory_order_acquire) != 0) return;
+        int channels;
+        {
+            const juce::ScopedTryLock formatLock (handleLock);
+            if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)) return;
+            channels = getTotalNumInputChannels();
+        } // analysis uses leased storage and the format snapshot, not a long mutex
        #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
         if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest();
        #endif
         result = selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled()
-            ? measureWholeLiveMatch(*ring) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
+            ? measureWholeLiveMatch(*ring, channels, mapping.rate()) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
         if (ring->header.ownerClosed.load(std::memory_order_acquire) != 0 || (compensation & 1u) != 0
             || (result.compensationProofBound && result.compensationProof != compensation)) result = {};
@@ -257,9 +260,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(boo
     result.generationBound = true;
     return result;
 }
-
 // Message thread. A plan that needs approval takes the user's choice: lower POST with PRE at its
-// level, or raise PRE only up to the ceiling. The guard's ceiling is stored before the gains.
 hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch (const hypha::live_compare::MatchPlan& plan,
                                                      hypha::live_compare::MatchChoice choice)
 {
@@ -273,8 +274,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         || ! liveCompare.authority.permitted()
         || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
         return { MatchFailure::stale };
-    const auto failure = hypha::live_compare::validateMatchPlan (plan, choice);
-    if (failure != MatchFailure::none) return { failure };
+    const auto failure = hypha::live_compare::validateMatchPlan (plan, choice); if (failure != MatchFailure::none) return { failure };
     if (plan.proofBound)
     {
         const auto history = liveCompare.renderer.historyView();
@@ -301,8 +301,6 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
             || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
             || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
             return;
-        const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
-        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)) return;
         const auto currentOwner = hypha::live_compare::gainIdentity (*mapping.ring(), liveCompare.authority.ticket());
         if (plan.proofBound || plan.wholeOwnerBound)
         {
@@ -312,6 +310,9 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
                     || !hypha::live_compare::wholeProofCurrent(*mapping.ring(), history) || !plan.wholeOwner.same(currentOwner))))
                 return;
         }
+        const juce::ScopedLock commitLock (liveCompare.matchCommitLock);
+        const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
+        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)) return;
         liveCompare.gainApproval.bind (currentOwner);
         liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
         liveCompare.gain.store (linear (preDb), std::memory_order_release);
@@ -329,8 +330,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     return {applied ? MatchFailure::none : MatchFailure::stale};
 }
 
-// Message thread (INV-LC16): AUTO moves PRE's gain only. The ceiling and POST stay as the explicit
-// MATCH approved them; the Audio Thread ramps the new gain over 50 ms.
+// INV-LC16: AUTO ramps only PRE; approved ceiling and POST stay fixed.
 bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
 {
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
@@ -352,8 +352,7 @@ bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
 // clock can prove the correspondence: POST sounds and PRE waits until it is on again.
 void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged (bool enabled)
 {
-    // This host notification is non-RT. Serialize with MATCH approval, then publish one coherent RT value.
-    const juce::ScopedLock formatLock (handleLock);
+    const juce::ScopedLock commitLock (liveCompare.matchCommitLock); // non-RT, never waits for a measurement
     const auto old = liveCompare.compensationState.load(std::memory_order_relaxed);
     const auto off = static_cast<std::uint64_t>(!enabled);
     if ((old & 1u) != off) liveCompare.compensationState.store(((old & ~std::uint64_t{1}) + 2) | off, std::memory_order_release);
