@@ -19,9 +19,11 @@ public:
         if (enabled) restart();
     }
 
-    void restart() noexcept
+    void restart(std::uint64_t requiredBlindReceipt = 0) noexcept
     {
         meter.reset(); readEpoch = 0; meterChannels = 0; consumed = 0; invalid = false;
+        if (queue) queue->discardPublished();
+        blindReceipt.store(requiredBlindReceipt, std::memory_order_relaxed);
         epoch.store(queue ? ++serial : 0, std::memory_order_release);
     }
 
@@ -35,18 +37,56 @@ public:
 
     bool enabled() const noexcept { return epoch.load(std::memory_order_acquire) != 0; }
 
-    void capture(const Ring& ring, std::uint64_t run, std::int64_t start, float* const* post,
-                 int channels, int frames) noexcept
+    struct CaptureToken { std::uint64_t epoch = 0, receipt = 0; };
+    CaptureToken captureToken() const noexcept
     {
-        const auto captureEpoch = epoch.load(std::memory_order_acquire);
-        if (captureEpoch != 0)
-            queue->push(ring, run, start, post, channels, frames, captureEpoch);
+        return {epoch.load(std::memory_order_acquire), blindReceipt.load(std::memory_order_relaxed)};
     }
 
-    void service(int channels)
+    LiveMatchSpanQueue::Staged stage(CaptureToken token, const Ring& ring, std::uint64_t run, std::int64_t start,
+          float* const* post, int channels, int frames, bool discontinuity) noexcept
+    {
+        return token.epoch == 0 ? LiveMatchSpanQueue::Staged {} : queue->stage(ring, run, start, post,
+            channels, frames, token.epoch, skipped || lastCapturedEpoch != token.epoch || discontinuity);
+    }
+
+    void finish(CaptureToken token, LiveMatchSpanQueue::Staged staged, bool eligible) noexcept
+    {
+        if (token.epoch == 0) return;
+        skipped = !eligible;
+        if (eligible)
+        {
+            queue->finish(staged, token.epoch);
+            lastCapturedEpoch = token.epoch;
+        }
+    }
+
+    CaptureToken admitted(CaptureToken token, bool eligible, std::uint64_t callbackRequest,
+                          std::uint64_t acceptedRequest) noexcept
+    {
+        if (eligible && (token.receipt == 0 || (token.receipt == callbackRequest && token.receipt == acceptedRequest)))
+            return token;
+        finish(token, {}, false);
+        return {};
+    }
+
+    struct BlockCapture
+    {
+        LiveMatchSpan& span;
+        CaptureToken token;
+        LiveMatchSpanQueue::Staged staged {};
+        bool eligible = false;
+        ~BlockCapture() { span.finish(token, staged, eligible); }
+    };
+
+    using Cut = bool (*)(KirinLiveMatchSpan*);
+    std::uint64_t snapshot() const noexcept { return queue ? queue->published() : 0; }
+    void service(int channels, Cut cut = nullptr) { serviceThrough(channels, snapshot(), maxDrain, cut); }
+
+    bool serviceThrough(int channels, std::uint64_t target, std::uint64_t limit, Cut cut = nullptr)
     {
         const auto ready = epoch.load(std::memory_order_acquire);
-        if (ready == 0 || channels < 1 || channels > 2) return;
+        if (ready == 0 || channels < 1 || channels > 2) return false;
         if (readEpoch != ready)
         {
             readEpoch = ready; meterChannels = channels;
@@ -60,8 +100,14 @@ public:
             if (!invalid && !kirin_hypha_live_match_span_feed(meter.get(), pre.data(), post.data(), frames)) invalid = true;
             consumed += frames; frames = 0;
         };
-        queue->drain(maxDrain, [&](const LiveMatchSpanQueue::Frame& frame) {
+        const bool done = queue->drainThrough(target, limit, [&](const LiveMatchSpanQueue::Frame& frame) {
             if (invalid || frame.epoch != ready) return;
+            if (frame.gapBefore && (consumed != 0 || frames != 0) && cut != nullptr)
+            {
+                flush();
+                if (!invalid && !cut(meter.get())) invalid = true;
+                if (invalid) return;
+            }
             for (int ch = 0; ch < channels; ++ch)
             {
                 const auto at = frames * static_cast<std::size_t>(channels) + static_cast<std::size_t>(ch);
@@ -70,6 +116,7 @@ public:
             if (++frames == chunkFrames) flush();
         });
         flush();
+        return done;
     }
 
     bool lost() const noexcept { return invalid || (queue && queue->incomplete(epoch.load(std::memory_order_acquire))); }
@@ -77,7 +124,7 @@ public:
     std::uint64_t frames() const noexcept { return consumed; }
     bool measure(KirinLiveMatchSpanFacts& facts) const noexcept
     {
-        return !lost() && queue && queue->empty() && meter && kirin_hypha_live_match_span_measure(meter.get(), &facts);
+        return !lost() && meter && kirin_hypha_live_match_span_measure(meter.get(), &facts) && !lost();
     }
 
 private:
@@ -86,7 +133,9 @@ private:
     using Meter = std::unique_ptr<KirinLiveMatchSpan, void (*)(KirinLiveMatchSpan*)>;
     std::unique_ptr<LiveMatchSpanQueue> queue;
     Meter meter { nullptr, nullptr };
-    std::atomic<std::uint64_t> epoch {0};
+    std::atomic<std::uint64_t> epoch {0}, blindReceipt {0};
+    std::uint64_t lastCapturedEpoch = 0; // audio writer only
+    bool skipped = false;
     std::uint64_t serial = 0, readEpoch = 0, consumed = 0;
     std::uint32_t rate = 0;
     int meterChannels = 0;

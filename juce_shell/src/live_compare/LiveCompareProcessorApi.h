@@ -21,7 +21,7 @@ void selectLiveComparePre (bool pre) noexcept;
 void setLiveCompareGain (float linear) noexcept;
 hypha::live_compare::MatchResult measureLiveCompare(bool selectedSpan = false);
 void serviceLiveMatchSpan();
-hypha::live_compare::MatchResult measureWholeLiveMatch();
+hypha::live_compare::MatchResult measureWholeLiveMatch(const hypha::live_compare::Ring& ring);
 bool wholeMatchPreferred() const noexcept { return liveCompare.wholeMatchPreferred.load(std::memory_order_acquire); }
 void setWholeMatchPreferred(bool enabled) noexcept;
 void requestLiveCompareMatch();

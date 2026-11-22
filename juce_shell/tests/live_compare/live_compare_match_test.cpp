@@ -464,8 +464,11 @@ static void matchesAllProvenPlaybackWithoutChangingLastFour()
     require (!span.enabled() && !span.measure (facts), "END removes accumulated MATCH data");
 }
 
+#include "live_match_span_incomplete_test.h"
+
 int main()
 {
+    incompleteAllPlayedCannotMeasureUntilRestart();
     matchesAllProvenPlaybackWithoutChangingLastFour();
     freshMatchesAtSupportedRates();
     normalRateReadinessDoesNotGrow();

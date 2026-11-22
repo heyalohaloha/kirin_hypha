@@ -128,7 +128,6 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
         if (startedHere) stopLiveCompare();
         return StartResult::notReady;
     }
-    if (!borrowedCandidateScope && liveCompare.renderer.wholeMatch.enabled()) liveCompare.renderer.wholeMatch.restart();
     liveCompare.blindScope = epoch;
     liveCompare.candidate.blindReturned.store (false, std::memory_order_release);
     liveCompare.blind.reset();
@@ -145,6 +144,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
     const auto requiredAdmission = liveCompare.blindTimingRequest.load (std::memory_order_relaxed) + 1;
+    if (!borrowedCandidateScope && liveCompare.renderer.wholeMatch.enabled()) liveCompare.renderer.wholeMatch.restart(requiredAdmission);
     liveCompare.blindTiming.begin (requiredAdmission);
     liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
     liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
@@ -181,6 +181,14 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         return;
     const auto status = liveCompareStatus();
     if (! status.active || status.finishing) return;
+    if (liveCompare.blindStage == BlindStage::preparing && !candidateCompareActive()
+        && liveCompare.renderer.wholeMatch.enabled() && liveCompare.renderer.wholeMatch.lost())
+    {
+        stopLiveCompare();
+        liveCompare.blindWaiting = MatchFailure::wholeSpanLost;
+        liveCompare.blindStage = BlindStage::failed;
+        return;
+    }
     // Thirty seconds of playback without a measurable window end the preparation with its reason; POST
     // returns to normal and nothing else waits on it (a stopped DAW is the user's wait, not counted).
     // Every stage before the sources are ready shares it: the timing admission, the MATCH window and an

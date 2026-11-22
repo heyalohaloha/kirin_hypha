@@ -1,7 +1,6 @@
 #include "PluginProcessor.h"
 #include "live_compare/LiveCompareIdle.h"
 #include "live_compare/LiveCompareInterruption.h"
-
 namespace
 {
 using hypha::live_compare::SharedRingMapping;
@@ -9,13 +8,13 @@ constexpr auto aaxWrapper = juce::AudioProcessor::wrapperType_AAX;
 constexpr auto auWrapper = juce::AudioProcessor::wrapperType_AudioUnit;
 constexpr auto vst3Wrapper = juce::AudioProcessor::wrapperType_VST3;
 }
-
-// Audio Thread. Both roles advance their continuous clock and gap detector on every callback so
-// that the clock semantics hold whether or not a session is active.
+// Audio Thread. Both roles advance their continuous clock and gap detector on every callback.
 void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buffer, const hypha::HostProcessClock& clock,
                                                   bool bypassed, bool nonRealtimeMode, bool outputTaken) noexcept
 {
     using Reason = hypha::live_compare::RecoveryReason;
+    auto spanToken = liveCompare.renderer.wholeMatch.captureToken();
+    const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
     const auto preparationCommand = liveCompare.blindTiming.command(); // fixed at callback opening
     const int frames = buffer.getNumSamples();
     const bool projectAnalysis = wrapperType == vst3Wrapper
@@ -57,7 +56,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     block.outputPresentationValid = clock.outputPresentationValid;
     block.outputPresentationSamples = clock.outputPresentationSamples;
     // The callback's one wall-clock reading serves the gap rule and the chain timing display.
-    // POST took it as the callback began; PRE takes it here, after its own measurement work.
     block.wallNanos = clock.callbackNanos != 0 ? clock.callbackNanos
                                                : hypha::live_compare::callbackWallNanos();
     block.thread = hypha::live_compare::callbackThread();
@@ -298,7 +296,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (! usable || outputTaken)
         {
             // Offline render, bypass and another audition leave their input untouched.
-            // The same explicit selection can renew when realtime output is available.
             liveCompare.renderer.bypassTransition(); liveCompare.renderer.revokeTiming();
             liveCompare.reentry.lost (hypha::live_compare::TimelineBreak::unknown,
                 permitted && !finishing && liveCompare.sessionActive.load (std::memory_order_acquire));
@@ -319,7 +316,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && (!coherent || !gains.retained || gains.identity.same (
                 hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
         if (trace != nullptr && ! blindCommand.active()) hypha::chain_trace::acceptNamedSelection (*trace, admitted && namedEligible);
-        const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
         if (freshBlind != liveCompare.blindTimingSeen)
         {
             if (namedEligible && liveCompare.blindTimingAuthority.load (std::memory_order_acquire)
@@ -353,6 +349,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (permitted && liveCompare.preparation.initialRequested.load (std::memory_order_acquire)
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
+        spanToken = liveCompare.renderer.wholeMatch.admitted(spanToken,
+            namedEligible && candidateToken == 0 && !candidateReturning && !blindRejected, freshBlind,
+            liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
         const float renderGain = levelGain, renderPost = levelPost (postTarget);
         auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
                                                    buffer.getArrayOfWritePointers(), channels,
@@ -365,7 +364,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    { liveCompare.alignContext (ring), liveCompareAutoAlign(), preSelected && ! compensationOff, true },
                                                    // END releases proof authority while the audio return still needs its fade.
                                                    candidateReturning ? 0 : candidateToken, candidateToken != 0,
-                                                   blindLive);
+                                                   blindLive, spanToken);
         if (blindLive && coherent && report.levelShift < 1.0f)
             level = { blindCommand.epoch(), revision, report.levelShift, gains.post * report.levelShift };
         if (trace != nullptr)
@@ -470,6 +469,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     }
     // Out of a session POST keeps an approved attenuation until the explicit RETURN (INV-LC14).
     // Offline render, bypass and another audition's output are never touched.
+    if (!rendered) liveCompare.renderer.wholeMatch.finish(spanToken, {}, false);
     if (! rendered && usable && ! outputTaken)
     {
         liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, levelPost (postTarget));

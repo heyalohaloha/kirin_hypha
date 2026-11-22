@@ -195,7 +195,6 @@ public:
         return now.kValid && now.proof == view.proof && now.preRun == view.preRun && now.k == view.k
             && start >= now.start && now.end - start <= now.frames;
     }
-
     std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
 
     // PIN needs one contiguous project-time stretch.
@@ -222,11 +221,11 @@ public:
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
                          std::uint64_t candidateToken = 0, bool candidateReceiver = false,
-                         bool lowerOnCeiling = false) noexcept
+                         bool lowerOnCeiling = false, LiveMatchSpan::CaptureToken spanToken = {UINT64_MAX, 0}) noexcept
     {
         auto report = renderBlock (ring, pairKey, sampleRate, block, io, channels, preSelected,
             preGain, post, postTarget, ceilingLinear, blind, timingBlock, diagnosticDecision, align, candidateToken,
-            lowerOnCeiling);
+            lowerOnCeiling, spanToken.epoch == UINT64_MAX ? wholeMatch.captureToken() : spanToken);
         if (candidateToken != 0 || candidateReceiver)
         {
             if (candidateTransition.apply (io, channels, block.frames, fadeFrames,
@@ -247,9 +246,9 @@ public:
                          float ceilingLinear, bool blind = false,
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
-                         std::uint64_t candidateToken = 0, bool lowerOnCeiling = false) noexcept
+                         std::uint64_t candidateToken = 0, bool lowerOnCeiling = false, LiveMatchSpan::CaptureToken spanToken = {}) noexcept
     {
-        RenderReport report;
+        RenderReport report; LiveMatchSpan::BlockCapture capture {wholeMatch, spanToken};
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
         {
             invalidateHistory();
@@ -290,7 +289,7 @@ public:
             inputStart, inputEnd, sampleRate)) recordHistory (block, io, channels, decision);
         else invalidateHistory();
         if (candidateToken == 0 && inputPosition && block.playing && timingBlock == RecoveryReason::none && decision.verdict == Verdict::accepted)
-            wholeMatch.capture (ring, decision.run, inputStart, io, channels, block.frames);
+            capture.staged = wholeMatch.stage (spanToken, ring, decision.run, inputStart, io, channels, block.frames, block.afterGap || decision.timelineChanged);
         if (candidateToken != 0)
         {
             const auto duration = timingBlock == RecoveryReason::none ? ring.header.candidate.contiguousFrames (
@@ -379,6 +378,7 @@ public:
             return report;
         }
         const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
+        capture.eligible = candidateToken == 0 && inputPosition && block.playing && (!preSelected || target > 0.0f);
         if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays or could
         if (weight <= 0.0f && target <= 0.0f)
         {

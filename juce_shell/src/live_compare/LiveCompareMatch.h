@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LiveCompareSession.h"
+#include "LiveCompareGainApproval.h"
 
 #include <cstdint>
 
@@ -15,7 +16,8 @@ enum class MatchFailure : std::uint8_t
     notEnoughSignal, // neither gain policy found enough paired active signal
     outOfRange,      // the final gain (including held POST) is beyond maximumMatchDb
     stale,           // remeasure on the current session; never reuse an old approval
-    invalidPlan      // malformed plan; no gain is applied
+    invalidPlan,     // malformed plan; no gain is applied
+    wholeSpanLost    // ALL PLAYED has a permanent hole until a fresh measurement epoch
 };
 
 // A MATCH never moves either side by more than this (the TRACK/STEM gate of Local Blind).
@@ -35,6 +37,8 @@ struct MatchResult
     bool generationBound = false; // processor-measured plans must stay on the same continuous session
     std::uint64_t proof = 0, preRun = 0;
     bool proofBound = false;
+    GainIdentity wholeOwner {};
+    bool wholeOwnerBound = false;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
 
@@ -57,6 +61,8 @@ struct MatchPlan
     bool generationBound = false;
     std::uint64_t proof = 0, preRun = 0;
     bool proofBound = false;
+    GainIdentity wholeOwner {};
+    bool wholeOwnerBound = false;
 };
 
 MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;

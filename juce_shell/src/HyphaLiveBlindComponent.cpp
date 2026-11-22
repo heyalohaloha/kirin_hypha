@@ -53,6 +53,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     juce::String instruction, explanation = returnDb > 0.05 ? loweredLevel : normalLevel;
     if (failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange ? "MATCH over 24 dB"
+            : current.waiting == live_compare::MatchFailure::wholeSpanLost ? "ALL PLAYED lost audio. END and restart."
             : current.waiting == live_compare::MatchFailure::notProven ? "No MATCH: timing not confirmed"
             : current.waiting == live_compare::MatchFailure::tooShort || current.waiting == live_compare::MatchFailure::notEnoughSignal
                 ? "No MATCH: not enough signal" : "MATCH failed; try again";

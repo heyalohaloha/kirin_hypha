@@ -241,7 +241,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(boo
         return result;
     const auto generation = liveCompare.sessionGeneration.load (std::memory_order_acquire);
     if (selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled())
-        result = measureWholeLiveMatch();
+        result = measureWholeLiveMatch(*mapping->ring());
     else result = hypha::live_compare::computeMatch (*mapping->ring(), liveCompare.renderer, mapping->rate());
     if (generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)
         || ! liveCompare.authority.permitted()) return {};
@@ -294,7 +294,12 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)
             return { MatchFailure::stale };
     }
-    liveCompare.gainApproval.bind (hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket()));
+    const auto currentOwner = hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket());
+    if (plan.wholeOwnerBound
+        && (mapping->ring()->header.run.load (std::memory_order_acquire) != plan.preRun
+            || !plan.wholeOwner.same (currentOwner)))
+        return { MatchFailure::stale };
+    liveCompare.gainApproval.bind (currentOwner);
     liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
     liveCompare.gain.store (linear (preDb), std::memory_order_release);
     liveCompare.postTarget.store (wantedPost, std::memory_order_release);

@@ -42,7 +42,8 @@ void KirinHyphaProcessorBase::serviceLiveCompareMatch()
     const bool expired = since != 0 && now >= since && now - since >= namedMatchLimitNanos;
     if (!measured.ok())
     {
-        if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan || expired)
+        if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan
+            || measured.failure == MatchFailure::wholeSpanLost || expired)
         {
             liveCompare.namedMatchPlan = {};
             liveCompare.namedMatchPlan.failure = measured.failure;
@@ -98,23 +99,36 @@ void KirinHyphaProcessorBase::serviceLiveMatchSpan()
     if (!candidateCompareActive()) span.service(getTotalNumInputChannels());
 }
 
-hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch()
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(const hypha::live_compare::Ring& ring)
 {
     using namespace hypha::live_compare;
     MatchResult result;
     auto& span = liveCompare.renderer.wholeMatch;
-    serviceLiveMatchSpan();
+    const auto target = span.snapshot();
+    const auto owner = gainIdentity(ring, liveCompare.authority.ticket());
     const auto view = liveCompare.renderer.historyView();
-    if (span.lost()) { result.failure = MatchFailure::overwritten; return result; }
-    if (!view.kValid) return result;
+    const bool drained = span.serviceThrough(getTotalNumInputChannels(), target,
+        std::numeric_limits<std::uint64_t>::max());
+
+    if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
+    if (!drained || !view.kValid || ring.header.ownerClosed.load(std::memory_order_acquire) != 0
+        || ring.header.run.load(std::memory_order_acquire) != view.preRun) return result;
     if (!span.enough()) { result.failure = MatchFailure::tooShort; return result; }
     KirinLiveMatchSpanFacts facts {};
-    if (!span.measure(facts)) { result.failure = MatchFailure::notEnoughSignal; return result; }
+    if (!span.measure(facts))
+    { result.failure = span.lost() ? MatchFailure::wholeSpanLost : MatchFailure::notEnoughSignal; return result; }
+    const auto current = liveCompare.renderer.historyView();
+    if (!current.kValid || current.proof != view.proof || current.preRun != view.preRun
+        || ring.header.run.load(std::memory_order_acquire) != view.preRun
+        || ring.header.ownerClosed.load(std::memory_order_acquire) != 0
+        || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
+    { result.failure = MatchFailure::stale; return result; }
     result.measuredDb = facts.post_lufs - facts.pre_lufs;
     result.prePeakDbtp = facts.pre_peak; result.postPeakDbtp = facts.post_peak;
     result.ceilingDbtp = std::max({-1.0, facts.pre_peak, facts.post_peak});
     result.analysisUnits = span.frames();
     result.seconds = static_cast<double>(span.frames()) / preparedFormat.sampleRate;
+    result.wholeOwner = owner; result.wholeOwnerBound = true;
     result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
     result.failure = std::abs(result.measuredDb) <= maximumMatchDb ? MatchFailure::none : MatchFailure::outOfRange;
     return result;
