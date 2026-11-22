@@ -98,7 +98,8 @@ public:
     }
     bool keyPressed (const juce::KeyPress& key) override
     {
-        if (panel.isShowing() && key.isKeyCode (juce::KeyPress::escapeKey))
+        if (panel.isShowing() && key.isKeyCode (juce::KeyPress::escapeKey)
+            && !key.getModifiers().isAnyModifierKeyDown())
         {
             dismiss();
             return true;

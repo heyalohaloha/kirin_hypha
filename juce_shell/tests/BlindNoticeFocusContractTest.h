@@ -51,9 +51,9 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     window.toFront (true);
     auto* peer = blind.getPeer();
     require (peer != nullptr, "the notice screen is attached to a native editor peer");
-    const auto press = [peer] (int code)
+    const auto press = [peer] (int code, int modifiers = 0)
     {
-        const auto handled = peer->handleKeyPress (juce::KeyPress (code));
+        const auto handled = peer->handleKeyPress (juce::KeyPress (code, juce::ModifierKeys (modifiers), 0));
         peer->handleKeyUpOrDown (false);
         return handled;
     };
@@ -100,6 +100,10 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     require (wait.afterFormerTooltipTicks() && badge->hasKeyboardFocus (false) && disclosure->isShowing()
              && !editorBounds.contains (juce::Desktop::getMousePosition()),
              "keyboard disclosure persists through stock tooltip ticks with no pointer over the editor");
+    for (auto modifier : { juce::ModifierKeys::commandModifier, juce::ModifierKeys::ctrlModifier,
+                           juce::ModifierKeys::altModifier, juce::ModifierKeys::shiftModifier })
+        require (!press (juce::KeyPress::escapeKey, modifier) && badge->hasKeyboardFocus (false)
+                 && disclosure->isShowing(), "modified Escape is left for the host without hiding notice text");
     require (press (juce::KeyPress::escapeKey) && badge->hasKeyboardFocus (false) && !disclosure->isShowing(),
              "Escape dismisses the disclosure without losing the badge");
     require (press (juce::KeyPress::tabKey) && !badge->hasKeyboardFocus (false) && !disclosure->isShowing(),
