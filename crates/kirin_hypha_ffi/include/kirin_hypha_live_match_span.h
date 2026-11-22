@@ -13,6 +13,8 @@ typedef struct KirinLiveMatchSpanFacts {
 KirinLiveMatchSpan* kirin_hypha_live_match_span_create(uint32_t rate, uint32_t channels);
 void kirin_hypha_live_match_span_destroy(KirinLiveMatchSpan*);
 bool kirin_hypha_live_match_span_feed(KirinLiveMatchSpan*, const float* pre, const float* post, size_t frames);
+// Non-audio thread. Discard incomplete windows and break true-peak interpolation continuity.
+bool kirin_hypha_live_match_span_cut(KirinLiveMatchSpan*);
 bool kirin_hypha_live_match_span_measure(const KirinLiveMatchSpan*, KirinLiveMatchSpanFacts*);
 #ifdef __cplusplus
 }

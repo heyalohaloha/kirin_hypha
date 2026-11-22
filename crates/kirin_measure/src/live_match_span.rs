@@ -51,6 +51,16 @@ impl KirinLiveMatchSpan {
         true
     }
 
+    /// Break filter/window continuity, retaining only completed gate windows and true peaks.
+    pub fn cut(&mut self) -> bool {
+        if self.fault {
+            return false;
+        }
+        self.pre.cut_preserving_measurements();
+        self.post.cut_preserving_measurements();
+        true
+    }
+
     pub fn measure(&self) -> Option<KirinLiveMatchSpanFacts> {
         if self.fault || self.frames < self.min_frames {
             return None;

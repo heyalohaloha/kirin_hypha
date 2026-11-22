@@ -264,7 +264,7 @@ pub(crate) fn default_channel_map(channels: u32) -> Vec<Channel> {
 }
 
 const MAX_RATE: u32 = 2822400;
-const MAX_CHANNELS: u32 = 64;
+pub(super) const MAX_CHANNELS: u32 = 64;
 
 impl EbuR128 {
     /// Allocate audio data buffer used by the filter and check if we can allocate enough memory
@@ -559,23 +559,28 @@ impl EbuR128 {
 
     /// Resets the current state.
     pub fn reset(&mut self) {
-        self.audio_data.fill(0.0);
-        if let Some(cache) = self.energy_cache.as_mut() { cache.clear(); }
+        self.reset_stream();
         if let Some(cache) = self.summary_cache.as_mut() { *cache = cached_summary::SummaryCache::default(); }
-
-        // the first block needs 400ms of audio data
-        self.needed_frames = self.samples_in_100ms * 4;
-        // start at the beginning of the buffer
-        self.audio_data_index = 0;
-        // reset short term frame counter
-        self.short_term_frame_counter = 0;
-
         self.true_peak.fill(0.0);
         self.sample_peak.fill(0.0);
-
-        self.filter.reset();
         self.block_energy_history.reset();
         self.short_term_block_energy_history.reset();
+    }
+
+    /// Start a disconnected segment without discarding completed gating blocks or peak maxima.
+    /// Not for realtime use. Flush only the old true-peak FIR with zeros; no gate sees the padding.
+    pub fn cut_preserving_measurements(&mut self) {
+        self.filter.finish_true_peak(&mut self.true_peak);
+        self.reset_stream();
+    }
+
+    fn reset_stream(&mut self) {
+        self.audio_data.fill(0.0);
+        if let Some(cache) = self.energy_cache.as_mut() { cache.clear(); }
+        self.needed_frames = self.samples_in_100ms * 4;
+        self.audio_data_index = 0;
+        self.short_term_frame_counter = 0;
+        self.filter.reset();
     }
 
     /// Process frames. This is the generic variant of the different public add_frames() functions

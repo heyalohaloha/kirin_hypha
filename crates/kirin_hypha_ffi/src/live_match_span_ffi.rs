@@ -49,6 +49,16 @@ pub unsafe extern "C" fn kirin_hypha_live_match_span_feed(
 }
 
 /// # Safety
+/// The unique owner supplies a live handle, or null. Never call from the audio callback.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_live_match_span_cut(handle: *mut KirinLiveMatchSpan) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        (unsafe { handle.as_mut() }).is_some_and(KirinLiveMatchSpan::cut)
+    }))
+    .unwrap_or(false)
+}
+
+/// # Safety
 /// The handle is live and the distinct output pointer is writable. No result is written on failure.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_live_match_span_measure(

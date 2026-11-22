@@ -96,7 +96,7 @@ void KirinHyphaProcessorBase::serviceLiveMatchSpan()
     auto& span = liveCompare.renderer.wholeMatch;
     if (!liveCompare.sessionActive.load(std::memory_order_acquire) || !liveCompare.authority.permitted())
     { if (!span.enabled()) span.clear(); return; }
-    if (!candidateCompareActive()) span.service(getTotalNumInputChannels());
+    if (!candidateCompareActive()) span.service(getTotalNumInputChannels(), &kirin_hypha_live_match_span_cut);
 }
 
 hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(const hypha::live_compare::Ring& ring)
@@ -108,7 +108,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     const auto owner = gainIdentity(ring, liveCompare.authority.ticket());
     const auto view = liveCompare.renderer.historyView();
     const bool drained = span.serviceThrough(getTotalNumInputChannels(), target,
-        std::numeric_limits<std::uint64_t>::max());
+        std::numeric_limits<std::uint64_t>::max(), &kirin_hypha_live_match_span_cut);
 
     if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
     if (!drained || !view.kValid || ring.header.ownerClosed.load(std::memory_order_acquire) != 0

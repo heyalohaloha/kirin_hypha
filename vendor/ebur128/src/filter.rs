@@ -154,6 +154,20 @@ impl Filter {
         }
     }
 
+    pub fn finish_true_peak(&mut self, maxima: &mut [f64]) {
+        // Longest supported interpolator uses 24 input frames (2x of the 48-tap filter).
+        // Feed only the interpolation tail; never add these frames to K weighting or the gate.
+        if let Some(tp) = self.tp.as_mut() {
+            const TAIL: usize = 24;
+            const CAPACITY: usize = TAIL * crate::ebur128::MAX_CHANNELS as usize;
+            let channels = self.channels as usize;
+            let silence = [0.0f32; CAPACITY];
+            let tail = crate::utils::Interleaved::new(&silence[..TAIL * channels], channels)
+                .expect("validated filter channels");
+            tp.check_true_peak(tail, maxima);
+        }
+    }
+
     pub fn sample_peak(&self) -> &[f64] {
         &self.sample_peak
     }
