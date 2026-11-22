@@ -35,7 +35,7 @@ struct View {
     bool retainSessionPoll(const KirinObservatoryFrame*,const KirinMeterSessionV2*,unsigned,bool,double);
     void setLevelNumericInterval(double ms) { numericInterval = ms; }
     void repaint(int) { ++paints; }
-    void setWatchDisplay(const KirinWatchDisplay&, bool);
+    bool setWatchDisplay(const KirinWatchDisplay&, bool);
     void setSurroundMeasurementOnly(bool) {} void setMeasurementFormatHeld(bool) {}
     bool setHybridVuOnRecordEnabled(bool) { return false; } bool setHostRecording(bool) { return false; }
     void setVuCalibration(int, bool) {} bool hybridVuVisible() const { return false; } void toFront(bool) {}
