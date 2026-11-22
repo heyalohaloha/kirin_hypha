@@ -35,7 +35,7 @@ impl KirinLiveMatchSpan {
     }
 
     pub fn feed(&mut self, pre: &[f32], post: &[f32]) -> bool {
-        if self.fault || pre.len() != post.len() || pre.len() % self.channels != 0 {
+        if self.fault || pre.len() != post.len() || !pre.len().is_multiple_of(self.channels) {
             return false;
         }
         if pre.iter().chain(post).any(|x| !x.is_finite())
@@ -91,6 +91,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stereo_rejects_partial_frames_without_poisoning_the_meter() {
+        let mut meter = KirinLiveMatchSpan::new(48_000, 2).unwrap();
+        let malformed = [0.1, 0.2, 0.3];
+        assert!(!meter.feed(&malformed, &malformed));
+        assert_eq!(meter.frames, 0);
+        assert!(meter.feed(&malformed[..2], &malformed[..2]));
+        assert_eq!(meter.frames, 1);
+    }
+
+    #[test]
     fn whole_span_differs_from_last_four_and_matches_independent_exact_gate() {
         let rate = 48_000;
         for channels in [1, 2] {
@@ -100,7 +110,7 @@ mod tests {
                         let sample = (scale
                             * (std::f64::consts::TAU * 997.0 * n as f64 / rate as f64).sin())
                             as f32;
-                        std::iter::repeat(sample).take(channels)
+                        std::iter::repeat_n(sample, channels)
                     })
                     .collect()
             };

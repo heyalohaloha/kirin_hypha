@@ -61,7 +61,7 @@ fn cutoff_matches_closed_segment_and_keeps_continuous_input_unchanged() {
         numbers(read.measure().unwrap())
     );
     let mut next = [0.0; 96];
-    for (i, frame) in next.chunks_exact_mut(2).enumerate() {
+    for (i, frame) in next.as_chunks_mut::<2>().0.iter_mut().enumerate() {
         frame[0] = 0.01;
         frame[1] = if i % 8 < 4 { 0.93 } else { -0.93 };
     }
