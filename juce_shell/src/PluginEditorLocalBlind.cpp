@@ -19,8 +19,8 @@ void raiseCoveringScreen (const juce::Component& editor, juce::Component& screen
     screen.toFront (false);
     const auto* focused = juce::Component::getCurrentlyFocusedComponent();
     const bool held = focused == &screen || screen.isParentOf (focused);
-    const bool elsewhere = focused != nullptr && focused != &editor && ! editor.isParentOf (focused);
-    if (! held && ! elsewhere && screen.isShowing()) screen.grabKeyboardFocus();
+    const bool covered = focused != nullptr && (focused == &editor || editor.isParentOf (focused)) && ! held;
+    if (covered && screen.isShowing()) screen.grabKeyboardFocus();
 }
 }
 

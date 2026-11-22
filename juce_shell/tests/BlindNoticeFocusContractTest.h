@@ -126,6 +126,11 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     hostedFirst->grabKeyboardFocus();
     rig.editor->resized();
     require (hostedFirst->hasKeyboardFocus (false), "an editor laying out its open BLIND keeps the keys on the chosen control");
+    juce::Component::unfocusAllComponents();
+    require (juce::Component::getCurrentlyFocusedComponent() == nullptr, "the host may have focus outside JUCE");
+    rig.editor->resized();
+    require (juce::Component::getCurrentlyFocusedComponent() == nullptr,
+             "laying out open BLIND does not take the keys when no JUCE component holds them");
     tabToBadge();
     require (disclosure->isShowing(), "returning to the badge shows the notice text again");
     DisclosureWait wait;
