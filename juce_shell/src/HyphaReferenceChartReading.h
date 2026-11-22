@@ -83,6 +83,11 @@ std::optional<CurveReading> readAt (const ReadCurve& curve, float hz, YFor&& yFo
     return std::nullopt;
 }
 
+inline juce::Rectangle<int> chartReadingClip (juce::Rectangle<float> chart, float captionHeadroom) noexcept
+{
+    return chart.withTop (chart.getY() - captionHeadroom).toNearestInt();
+}
+
 template <typename YFor>
 bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double minimumHz,
                         double maximumHz, juce::Point<float> pointer,
@@ -118,6 +123,8 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         text << " " << juce::String (spectrum_peaks::noteName (hz));
     using Part = std::pair<juce::String, juce::Colour>;
     std::vector<Part> parts { { text, COL_NORMAL.withAlpha (0.94f) } };
+    std::optional<juce::String> compactA, compactB;
+    std::optional<Part> target;
     for (const auto& curve : curves)
     {
         const auto reading = readAt (curve, hz, yFor);
@@ -125,13 +132,17 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
             continue;
         g.setColour (curve.colour);
         g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ pointer.x, reading->y }));
-        parts.push_back ({ juce::String (curve.name) + " " + juce::String (reading->level, 1) + levelUnit, curve.colour });
+        const auto level = juce::String (reading->level, 1);
+        if (std::string_view (curve.name) == "A") compactA = level;
+        if (std::string_view (curve.name) == "B") compactB = level;
+        parts.push_back ({ juce::String (curve.name) + " " + level + levelUnit, curve.colour });
     }
     if (range != nullptr)
         if (const auto low = readAt (range->low, hz, yFor), high = readAt (range->high, hz, yFor); low && high)
-            parts.push_back ({ "TARGET " + juce::String (low->level, 1) + " TO " + juce::String (high->level, 1) + levelUnit,
-                               COL_NORMAL.withAlpha (0.86f) });
-    // What does not fit a row of the chart goes to the next row: no reading is dropped.
+            target = Part { "TARGET " + juce::String (low->level, 1) + " TO " + juce::String (high->level, 1) + levelUnit,
+                            COL_NORMAL.withAlpha (0.86f) };
+    if (target) parts.push_back (*target);
+    // Normal-height readouts wrap each complete reading to the next row when necessary.
     const auto partWidth = [&g] (const Part& part) { return text_style::shownWidth (g.getCurrentFont(), part.first) + 10.0f; };
     constexpr float padding = 8.0f;
     std::vector<std::pair<float, std::vector<Part>>> rows (1, { padding, {} });
@@ -142,14 +153,31 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         rows.back().first += partWidth (part);
         rows.back().second.push_back (part);
     }
+    const float headroom = range != nullptr ? range->plateHeadroom : 0.0f;
+    constexpr float minRowHeight = 12.0f;
+    const bool compactPair = headroom > 0.0f && chart.getHeight() < 40.0f && compactA && compactB
+        && parts.size() == (target ? 4u : 3u) && static_cast<float> (rows.size()) * minRowHeight > chart.getHeight() + headroom;
+    if (compactPair)
+    {
+        const Part combined { "A " + *compactA + " / B " + *compactB + levelUnit, COL_NORMAL };
+        const auto second = target ? *target : parts.front();
+        rows = { { padding + partWidth (combined), { combined } }, { padding + partWidth (second), { second } } };
+        // The frequency can stay inline where it fits; never evict an A/B or TARGET value.
+        if (target)
+            for (auto& [width, row] : rows)
+                if (width + partWidth (parts.front()) <= chart.getWidth())
+                {
+                    width += partWidth (parts.front());
+                    row.insert (row.begin(), parts.front());
+                    break;
+                }
+    }
     const auto rowCount = static_cast<float> (rows.size());
     const bool reserveBlauert = range != nullptr && range->reservePlateTop;
     const auto belowBlauert = reserveBlauert ? chart.getHeight() - range->plateTop : chart.getHeight();
     const bool compactBelowBlauert = reserveBlauert && rowCount * 16.0f - 1.0f > belowBlauert;
-    const float headroom = range != nullptr ? range->plateHeadroom : 0.0f;
-    const bool compactPlot = headroom > 0.0f && chart.getHeight() < 40.0f && rows.size() >= 3;
+    const bool compactPlot = compactPair || (headroom > 0.0f && chart.getHeight() < 40.0f && rows.size() >= 3);
     const bool littleHeight = headroom > 0.0f && chart.getHeight() < 31.0f;
-    constexpr float minRowHeight = 12.0f;
     const bool needsCaption = compactPlot && chart.getHeight() < rowCount * minRowHeight;
     const auto available = chart.getHeight() + (needsCaption ? headroom : 0.0f);
     const float rowHeight = compactPlot ? juce::jmax (minRowHeight, available / rowCount)

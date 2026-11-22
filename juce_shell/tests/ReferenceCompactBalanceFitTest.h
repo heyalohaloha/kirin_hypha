@@ -3,7 +3,7 @@
 #include "../src/HyphaReferenceBlauertZones.h"
 #include "../src/HyphaFooterNoticeFont.h"
 #include "../src/HyphaRecordBindingNotice.h"
-#include <set>
+#include "ReferenceCompactBalanceReadoutFitTest.h"
 
 namespace hypha::tests::reference_overlay
 {
@@ -256,55 +256,6 @@ inline void verifyPointedCurveMustJoinTheShape()
     }
 }
 
-inline void verifyThreeBalanceRowsStayInsidePlot (float height)
-{
-    const i18n::ScopedLanguage scoped (i18n::Language::english);
-    auto context = presentation::forEditor (300, 200); context.referenceCompact = true;
-    auto state = page (2, 0);
-    state.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
-    auto a = std::make_shared<ref::KirinSpectrumWindow> (*state.aKirin);
-    std::fill (a->medianDb.begin(), a->medianDb.end(), -40.0f); state.aKirin = a;
-    for (size_t index = 0; index < state.songFacts.size(); ++index)
-    {
-        auto& fact = state.songFacts[index];
-        fact.lufsI = -20.0; fact.loudnessOffsetLu = 0.0;
-        std::fill (fact.medianDb.begin(), fact.medianDb.end(), index == 0 ? -50.0f : -30.0f);
-    }
-    const auto blauertWords = text_style::shownText (reference_ui::blauertReadout ('B', { 0.0, 0.0 }));
-    bool checked = false;
-    for (int width = 160; width <= 225; ++width)
-    {
-        const juce::Rectangle<float> chart (10.0f, 30.0f, static_cast<float> (width), height);
-        state.chartPointer = { chart.getX() + chart.getWidth() * static_cast<float> (std::log (62.5) / std::log (1000.0)),
-                               chart.getCentreY() }; // 1250 Hz, no note added
-        juce::Image image (juce::Image::ARGB, 300, 120, true);
-        juce::Graphics g (image);
-        const text_style::ShownTextLog log;
-        reference_ui::paintCompactBalanceChart (g, chart, state, context);
-        const auto& area = log.areas();
-        std::vector<int> reads;
-        for (int index = 0; index < log.texts().size(); ++index)
-        {
-            const auto& text = log.texts()[index];
-            if (text.endsWith (" Hz") || text == text_style::shownText ("A -40.0 dB")
-                || text == text_style::shownText ("B -50.0 dB") || (text.contains ("-48.0") && text.contains ("-32.0")))
-                reads.push_back (index);
-        }
-        if (reads.size() != 4) continue;
-        std::set<float> rows;
-        for (const auto index : reads) rows.insert (area[static_cast<size_t> (index)].getY());
-        if (rows.size() != 3) continue;
-        const auto blauert = log.texts().indexOf (blauertWords);
-        require (height < 40.0f ? blauert < 0 : blauert >= 0 && area[static_cast<size_t> (blauert)].getBottom() <= chart.getY(),
-                 "the 40px case relocates Blauert; a short plot uses its caption for the pointer");
-        const auto visible = chart.withTop (chart.getY() - (height < 40.0f ? 14.0f : 0.0f)).expanded (0.5f);
-        if (height >= 22.0f)
-            for (const auto index : reads) require (visible.contains (area[static_cast<size_t> (index)]), "all three readout rows fit");
-        require (chart.expanded (0.5f).contains (area[static_cast<size_t> (reads.back())]), "the final range endpoints fit in the plot");
-        checked = true; break;
-    }
-    require (checked, "a narrow 100% chart actually exercised three rendered readout rows");
-}
 // Exercise the real shell: the notice changes the space available to Reference.
 inline void verifyCompactBalanceFit()
 {
@@ -312,7 +263,7 @@ inline void verifyCompactBalanceFit()
     verifyCompactBalanceRangeReading();
     verifyCompactBalanceBlauertReading();
     verifyPointedCurveMustJoinTheShape();
-    for (const float height : { 40.0f, 24.0f, 14.0f }) verifyThreeBalanceRowsStayInsidePlot (height);
+    verifyCompactBalanceReadoutFits();
     juce::StringArray failures;
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_COMPACT_BALANCE_IMAGES", {});
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })

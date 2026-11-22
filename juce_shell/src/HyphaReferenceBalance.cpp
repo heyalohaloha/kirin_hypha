@@ -418,7 +418,7 @@ bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const St
                                 drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz),
                                 ! context.referenceCompact || reserveBlauert ? blauertReadoutHeight : 0.0f, headroom, reserveBlauert };
         const juce::Graphics::ScopedSaveState readout (g);
-        g.reduceClipRegion (chart.withTop (chart.getY() - headroom).toNearestInt());
+        g.reduceClipRegion (chartReadingClip (chart, headroom));
         blauertInCaption = paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
                                               [chart] (float level) { return yFor (level, chart); }, context, &range, " dB");
     }
