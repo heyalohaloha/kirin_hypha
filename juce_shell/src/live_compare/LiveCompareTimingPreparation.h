@@ -5,11 +5,14 @@
 #include "PairedAnalysisClock.h"
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 namespace hypha::live_compare
 {
 // Clock preparation has no selection, MATCH, demand, renderer, or output permission. Mapping
-// and retirement are message-thread work; the Audio Thread only observes a published peer.
+// and retirement are non-RT work: the message thread services, a host prepare may retire from
+// its own thread, so both hold one lock until the peer is no longer read. The Audio Thread only
+// observes a published peer through its reader count and never takes this lock.
 class TimingPreparation
 {
     struct Peer
@@ -21,6 +24,7 @@ class TimingPreparation
 public:
     void service (std::uint64_t pairKey, std::uint32_t rate, std::uint64_t authority)
     {
+        const std::lock_guard<std::mutex> owner (control);
         const auto* current = peers.control();
         if (current != nullptr && current->authority == authority && current->mapping.key() == pairKey
             && current->mapping.rate() == rate && current->mapping.ring() != nullptr
@@ -34,10 +38,11 @@ public:
         peers.publish (std::move (peer));
     }
 
-    bool hasPeer() const noexcept { return peers.control() != nullptr; } // message thread
+    bool hasPeer() const { const std::lock_guard<std::mutex> owner (control); return peers.control() != nullptr; }
 
-    void retire() noexcept
+    void retire()
     {
+        const std::lock_guard<std::mutex> owner (control);
         initialRequested.store (false, std::memory_order_release);
         peers.retire();
         peers.collect();
@@ -89,6 +94,7 @@ public:
     // Old proof is discarded; actual PCM/owner checks remain.
     std::atomic<bool> initialRequested { false };
 private:
+    mutable std::mutex control; // non-RT only: service, retire and hasPeer
     local_blind::RtPublicationSlot<Peer> peers;
 };
 }
