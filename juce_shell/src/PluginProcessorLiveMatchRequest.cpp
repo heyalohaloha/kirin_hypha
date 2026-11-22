@@ -86,8 +86,10 @@ bool KirinHyphaProcessorBase::takeLiveCompareMatch (hypha::live_compare::MatchPl
 
 void KirinHyphaProcessorBase::setWholeMatchPreferred(bool enabled) noexcept
 {
-    if (!liveCompare.sessionActive.load(std::memory_order_acquire))
-        liveCompare.wholeMatchPreferred.store(enabled, std::memory_order_release);
+    // Saved with the project: the host hears of a real change, as it does for AUTO ALIGN.
+    if (!liveCompare.sessionActive.load(std::memory_order_acquire)
+        && liveCompare.wholeMatchPreferred.exchange(enabled, std::memory_order_acq_rel) != enabled)
+        updateHostDisplay(ChangeDetails {}.withNonParameterStateChanged(true));
 }
 
 void KirinHyphaProcessorBase::serviceLiveMatchSpan()
