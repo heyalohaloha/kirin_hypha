@@ -2,6 +2,7 @@
 #include <iostream>
 #include "ListenTextCases.h"
 #include "ListenTextPaintChecks.h"
+#include "ListenLayoutShard.h"
 #include "../src/AtomicFile.h"
 namespace hypha::tests
 {
@@ -9,7 +10,7 @@ inline juce::String withoutWhitespace (juce::String text)
 { return text.removeCharacters (" \t\r\n"); }
 
 template <typename Require>
-void verifyAllListenText (Require require)
+void verifyAllListenText (Require require, ListenLayoutShard shard = {})
 {
     const auto notices = listen_text::notices();
     const auto blindCases = listen_text::blindCases();
@@ -17,6 +18,8 @@ void verifyAllListenText (Require require)
     juce::StringArray failures;
     juce::String inventory;
     const auto previewDir = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    const auto previewTag = shard.count > 1 ? "-s" + juce::String (static_cast<int> (shard.index)) : juce::String();
+    std::size_t widthCase = 0;
     observatory::View named (observatory::Role::post); named.setVisible (true);
     live_blind_ui::Component blind;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -52,6 +55,7 @@ void verifyAllListenText (Require require)
                 + text_style::shownText (item.text) + "\n";
         for (int width : { 300, 375, 450, 600, 750, 900 })
         {
+            if (!shard.owns (widthCase++)) continue;
             for (bool chain : { false, true })
             for (int session : { 0, 1, 2 }) // listening, entry refusal / END, held POST attenuation
             for (const auto& item : notices)
@@ -116,7 +120,7 @@ void verifyAllListenText (Require require)
                 {
                     auto snapshot = named.createComponentSnapshot (named.getLocalBounds());
                     if (named.statusStripFolded()) { juce::Graphics g (snapshot); g.drawImageAt (pixels, strip.getX(), strip.getY()); }
-                    auto file = juce::File (previewDir).getChildFile ("footer-" + juce::String (namedCount) + ".png");
+                    auto file = juce::File (previewDir).getChildFile ("footer" + previewTag + "-" + juce::String (namedCount) + ".png");
                     auto out = file.createOutputStream();
                     require (out && out->setPosition (0) && out->truncate().wasOk()
                         && juce::PNGImageFormat().writeImageToStream (snapshot, *out), "footer preview saved");
@@ -160,7 +164,7 @@ void verifyAllListenText (Require require)
                     && item.state.reason == live_compare::RecoveryReason::none && item.state.timingUnavailable)
                     || (item.state.stage == live_compare::BlindStage::active && item.state.trial.usedPostFallback)))
                 {
-                    auto out = juce::File (previewDir).getChildFile ("blind-" + juce::String (blindCount) + ".png").createOutputStream();
+                    auto out = juce::File (previewDir).getChildFile ("blind" + previewTag + "-" + juce::String (blindCount) + ".png").createOutputStream();
                     require (out && out->setPosition (0) && out->truncate().wasOk()
                         && juce::PNGImageFormat().writeImageToStream (pixels, *out), "BLIND preview saved");
                 }
@@ -169,7 +173,7 @@ void verifyAllListenText (Require require)
         }
     }
     if (previewDir.isNotEmpty())
-        require (hypha::storage::writeText (juce::File (previewDir).getChildFile ("notices.tsv"), inventory), "notice inventory saved");
+        require (hypha::storage::writeText (juce::File (previewDir).getChildFile ("notices" + previewTag + ".tsv"), inventory), "notice inventory saved");
     for (const auto& failure : failures) std::cerr << "Clipped " << failure << '\n';
     std::cout << "All LISTEN text: " << notices.size() << " notices / " << namedCount << " cases; BLIND: "
               << blindCases.size() << " screens / " << blindCount << " cases; " << clipped << " clipped\n";

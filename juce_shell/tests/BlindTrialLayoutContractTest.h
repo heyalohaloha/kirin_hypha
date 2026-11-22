@@ -4,12 +4,13 @@
 #include "../src/HyphaLanguage.h"
 #include "BlindPreferenceComponentTest.h"
 #include "EditorReachabilityCheck.h"
+#include "ListenLayoutShard.h"
 #include "TestTemporaryDirectory.h"
 
 namespace hypha::tests
 {
 template <typename Require>
-void verifyBlindTrialLayout (Require check)
+void verifyBlindTrialLayout (Require check, ListenLayoutShard shard = {})
 {
     using live_compare::BlindStage;
     using namespace blind_ui::trial_layout;
@@ -21,6 +22,7 @@ void verifyBlindTrialLayout (Require check)
         return dynamic_cast<const juce::Label*> (view.findChildWithID (juce::String ("live-blind-") + suffix));
     };
 
+    std::size_t ordinal = 0;
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     for (const auto width : { 300, 303, 330, 375, 450, 600, 900 })
     for (const auto scale : { 1.0f, 1.5f })
@@ -39,6 +41,7 @@ void verifyBlindTrialLayout (Require check)
         if ((scale == 1.5f && width != 900) || (guess && rounds != 1)
             || (votePhase != 0 && rounds == 1 && !guess) || (locked && rounds == 1))
             continue;
+        if (!shard.owns (ordinal++)) continue;
         const i18n::ScopedLanguage shown (language);
         blind_preference_component_test::Harness h (rounds, candidate, preferenceFile);
         h.view.setSize (width, width * 2 / 3);
