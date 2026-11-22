@@ -108,8 +108,8 @@ void verifyBlindAndFrozenSnapshot (Require require)
     const auto pending = span.captureToken();
     pair.stage (span.admitted (listen, true, 0, 0)); // late old callback completion
     pair.stage (span.admitted (pending, true, 7, 6)); // new request, still old proof
-    require (pending.epoch != listen.epoch && pending.receipt == 7 && span.snapshot() == frames,
-             "the old callback retains its old epoch and a pending BLIND proof publishes nothing");
+    require (pending.epoch != listen.epoch && pending.receipt == 7 && span.snapshot() == 0,
+             "late old callback and a pending BLIND proof publish nothing");
     span.service (1, &kirin_hypha_live_match_span_cut);
     require (span.frames() == 0, "new BLIND meter excludes late LISTEN and unacknowledged BLIND PCM");
     auto capture = span.admitted (pending, true, 7, 7);
@@ -158,8 +158,25 @@ void verifySubstitutePost (Require require)
 }
 
 template <class Require>
+void verifyQueueReplacement (Require require)
+{
+    Pair pair;
+    auto& span = pair.renderer.wholeMatch;
+    const auto old = span.captureToken(); // callback opened before its ring lease
+    span.prepare (false, rate); // ALL PLAYED → LAST 4 replaces the backing queue
+    require (span.admitted (old, true, 0, 0).epoch == 0, "old callback cannot touch missing queue");
+    pair.stage (old); // defense in stage/finish even if invoked with a stale token
+    require (span.snapshot() == 0 && !span.enabled(), "LAST 4 never receives ALL PLAYED PCM");
+    span.prepare (true, rate);
+    require (span.admitted (old, true, 0, 0).epoch == 0, "old callback cannot touch replacement queue");
+    pair.stage (span.admitted (span.captureToken(), true, 0, 0));
+    require (span.snapshot() == frames, "only callback from replacement epoch publishes");
+}
+
+template <class Require>
 void verify (Require require)
 {
+    verifyQueueReplacement (require);
     verifySeqlock (require);
     verifyBlindAndFrozenSnapshot (require);
     verifySubstitutePost (require);

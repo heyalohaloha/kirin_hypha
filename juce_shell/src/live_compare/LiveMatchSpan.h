@@ -43,18 +43,22 @@ public:
         return {epoch.load(std::memory_order_acquire), blindReceipt.load(std::memory_order_relaxed)};
     }
 
+    bool current(CaptureToken token) const noexcept
+    { return token.epoch != 0 && token.epoch == epoch.load(std::memory_order_acquire); }
+
+    // Only dereference queue while the realtime ring lease protects its non-RT replacement.
     LiveMatchSpanQueue::Staged stage(CaptureToken token, const Ring& ring, std::uint64_t run, std::int64_t start,
           float* const* post, int channels, int frames, bool discontinuity) noexcept
     {
-        return token.epoch == 0 ? LiveMatchSpanQueue::Staged {} : queue->stage(ring, run, start, post,
+        return !current(token) || !queue ? LiveMatchSpanQueue::Staged {} : queue->stage(ring, run, start, post,
             channels, frames, token.epoch, skipped || lastCapturedEpoch != token.epoch || discontinuity);
     }
 
     void finish(CaptureToken token, LiveMatchSpanQueue::Staged staged, bool eligible) noexcept
     {
-        if (token.epoch == 0) return;
+        if (!current(token)) return;
         skipped = !eligible;
-        if (eligible)
+        if (eligible && queue)
         {
             queue->finish(staged, token.epoch);
             lastCapturedEpoch = token.epoch;
@@ -64,7 +68,7 @@ public:
     CaptureToken admitted(CaptureToken token, bool eligible, std::uint64_t callbackRequest,
                           std::uint64_t acceptedRequest) noexcept
     {
-        if (eligible && (token.receipt == 0 || (token.receipt == callbackRequest && token.receipt == acceptedRequest)))
+        if (eligible && current(token) && queue && (token.receipt == 0 || (token.receipt == callbackRequest && token.receipt == acceptedRequest)))
             return token;
         finish(token, {}, false);
         return {};
