@@ -4,6 +4,7 @@
 
 #include "HyphaTextButton.h"
 #include "HyphaTextLookAndFeel.h"
+#include "HyphaBlindNoticeStack.h"
 
 // PRE/POST の LIVE BLIND と REF の VERSION BLIND が同じ画面で出す（2026-10-04。形式と見た目を
 // そろえて、覚えることを減らす）。窓全体に、上から題・指示・大きな SOURCE 1｜SOURCE 2・開示｜終了・説明。
@@ -70,6 +71,14 @@ public:
 private:
     void timerCallback() override;
     void apply();
+    void layoutTrial (bool choosingRounds, bool fixedProgress);
+    juce::String extraTrialNotice() const { return {}; }
+    bool isRoutineTrialHint() const
+    {
+        return status.getText() == "Try both sources while playing"
+            || status.getText() == "Reveal the sources when ready"
+            || status.getText() == "Sources revealed; keep comparing";
+    }
     juce::String actionNotice;
     bool covered = false;
     struct ScreenLook : TextLookAndFeel
@@ -106,6 +115,7 @@ private:
     HyphaTextButton guessOne { "1", true, text_style::LabelPolicy::fixed }, guessTwo { "2", true, text_style::LabelPolicy::fixed };
     HyphaTextButton saveImage { "SAVE IMAGE", true, text_style::LabelPolicy::fixed };
     juce::Label roundsLabel;
+    notice_stack::More moreNotices;
     HyphaTextButton roundsOne { "1", true, text_style::LabelPolicy::fixed }, roundsFive { "5", true, text_style::LabelPolicy::fixed }, roundsTen { "10", true, text_style::LabelPolicy::fixed };
     juce::TextEditor matchedGainBody, preferenceResultBody, preferenceNoteBody;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)

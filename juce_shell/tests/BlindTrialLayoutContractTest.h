@@ -76,19 +76,39 @@ void verifyBlindTrialLayout (Require check)
         whole (explanation, "END explanation visible at 12px or larger");
         must (explanation && explanation->getText().contains (lowered ? "4.2 dB" : "END restores normal level"),
               "END return level retained");
+        auto* more = dynamic_cast<juce::Button*> (h.view.findChildWithID ("live-blind-more-notices"));
+        const auto hasNotice = [&] (const juce::String& raw)
+        {
+            const bool inlineText = note && note->isVisible() && note->getText().contains (raw);
+            const auto hiddenText = text_style::shownText (raw);
+            return inlineText || (more && more->isVisible() && more->getTooltip().contains (hiddenText)
+                && more->getDescription().contains (hiddenText));
+        };
         if (notice != Notice::none)
         {
-            whole (note, "notice present in a separate measured row");
-            must (explanation && note && explanation->getBottom() <= note->getY(), "read END before the notice");
-            if (repeating) must (note && note->getText().contains ("Repeated audio: checked per block"), "periodic notice survives");
+            if (note && note->isVisible())
+            {
+                whole (note, "visible notice fits in a separate measured row");
+                must (explanation && explanation->getBottom() <= note->getY(), "read END before the notice");
+            }
+            if (repeating) must (hasNotice ("Repeated audio: checked per block"), "full periodic notice is readable");
             if (h.status.contentUnmeasured)
-                must (note && note->getText().contains (live_compare_ui::unmeasuredNotice())
-                           && note->getText().contains (live_compare_ui::chainDelayNotice()), "unmeasured notice and advice survive");
-            if (h.status.contentUnapplied) must (note && note->getText().contains (live_compare_ui::unappliedNotice()), "delay change survives");
+                must (hasNotice (juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice()),
+                      "full unmeasured notice and advice are readable");
+            if (h.status.contentUnapplied) must (hasNotice (live_compare_ui::unappliedNotice()), "full delay change is readable");
             if (h.status.contentNotRemeasured)
-                must (note && note->getText().contains (live_compare_ui::notRemeasuredNotice()), "unremeasured notice survives");
+                must (hasNotice (live_compare_ui::notRemeasuredNotice()), "full unremeasured notice is readable");
+            if (more && more->isVisible())
+            {
+                const auto* accessibility = more->getAccessibilityHandler();
+                must (note && note->isVisible() && more->getTooltip().isNotEmpty()
+                    && accessibility && accessibility->getDescription() == more->getTooltip(),
+                    "overflow retains the highest-priority full notice, and reads out all hidden text");
+                must (more->getButtonText().startsWithChar ('+') && more->getWantsKeyboardFocus(),
+                      "overflow is a +N keyboard control");
+            }
         }
-        else must (note && !note->isVisible(), "ordinary trial does not show a blank notice");
+        else must (note && !note->isVisible() && more && !more->isVisible(), "ordinary trial has no notice badge");
 
         if (h.view.screen().roundsEnabled)
         {

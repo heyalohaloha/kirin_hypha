@@ -1,6 +1,6 @@
 #include "HyphaBlindScreen.h"
 #include "HyphaBlindResultLayout.h"
-#include "HyphaBlindTrialLayout.h"
+#include "HyphaBlindScreenTrial.h"
 #include "HyphaLanguage.h"
 #include "HyphaPreProcessingNotice.h"
 #include "HyphaComparisonSurfaceMaterial.h"
@@ -46,6 +46,8 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage not
     notice.setColour (juce::Label::textColourId, COL_NORMAL);
     notice.setMinimumHorizontalScale (1.0f);
     addChildComponent (notice);
+    moreNotices.setComponentID (idPrefix + "-more-notices");
+    addChildComponent (moreNotices);
     look.wrappedDetail = &detail; look.fixedStatus = notes == NoteLanguage::prelocalized ? &status : nullptr;
     look.wrappedNotice = &notice;
     question.setComponentID (idPrefix + "-guess-question");
@@ -278,6 +280,7 @@ void ScreenComponent::resized()
     roundsLabel.setText ("ROUNDS", juce::dontSendNotification);
     outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty());
     notice.setVisible (false);
+    if (covered || result) moreNotices.setNotices ({});
     roundsLabel.setFont (labelFont (context, typography::TextRole::listenAction, typography::Composition::information));
     int roundIndex = 0;
     for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
@@ -370,125 +373,8 @@ void ScreenComponent::resized()
         matchedGainBody.setBounds (centred);
         return;
     }
-    if (covered) return;
-    for (auto* label : { &status, &question })
-        label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
-    outcome.setFont (labelFont (context, fixedProgress ? typography::TextRole::listenAction : typography::TextRole::body, typography::Composition::information));
-    const auto guidanceRole = shown.cause == live_compare_ui::preProcessingCause
-        ? typography::TextRole::listenChoice : typography::TextRole::body;
-    for (auto* label : { &cause, &recovery })
-        label->setFont (labelFont (context, guidanceRole, typography::Composition::information));
-    for (auto* label : { &detail, &notice })
-        label->setFont (labelFont (context, typography::TextRole::compactExplanation, typography::Composition::information));
-    status.setText (actionNotice.isNotEmpty() && !shown.votingComplete ? actionNotice : shown.instruction, juce::dontSendNotification);
-    detail.setText (shown.endExplanation.isNotEmpty() ? shown.endExplanation : shown.detail, juce::dontSendNotification);
-    notice.setText (shown.trialNotice, juce::dontSendNotification);
-
-    auto area = getLocalBounds().reduced (juce::jlimit (6, 24, getWidth() / 40), 0);
-    const auto measure = [&] (const juce::Label& label)
-    {
-        if (label.getText().isEmpty()) return 0;
-        const auto border = label.getBorderSize();
-        const auto width = juce::jmax (1, area.getWidth() - border.getLeftAndRight());
-        const auto measured = text_style::shownWrappedHeight (label.getText(), label.getFont(), width, look.policyFor (label));
-        return juce::roundToInt (std::ceil (measured)) + border.getTopAndBottom() + 2;
-    };
-    const auto place = [] (juce::Label& label, juce::Rectangle<int> bounds)
-    {
-        label.setVisible (label.getText().isNotEmpty());
-        label.setBounds (label.isVisible() ? bounds : juce::Rectangle<int>());
-    };
-    const auto titleHeight = measure (title);
-    const auto statusHeight = shown.trialNotice.contains (status.getText()) ? 0 : measure (status);
-    const auto statusIsHint = status.getText() == "Try both sources while playing"
-        || status.getText() == "Reveal the sources when ready" || status.getText() == "Sources revealed; keep comparing";
-    const auto detailHeight = measure (detail), noticeHeight = measure (notice);
-    const auto causeHeight = shown.guidanceShown ? measure (cause) : 0;
-    const auto recoveryHeight = shown.guidanceShown ? measure (recovery) : 0;
-    const auto rows = 1 + static_cast<int> (choosingRounds) + static_cast<int> (shown.guessShown);
-    const auto sourceHeight = shown.sourcesShown ? trial_layout::sourceMinimum : 0;
-    const auto approvalHeight = shown.approveShown ? trial_layout::minimumActionHeight : 0;
-    const auto preferredAction = juce::jlimit (28, 40, 20 + getHeight() / 22);
-    const auto textWidth = [] (const juce::Label& label, auto policy)
-    {
-        return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText(), policy)))
-            + label.getBorderSize().getLeftAndRight() + 2 : 0;
-    };
-    constexpr int gap = 4;
-    const auto asked = textWidth (question, shown.guessQuestionFixed ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized);
-    const auto told = textWidth (outcome, text_style::LabelPolicy::localized);
-    const auto answerInset = shown.guessQuestionFixed ? 4 : 8;
-    const auto outcomeHeight = !fixedProgress && told > 0 && asked + told + 2 * (preferredAction + answerInset) + 3 * gap > area.getWidth()
-        ? measure (outcome) : 0;
-    const auto explanationHeight = detailHeight + noticeHeight + causeHeight + recoveryHeight + outcomeHeight;
-    const auto headingPad = juce::jlimit (4, 12, getHeight() / 44);
-    const auto optionalStatus = statusIsHint && actionNotice.isEmpty() ? statusHeight : 0;
-    const auto [plan, roundsInHeading] = trial_layout::fit (getHeight(), sourceHeight, explanationHeight, approvalHeight,
-        titleHeight, statusHeight, rows, preferredAction, headingPad, optionalStatus, choosingRounds && shown.guessShown);
-    const auto placeRounds = [&] (auto row)
-    {
-        trial_layout::placeRoundChoices (row, roundsLabel, roundsOne, roundsFive, roundsTen);
-    };
-    area.removeFromTop (plan.headingPad);
-    auto heading = area.removeFromTop (roundsInHeading ? juce::jmax (titleHeight, plan.actionHeight) : titleHeight);
-    if (roundsInHeading)
-        placeRounds (heading.removeFromRight (heading.getWidth() * 2 / 3).withHeight (plan.actionHeight));
-    place (title, heading);
-    if (statusHeight > 0 && plan.showStatus)
-        place (status, area.removeFromTop (statusHeight));
-    else
-        status.setVisible (false);
-    const auto below = [&] (juce::Label& label, int height)
-    {
-        if (height > 0) place (label, area.removeFromBottom (height));
-        else label.setVisible (false);
-    };
-    below (notice, noticeHeight);
-    below (detail, detailHeight);
-    if (outcomeHeight > 0) below (outcome, outcomeHeight);
-
-    auto actions = area.removeFromBottom (plan.actionHeight);
-    if (shown.saveImageShown && shown.alignOffShown)
-    {
-        const auto third = actions.getWidth() / 3;
-        alignOff.setBounds (actions.removeFromLeft (third).reduced (3, 0));
-        saveImage.setBounds (actions.removeFromLeft (third).reduced (3, 0));
-        end.setBounds (actions.reduced (3, 0));
-    }
-    else
-    {
-        end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
-        reveal.setBounds (actions.reduced (3, 0));
-        alignOff.setBounds (reveal.getBounds());
-        saveImage.setBounds (reveal.getBounds());
-    }
-    if (choosingRounds && !roundsInHeading) placeRounds (area.removeFromBottom (plan.actionHeight));
-    if (shown.guessShown)
-    {
-        auto row = area.removeFromBottom (plan.actionHeight);
-        const auto answer = plan.actionHeight + answerInset;
-        const auto outcomeInline = outcomeHeight > 0 ? 0 : told;
-        const auto total = asked + 2 * answer + 2 * gap + (outcomeInline > 0 ? gap + outcomeInline : 0);
-        row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), total), row.getHeight());
-        const auto textSpace = juce::jmax (0, row.getWidth() - 2 * answer - (outcomeInline > 0 ? 3 : 2) * gap);
-        const auto questionWidth = asked + outcomeInline > textSpace ? textSpace * asked / (asked + outcomeInline) : asked;
-        question.setBounds (row.removeFromLeft (questionWidth));
-        row.removeFromLeft (gap);
-        guessOne.setBounds (row.removeFromLeft (answer));
-        row.removeFromLeft (gap);
-        guessTwo.setBounds (row.removeFromLeft (answer));
-        if (outcomeInline > 0) { row.removeFromLeft (gap); outcome.setBounds (row); }
-    }
-    if (shown.guidanceShown)
-    {
-        if (causeHeight > 0) place (cause, area.removeFromTop (causeHeight)); else cause.setVisible (false);
-        if (recoveryHeight > 0) place (recovery, area.removeFromTop (recoveryHeight)); else recovery.setVisible (false);
-    }
-    const auto centre = area.withSizeKeepingCentre (area.getWidth(), shown.sourcesShown ? sourceHeight : approvalHeight);
-    approve.setBounds (centre);
-    auto sources = centre;
-    one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
-    two.setBounds (sources.reduced (3, 0));
+    if (!covered && getWidth() > 0 && getHeight() > 0)
+        layoutTrial (choosingRounds, fixedProgress);
 }
 
 void ScreenComponent::paint (juce::Graphics& g)

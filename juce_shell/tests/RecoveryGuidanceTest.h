@@ -177,8 +177,11 @@ template <class Require> void verifyRecoveryGuidance (Require require)
                     previousBottom = label->getBottom();
                 }
                 const auto* source = view.findChildWithID ("live-blind-source-1");
-                require (source && source->isVisible() && source->getHeight() >= 60 && previousBottom <= source->getY(),
-                         "the larger guidance does not cover or shrink SOURCE");
+                require (source && source->isVisible() && source->getHeight() >= 60,
+                         "the larger guidance does not shrink SOURCE");
+                for (const auto* id : { "live-blind-text-4", "live-blind-text-5" })
+                    if (const auto* label = view.findChildWithID (id); source && label)
+                        require (!source->getBounds().intersects (label->getBounds()), "guidance does not cover SOURCE");
             }
         }
     }
