@@ -181,24 +181,19 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         return;
     const auto status = liveCompareStatus();
     if (! status.active || status.finishing) return;
-    if (liveCompare.blindStage == BlindStage::preparing && !candidateCompareActive()
-        && liveCompare.renderer.wholeMatch.enabled() && liveCompare.renderer.wholeMatch.lost())
-    {
-        stopLiveCompare();
-        liveCompare.blindWaiting = MatchFailure::wholeSpanLost;
-        liveCompare.blindStage = BlindStage::failed;
-        return;
-    }
+    const bool wholeLost = liveCompare.blindStage == BlindStage::preparing && !candidateCompareActive()
+        && liveCompare.renderer.wholeMatch.enabled() && liveCompare.renderer.wholeMatch.lost();
     // Thirty seconds of playback without a measurable window end the preparation with its reason; POST
     // returns to normal and nothing else waits on it (a stopped DAW is the user's wait, not counted).
     // Every stage before the sources are ready shares it: the timing admission, the MATCH window and an
     // applied MATCH the audio has not taken yet (settling). Playback is the Audio Thread's count of frames
     // the host called playing: a DAW stopped without callbacks adds none, a stalled message thread loses none.
     const auto played = liveCompare.playedFrames.load (std::memory_order_acquire) - liveCompare.blindPlayedFrom;
-    if (static_cast<double> (played) >= 30.0 * preparedFormat.sampleRate)
+    if (wholeLost || static_cast<double> (played) >= 30.0 * preparedFormat.sampleRate)
     {
         // An applied MATCH the audio never took is a timing wait, and says so.
-        if (liveCompare.blindWaiting == MatchFailure::none) liveCompare.blindWaiting = MatchFailure::notProven;
+        if (wholeLost) liveCompare.blindWaiting = MatchFailure::wholeSpanLost;
+        else if (liveCompare.blindWaiting == MatchFailure::none) liveCompare.blindWaiting = MatchFailure::notProven;
         if (returnBlindToCandidateListen()) return;
         stopLiveCompare();
         // INV-LC18: a lowered POST (LISTEN's MATCH, or this preparation's) rises to normal as END and RETURN
