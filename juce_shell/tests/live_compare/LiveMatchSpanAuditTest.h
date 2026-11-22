@@ -215,11 +215,47 @@ void verifyRunChangeAndCapacity(Require require)
     const auto fullAndProven = queue.stage(ring,run,block.clock,io,1,frames,5,false);
     queue.finish(fullAndProven,5);
     require(fullAndProven.overflow && queue.incomplete(5), "only verified PCM failure marks a permanent overflow");
-    bool first = true, marked = false;
-    queue.drainThrough(queue.published(),frames,[&](const LiveMatchSpanQueue::Frame& frame) {
-        if (first) {marked = frame.gapBefore; first = false;}
-    });
-    require(marked, "boundary marker is carried by the first admitted frame");
+
+}
+
+struct CutReceipt
+{
+    inline static LiveMatchSpan* span = nullptr;
+    inline static int cuts = 0;
+    inline static std::uint64_t at = 0;
+    static bool cut(KirinLiveMatchSpan* meter)
+    {
+        ++cuts;
+        at = span->frames(); // service flushes the PCM before cutting at an automatic marker
+        return kirin_hypha_live_match_span_cut(meter);
+    }
+};
+
+template<class Require>
+void verifyRejectedBlockMarksOnlyNextBoundary(Require require)
+{
+    Pair pair;
+    auto& span = pair.renderer.wholeMatch;
+    const auto capture = span.captureToken();
+    CutReceipt::span = &span; CutReceipt::cuts = 0; CutReceipt::at = 0;
+    pair.stage(capture);
+    span.service(1, &CutReceipt::cut);
+    require(span.frames() == frames && CutReceipt::cuts == 0, "first block starts the meter, not an inter-segment cut");
+
+    const auto bad = pair.record();
+    float* io[] = {pair.post.data()};
+    const auto old = span.snapshot();
+    const auto unproven = span.stage(capture, *pair.ring, pair.ring->header.run.load()+1,
+                                      bad.clock, io, 1, frames, false);
+    span.finish(capture, unproven, true);
+    require(!unproven.copied && !unproven.overflow && !span.lost() && span.snapshot() == old,
+        "failed proof skips this block without overflow");
+    pair.stage(capture); // no discontinuity supplied: finish() must mark the next block
+    pair.stage(capture); // consecutive continuation must not cut again
+    span.service(1, &CutReceipt::cut);
+    require(CutReceipt::cuts == 1 && CutReceipt::at == frames && span.frames() == 3 * frames,
+        "the real stage/finish path marks only the first frame of the next valid block");
+    CutReceipt::span = nullptr;
 }
 
 template<class Require>
@@ -245,6 +281,7 @@ void verify (Require require)
     verifyQueueReplacement (require);
     verifyPreClockFence (require);
     verifyRunChangeAndCapacity (require);
+    verifyRejectedBlockMarksOnlyNextBoundary (require);
     verifyAlignWaitingForSelectedPost (require);
     verifySeqlock (require);
     verifyFrozenSnapshot (require);
