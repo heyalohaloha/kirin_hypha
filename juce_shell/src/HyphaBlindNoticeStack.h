@@ -5,6 +5,7 @@
 #include "HyphaTooltipLookAndFeel.h"
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
 namespace hypha::blind_ui::notice_stack
@@ -108,6 +109,22 @@ public:
     void resized() override { if (panel.isVisible()) positionDisclosure(); }
 
 private:
+    class DisclosureAccessibility final : public juce::AccessibilityHandler
+    {
+    public:
+        explicit DisclosureAccessibility (More& badge)
+            : juce::AccessibilityHandler (badge, juce::AccessibilityRole::button,
+                juce::AccessibilityActions().addAction (juce::AccessibilityActionType::press,
+                                                        [&badge] { badge.triggerClick(); }))
+        {
+        }
+        juce::String getHelp() const override { return getDescription(); }
+    };
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override
+    {
+        return std::make_unique<DisclosureAccessibility> (*this);
+    }
+
     void reveal()
     {
         if (panel.getName().isEmpty() || !isShowing() || panel.getParentComponent() == nullptr) return;

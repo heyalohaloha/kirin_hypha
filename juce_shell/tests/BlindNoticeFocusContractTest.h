@@ -86,6 +86,13 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
         require (badge->hasKeyboardFocus (false), "Tab reaches the actual notice badge");
     };
     tabToBadge();
+    const auto* accessibility = badge->getAccessibilityHandler();
+    require (accessibility && accessibility->getRole() == juce::AccessibilityRole::button
+             && accessibility->getActions().contains (juce::AccessibilityActionType::press)
+             && accessibility->getDescription().isNotEmpty()
+             && accessibility->getDescription() == disclosure->getName()
+             && accessibility->getHelp() == disclosure->getName(),
+             "the real badge exposes all revealed text in both accessibility Description and Help");
     require (disclosure->isShowing() && disclosure->getName() == badge->getDescription()
              && blind.getLocalBounds().contains (disclosure->getBounds()),
              "keyboard focus exposes exactly the hidden text in the editor");
