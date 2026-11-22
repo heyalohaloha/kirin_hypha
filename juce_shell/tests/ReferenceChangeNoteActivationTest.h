@@ -30,9 +30,19 @@ inline void verifyReferenceChangeNoteActivation()
     first->grabKeyboardFocus();
     require(afterQueuedMessages([]{}) && first->hasKeyboardFocus(false),"real pooled row has keyboard focus");
     auto& surface=static_cast<juce::Component&>(*first);
-    require(surface.keyPressed({juce::KeyPress::returnKey,juce::ModifierKeys(),0}) &&
-            surface.keyPressed({juce::KeyPress::returnKey,juce::ModifierKeys::shiftModifier,0}) &&
-            opened==std::vector<juce::String>{"note-0","note-0"},"Return and Shift+Return select the original ID immediately");
+    constexpr int returnModifiers[]={0,juce::ModifierKeys::shiftModifier,juce::ModifierKeys::ctrlModifier,
+        juce::ModifierKeys::altModifier,juce::ModifierKeys::commandModifier,
+        juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier};
+    for(const int mods : returnModifiers)
+    {
+        const auto previous=opened.size();
+        require(surface.keyPressed({juce::KeyPress::returnKey,juce::ModifierKeys(mods),0}) &&
+                opened.size()==previous+1 && opened.back()=="note-0",
+                "each Return modifier selects the focused original ID exactly once and immediately");
+    }
+    const auto keyActivations=opened.size();
+    require(!surface.keyPressed({juce::KeyPress::spaceKey,juce::ModifierKeys::ctrlModifier,0}) &&
+            opened.size()==keyActivations,"modified Space is not promoted to an activation");
     const auto event=[&](int mods)
     {
         const juce::Point<float> point(6.0f,6.0f); const auto now=juce::Time::getCurrentTime();
@@ -42,11 +52,11 @@ inline void verifyReferenceChangeNoteActivation()
     surface.mouseDown(event(juce::ModifierKeys::leftButtonModifier));
     require(first->isDown(),"actual pooled mouse press is down");
     surface.mouseUp(event(0));
-    require(opened.size()==3 && opened.back()=="note-0","a same-binding mouse click selects the correct ID");
+    require(opened.size()==keyActivations+1 && opened.back()=="note-0","a same-binding mouse click selects the correct ID");
     auto* handler=first->getAccessibilityHandler();
     require(handler!=nullptr,"pooled row exposes an accessibility handler");
     const auto oldActions=handler->getActions();
-    require(oldActions.invoke(Action::press) && afterQueuedMessages([]{}) && opened.size()==4
+    require(oldActions.invoke(Action::press) && afterQueuedMessages([]{}) && opened.size()==keyActivations+2
             && opened.back()=="note-0","real accessibility action selects the still-bound ID");
 
     surface.mouseDown(event(juce::ModifierKeys::leftButtonModifier));
@@ -55,11 +65,11 @@ inline void verifyReferenceChangeNoteActivation()
     require(first==rows.getViewedComponent()->getChildComponent(0) && first->getTitle()=="Excerpt 10",
             "scroll actually rebinds the same pooled component to a different note");
     surface.mouseUp(event(0));
-    require(oldActions.invoke(Action::press) && afterQueuedMessages([]{}) && opened.size()==4,
+    require(oldActions.invoke(Action::press) && afterQueuedMessages([]{}) && opened.size()==keyActivations+2,
             "rebound row rejects both an in-flight mouse release and old accessibility actions");
     auto* reboundHandler=first->getAccessibilityHandler();
     require(reboundHandler!=nullptr && reboundHandler->getActions().invoke(Action::press)
-            && afterQueuedMessages([]{}) && opened.size()==5 && opened.back()=="note-10",
+            && afterQueuedMessages([]{}) && opened.size()==keyActivations+3 && opened.back()=="note-10",
             "the new accessibility action selects its own replacement ID");
 }
 }

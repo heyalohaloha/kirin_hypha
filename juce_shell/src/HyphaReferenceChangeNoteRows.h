@@ -72,11 +72,13 @@ private:
         {
             if(key==juce::KeyPress::upKey || key==juce::KeyPress::downKey)
             { owner.focusRow(index+(key==juce::KeyPress::upKey?-1:1)); return true; }
-            if(key.isKeyCode(juce::KeyPress::returnKey) || key==juce::KeyPress::spaceKey)
+            const bool isReturn=key.isKeyCode(juce::KeyPress::returnKey);
+            if(isReturn || key==juce::KeyPress::spaceKey)
             {
-                // Never fall back to Button's delayed triggerClick, including Shift+Return.
+                // Match Button's Return modifiers without its delayed, unbound triggerClick.
                 const auto mods=key.getModifiers().withoutMouseButtons().getRawFlags();
-                if(hasKeyboardFocus(false) && (mods==0 || mods==juce::ModifierKeys::shiftModifier)) activate(binding());
+                if(hasKeyboardFocus(false) && (isReturn || mods==0 || mods==juce::ModifierKeys::shiftModifier))
+                    activate(binding());
                 return true;
             }
             return false;
