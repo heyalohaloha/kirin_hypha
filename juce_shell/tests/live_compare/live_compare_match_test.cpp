@@ -441,12 +441,12 @@ static void matchesAllProvenPlaybackWithoutChangingLastFour()
 {
     Pair pair;
     auto& span = pair.renderer.wholeMatch;
-    span.prepare (true, rate);
+    span.prepare (true, rate, 2);
     const auto feed = [&](int n, float pre, float post) {
         for (int i = 0; i < n; ++i)
         {
             pair.runBlocks (20, pre, post);
-            span.service (2);
+            span.service();
         }
     };
     feed (5, 0.3f, 0.6f);

@@ -28,7 +28,7 @@ struct Pair
         ring->initialise (key, rate);
         ring->header.demand.store (1);
         renderer.prepare (4096, rate);
-        renderer.wholeMatch.prepare (true, rate);
+        renderer.wholeMatch.prepare (true, rate, 1);
     }
 
     BlockClock record (float postPeak = 0)
@@ -111,22 +111,22 @@ void verifyFrozenSnapshot (Require require)
     pair.stage(span.admitted(listen, true)); // late callback from an earlier LISTEN
     require(capture.epoch != listen.epoch && span.snapshot() == 0,
         "previous LISTEN cannot publish into the next LISTEN");
-    span.service(1, &kirin_hypha_live_match_span_cut);
+    span.service(&kirin_hypha_live_match_span_cut);
     require(span.frames() == 0, "new LISTEN meter contains no old PCM");
     for (int i = 0; i < 288; ++i)
     {
         pair.stage (capture);
-        span.service (1, &kirin_hypha_live_match_span_cut);
+        span.service (&kirin_hypha_live_match_span_cut);
     }
     require (span.enough() && span.frames() == 288 * frames, "only fresh LISTEN proof fills its own three seconds");
     const auto target = span.snapshot();
-    require (span.serviceThrough (1, target, 65536, &kirin_hypha_live_match_span_cut),
+    require (span.serviceThrough (target, 65536, &kirin_hypha_live_match_span_cut),
              "consumer caught up to the frozen MATCH target");
     pair.stage (capture); // producer publishes immediately after drain, before measurement
     KirinLiveMatchSpanFacts facts {};
     require (span.snapshot() > target && span.measure (facts) && span.frames() == 288 * frames,
              "post-drain producer cannot invalidate or widen an earlier MATCH snapshot");
-    span.service (1, &kirin_hypha_live_match_span_cut);
+    span.service (&kirin_hypha_live_match_span_cut);
     require (span.frames() == 289 * frames, "late frame remains eligible for the next MATCH");
 }
 
@@ -139,7 +139,7 @@ void verifySubstitutePost (Require require)
     for (int i = 0; i < 330; ++i)
     {
         pair.render (false, 1.0f, 0.0f, {}, token); // user explicitly selected ordinary POST
-        span.service (1, &kirin_hypha_live_match_span_cut);
+        span.service (&kirin_hypha_live_match_span_cut);
     }
     KirinLiveMatchSpanFacts before {}, after {};
     require (span.enough() && span.measure (before), "affirmatively selected, proven POST counts");
@@ -151,11 +151,11 @@ void verifySubstitutePost (Require require)
     const auto recovering = pair.render (false, 1.0f, 0.0f, {}, token);
     require (recovering.guardTripped && span.snapshot() == old + frames,
              "explicit POST counts before guard recovery completes");
-    span.service (1, &kirin_hypha_live_match_span_cut);
+    span.service (&kirin_hypha_live_match_span_cut);
     for (int i = 0; i < 19; ++i)
     {
         pair.render (false, 1.0f, 0.0f, {}, token);
-        span.service (1, &kirin_hypha_live_match_span_cut);
+        span.service (&kirin_hypha_live_match_span_cut);
     }
     require (span.snapshot() > old && span.measure (after) && after.post_peak < -15.0
         && std::abs (before.post_peak - after.post_peak) < 0.1,
@@ -168,11 +168,11 @@ void verifyQueueReplacement (Require require)
     Pair pair;
     auto& span = pair.renderer.wholeMatch;
     const auto old = span.captureToken(); // callback opened before its ring lease
-    span.prepare (false, rate); // ALL PLAYED → LAST 4 replaces the backing queue
+    span.prepare (false, rate, 1); // ALL PLAYED → LAST 4 replaces the backing queue
     require (span.admitted (old, true).epoch == 0, "old callback cannot touch missing queue");
     pair.stage (old); // defense in stage/finish even if invoked with a stale token
     require (span.snapshot() == 0 && !span.enabled(), "LAST 4 never receives ALL PLAYED PCM");
-    span.prepare (true, rate);
+    span.prepare (true, rate, 1);
     require (span.admitted (old, true).epoch == 0, "old callback cannot touch replacement queue");
     pair.stage (span.admitted (span.captureToken(), true));
     require (span.snapshot() == frames, "only callback from replacement epoch publishes");
@@ -239,7 +239,7 @@ void verifyRejectedBlockMarksOnlyNextBoundary(Require require)
     const auto capture = span.captureToken();
     CutReceipt::span = &span; CutReceipt::cuts = 0; CutReceipt::at = 0;
     pair.stage(capture);
-    span.service(1, &CutReceipt::cut);
+    span.service(&CutReceipt::cut);
     require(span.frames() == frames && CutReceipt::cuts == 0, "first block starts the meter, not an inter-segment cut");
 
     const auto bad = pair.record();
@@ -252,7 +252,7 @@ void verifyRejectedBlockMarksOnlyNextBoundary(Require require)
         "failed proof skips this block without overflow");
     pair.stage(capture); // no discontinuity supplied: finish() must mark the next block
     pair.stage(capture); // consecutive continuation must not cut again
-    span.service(1, &CutReceipt::cut);
+    span.service(&CutReceipt::cut);
     require(CutReceipt::cuts == 1 && CutReceipt::at == frames && span.frames() == 3 * frames,
         "the real stage/finish path marks only the first frame of the next valid block");
     CutReceipt::span = nullptr;

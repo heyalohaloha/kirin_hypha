@@ -117,7 +117,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
             [&] {
                 liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
                 liveCompare.renderer.wholeMatch.prepare (captureListenSpan && wholeMatchPreferred() && liveCompare.candidate.selectedPre.empty(),
-                    static_cast<std::uint32_t> (preparedFormat.sampleRate));
+                    static_cast<std::uint32_t> (preparedFormat.sampleRate), static_cast<int> (preparedFormat.channelRoles.size()));
             }))
         return StartResult::notReady;
     auto mapping = std::make_unique<SharedRingMapping>();
@@ -239,17 +239,15 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(boo
     {
         const auto* ring = mapping.ring();
         if (ring == nullptr || ring->header.ownerClosed.load(std::memory_order_acquire) != 0) return;
-        int channels;
         {
             const juce::ScopedTryLock formatLock (handleLock);
             if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)) return;
-            channels = getTotalNumInputChannels();
-        } // analysis uses leased storage and the format snapshot, not a long mutex
+        } // analysis uses leased storage and the channels LISTEN started with, not a long mutex
        #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
         if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest();
        #endif
         result = selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled()
-            ? measureWholeLiveMatch(*ring, channels, mapping.rate()) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
+            ? measureWholeLiveMatch(*ring, mapping.rate()) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
         if (ring->header.ownerClosed.load(std::memory_order_acquire) != 0 || (compensation & 1u) != 0
             || (result.compensationProofBound && result.compensationProof != compensation)) result = {};

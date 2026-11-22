@@ -263,6 +263,39 @@ template<class Require> void verifyWholeMatchCommitRace (Require require)
   #endif
 }
 
+// The host may renegotiate a bus and only later call prepareToPlay; releaseResources keeps the session.
+template<class Require> void verifyWholeMatchKeepsListenChannels (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    CandidateHost<Require> host (wall, require, 2, 512);
+    host.pair();
+    auto& post = host.post();
+    post.setWholeMatchPreferred (true);
+    require (post.startLiveCompare() == StartResult::started, "channel fixture starts stereo ALL PLAYED LISTEN");
+    renderWholeMatchProductBlocks (host, 420);
+    host.render (3, false, false); // stereo frames still wait for the timer
+    const auto waiting = LiveTimingFixtureAccess::wholeSpanPublishedForTest (post);
+    const auto stereo = post.getBusesLayout();
+    auto mono = stereo;
+    mono.inputBuses.set (0, juce::AudioChannelSet::mono());
+    mono.outputBuses.set (0, juce::AudioChannelSet::mono());
+    require (post.setBusesLayout (mono) && post.getTotalNumInputChannels() == 1 && post.liveCompareStatus().active,
+             "the host renegotiates mono before its next prepareToPlay and LISTEN stays open");
+    post.serviceLiveMatchSpan(); // the timer runs once before any prepare
+    require (LiveTimingFixtureAccess::wholeSpanConsumedForTest (post) == waiting,
+             "the timer drains the waiting stereo frames as the stereo they were recorded in");
+    const auto whileMono = post.measureLiveCompare (true);
+    require (whileMono.ok() && whileMono.wholeOwnerBound && whileMono.failure != MatchFailure::wholeSpanLost,
+             "a bus change before prepare does not mark the ALL PLAYED history lost");
+    require (post.setBusesLayout (stereo) && post.getTotalNumInputChannels() == 2, "the host returns to stereo, still before a prepare");
+    const auto back = post.measureLiveCompare (true);
+    require (back.ok() && back.wholeOwnerBound && back.analysisUnits == whileMono.analysisUnits,
+             "the same history still matches after the bus returns");
+    post.finishLiveCompare();
+    renderWholeMatchProductBlocks (host, 96);
+}
+
 template<class Require> void verifyWholeMatchSpanProduct (Require require)
 {
     verifyWholeMatchBlindReusesListen (require);
@@ -270,6 +303,7 @@ template<class Require> void verifyWholeMatchSpanProduct (Require require)
     verifyDirectBlindUsesRecent (require);
     verifyWholeMatchPreClockRace (require);
     verifyWholeMatchCommitRace (require);
+    verifyWholeMatchKeepsListenChannels (require);
 }
 
 template<class Require> bool runWholeMatchSpanProductMode (std::string_view mode, Require require,
