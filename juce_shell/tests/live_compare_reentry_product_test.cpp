@@ -32,10 +32,10 @@ struct Clock final : juce::AudioPlayHead
     juce::Optional<PositionInfo> getPosition() const override
     {
         PositionInfo info; info.setIsPlaying (playing);
-        const auto project = (position + shift) % length;
+        const auto project = looping ? (position + shift) % length : position + shift;
         info.setTimeInSamples (project); info.setTimeInSeconds (project / 48000.0);
-        info.setIsLooping (true); info.setBpm (120); info.setPpqPosition (project / 24000.0);
-        info.setLoopPoints (LoopPoints { 0, 1 });
+        info.setIsLooping (looping); info.setBpm (120); info.setPpqPosition (project / 24000.0);
+        if (looping) info.setLoopPoints (LoopPoints { 0, 1 });
         info.setKirinAuxiliaryClockSource (1);
         if (! missing) info.setKirinAuxiliaryClockSamples (position);
         info.setKirinPresentationLatencySource (1);
@@ -43,7 +43,7 @@ struct Clock final : juce::AudioPlayHead
         return info;
     }
     std::int64_t position = 0, shift = 0;
-    bool playing = false, missing = false;
+    bool playing = false, missing = false, looping = true;
     int presentation = 0;
 };
 class Recovery final : private juce::Timer
@@ -53,6 +53,7 @@ public:
         matchSpan (mode == "match-span-restart", mode == "match-span-compensation")
     {
         preClock.presentation = delay;
+        preClock.looping = postClock.looping = mode != "match-span-compensation";
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);

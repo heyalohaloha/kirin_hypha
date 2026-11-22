@@ -65,6 +65,7 @@ public:
     bool tick (Processor& post, Pause&& pauseAudio, Resume&& resumeAudio, void (*require) (bool, const char*))
     {
         if (restartCase) return tickRestart (post, require);
+        using namespace hypha::live_compare;
         constexpr std::uint64_t sampleRate = 48000, blockSize = 512;
         post.serviceLiveMatchSpan();
         const auto published = LiveTimingFixtureAccess::wholeSpanPublishedForTest (post);
@@ -73,16 +74,37 @@ public:
         switch (state)
         {
             case 0:
-                if (consumed < sampleRate || status.preSelected) return false;
+            {
+                if (consumed < sampleRate * 3 || status.preSelected) return false;
                 pauseAudio();
-                post.serviceLiveMatchSpan();
+                const auto prior = post.measureLiveCompare (true);
+                if (! prior.ok()) { resumeAudio(); return false; }
+                require (prior.wholeOwnerBound && prior.proofBound && prior.analysisUnits >= sampleRate * 3,
+                         "at least three seconds of linear playback create a genuine old ALL PLAYED plan");
+                oldPlan = planMatch (prior, 0.0);
+                require (oldPlan.failure == MatchFailure::none && prior.compensationProofBound
+                         && oldPlan.compensationProofBound && oldPlan.compensationProof == prior.compensationProof,
+                         "the pre-switch MATCH plan carries its actual compensation generation");
+                const auto before = post.liveCompareStatus();
                 lastBeforeOff = LiveTimingFixtureAccess::wholeSpanPublishedForTest (post);
                 readBeforeOff = LiveTimingFixtureAccess::wholeSpanConsumedForTest (post);
+                post.kirinHostDelayCompensationStateChanged (false);
+                require (! post.measureLiveCompare (true).ok()
+                         && post.applyLiveCompareMatch (oldPlan, choice (oldPlan)).failure == MatchFailure::stale,
+                         "compensation OFF rejects the old proof immediately, before the next POST callback");
+                post.kirinHostDelayCompensationStateChanged (true);
+                require (! post.measureLiveCompare (true).ok()
+                         && post.applyLiveCompareMatch (oldPlan, choice (oldPlan)).failure == MatchFailure::stale,
+                         "OFF then ON without a POST callback cannot renew the previous proof");
+                const auto after = post.liveCompareStatus();
+                require (before.gain == after.gain && before.postTarget == after.postTarget && before.matched == after.matched,
+                         "no stale attempt changes either approved gain");
                 post.kirinHostDelayCompensationStateChanged (false);
                 adcOff.store (true, std::memory_order_release);
                 resumeAudio();
                 state = 1;
                 return false;
+            }
             case 1:
                 if (renderedPulses.load (std::memory_order_acquire) * blockSize < sampleRate * 2)
                     return false;
@@ -98,20 +120,40 @@ public:
                 resumeAudio();
                 state = 2;
                 return false;
-            default:
-                if (status.compensationOff || published <= lastBeforeOff || consumed < sampleRate * 3)
+            case 2:
+                if (status.compensationOff || published <= lastBeforeOff || consumed <= readBeforeOff)
                     return false;
+                pauseAudio();
                 if (const auto measured = post.measureLiveCompare (true); measured.ok())
                 {
-                    require (measured.analysisUnits >= sampleRate * 3 && measured.postPeakDbtp < -10.0,
-                             "fresh proof resumes ALL PLAYED, but OFF-only near-full-scale POST peaks never enter it");
-                    return true;
+                    require (measured.analysisUnits > readBeforeOff && measured.postPeakDbtp < -10.0,
+                             "fresh linear proof resumes ALL PLAYED without integrating OFF-only POST peaks");
+                    const auto fresh = planMatch (measured, 0.0);
+                    require (fresh.compensationProofBound && fresh.compensationProof == measured.compensationProof
+                             && fresh.compensationProof != oldPlan.compensationProof,
+                             "the new plan carries the distinct compensation generation proved by POST");
+                    require (post.applyLiveCompareMatch (oldPlan, choice (oldPlan)).failure == MatchFailure::stale,
+                             "new corresponding blocks do not make the old plan reusable");
+                    require (post.applyLiveCompareMatch (fresh, choice (fresh)),
+                             "ON with new proof applies the freshly measured plan");
+                    state = 3;
                 }
+                resumeAudio();
                 return false;
+            default:
+                if (! status.matchReady) return false;
+                require (status.matched, "POST acknowledges the newly approved MATCH on a real callback");
+                return true;
         }
     }
 
 private:
+    static hypha::live_compare::MatchChoice choice (const hypha::live_compare::MatchPlan& plan) noexcept
+    {
+        using hypha::live_compare::MatchChoice;
+        return plan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis;
+    }
+
     bool tickRestart (Processor& post, void (*require) (bool, const char*))
     {
         if (state == 0 && LiveTimingFixtureAccess::wholeSpanPublishedForTest (post) != 0)
@@ -148,6 +190,7 @@ private:
 
     const bool restartCase, compensationCase;
     int state = 0; // message thread only
+    hypha::live_compare::MatchPlan oldPlan;
     std::uint64_t listenSession = 0, lastBeforeOff = 0, readBeforeOff = 0;
     std::atomic<bool> armed { false }, parked { false }, resumeCallback { false }, returned { false }, adcOff { false };
     std::atomic<std::uint64_t> renderedPulses { 0 };
