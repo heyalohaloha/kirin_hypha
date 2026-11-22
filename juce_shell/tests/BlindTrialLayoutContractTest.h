@@ -133,7 +133,7 @@ void verifyBlindTrialLayout (Require check)
                 must (h.accepted == static_cast<unsigned> (rounds) && h.view.screen().votingComplete
                     && h.view.screen().revealEnabled && voteQuestion && !voteQuestion->isVisible()
                     && progress && !progress->isVisible(), "after the last vote only the pending REVEAL action remains");
-                must (instruction && instruction->isVisible()
+                must (instruction && instruction->isVisible() && instruction->getFont().getHeight() >= 12.0f
                     && instruction->getText() == "All rounds answered; reveal when ready", "mandatory final instruction replaces vote");
                 if (instruction)
                 {

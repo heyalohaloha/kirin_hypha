@@ -7,8 +7,9 @@ namespace hypha::blind_ui
 {
 inline void ScreenComponent::layoutTrial (bool choosingRounds, bool fixedProgress)
 {
-    for (auto* label : { &status, &question })
-        label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
+    status.setFont (labelFont (context, shown.votingComplete ? typography::TextRole::compactExplanation
+        : typography::TextRole::body, typography::Composition::information));
+    question.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     outcome.setFont (labelFont (context, fixedProgress ? typography::TextRole::listenAction : typography::TextRole::body, typography::Composition::information));
     const auto guidanceRole = shown.cause == live_compare_ui::preProcessingCause
         ? typography::TextRole::listenChoice : typography::TextRole::body;
