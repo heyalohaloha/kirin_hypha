@@ -94,8 +94,8 @@ inline void verifyLiveBlindUiContract()
             view.setGuessing (false);
             view.setState (trial, true, level);
             auto* detail = dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-text-3"));
-            auto* status = dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-text-2"));
-            require (detail && detail->isVisible() && status, "compact single listen has visible END explanation");
+            auto* displayedNotice = dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-notice"));
+            require (detail && detail->isVisible() && displayedNotice, "compact single listen has visible END explanation");
             const auto wanted = level < 1.0f ? juce::String ("Lowered 4.2 dB to avoid clipping; END restores it")
                                               : juce::String ("END restores normal level");
             require (detail->getText().contains (wanted) && detail->getFont().getHeight() >= 12.0f,
@@ -107,7 +107,7 @@ inline void verifyLiveBlindUiContract()
             if (needsDelayNotice)
             {
                 const auto notice = juce::String (live_compare_ui::unmeasuredNotice());
-                require (detail->getText().contains (notice) || (status->isVisible() && status->getText().contains (notice)),
+                require (displayedNotice->isVisible() && displayedNotice->getText().contains (notice),
                     "compact single listen retains the unmeasured notice beside the END explanation");
             }
         }

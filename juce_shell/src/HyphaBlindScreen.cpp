@@ -1,5 +1,6 @@
 #include "HyphaBlindScreen.h"
 #include "HyphaBlindResultLayout.h"
+#include "HyphaBlindTrialLayout.h"
 #include "HyphaLanguage.h"
 #include "HyphaPreProcessingNotice.h"
 #include "HyphaComparisonSurfaceMaterial.h"
@@ -14,7 +15,7 @@ bool Screen::operator== (const Screen& other) const noexcept
 {
     const auto key = [] (const Screen& screen)
     {
-        return std::tie (screen.title, screen.instruction, screen.detail, screen.compactReturnDetail, screen.guidanceShown, screen.cause, screen.recovery,
+        return std::tie (screen.title, screen.instruction, screen.detail, screen.endExplanation, screen.trialNotice, screen.guidanceShown, screen.cause, screen.recovery,
                          screen.sourcesShown, screen.sourceOneEnabled, screen.sourceTwoEnabled, screen.audible,
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,
@@ -40,6 +41,13 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
         label->setColour (juce::Label::textColourId, COL_NORMAL);
         addAndMakeVisible (*label);
     }
+    notice.setComponentID (idPrefix + "-notice");
+    notice.setJustificationType (juce::Justification::centred);
+    notice.setColour (juce::Label::textColourId, COL_NORMAL);
+    notice.setMinimumHorizontalScale (1.0f);
+    addChildComponent (notice);
+    look.wrappedDetail = &detail;
+    look.wrappedNotice = &notice;
     question.setComponentID (idPrefix + "-guess-question");
     outcome.setComponentID (idPrefix + "-guess-outcome");
     for (auto* label : { &question, &outcome })
@@ -113,9 +121,9 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
 
 ScreenComponent::~ScreenComponent() { setLookAndFeel (nullptr); }
 
-void ScreenComponent::setActionNotice (const juce::String& notice)
+void ScreenComponent::setActionNotice (const juce::String& text)
 {
-    actionNotice = notice;
+    actionNotice = text;
     startTimer (3000);
     apply();
     resized();
@@ -238,13 +246,13 @@ void ScreenComponent::apply()
     saveImage.setTooltip (saveImage.getTitle());
     unavailable::set (end, shown.endEnabled, "Returning to normal level");
     end.setTitle (shown.endTitle);
-    end.setDescription (shown.endTitle + " / " + shown.detail);
+    end.setDescription (shown.endTitle + " / " + (shown.endExplanation.isNotEmpty() ? shown.endExplanation : shown.detail));
     end.setTooltip (end.getDescription());
     for (auto* always : std::initializer_list<juce::Component*> { &title, &detail, &end }) always->setVisible (true);
     if (preferenceResult)
         for (auto* label : { &status, &detail, &cause, &recovery }) label->setVisible (false);
     if (covered)
-        for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &question,
+        for (juce::Component* own : std::initializer_list<juce::Component*> { &title, &status, &detail, &cause, &recovery, &notice, &question,
                                      &outcome, &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage, &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
             own->setVisible (false);
     repaint();
@@ -260,25 +268,16 @@ void ScreenComponent::setCovered (bool next)
 
 void ScreenComponent::resized()
 {
-    context = presentation::forEditor (getWidth(), getHeight());
-    const bool compact = getWidth() < 450;
-    // The active preference screen uses this row for explicit round progress.
-    // The same exit explanation remains on END's accessible description/tooltip.
-    const bool compactPreference = compact && shown.roundsShown && shown.guessShown;
-    const bool showRounds = !covered && shown.roundsShown
-        && shown.preferenceResultText.isEmpty() && getWidth() >= 450 && getHeight() >= 300;
-    // This short standard viewport shows ROUNDS while the smaller compact sizes do not.
-    // Keep the normal layout at 600 x 400 and above; the saved explanation on END is the fallback.
-    const bool shortStandard = getWidth() >= 450 && getWidth() < 600
-        && getHeight() >= 300 && getHeight() < 400;
-    const bool shortLiveLayout = shortStandard && shown.sourcesShown && (showRounds || shown.saveImageShown);
-    constexpr int sourceMinHeight = 60;
-    const bool showDetail = !covered && !compactPreference
-        && shown.preferenceResultText.isEmpty() && shown.matchedGainText.isEmpty();
-    detail.setVisible (showDetail);
+    look.wrappedContext = context = presentation::forEditor (getWidth(), getHeight());
+    const bool result = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    const bool progressInRounds = shown.roundsShown && !shown.roundsEnabled && shown.guessOutcome.isNotEmpty();
+    const bool showRounds = !covered && !result && shown.roundsShown
+        && (shown.roundsEnabled || progressInRounds || shown.roundsProgress.isNotEmpty());
     roundsLabel.setVisible (showRounds);
-    outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !showRounds);
-    roundsLabel.setText (shown.roundsEnabled ? juce::String ("ROUNDS") : shown.roundsProgress, juce::dontSendNotification);
+    roundsLabel.setText (shown.roundsEnabled ? juce::String ("ROUNDS")
+        : progressInRounds ? shown.guessOutcome : shown.roundsProgress, juce::dontSendNotification);
+    outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty() && !progressInRounds);
+    notice.setVisible (false);
     roundsLabel.setFont (labelFont (context, typography::TextRole::listenAction, typography::Composition::information));
     int roundIndex = 0;
     for (auto* button : { &roundsOne, &roundsFive, &roundsTen })
@@ -293,10 +292,10 @@ void ScreenComponent::resized()
 
     for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
     {
-        const auto result = body == &preferenceResultBody;
+        const auto isResultBody = body == &preferenceResultBody;
         // Give the result one family and weight in both scripts. Its own metrics then drive
         // wrapping at the final width, without changing strings or shrinking other roles.
-        body->setFont (result ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information)
+        body->setFont (isResultBody ? nativeTextFont (context, typography::TextRole::primaryValue, typography::Composition::information)
                               : displayTextFont (body->getText(), context, typography::TextRole::listenChoice,
                                                  typography::Composition::information));
         body->applyFontToAllText (body->getFont());
@@ -304,7 +303,7 @@ void ScreenComponent::resized()
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     for (auto* button : { &one, &two, &reveal, &end, &approve, &alignOff, &guessOne, &guessTwo, &saveImage })
         button->setPresentationContext (context);
-    if (shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty())
+    if (result)
     {
         // Try the normal two-row actions first, using the actual wrapped text
         // at its final width. A narrow width alone does not select dense mode.
@@ -371,57 +370,73 @@ void ScreenComponent::resized()
         matchedGainBody.setBounds (centred);
         return;
     }
-    for (auto* label : { &question, &outcome })
+    if (covered) return;
+    for (auto* label : { &status, &question, &outcome, &recovery })
         label->setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
-    title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
-    status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
-    const bool tightSingle = getWidth() <= 300 && getHeight() <= 200 && shown.sourcesShown && !shown.guessShown;
-    detail.setText (tightSingle && shown.compactReturnDetail.isNotEmpty()
-        ? shown.compactReturnDetail + "\n" + shown.detail : shown.detail, juce::dontSendNotification);
-    detail.setFont (labelFont (context, tightSingle ? typography::TextRole::compactExplanation
-        : typography::TextRole::status, typography::Composition::information));
-    const auto guidanceRole = shown.cause == live_compare_ui::preProcessingCause
-        ? typography::TextRole::listenChoice : typography::TextRole::body;
-    cause.setFont (labelFont (context, guidanceRole, typography::Composition::information));
-    recovery.setFont (labelFont (context, guidanceRole, typography::Composition::information));
-    auto area = getLocalBounds().reduced (compact || shortLiveLayout ? 12 : 24);
-    const auto needed = [&] (const juce::Label& label)
+    cause.setFont (labelFont (context, shown.cause == live_compare_ui::preProcessingCause
+        ? typography::TextRole::listenChoice : typography::TextRole::body, typography::Composition::information));
+    for (auto* label : { &detail, &notice })
+        label->setFont (labelFont (context, typography::TextRole::compactExplanation, typography::Composition::information));
+    status.setText (actionNotice.isNotEmpty() ? actionNotice : shown.instruction, juce::dontSendNotification);
+    detail.setText (shown.endExplanation.isNotEmpty() ? shown.endExplanation : shown.detail, juce::dontSendNotification);
+    notice.setText (shown.trialNotice, juce::dontSendNotification);
+
+    auto area = getLocalBounds().reduced (juce::jlimit (6, 24, getWidth() / 40), 0);
+    const auto measure = [&] (const juce::Label& label)
     {
+        if (label.getText().isEmpty()) return 0;
         const auto border = label.getBorderSize();
         const auto width = juce::jmax (1, area.getWidth() - border.getLeftAndRight());
-        juce::AttributedString text;
-        text.append (text_style::shownText (label.getText()), label.getFont(), juce::Colours::white);
-        juce::TextLayout layout;
-        layout.createLayout (text, static_cast<float> (width));
-        return juce::roundToInt (std::ceil (std::max (layout.getHeight(),
-            text_style::shownWrappedHeight (label.getText(), label.getFont(), width)))) + border.getTopAndBottom() + 2;
+        const auto measured = text_style::shownWrappedHeight (label.getText(), label.getFont(), width);
+        return juce::roundToInt (std::ceil (measured)) + border.getTopAndBottom() + 2;
     };
-    // Waiting/interruption screens give the cause and next step their actual localized height.
-    // Normal source buttons keep their established layout; no font is compressed or shrunk.
-    title.setBounds (area.removeFromTop (shown.guidanceShown ? needed (title)
-                                                            : (compact || shortLiveLayout ? 24 : 40)));
-    // A RESULT with two facts takes the lines it needs; a text that fits keeps the fixed height
-    // (needed() adds 2 px of slack, so a tight single line does not move the sources).
-    const auto fixedStatus = compact || shortLiveLayout ? 30 : 48;
-    const auto statusHeight = tightSingle || shown.guidanceShown || needed (status) - 2 > fixedStatus ? needed (status) : fixedStatus;
-    status.setBounds ((!shown.guidanceShown || status.isVisible()) ? area.removeFromTop (statusHeight) : juce::Rectangle<int>());
-    const int actionHeight = compact ? 28 : shortLiveLayout ? 32 : 40;
-    const int verticalInset = tightSingle ? 2 : compact || shortLiveLayout ? 5 : 12;
-    const int detailHeight = tightSingle ? needed (detail) : shortLiveLayout ? juce::jmax (34, needed (detail)) : compact ? 34 : 46;
-    const auto causeHeight = needed (cause), recoveryHeight = needed (recovery);
-    const int progressHeight = compactPreference && outcome.isVisible() ? juce::jmin (24, needed (outcome)) : 0;
-    const int actionRows = 1 + static_cast<int> (showRounds) + static_cast<int> (shown.guessShown);
-    const int minimumSources = shown.sourcesShown ? sourceMinHeight : 0;
-    const int usable = area.getHeight() - 2 * verticalInset - progressHeight - minimumSources;
-    const int requiredHeight = actionRows * actionHeight
-        + (shown.guidanceShown ? causeHeight + recoveryHeight : 0);
-    detail.setVisible (showDetail && (tightSingle || !shown.sourcesShown || usable >= requiredHeight + detailHeight));
-    detail.setBounds (detail.isVisible() ? area.removeFromBottom (detailHeight) : juce::Rectangle<int>());
-    const int fittedAction = shown.sourcesShown
-        ? juce::jlimit (1, actionHeight, (usable - (detail.isVisible() ? detailHeight : 0)
-            - (tightSingle && shown.guidanceShown ? causeHeight + recoveryHeight : 0)) / actionRows)
-        : actionHeight;
-    auto actions = area.removeFromBottom (fittedAction);
+    const auto place = [] (juce::Label& label, juce::Rectangle<int> bounds)
+    {
+        label.setVisible (label.getText().isNotEmpty());
+        label.setBounds (label.isVisible() ? bounds : juce::Rectangle<int>());
+    };
+    const auto titleHeight = measure (title);
+    const auto statusHeight = shown.trialNotice.contains (status.getText()) ? 0 : measure (status);
+    const auto statusIsHint = status.getText() == "Try both sources while playing"
+        || status.getText() == "Reveal the sources when ready" || status.getText() == "Sources revealed; keep comparing";
+    const auto detailHeight = measure (detail), noticeHeight = measure (notice);
+    const auto causeHeight = shown.guidanceShown ? measure (cause) : 0;
+    const auto recoveryHeight = shown.guidanceShown ? measure (recovery) : 0;
+    const auto rows = 1 + static_cast<int> (showRounds) + static_cast<int> (shown.guessShown);
+    const auto sourceHeight = shown.sourcesShown ? trial_layout::sourceMinimum : 0;
+    const auto approvalHeight = shown.approveShown ? trial_layout::minimumActionHeight : 0;
+    const auto preferredAction = juce::jlimit (28, 40, 20 + getHeight() / 22);
+    const auto textWidth = [] (const juce::Label& label, auto policy)
+    {
+        return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText(), policy)))
+            + label.getBorderSize().getLeftAndRight() + 2 : 0;
+    };
+    constexpr int gap = 4;
+    const auto asked = textWidth (question, shown.guessQuestionFixed ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized);
+    const auto told = textWidth (outcome, text_style::LabelPolicy::localized);
+    const auto outcomeHeight = told > 0 && asked + told + 2 * (preferredAction + 8) + 3 * gap > area.getWidth()
+        ? measure (outcome) : 0;
+    const auto explanationHeight = detailHeight + noticeHeight + causeHeight + recoveryHeight + outcomeHeight;
+    const auto headingPad = juce::jlimit (4, 12, getHeight() / 44);
+    const auto plan = trial_layout::allocate (getHeight(), sourceHeight, explanationHeight, approvalHeight,
+                                             titleHeight + statusHeight, rows, preferredAction, headingPad, statusIsHint && actionNotice.isEmpty() ? statusHeight : 0);
+
+    area.removeFromTop (plan.headingPad);
+    place (title, area.removeFromTop (titleHeight));
+    if (statusHeight > 0 && plan.showStatus)
+        place (status, area.removeFromTop (statusHeight));
+    else
+        status.setVisible (false);
+    const auto below = [&] (juce::Label& label, int height)
+    {
+        if (height > 0) place (label, area.removeFromBottom (height));
+        else label.setVisible (false);
+    };
+    below (notice, noticeHeight);
+    below (detail, detailHeight);
+    if (outcomeHeight > 0) below (outcome, outcomeHeight);
+
+    auto actions = area.removeFromBottom (plan.actionHeight);
     if (shown.saveImageShown && shown.alignOffShown)
     {
         const auto third = actions.getWidth() / 3;
@@ -438,57 +453,44 @@ void ScreenComponent::resized()
     }
     if (showRounds)
     {
-        auto row = area.removeFromBottom (fittedAction);
+        auto row = area.removeFromBottom (plan.actionHeight);
         row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), 360), row.getHeight());
-        roundsLabel.setBounds (shown.roundsEnabled ? row.removeFromLeft (120) : row);
-        roundsOne.setBounds (row.removeFromLeft (80).reduced (2, 0));
-        roundsFive.setBounds (row.removeFromLeft (80).reduced (2, 0));
-        roundsTen.setBounds (row.reduced (2, 0));
+        if (shown.roundsEnabled)
+        {
+            const auto cell = row.getWidth() / 4;
+            roundsLabel.setBounds (row.removeFromLeft (cell));
+            roundsOne.setBounds (row.removeFromLeft (cell).reduced (2, 0));
+            roundsFive.setBounds (row.removeFromLeft (cell).reduced (2, 0));
+            roundsTen.setBounds (row.reduced (2, 0));
+        }
+        else roundsLabel.setBounds (row);
     }
     if (shown.guessShown)
     {
-        if (compact && shown.roundsShown && outcome.isVisible())
-        {
-            outcome.setJustificationType (juce::Justification::centred);
-            outcome.setBounds (area.removeFromBottom (progressHeight));
-        }
-        else outcome.setJustificationType (juce::Justification::centredLeft);
-        // The question, its two answers and, after REVEAL, the outcome: one group centred above REVEAL.
-        auto row = area.removeFromBottom (fittedAction);
-        const auto gap = compact ? 6 : 10, answer = row.getHeight() + 8;
-        const auto textWidth = [&] (const juce::Label& label)
-        {
-            return label.isVisible() ? juce::roundToInt (std::ceil (text_style::shownWidth (label.getFont(), label.getText(),
-                &label == look.fixedQuestion ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized)))
-                + label.getBorderSize().getLeftAndRight() + 2 : 0;
-        };
-        const auto asked = textWidth (question), told = compact && shown.roundsShown ? 0 : textWidth (outcome);
-        const auto total = asked + gap + answer * 2 + 4 + (told > 0 ? gap + told : 0);
+        auto row = area.removeFromBottom (plan.actionHeight);
+        const auto answer = plan.actionHeight + 8;
+        const auto outcomeInline = outcomeHeight > 0 ? 0 : told;
+        const auto total = asked + 2 * answer + 2 * gap + (outcomeInline > 0 ? gap + outcomeInline : 0);
         row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), total), row.getHeight());
-        question.setBounds (row.removeFromLeft (juce::jmin (asked, row.getWidth() - gap - answer * 2 - 4)));
+        const auto textSpace = juce::jmax (0, row.getWidth() - 2 * answer - (outcomeInline > 0 ? 3 : 2) * gap);
+        const auto questionWidth = asked + outcomeInline > textSpace ? textSpace * asked / (asked + outcomeInline) : asked;
+        question.setBounds (row.removeFromLeft (questionWidth));
         row.removeFromLeft (gap);
         guessOne.setBounds (row.removeFromLeft (answer));
-        row.removeFromLeft (4);
-        guessTwo.setBounds (row.removeFromLeft (answer));
         row.removeFromLeft (gap);
-        if (!(compact && shown.roundsShown)) outcome.setBounds (row);
+        guessTwo.setBounds (row.removeFromLeft (answer));
+        if (outcomeInline > 0) { row.removeFromLeft (gap); outcome.setBounds (row); }
     }
-    area.reduce (0, verticalInset);
-    // A live trial retains source controls during long timing loss. Reserve guidance above
-    // them instead of reusing the same rectangle as an ended-trial screen.
-    const auto guidanceHeight = shown.sourcesShown
-        ? juce::jmin (causeHeight + recoveryHeight, juce::jmax (0, area.getHeight() - sourceMinHeight))
-        : causeHeight + recoveryHeight;
-    auto guidance = shown.guidanceShown && (shown.sourcesShown || shown.approveShown)
-        ? area.removeFromTop (guidanceHeight)
-        : area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
-    cause.setBounds (guidance.removeFromTop (causeHeight));
-    recovery.setBounds (guidance);
-    area = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(),
-        shown.sourcesShown ? sourceMinHeight : fittedAction));
-    approve.setBounds (area);
-    one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
-    two.setBounds (area.reduced (3, 0));
+    if (shown.guidanceShown)
+    {
+        if (causeHeight > 0) place (cause, area.removeFromTop (causeHeight)); else cause.setVisible (false);
+        if (recoveryHeight > 0) place (recovery, area.removeFromTop (recoveryHeight)); else recovery.setVisible (false);
+    }
+    const auto centre = area.withSizeKeepingCentre (area.getWidth(), shown.sourcesShown ? sourceHeight : approvalHeight);
+    approve.setBounds (centre);
+    auto sources = centre;
+    one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
+    two.setBounds (sources.reduced (3, 0));
 }
 
 void ScreenComponent::paint (juce::Graphics& g)

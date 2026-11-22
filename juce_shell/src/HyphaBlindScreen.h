@@ -13,7 +13,7 @@ namespace hypha::blind_ui
 {
 struct Screen
 {
-    juce::String title, instruction, detail, compactReturnDetail;
+    juce::String title, instruction, detail, endExplanation, trialNotice;
     bool guidanceShown = false;  // 止まった・待っている理由（cause）と直し方（recovery）の 2 行
     juce::String cause, recovery;
     bool sourcesShown = false, sourceOneEnabled = false, sourceTwoEnabled = false;
@@ -72,17 +72,26 @@ private:
     bool covered = false;
     struct ScreenLook : TextLookAndFeel
     {
+        presentation::Context wrappedContext = presentation::defaultContext();
         const juce::Label* fixedQuestion = nullptr;
+        const juce::Label *wrappedDetail = nullptr, *wrappedNotice = nullptr;
         void drawLabel (juce::Graphics& g, juce::Label& label) override
         {
             if (&label == fixedQuestion) juce::LookAndFeel_V4::drawLabel (g, label);
+            else if (&label == wrappedDetail || &label == wrappedNotice)
+            {
+                g.setColour (label.findColour (juce::Label::textColourId));
+                g.setFont (labelFont (wrappedContext, typography::TextRole::compactExplanation, typography::Composition::information));
+                text_style::drawLines (g, label.getText(),
+                    label.getBorderSize().subtractedFrom (label.getLocalBounds()), label.getJustificationType(), 2);
+            }
             else TextLookAndFeel::drawLabel (g, label);
         }
     } look;
     presentation::Context context = presentation::defaultContext();
     Screen shown;
     unsigned languageRevision = 0;
-    juce::Label title, status, detail, cause, recovery, question, outcome;
+    juce::Label title, status, detail, cause, recovery, question, outcome, notice;
     HyphaTextButton one { "SOURCE 1", true, text_style::LabelPolicy::fixed }, two { "SOURCE 2", true, text_style::LabelPolicy::fixed };
     HyphaTextButton reveal { "REVEAL", true, text_style::LabelPolicy::fixed }, alignOff { "ALIGN OFF", true, text_style::LabelPolicy::fixed };
     HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST", true, text_style::LabelPolicy::fixed };

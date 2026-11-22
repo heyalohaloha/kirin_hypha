@@ -4,6 +4,7 @@
 #include "RecoveryGuidanceTest.h"
 #include "LiveCompareFooterContractTest.h"
 #include "LiveBlindUiContractTest.h"
+#include "BlindTrialLayoutContractTest.h"
 #include "VersionBlindScreenContractTest.h"
 #include "BlindGuessImageTest.h"
 #include "ListenAccessibleNamesTest.h"
@@ -22,6 +23,12 @@ try
             { if (!ok) throw std::runtime_error (why); });
         return 0;
     }
+    const auto checkLayout = [] (bool ok, const char* why) { if (!ok) throw std::runtime_error (why); };
+    if (argc == 2 && juce::String (argv[1]) == "--blind-trial-layout-only")
+    {
+        hypha::tests::verifyBlindTrialLayout (checkLayout);
+        return 0;
+    }
     hypha::tests::verifyBlindImageNameEditing();
     hypha::tests::verifyListenAccessibleNames();
     hypha::tests::verifyRecoveryGuidance ([] (bool ok, const char* why)
@@ -29,6 +36,7 @@ try
     if (argc == 2 && juce::String (argv[1]) == "--recovery-only") return 0;
     hypha::tests::verifyLiveCompareFooterContract();
     hypha::tests::verifyLiveBlindUiContract();
+    hypha::tests::verifyBlindTrialLayout (checkLayout);
     hypha::tests::verifyVersionBlindScreen();
     hypha::tests::verifyBlindGuessAndImage ([] (bool ok, const char* why)
         { if (!ok) throw std::runtime_error (why); });

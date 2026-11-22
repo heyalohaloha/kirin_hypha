@@ -89,9 +89,13 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     if (current.candidate)
         explanation += explanation == normalLevel || explanation == loweredLevel
             ? " and the A to B chain" : " and restores the A to B chain";
-    screen.detail = explanation;
+    screen.detail = screen.endExplanation = explanation;
     // The rise on END is named before anything else (INV-LC14).
-    if (live && !revealed && repeatingAudio && ! (returnDb > 0.05)) screen.detail = "Repeated audio: checked per block";
+    if (live && !revealed && repeatingAudio)
+    {
+        screen.trialNotice = "Repeated audio: checked per block";
+        if (! (returnDb > 0.05)) screen.detail = screen.trialNotice;
+    }
     // INV-LC28: the same words for both sources; PRE kept playing at its clock position. A lowered
     // level keeps its own line (named first), so the label takes the plain guidance line instead.
     if (live && (current.contentUnmeasured || current.contentNotRemeasured || current.contentUnapplied))
@@ -100,7 +104,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             ? juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice()
             : current.contentUnapplied ? juce::String (live_compare_ui::unappliedNotice())
             : juce::String (live_compare_ui::notRemeasuredNotice());
-        if (! (returnDb > 0.05)) { screen.compactReturnDetail = screen.detail; screen.detail = label; }
+        if (screen.trialNotice.isNotEmpty()) screen.trialNotice += "\n";
+        screen.trialNotice += label;
+        if (! (returnDb > 0.05)) screen.detail = label;
         else if (! screen.guidanceShown && (! revealed || instruction == "Sources revealed; keep comparing")) screen.instruction = label;
     }
     const char* firstA = current.candidate ? "1: A" : "1: PRE";
