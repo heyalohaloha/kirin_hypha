@@ -157,20 +157,32 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
     constexpr float minRowHeight = 12.0f;
     const bool compactPair = headroom > 0.0f && chart.getHeight() < 40.0f && compactA && compactB
         && parts.size() == (target ? 4u : 3u) && static_cast<float> (rows.size()) * minRowHeight > chart.getHeight() + headroom;
+    constexpr float compactInset = 2.0f, compactGap = 4.0f;
+    const auto glyphWidth = [&g] (const Part& part)
+    {
+        return std::ceil (text_style::shownWidth (g.getCurrentFont(), part.first));
+    };
     if (compactPair)
     {
-        const Part combined { "A " + *compactA + " / B " + *compactB + levelUnit, COL_NORMAL };
+        Part combined { "A " + *compactA + " / B " + *compactB + levelUnit, COL_NORMAL };
         const auto second = target ? *target : parts.front();
-        rows = { { padding + partWidth (combined), { combined } }, { padding + partWidth (second), { second } } };
-        // The frequency can stay inline where it fits; never evict an A/B or TARGET value.
+        const auto outerWidth = [&] (const Part& part) { return 2.0f * compactInset + glyphWidth (part); };
+        const auto besideFrequency = [&] (const Part& part)
+        {
+            return outerWidth (part) + compactGap + glyphWidth (parts.front());
+        };
+        // Keep all readings. At the narrowest width TARGET can carry the dB unit for both rows.
+        if (target && juce::jmin (besideFrequency (combined), besideFrequency (second)) > chart.getWidth())
+            combined.first = "A " + *compactA + " / B " + *compactB;
+        rows = { { outerWidth (combined), { combined } }, { outerWidth (second), { second } } };
         if (target)
-            for (auto& [width, row] : rows)
-                if (width + partWidth (parts.front()) <= chart.getWidth())
-                {
-                    width += partWidth (parts.front());
-                    row.insert (row.begin(), parts.front());
-                    break;
-                }
+        {
+            const auto firstWidth = besideFrequency (combined), secondWidth = besideFrequency (second);
+            const bool onFirst = firstWidth <= chart.getWidth() || firstWidth <= secondWidth;
+            auto& [width, row] = rows[onFirst ? 0u : 1u];
+            width = onFirst ? firstWidth : secondWidth;
+            row.insert (row.begin(), parts.front());
+        }
     }
     const auto rowCount = static_cast<float> (rows.size());
     const bool reserveBlauert = range != nullptr && range->reservePlateTop;
@@ -197,12 +209,13 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         top += rowHeight + rowGap;
         g.setColour (BG.withAlpha (0.82f));
         g.fillRoundedRectangle (plate, 3.0f);
-        auto cells = plate.reduced (4.0f, 0.0f);
+        auto cells = plate.reduced (compactPair ? compactInset : 4.0f, 0.0f);
         for (const auto& part : row)
         {
             g.setColour (part.second);
-            text_style::drawText (g, part.first, cells.removeFromLeft (partWidth (part)).toNearestInt(),
-                                  juce::Justification::centredLeft);
+            const auto cell = cells.removeFromLeft (compactPair ? glyphWidth (part) : partWidth (part));
+            text_style::drawText (g, part.first, cell.toNearestInt(), juce::Justification::centredLeft);
+            if (compactPair) cells.removeFromLeft (compactGap);
         }
     }
     return blauertInCaption;
