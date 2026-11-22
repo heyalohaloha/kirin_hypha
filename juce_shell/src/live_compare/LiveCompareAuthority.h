@@ -11,7 +11,8 @@ namespace hypha::live_compare
 enum class StartResult : std::uint8_t
 {
     started, notPost, notReady, noPair, unsupportedLayout, preUnavailable, preMultiMono,
-    comparisonBusy, returnRequired, returnPending
+    comparisonBusy, returnRequired, returnPending,
+    formatChanged // the host re-prepared during this start: the same press again, not another PRE
 };
 
 // A host restore may run off the message thread. Revoke output before reading the state,

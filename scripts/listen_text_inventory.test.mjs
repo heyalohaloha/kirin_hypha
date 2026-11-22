@@ -58,6 +58,27 @@ test('MATCH span refusals keep distinct recovery actions across both languages',
   assert.match(layout, /! listen_text::isMatchSpanNotice \(item.text\)/);
 });
 
+test('a format change during the LISTEN press asks for the press again, not for another PRE', () => {
+  const japaneseNotices = read('juce_shell/src/HyphaJapaneseNotices.cpp');
+  const layout = read('juce_shell/tests/ListenTextLayoutTest.h');
+  const processor = read('juce_shell/src/PluginProcessorLiveCompare.cpp');
+  const candidate = read('juce_shell/src/CandidateCompareMenu.h');
+  const message = actions.match(/case StartResult::formatChanged:\s*return "([^"]+)";/)?.[1];
+  assert.equal(message, 'Audio format changed. Press LISTEN again.');
+  assert.ok(recovery.includes(`formatChangedStartNotice = "${message}";`), 'the ledger matches the action source exactly');
+  const expectedJapanese = cases.match(/live_compare_ui::formatChangedStartNotice, u8"([^"]+)"/)?.[1];
+  assert.equal(expectedJapanese, '音声形式が変わりました。もう一度LISTENを押してください');
+  assert.ok(japaneseNotices.includes(`{ "${message}", u8"${expectedJapanese}" }`), 'the production Japanese notice matches');
+  assert.match(cases, /add \(formatChangedStart\.english\);/);
+  assert.match(layout, /i18n::tr \(listen_text::formatChangedStart\.english\)/);
+  // Only a missing pair or a PRE that could not be opened with the same format opens the PRE menu.
+  const choice = recovery.slice(recovery.indexOf('inline bool startNeedsPreChoice'), recovery.indexOf('inline const char* preUnavailableNotice'));
+  assert.match(choice, /StartResult::noPair \|\| result == live_compare::StartResult::preUnavailable; \}/);
+  assert.ok(!choice.includes('formatChanged'));
+  assert.match(processor, /if \(! mapping->open \(key, rate, false\)\)[^\n]*\n\s*return std::get<2> \(format\(\)\) != std::get<2> \(started\) \? StartResult::formatChanged : StartResult::preUnavailable;/);
+  assert.match(candidate, /StartResult::formatChanged\s*\? "A\/B could not start"/);
+});
+
 test('release-source runs the full LISTEN text layout gate', () => {
   const gate = read('scripts/test_release_source.sh');
   assert.match(gate, /\n  KirinListenTextLayoutTests\n/);

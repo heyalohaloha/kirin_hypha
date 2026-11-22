@@ -13,6 +13,7 @@ namespace hypha::tests::listen_text
 using namespace live_compare;
 struct Notice { juce::String text; Status state; };
 struct MatchSpanNotice { const char* english; const char* japanese; };
+inline constexpr MatchSpanNotice formatChangedStart { live_compare_ui::formatChangedStartNotice, u8"音声形式が変わりました。もう一度LISTENを押してください" };
 inline constexpr MatchSpanNotice matchSpanNotices[] {
     { live_compare_ui::matchSpanTooShortNotice, u8"3秒以上再生してからMATCHしてください。" },
     { live_compare_ui::matchSpanLostNotice, u8"再生した音声の一部を取得できませんでした。ENDで終了し、最初からやり直してください。" },
@@ -66,6 +67,7 @@ inline std::vector<Notice> notices()
     add ("Measurements saved; waiting for Kirin OS audio (auto link)");
     add ("MATCH waits for more signal");
     for (const auto& notice : matchSpanNotices) add (notice.english);
+    add (formatChangedStart.english);
     add ("Repeated audio: checked per block");
     add ("Aligning A"); add (live_compare_ui::positionNotice (true)); add (live_compare_ui::candidateUnconfirmedNotice());
     add ("LISTEN is not active");

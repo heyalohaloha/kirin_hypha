@@ -131,6 +131,7 @@ const Entry entries[] = {
     { "Choose the PRE first", u8"先にPREを選んでください" },
     { "Mono / stereo only", u8"Mono／Stereoのみ" },
     { "PRE not running; choose again", u8"PREが停止中／選び直す" },
+    { "Audio format changed. Press LISTEN again.", u8"音声形式が変わりました。もう一度LISTENを押してください" },
     { "PRE is multi-mono: insert it as stereo", u8"PREがMulti-monoです。Stereoで挿してください" },
     { "Select PRE again", u8"PREを選び直してください" },
     { "MATCH: PRE %1", u8"MATCH：PRE %1" },

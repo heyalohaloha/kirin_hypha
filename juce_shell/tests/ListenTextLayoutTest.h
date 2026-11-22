@@ -29,6 +29,10 @@ void verifyAllListenText (Require require, ListenLayoutShard shard = {})
             require (i18n::tr (notice.english) == (language == i18n::Language::japanese
                          ? juce::String::fromUTF8 (notice.japanese) : juce::String (notice.english)),
                      "MATCH span recovery matches the exact action in each language");
+        require (i18n::tr (listen_text::formatChangedStart.english) == (language == i18n::Language::japanese
+                     ? juce::String::fromUTF8 (listen_text::formatChangedStart.japanese)
+                     : juce::String (listen_text::formatChangedStart.english)),
+                 "a format change during the LISTEN press asks for the same press again in each language");
         require (text_style::shownText ("Rendering offline: press again after it finishes")
                      == (language == i18n::Language::japanese
                          ? juce::String::fromUTF8 (u8"書き出し中です。終わってから押してください")

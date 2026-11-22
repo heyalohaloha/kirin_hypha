@@ -182,6 +182,20 @@ void sharedRing (juce::AudioProcessor::WrapperType format, int channels)
     LiveTimingFixtureAccess::retirePreparedFormatRing (*pre);
     require (! LiveTimingFixtureAccess::timingRingPublished (*pre), "format change retires PRE owner");
     require (post->startLiveCompare() == StartResult::preUnavailable, "retired PRE cannot start another session");
+    // PRE and POST move to another rate during the press: PRE runs, its ring only refuses the old rate.
+    // That is a format change to press again for, not a stopped PRE to pick again.
+    static Processor* movedPre = nullptr;
+    movedPre = pre.get();
+    beforeRendererLeaseForTest = +[]
+    {
+        movedPre->prepareToPlay (96000, frames); LiveTimingFixtureAccess::enableFixtureWrites (*movedPre);
+        reprepared->prepareToPlay (96000, frames);
+    };
+    const auto changed = post->startLiveCompare();
+    beforeRendererLeaseForTest = nullptr;
+    require (LiveTimingFixtureAccess::timingRingPublished (*pre), "PRE publishes again at the new rate");
+    require (changed == StartResult::formatChanged && ! hypha::live_compare_ui::startNeedsPreChoice (changed)
+        && ! post->liveCompareStatus().active, "a rate change during the start asks for the press again, not another PRE");
     pre->releaseResources(); post->releaseResources();
 }
 

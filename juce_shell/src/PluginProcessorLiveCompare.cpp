@@ -130,7 +130,8 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
         return StartResult::notReady;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
-    if (! mapping->open (key, rate, false)) return StartResult::preUnavailable;
+    if (! mapping->open (key, rate, false)) // a ring refused for a rate the host just changed is not a stopped PRE
+        return std::get<2> (format()) != std::get<2> (started) ? StartResult::formatChanged : StartResult::preUnavailable;
     if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
         return StartResult::preMultiMono;
     liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
