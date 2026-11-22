@@ -29,7 +29,7 @@ struct Screen
     juce::String endTitle;
     // GUESS (optional, MENU): above REVEAL the question and the two answers, the same for both
     // assignments; after REVEAL the chosen answer stays lit beside its outcome.
-    bool guessShown = false, guessOpen = false, guessRight = false;
+    bool guessShown = false, guessOpen = false, guessRight = false, votingComplete = false;
     int guessAnswer = 0;
     juce::String guessQuestion, guessOutcome;
     bool roundsShown = false, roundsEnabled = false, guessQuestionFixed = false;

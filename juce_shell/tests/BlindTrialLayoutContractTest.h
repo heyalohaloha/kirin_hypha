@@ -27,23 +27,30 @@ void verifyBlindTrialLayout (Require check)
     for (const bool candidate : { false, true })
     for (const auto rounds : { 1, 5, 10 })
     for (const bool guess : { false, true })
-    for (const bool voting : { false, true })
+    for (const int votePhase : { 0, 1, 2, 3 })
     for (const bool lowered : { false, true })
     for (const auto notice : { Notice::none, Notice::repeating, Notice::changed, Notice::unmeasured,
                               Notice::notRemeasured, Notice::repeatingAndUnmeasured })
     {
         // 450% is the real 900x600 component transformed by the 1.5 host display factor.
         // GUESS and a 5/10 preference trial are separate modes, never simultaneous in product.
-        if ((scale == 1.5f && width != 900) || (guess && rounds != 1) || (voting && rounds == 1 && !guess))
+        const bool finalVote = votePhase == 3, locked = votePhase >= 2;
+        if ((scale == 1.5f && width != 900) || (guess && rounds != 1)
+            || (votePhase != 0 && rounds == 1 && !guess) || (locked && rounds == 1))
             continue;
         const i18n::ScopedLanguage shown (language);
         blind_preference_component_test::Harness h (rounds, candidate, preferenceFile);
         h.view.setSize (width, width * 2 / 3);
         h.view.setGuessing (guess);
-        h.heard (voting ? 3 : 1);
-        // Also hit the locked post-vote rounds row on a second ballot: the selected round
-        // count did not disappear; its rectangle is now occupied by round progress.
-        if (voting && rounds > 1) { h.choose (1); h.heard (3); }
+        h.heard (votePhase != 0 ? 3 : 1);
+        // Walk the real state machine before the first vote, as votes lock the count,
+        // and through every answer before the separate REVEAL action.
+        if (locked)
+        {
+            const auto votes = finalVote ? rounds : 1;
+            for (int vote = 0; vote < votes; ++vote) { h.heard (3); h.choose (1); }
+            if (!finalVote) h.heard (3);
+        }
         h.status.contentUnmeasured = notice == Notice::unmeasured || notice == Notice::repeatingAndUnmeasured;
         h.status.contentUnapplied = notice == Notice::changed;
         h.status.contentNotRemeasured = notice == Notice::notRemeasured;
@@ -53,7 +60,7 @@ void verifyBlindTrialLayout (Require check)
         const auto context = juce::String (language == i18n::Language::japanese ? "JA" : "EN")
             + " " + juce::String (width) + "@" + juce::String (scale) + " rounds=" + juce::String (rounds)
             + " candidate=" + juce::String (int (candidate)) + " guess=" + juce::String (int (guess))
-            + " voting=" + juce::String (int (voting)) + " lowered=" + juce::String (int (lowered))
+            + " votePhase=" + juce::String (votePhase) + " lowered=" + juce::String (int (lowered))
             + " notice=" + juce::String (int (notice));
         const auto must = [&] (bool ok, const juce::String& why) { require (ok, context + ": " + why); };
         const auto explanation = label (h.view, "text-3");
@@ -83,6 +90,45 @@ void verifyBlindTrialLayout (Require check)
         }
         else must (note && !note->isVisible(), "ordinary trial does not show a blank notice");
 
+        if (h.view.screen().roundsEnabled)
+        {
+            const auto* count = label (h.view, "rounds-label");
+            must (count && count->isVisible(), "changeable count remains visible");
+            if (count)
+            {
+                const auto body = count->getBorderSize().subtractedFrom (count->getLocalBounds());
+                must (text_style::shownWidth (count->getFont(), count->getText()) <= body.getWidth(),
+                    "ROUNDS fits on the header even at minimum width");
+            }
+        }
+        if (locked)
+        {
+            const auto* voteQuestion = label (h.view, "guess-question");
+            const auto* progress = label (h.view, "guess-outcome");
+            const auto* count = label (h.view, "rounds-label");
+            must (count && !count->isVisible(), "locked rounds never use a second row");
+            if (finalVote)
+            {
+                const auto* instruction = label (h.view, "text-2");
+                must (h.accepted == static_cast<unsigned> (rounds) && h.view.screen().votingComplete
+                    && h.view.screen().revealEnabled && voteQuestion && !voteQuestion->isVisible()
+                    && progress && !progress->isVisible(), "after the last vote only the pending REVEAL action remains");
+                must (instruction && instruction->isVisible()
+                    && instruction->getText() == "All rounds answered; reveal when ready", "mandatory final instruction replaces vote");
+                if (instruction)
+                {
+                    const auto body = instruction->getBorderSize().subtractedFrom (instruction->getLocalBounds());
+                    must (text_style::shownWrappedHeight (instruction->getText(), instruction->getFont(), body.getWidth())
+                        <= body.getHeight(), "mandatory final instruction fully fits");
+                }
+            }
+            else
+            {
+                must (voteQuestion && voteQuestion->isVisible() && progress && progress->isVisible()
+                    && voteQuestion->getY() == progress->getY(), "locked round progress shares the question row");
+                whole (progress, "only inline round progress is present and fits");
+            }
+        }
         int actionHeight = 0;
         for (const auto* child : h.view.getChildren())
         {

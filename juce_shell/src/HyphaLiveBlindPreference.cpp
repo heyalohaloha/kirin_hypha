@@ -154,14 +154,19 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
         return;
     }
     if (singleListen) return; // Preserve the ordinary listen/reveal surface.
+    screen.votingComplete = preference.phase() == blind_preference::Phase::awaitingReveal;
+    screen.revealEnabled = preference.canReveal();
+    screen.revealTitle = "Reveal the results after at least one answer";
+    if (screen.revealEnabled) screen.alignOffShown = false;
+    if (screen.votingComplete)
+    {
+        screen.roundsShown = false;
+        screen.instruction = "All rounds answered; reveal when ready";
+        return;
+    }
     screen.guessShown = true; screen.guessOpen = preference.canAnswer(); screen.guessAnswer = 0;
     screen.guessQuestion = "Which do you prefer?";
     screen.guessQuestionFixed = true;
     screen.guessOutcome = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
-    screen.revealEnabled = preference.canReveal();
-    screen.revealTitle = "Reveal the results after at least one answer";
-    if (screen.revealEnabled) screen.alignOffShown = false;
-    if (preference.phase() == blind_preference::Phase::awaitingReveal && !screen.guidanceShown)
-        screen.instruction = "All rounds answered; reveal when ready";
 }
 }
