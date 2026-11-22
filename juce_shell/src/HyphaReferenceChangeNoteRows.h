@@ -1,6 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
+#include <optional>
+#include <utility>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -14,7 +17,7 @@ class ChangeNoteRows final : public juce::Viewport
 {
 public:
     struct Item { juce::String noteId, excerpt; juce::Font font; juce::Colour colour; int height = 0; };
-    std::function<void(int)> onSelect;
+    std::function<void(const juce::String&)> onSelect;
     ChangeNoteRows() { setViewedComponent(&content,false); setScrollBarsShown(true,false); setWantsKeyboardFocus(true); }
     ~ChangeNoteRows() override { setViewedComponent(nullptr,false); }
     int rowCount() const { return static_cast<int>(items.size()); }
@@ -48,7 +51,13 @@ private:
         explicit Row(ChangeNoteRows& next):juce::Button(juce::String()),owner(next)
         {
             setWantsKeyboardFocus(true);
-            onClick=[this]{ if(index>=0 && owner.onSelect) owner.onSelect(index); };
+        }
+        void bind(int nextIndex,const juce::String& id)
+        {
+            index=nextIndex;
+            if(noteId==id) return;
+            noteId=id; ++generation;
+            invalidateAccessibilityHandler();
         }
         void paintButton(juce::Graphics& g,bool over,bool down) override
         {
@@ -63,17 +72,52 @@ private:
         {
             if(key==juce::KeyPress::upKey || key==juce::KeyPress::downKey)
             { owner.focusRow(index+(key==juce::KeyPress::upKey?-1:1)); return true; }
-            if(key==juce::KeyPress::returnKey || key==juce::KeyPress::spaceKey)
+            if(key.isKeyCode(juce::KeyPress::returnKey) || key==juce::KeyPress::spaceKey)
             {
-                // The base Button may post a delayed click to a row reused after scrolling.
-                if(hasKeyboardFocus(false) && isShowing() && index>=0 && owner.onSelect) owner.onSelect(index);
+                // Never fall back to Button's delayed triggerClick, including Shift+Return.
+                const auto mods=key.getModifiers().withoutMouseButtons().getRawFlags();
+                if(hasKeyboardFocus(false) && (mods==0 || mods==juce::ModifierKeys::shiftModifier)) activate(binding());
                 return true;
             }
-            return juce::Button::keyPressed(key);
+            return false;
+        }
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            mouseBinding=binding();
+            juce::Button::mouseDown(event);
+        }
+        void mouseUp(const juce::MouseEvent& event) override
+        {
+            const auto pressed=std::exchange(mouseBinding,std::nullopt);
+            const bool releasedInside=isDown() && isOver() && getLocalBounds().contains(event.getPosition());
+            juce::Button::mouseUp(event); // updates native button state; no unbound onClick is installed
+            if(releasedInside && pressed) activate(*pressed);
+        }
+        std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override
+        {
+            const auto safe=juce::Component::SafePointer<Row>(this);
+            const auto pressed=binding();
+            return std::make_unique<juce::AccessibilityHandler>(*this,juce::AccessibilityRole::button,
+                juce::AccessibilityActions().addAction(juce::AccessibilityActionType::press,[safe,pressed]{
+                    juce::MessageManager::callAsync([safe,pressed]{
+                        if(auto* row=safe.getComponent()) row->activate(pressed);
+                    });
+                }));
         }
         ChangeNoteRows& owner;
         int index=-1;
         juce::String noteId;
+    private:
+        struct Binding { juce::String id; std::uint64_t revision; };
+        Binding binding() const { return {noteId,generation}; }
+        void activate(const Binding& pressed)
+        {
+            if(!isShowing() || !isEnabled() || pressed.id.isEmpty() || pressed.revision!=generation || pressed.id!=noteId
+                || index<0 || index>=owner.rowCount() || owner.items[static_cast<size_t>(index)].noteId!=pressed.id) return;
+            if(owner.onSelect) owner.onSelect(pressed.id);
+        }
+        std::optional<Binding> mouseBinding;
+        std::uint64_t generation=0;
     };
     void focusRow(int index)
     {
@@ -101,8 +145,7 @@ private:
                 content.addChildComponent(*pool.back());
             }
             auto& row=*pool[used++];
-            row.index=index;
-            row.noteId=items[static_cast<size_t>(index)].noteId;
+            row.bind(index,items[static_cast<size_t>(index)].noteId);
             if(previousFocus!=nullptr && focusedId.isNotEmpty() && row.noteId==focusedId) nextFocus=&row;
             row.setTitle(excerpt(index)); row.setDescription(excerpt(index));
             row.setBounds(rowBounds(index)); row.setVisible(true); row.repaint();
@@ -116,7 +159,7 @@ private:
         for(;used<pool.size();++used)
         {
             auto& row=*pool[used];
-            row.index=-1; row.noteId.clear();
+            row.bind(-1,{});
             row.setTitle({}); row.setDescription({});
             row.setVisible(false);
         }

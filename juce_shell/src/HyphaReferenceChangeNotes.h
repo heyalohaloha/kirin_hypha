@@ -22,8 +22,10 @@ public:
         setOpaque(true);
         setComponentID("reference-change-notes");
         list.setComponentID("reference-change-notes-list");
-        list.onSelect=[this](int row) {
-            if(row>=0 && static_cast<size_t>(row)<order.size()) selectNote(order[static_cast<size_t>(row)]);
+        list.onSelect=[this](const juce::String& noteId) {
+            if(!data) return;
+            const auto found=std::find_if(data->notes.begin(),data->notes.end(),[&noteId](const auto& note){ return note.noteId==noteId; });
+            if(found!=data->notes.end()) selectNote(static_cast<size_t>(found-data->notes.begin()));
         };
         addChildComponent(list);
         body.setComponentID("reference-change-notes-body");
