@@ -350,7 +350,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
         spanToken = liveCompare.renderer.wholeMatch.admitted(spanToken,
-            namedEligible && candidateToken == 0 && !candidateReturning && !blindRejected, freshBlind,
+            namedEligible && timingEligible && candidateToken == 0 && !candidateReturning && !blindRejected, freshBlind,
             liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
         const float renderGain = levelGain, renderPost = levelPost (postTarget);
         auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
