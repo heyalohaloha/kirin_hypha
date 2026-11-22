@@ -205,7 +205,11 @@ bool paintChartReading (juce::Graphics& g, juce::Rectangle<float> chart, double 
         : reserveBlauert ? range->plateTop : juce::jlimit (-headroom, latest, range->plateTop));
     for (const auto& [width, row] : rows)
     {
-        const juce::Rectangle<float> plate (chart.getX(), top, juce::jmin (width, chart.getWidth()), rowHeight);
+        // Rows that share a compact plot can be a fraction of a pixel tall. Text is drawn on whole
+        // pixels, so each row ends where the next begins instead of rounding into it.
+        const float rowTop = compactPlot ? std::round (top) : top;
+        const float rowBottom = compactPlot ? std::round (top + rowHeight) : top + rowHeight;
+        const juce::Rectangle<float> plate (chart.getX(), rowTop, juce::jmin (width, chart.getWidth()), rowBottom - rowTop);
         top += rowHeight + rowGap;
         g.setColour (BG.withAlpha (0.82f));
         g.fillRoundedRectangle (plate, 3.0f);

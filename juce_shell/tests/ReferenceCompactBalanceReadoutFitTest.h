@@ -29,6 +29,7 @@ inline void verifyCompactBalanceReadoutFits()
         const auto abSharedUnitText = text_style::shownText ("A -40.0 / B -50.0");
         const auto targetText = text_style::shownText ("TARGET -48.0 TO -32.0 dB");
         const auto font = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
+        const auto blauertFont = requiresJapaneseGlyphs (blauertWords) ? nativeTextFontLike (font) : font;
         const auto draw = [&] (int width, float height, float hz, const char* frequencyText, bool audit)
         {
             const auto frequency = text_style::shownText (frequencyText);
@@ -76,7 +77,13 @@ inline void verifyCompactBalanceReadoutFits()
             else
                 require (rows.size() == 3 && cells.size() == 4 && texts.contains (aText) && texts.contains (bText) && !combined,
                          "the 24px and 40px controls keep all four separate readings in three rows");
-            const auto blauert = texts.indexOf (blauertWords);
+            // A plot narrower than the Blauert words shows as much of them as its row holds, so the
+            // row is recognised by what the production ellipsis leaves for the width it was given.
+            int blauert = -1;
+            for (int index = 0; index < texts.size() && blauert < 0; ++index)
+                if (texts[index].isNotEmpty() && texts[index] == text_style::ellipsizedText (
+                        blauertWords, blauertFont, areas[static_cast<size_t> (index)].getWidth()))
+                    blauert = index;
             require (height < 40.0f ? blauert < 0 : blauert >= 0 && areas[static_cast<size_t> (blauert)].getBottom() <= chart.getY(),
                      "Blauert keeps the separate 40px caption instead of covering a reading");
             return true;
