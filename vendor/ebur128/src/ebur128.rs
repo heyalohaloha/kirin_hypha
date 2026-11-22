@@ -973,6 +973,20 @@ impl EbuR128 {
         }
     }
 
+    /// Maximum linear true peak through a read-only cutoff, including the interpolation tail.
+    /// Only the PEAK filter state is copied; no padding is added to loudness, nor to later input.
+    /// Call off the audio thread. Results are not stored in the running meter.
+    pub fn true_peak_at_cutoff(&self) -> Result<f64, Error> {
+        if !self.mode.contains(Mode::TRUE_PEAK) {
+            return Err(Error::InvalidMode);
+        }
+        let mut copy = [0.0; MAX_CHANNELS as usize];
+        let maxima = &mut copy[..self.channels as usize];
+        maxima.copy_from_slice(&self.true_peak);
+        self.filter.finish_true_peak_snapshot(maxima);
+        Ok(maxima.iter().chain(self.sample_peak.iter()).copied().fold(0.0, f64::max))
+    }
+
     /// Get maximum true peak from the last call to
     /// [`EbuR128::add_frames`](struct.EbuR128.html#method.add_frames_i16).
     ///

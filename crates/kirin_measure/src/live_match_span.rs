@@ -71,9 +71,9 @@ impl KirinLiveMatchSpan {
             return None;
         }
         let peak = |meter: &EbuR128| {
-            (0..self.channels as u32)
-                .map(|slot| meter.true_peak(slot).ok())
-                .try_fold(0.0_f64, |best, value| Some(best.max(value?)))
+            meter
+                .true_peak_at_cutoff()
+                .ok()
                 .filter(|p| *p > 0.0)
                 .map(|p| 20.0 * p.log10())
         };
