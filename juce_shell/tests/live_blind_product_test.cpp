@@ -18,7 +18,6 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-
 static void require (bool ok, const char* message)
 {
     if (! ok) { std::cerr << "Live Blind product: " << message << '\n'; std::exit (EXIT_FAILURE); }
@@ -478,6 +477,7 @@ int main (int argc, char** argv)
     if (argc == 3 && std::string (argv[2]) == "--candidate-tail-pair-only") { hypha::tests::verifyCandidateTailAfterBusyStart (require); hypha::tests::verifyCandidateTailWithdrawalReceipt (require, false); hypha::tests::verifyCandidateTailWithdrawalReceipt (require, true); hypha::tests::verifyCandidateExpiredSourceTail (require, false); hypha::tests::verifyCandidateExpiredSourceTail (require, true); hypha::tests::verifyTailSurvivesPairChange (require); hypha::tests::verifyCandidatePostOnlyReturn (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--candidate-tail-all-only") { hypha::tests::writeCandidateFixtureIdentity (require, sandbox->directory()); hypha::tests::verifyCandidateTailOwnership (require); hypha::tests::verifyAllKeepWaitsForOtherTail (require); return 0; }
     if (argc == 3 && std::string (argv[2]) == "--blind-deadline-only") { hypha::tests::verifyLiveBlindPreparationDeadline (require); hypha::tests::verifyLiveBlindDeadlineReturnsPost (require); return 0; }
+    if (argc == 3 && hypha::tests::runWholeMatchSpanProductMode (argv[2], require, sandbox->directory())) return 0;
     if (argc == 3 && std::string (argv[2]) == "--candidate-only") { hypha::tests::verifyCandidateProduct (require, sandbox->directory()); std::cout << "Candidate product: PASS\n"; return 0; }
     using Reason = hypha::live_compare::RecoveryReason;
     const auto mode = argc == 3 ? std::string (argv[2]) : std::string();
