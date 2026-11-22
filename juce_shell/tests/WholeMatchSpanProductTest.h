@@ -66,7 +66,7 @@ template<class Require> void verifyBlindRefusesUnappliedListenRevision (Require 
 {
     using namespace live_compare;
     ProductTestClock wall;
-    for (const bool whole : { false, true })
+    for (const bool whole : { false, true }) for (const bool alignWait : { false, true })
     {
         CandidateHost<Require> host (wall, require, 2, 512);
         host.pair();
@@ -81,8 +81,23 @@ template<class Require> void verifyBlindRefusesUnappliedListenRevision (Require 
         require (static_cast<bool> (post.applyLiveCompareMatch (plan,
             plan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis)),
             "LISTEN has approved a real complete MATCH");
-        // No audio callback or artificial receipt between applying this plan and pressing BLIND.
         const auto pending = LiveTimingFixtureAccess::gainRevision (post).load();
+        if (alignWait)
+        {
+            const auto current = post.liveCompareStatus();
+            require(!plan.needsApproval && current.postActual == current.postTarget,
+                "boundary fixture has settled POST before the one PRE alignment-wait callback");
+            post.selectLiveComparePre(true);
+            post.setLiveCompareAutoAlign(true);
+            LiveTimingFixtureAccess::deferContentMonitorForTest(post);
+            renderWholeMatchProductBlocks(host,1); // the approved gain cannot be settled on PRE by this callback
+            const auto waiting = post.liveCompareStatus();
+            require(waiting.preSelected && waiting.preWaiting && !waiting.preAudible
+                 && waiting.verdict == Verdict::accepted
+                 && (waiting.observation == RecoveryReason::calibrating || waiting.observation == RecoveryReason::contentAmbiguous),
+                "the one real callback has a good clock but returns in the position-wait branch");
+            post.setLiveCompareAutoAlign(false); // keep the rest of the synthetic trial independent of content service
+        }
         const auto before = post.liveCompareStatus();
         require (before.matched && !before.matchReady
             && LiveTimingFixtureAccess::gainReceipt (post) != pending,

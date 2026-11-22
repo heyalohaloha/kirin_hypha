@@ -333,7 +333,7 @@ public:
                                                                               : RecoveryReason::calibrating;
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
             post.apply (io, channels, block.frames, postTarget);
-            report.stableSource = report.gainSettled = settled;
+            report.stableSource = settled; // PRE was not settled here: no new gain receipt.
             report.audibleSource = settled ? RenderReport::AudibleSource::post : RenderReport::AudibleSource::none;
             return report;
         }
