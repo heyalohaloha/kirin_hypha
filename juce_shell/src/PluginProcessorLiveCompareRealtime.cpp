@@ -140,8 +140,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     liveCompare.postLevel.riseAtOnce (! block.playing || quietResumed);
     const bool contentNotice = liveCompare.contentHold.held(); // told after 3 s; never changes the output
     // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
-    const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
-    const auto compensationRevision = liveCompare.compensationRevision.load (std::memory_order_acquire);
+    const auto compensationRevision = block.compensationProof = liveCompare.compensationState.load (std::memory_order_acquire);
+    const bool compensationOff = (compensationRevision & 1u) != 0;
     const bool compensationChanged = compensationOff != liveCompare.compensationWasOff || compensationRevision != liveCompare.compensationSeen;
     if (compensationChanged)
     {

@@ -140,7 +140,7 @@ public:
     static void blindWaiting (KirinHyphaProcessorBase& processor, hypha::live_compare::BlindStage stage)
     { processor.liveCompare.blindStage = stage; }
     static void compensationDisabled (KirinHyphaProcessorBase& processor, bool disabled)
-    { processor.liveCompare.compensationOff.store (disabled); }
+    { processor.kirinHostDelayCompensationStateChanged (!disabled); }
     static hypha::live_compare::OffsetEstimate jumpFacts (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.contentJumpFacts; }
     // Each new clock mapping (or a block that fails its sample check) opens a new content check.

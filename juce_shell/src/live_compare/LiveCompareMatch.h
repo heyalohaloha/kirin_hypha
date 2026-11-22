@@ -50,6 +50,8 @@ struct MatchResult
     GainIdentity wholeOwner {};
     std::uint64_t wholePreClock = 0;
     bool wholeOwnerBound = false;
+    std::uint64_t compensationProof = 0;
+    bool compensationProofBound = false;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
 
@@ -75,6 +77,8 @@ struct MatchPlan
     GainIdentity wholeOwner {};
     std::uint64_t wholePreClock = 0;
     bool wholeOwnerBound = false;
+    std::uint64_t compensationProof = 0;
+    bool compensationProofBound = false;
 };
 
 MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;

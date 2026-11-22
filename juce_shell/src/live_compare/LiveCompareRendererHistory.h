@@ -13,13 +13,14 @@
         const bool restarted = block.afterGap || ! block.playing || block.clock != end || end == 0
             || ! proven || ! matchOffsetValid.load (std::memory_order_relaxed)
             || decision.k != matchOffset.load (std::memory_order_relaxed)
-            || decision.run != historyPreRun.load();
+            || decision.run != historyPreRun.load() || block.compensationProof != historyCompensationProof.load();
         if (restarted)
         {
             historyStart.store (block.clock, std::memory_order_release);
             historyProof.fetch_add (1);
         }
         historyPreRun.store (decision.run); historyPreClock.store (decision.preClock);
+        historyCompensationProof.store (block.compensationProof);
         matchOffset.store (decision.k, std::memory_order_release);
         matchOffsetValid.store (proven, std::memory_order_release);
         const auto offset = block.project - block.clock;

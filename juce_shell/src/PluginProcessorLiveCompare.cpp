@@ -247,7 +247,9 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(boo
        #endif
         result = selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled()
             ? measureWholeLiveMatch(*ring) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
-        if (ring->header.ownerClosed.load(std::memory_order_acquire) != 0) result = {};
+        const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
+        if (ring->header.ownerClosed.load(std::memory_order_acquire) != 0 || (compensation & 1u) != 0
+            || (result.compensationProofBound && result.compensationProof != compensation)) result = {};
     });
     if (generation != liveCompare.sessionGeneration.load(std::memory_order_acquire)
         || !liveCompare.authority.permitted()) return {};
@@ -299,6 +301,8 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
             || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
             || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
             return;
+        const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
+        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)) return;
         const auto currentOwner = hypha::live_compare::gainIdentity (*mapping.ring(), liveCompare.authority.ticket());
         if (plan.proofBound || plan.wholeOwnerBound)
         {
@@ -348,8 +352,11 @@ bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
 // clock can prove the correspondence: POST sounds and PRE waits until it is on again.
 void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged (bool enabled)
 {
-    if (liveCompare.compensationOff.exchange (! enabled, std::memory_order_acq_rel) != ! enabled)
-        liveCompare.compensationRevision.fetch_add (1, std::memory_order_release);
+    // This host notification is non-RT. Serialize with MATCH approval, then publish one coherent RT value.
+    const juce::ScopedLock formatLock (handleLock);
+    const auto old = liveCompare.compensationState.load(std::memory_order_relaxed);
+    const auto off = static_cast<std::uint64_t>(!enabled);
+    if ((old & 1u) != off) liveCompare.compensationState.store(((old & ~std::uint64_t{1}) + 2) | off, std::memory_order_release);
 }
 
 // INV-LC9: Pro Tools names this instance's group once, before the first prepare (JUCE patch 0010).
@@ -368,29 +375,24 @@ bool KirinHyphaProcessorBase::takeLiveCompareGuardTrip() noexcept
 {
     return liveCompare.guardTripped.exchange (false, std::memory_order_acq_rel);
 }
-
 std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
 {
     return liveCompare.playbackRun.load (std::memory_order_acquire);
 }
-
 // Message thread: all comparison surfaces read the same callback result.
 bool KirinHyphaProcessorBase::analysisPairingLoopBlocked() const noexcept
 {
     return analysisPairingLoopBlock() != hypha::live_compare::LoopPairingBlock::none;
 }
-
 hypha::live_compare::LoopPairingBlock KirinHyphaProcessorBase::analysisPairingLoopBlock() const noexcept
 {
     return role == Role::Post ? liveCompare.loopBlock.load (std::memory_order_relaxed)
                              : hypha::live_compare::LoopPairingBlock::none;
 }
-
 bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
 {
     return liveCompare.preWaitSeen.exchange (false, std::memory_order_acq_rel);
 }
-
 bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
 {
     // INV-LC9: AAX offers the live compare on stereo instances and on the only instance of its
@@ -398,7 +400,6 @@ bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
     return role == Role::Post && stereoWorkflowsSupported() && ! aaxMultiMonoMember()
         && hypha::live_compare::sharedRingAvailable();
 }
-
 // Message thread. What POST measured between PRE's callback and its own over the last seconds
 // (LiveCompareChainTiming.h). A reading for the screen only: nothing decides or switches on it.
 hypha::live_compare::ChainTimingView KirinHyphaProcessorBase::chainTimingView() const noexcept
@@ -409,7 +410,6 @@ hypha::live_compare::ChainTimingView KirinHyphaProcessorBase::chainTimingView() 
     return hypha::live_compare::summarise (report, preparedFormat.sampleRate,
                                           hypha::live_compare::callbackWallNanos());
 }
-
 // INV-LC9: a mono AAX instance that the host does not show to be the only one of its group: one
 // channel of a multi-mono set, or a host that names no groups. Pro Tools processes the channels of
 // a set on parallel threads (G1 record, section 10), so no instance can switch them all in a block.

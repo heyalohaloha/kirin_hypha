@@ -239,8 +239,7 @@ struct ProcessorState
     std::atomic<std::uint64_t> hostResetGeneration { 0 };
     std::uint64_t hostResetSeen = 0, stopSeen = 1; // Audio Thread only
     bool wasPlaying = false;                      // Audio Thread only
-    std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
-    std::atomic<std::uint64_t> compensationRevision { 0 };
+    std::atomic<std::uint64_t> compensationState { 0 }; // INV-LC8: revision and low OFF bit published atomically
     std::uint64_t compensationSeen = 0;
     bool compensationWasOff = false;              // Audio Thread only
     // Shared callback result for analysis, LISTEN and BLIND; never persisted.

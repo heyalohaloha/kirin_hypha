@@ -111,7 +111,9 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
         std::numeric_limits<std::uint64_t>::max(), &kirin_hypha_live_match_span_cut);
 
     if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
-    if (!drained || !wholeProofCurrent(ring, view) || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
+    if (!drained || (view.compensationProof & 1u) != 0
+        || liveCompare.compensationState.load(std::memory_order_acquire) != view.compensationProof
+        || !wholeProofCurrent(ring, view) || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
         return result;
     if (!span.enough()) { result.failure = MatchFailure::tooShort; return result; }
     KirinLiveMatchSpanFacts facts {};
@@ -120,6 +122,8 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     const auto current = liveCompare.renderer.historyView();
     if (!wholeProofCurrent(ring, current) || current.proof != view.proof
         || current.preRun != view.preRun || current.preClock != view.preClock
+        || current.compensationProof != view.compensationProof
+        || liveCompare.compensationState.load(std::memory_order_acquire) != view.compensationProof
         || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
     { result.failure = MatchFailure::stale; return result; }
     result.measuredDb = facts.post_lufs - facts.pre_lufs;
@@ -128,6 +132,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     result.analysisUnits = span.frames();
     result.seconds = static_cast<double>(span.frames()) / preparedFormat.sampleRate;
     result.wholeOwner = owner; result.wholeOwnerBound = true; result.wholePreClock = view.preClock;
+    result.compensationProof = view.compensationProof; result.compensationProofBound = true;
     result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
     result.failure = std::abs(result.measuredDb) <= maximumMatchDb ? MatchFailure::none : MatchFailure::outOfRange;
     return result;
