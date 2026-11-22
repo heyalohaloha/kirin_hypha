@@ -216,19 +216,35 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
         + live_compare_ui::unappliedNotice();
     const auto originalBounds = blind.getBounds();
     blind.setSize (300, 200);
-    blind.setScreen (screen);
-    require (rig.press ('Q'), "Q is refused in the terminal ballot state");
-    const auto* completion = dynamic_cast<juce::Label*> (blind.findChildWithID ("live-blind-text-2"));
-    const auto* inlineNotice = dynamic_cast<juce::Label*> (blind.findChildWithID ("live-blind-notice"));
-    auto* more = dynamic_cast<juce::Button*> (blind.findChildWithID ("live-blind-more-notices"));
-    const auto refusal = text_style::shownText ("End Blind Compare first");
-    require (completion && completion->isVisible() && completion->getText() == screen.instruction,
-             "Q preserves the required final-vote instruction");
-    require ((inlineNotice && inlineNotice->isVisible() && inlineNotice->getText().contains ("End Blind Compare first"))
-                || (more && more->isVisible() && more->getDescription().contains (refusal)), "Q puts its reason in the accessible notice area");
-    const auto* accessibility = more != nullptr ? more->getAccessibilityHandler() : nullptr;
-    require (more && more->isVisible() && accessibility && accessibility->getDescription().contains (refusal),
-             "a real hosted +N exposes the refused shortcut reason to accessibility");
+    const auto refusal = juce::String ("End Blind Compare first");
+    const auto completionRemains = [&]
+    {
+        const auto* completion = dynamic_cast<const juce::Label*> (blind.findChildWithID ("live-blind-text-2"));
+        require (completion && completion->isVisible() && completion->getText() == screen.instruction,
+                 "Q preserves the required final-vote instruction");
+    };
+    const auto more = [&] { return blind.findChildWithID ("live-blind-more-notices"); };
+    {
+        const i18n::ScopedLanguage language (i18n::Language::english);
+        blind.setScreen (screen);
+        require (rig.press ('Q'), "Q is refused in the terminal ballot state");
+        completionRemains();
+        const auto* inlineNotice = dynamic_cast<const juce::Label*> (blind.findChildWithID ("live-blind-notice"));
+        require (inlineNotice && inlineNotice->isVisible() && inlineNotice->getText().contains (refusal)
+                 && more() && !more()->isVisible(), "when all notices fit, the Q refusal is shown directly");
+    }
+    {
+        const i18n::ScopedLanguage language (i18n::Language::japanese);
+        blind.setScreen (screen);
+        require (rig.press ('Q'), "Q is refused in the narrow Japanese terminal ballot");
+        completionRemains();
+        const auto translated = text_style::shownText (refusal);
+        auto* badge = more();
+        const auto* accessibility = badge != nullptr ? badge->getAccessibilityHandler() : nullptr;
+        require (translated != refusal && badge && badge->isShowing() && accessibility
+                 && accessibility->getDescription().contains (translated),
+                 "a real overflowing Japanese badge exposes the complete refused shortcut reason to accessibility");
+    }
     require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
     blind_notice_focus_test::verify (rig, blind, require);
     blind.setBounds (originalBounds);
