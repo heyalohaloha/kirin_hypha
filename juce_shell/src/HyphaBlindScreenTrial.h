@@ -52,75 +52,94 @@ inline void ScreenComponent::layoutTrial (bool choosingRounds, bool fixedProgres
     const auto sourceHeight = shown.sourcesShown ? trial_layout::sourceMinimum : 0;
     const auto approvalHeight = shown.approveShown ? trial_layout::minimumActionHeight : 0;
     const auto titleHeight = measure (title, title.getText());
-    const auto statusHeight = shown.trialNotice.contains (status.getText()) ? 0 : measure (status, status.getText());
-    const auto requiredStatus = shown.votingComplete ? statusHeight : 0;
-    const auto causeHeight = shown.guidanceShown ? measure (cause, cause.getText()) : 0;
-    const auto recoveryHeight = shown.guidanceShown ? measure (recovery, recovery.getText()) : 0;
-    const auto candidates = notice_stack::ordered (shown.trialNotice, shown.guidanceShown ? cause.getText() : juce::String(),
-                                                   shown.guidanceShown ? recovery.getText() : juce::String(), extraTrialNotice());
-
-    juce::StringArray allInline;
-    bool hasGuidance = false;
-    for (const auto& item : candidates)
-        if (item.guidance) hasGuidance = true; else allInline.add (item.text);
-    const auto allInlineText = allInline.joinIntoString ("\n");
-    const auto allNoticeHeight = measure (notice, allInlineText) + (hasGuidance ? causeHeight + recoveryHeight : 0);
-
     constexpr auto minimumAction = trial_layout::minimumActionHeight;
-    const int fixedHeight = sourceHeight + approvalHeight + endHeight + requiredStatus + outcomeHeight;
+    const int baseHeight = sourceHeight + approvalHeight + endHeight + outcomeHeight;
     const int actions = 1 + static_cast<int> (shown.guessShown);
-    const bool combineRounds = choosingRounds && fixedHeight + (actions + 1) * minimumAction
-        + allNoticeHeight + titleHeight > getHeight();
-    const int rows = actions + static_cast<int> (choosingRounds && !combineRounds);
-    int discretionary = juce::jmax (0, getHeight() - fixedHeight - rows * minimumAction);
-    const int available = discretionary;
-    bool showTitle = discretionary >= allNoticeHeight + titleHeight;
-    bool showStatus = requiredStatus > 0 || discretionary >= allNoticeHeight + (showTitle ? titleHeight : 0) + statusHeight;
-    discretionary -= (showTitle ? titleHeight : 0) + (showStatus ? statusHeight - requiredStatus : 0);
 
-    juce::String inlineText = allInlineText;
-    juce::StringArray hidden;
-    bool showGuidance = hasGuidance;
-    if (allNoticeHeight > discretionary && !candidates.empty())
+    // One state of the trial: its instruction, guidance and notices, what they need and what is shown.
+    struct Stack
     {
-        const auto& first = candidates.front();
-        const auto firstHeight = first.guidance ? causeHeight + recoveryHeight : measure (notice, first.text);
-        showGuidance = first.guidance && firstHeight <= discretionary;
-        inlineText = !first.guidance && firstHeight <= discretionary ? first.text : juce::String();
-        for (size_t i = firstHeight <= discretionary ? 1 : 0; i < candidates.size(); ++i)
-            hidden.add (candidates[i].text);
-    }
-    if (!showStatus && statusHeight > 0 && !isRoutineTrialHint()) hidden.addIfNotAlreadyThere (status.getText());
-    notice.setText (inlineText, juce::dontSendNotification);
-    const auto noticeHeight = measure (notice, inlineText);
-    discretionary -= noticeHeight + (showGuidance ? causeHeight + recoveryHeight : 0);
-    // The rows of the stopped guidance stay free while it is not shown, so neither the height nor the
-    // position of the action rows changes when it appears. Longer notices still take what they need.
-    const auto reserved = shown.reservedCause.isEmpty() && shown.reservedRecovery.isEmpty() ? 0
-        : juce::jmin (available, titleHeight + measure (cause, shown.reservedCause) + measure (recovery, shown.reservedRecovery));
-    const auto kept = juce::jmax (0, reserved - (available - discretionary));
-    discretionary -= kept;
-    const auto actionHeight = trial_layout::actionHeightFor (discretionary, rows, preferredAction);
+        std::vector<notice_stack::Note> notes;
+        juce::String inlineText;
+        juce::StringArray hidden;
+        int statusHeight = 0, required = 0, causeHeight = 0, recoveryHeight = 0, noticeHeight = 0, all = 0, used = 0;
+        bool title = false, status = false, guidance = false;
+    };
+    const auto describe = [&] (const juce::String& instruction, const juce::String& why, const juce::String& how)
+    {
+        Stack s;
+        s.statusHeight = shown.trialNotice.contains (instruction) ? 0 : measure (status, instruction);
+        s.required = shown.votingComplete ? s.statusHeight : 0;
+        s.notes = notice_stack::ordered (shown.trialNotice, why, how, extraTrialNotice());
+        juce::StringArray lines;
+        for (const auto& item : s.notes)
+            if (item.guidance) s.guidance = true; else lines.add (item.text);
+        if (s.guidance) { s.causeHeight = measure (cause, why); s.recoveryHeight = measure (recovery, how); }
+        s.inlineText = lines.joinIntoString ("\n");
+        s.all = measure (notice, s.inlineText) + s.causeHeight + s.recoveryHeight;
+        return s;
+    };
+    const auto fit = [&] (Stack& s, int rows)
+    {
+        int room = juce::jmax (0, getHeight() - baseHeight - s.required - rows * minimumAction);
+        s.title = room >= s.all + titleHeight;
+        s.status = s.required > 0 || room >= s.all + (s.title ? titleHeight : 0) + s.statusHeight;
+        const int heading = (s.title ? titleHeight : 0) + (s.status ? s.statusHeight - s.required : 0);
+        room -= heading;
+        if (s.all > room && !s.notes.empty())
+        {
+            const auto& first = s.notes.front();
+            const auto firstHeight = first.guidance ? s.causeHeight + s.recoveryHeight : measure (notice, first.text);
+            s.guidance = first.guidance && firstHeight <= room;
+            s.inlineText = !first.guidance && firstHeight <= room ? first.text : juce::String();
+            for (size_t i = firstHeight <= room ? 1 : 0; i < s.notes.size(); ++i)
+                s.hidden.add (s.notes[i].text);
+        }
+        s.noticeHeight = measure (notice, s.inlineText);
+        s.used = s.required + heading + s.noticeHeight + (s.guidance ? s.causeHeight + s.recoveryHeight : 0);
+    };
+    auto now = describe (status.getText(), shown.guidanceShown ? cause.getText() : juce::String(),
+                         shown.guidanceShown ? recovery.getText() : juce::String());
+    // The DAW stops and plays again without a click. Both states are laid out here: the instruction
+    // gives way to the stopped guidance, the notices stay. The row of ROUNDS and the top of the action
+    // rows follow the larger of the two, so END is the same rectangle in both and a press meant for
+    // END lands on END.
+    const bool canStop = shown.reservedCause.isNotEmpty() || shown.reservedRecovery.isNotEmpty();
+    const bool isStopped = shown.guidanceShown && shown.cause == shown.reservedCause && shown.recovery == shown.reservedRecovery;
+    const bool sameInstruction = shown.votingComplete || actionNotice.isNotEmpty();
+    auto other = !canStop ? now
+        : isStopped ? describe (sameInstruction ? status.getText() : shown.unguidedInstruction, {}, {})
+        : describe (sameInstruction ? status.getText() : juce::String(), shown.reservedCause, shown.reservedRecovery);
+    const bool combineRounds = choosingRounds && baseHeight + (actions + 1) * minimumAction
+        + juce::jmax (now.required + now.all, other.required + other.all) + titleHeight > getHeight();
+    const int rows = actions + static_cast<int> (choosingRounds && !combineRounds);
+    fit (now, rows);
+    fit (other, rows);
+    if (!now.status && now.statusHeight > 0 && !isRoutineTrialHint()) now.hidden.addIfNotAlreadyThere (status.getText());
+    notice.setText (now.inlineText, juce::dontSendNotification);
+    const int kept = juce::jmax (now.used, other.used) - now.used;
+    const auto actionHeight = trial_layout::actionHeightFor (
+        getHeight() - baseHeight - rows * minimumAction - now.used - kept, rows, preferredAction);
 
     // Fixed-height regions are consumed from the top in order. No rectangle is centred
     // into insufficient remaining height or allowed to extend over an adjacent row.
-    place (title, area.removeFromTop (showTitle ? titleHeight : 0));
-    place (status, area.removeFromTop (showStatus ? statusHeight : 0));
+    place (title, area.removeFromTop (now.title ? titleHeight : 0));
+    place (status, area.removeFromTop (now.status ? now.statusHeight : 0));
     auto sourceRow = area.removeFromTop (sourceHeight);
     approve.setBounds (area.removeFromTop (approvalHeight));
     place (detail, area.removeFromTop (endHeight));
-    if (showGuidance)
+    if (now.guidance)
     {
-        place (cause, area.removeFromTop (causeHeight));
-        place (recovery, area.removeFromTop (recoveryHeight));
+        place (cause, area.removeFromTop (now.causeHeight));
+        place (recovery, area.removeFromTop (now.recoveryHeight));
     }
     else { place (cause, {}); place (recovery, {}); }
-    place (notice, area.removeFromTop (noticeHeight));
+    place (notice, area.removeFromTop (now.noticeHeight));
     if (outcomeHeight > 0) place (outcome, area.removeFromTop (outcomeHeight));
     area.removeFromTop (kept);
 
     moreNotices.setPresentationContext (context);
-    moreNotices.setNotices (hidden);
+    moreNotices.setNotices (now.hidden);
     if (moreNotices.isVisible() && sourceHeight > 0)
         moreNotices.setBounds (sourceRow.removeFromRight (badgeWidth).withHeight (actionHeight).reduced (3, 0));
     one.setBounds (sourceRow.removeFromLeft (sourceRow.getWidth() / 2).reduced (3, 0));

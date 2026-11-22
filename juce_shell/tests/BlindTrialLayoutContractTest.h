@@ -241,6 +241,38 @@ void verifyBlindTrialLayout (Require check, ListenLayoutShard shard = {})
         must (h.view.getBoundsInParent() == surface.getLocalBounds(), "exact transformed component bounds");
         must (editor_reachability::check (surface, [&] (const juce::String& why) { must (false, why); }) >= 3,
               "SOURCE and END hit by mouse and keyboard at actual scale");
+        // The DAW stops without a click. Before the first vote, with ROUNDS still changeable, a lowered
+        // level and notices that stay, END, REVEAL and the count keep their rectangles, so a press meant
+        // for END never lands on another control.
+        if (votePhase == 0 && !prePaused)
+        {
+            const char* const stable[] = { "end", "reveal", "rounds-label", "rounds-1", "rounds-5", "rounds-10" };
+            juce::Array<juce::Rectangle<int>> before;
+            juce::Array<bool> beforeShown;
+            for (const auto* id : stable)
+            {
+                const auto* control = h.view.findChildWithID (juce::String ("live-blind-") + id);
+                must (control != nullptr, juce::String ("stable control exists ") + id);
+                before.add (control ? control->getBounds() : juce::Rectangle<int>());
+                beforeShown.add (control && control->isVisible());
+            }
+            h.status.prolongedWait = true;
+            h.status.reason = live_compare::RecoveryReason::stopped;
+            h.view.setState (h.status, false, lowered ? 0.616595f : 1.0f, repeating);
+            must (h.view.screen().guidanceShown && h.view.screen().cause == h.view.screen().reservedCause
+                  && h.view.screen().recovery == h.view.screen().reservedRecovery, "stopped guidance is the reserved guidance");
+            if (delay != Delay::none)
+                must (h.view.screen().trialNotice.isNotEmpty(), "the delay notice stays while stopped");
+            for (int index = 0; index < before.size(); ++index)
+            {
+                const auto* control = h.view.findChildWithID (juce::String ("live-blind-") + stable[index]);
+                must (control && control->isVisible() == beforeShown[index]
+                      && (!beforeShown[index] || control->getBounds() == before[index]),
+                      juce::String ("same rectangle when stopped guidance appears: ") + stable[index]);
+            }
+            if (!guess)
+                must (h.view.screen().roundsEnabled && beforeShown[2], "ROUNDS is changeable before the first vote");
+        }
     }
 }
 }

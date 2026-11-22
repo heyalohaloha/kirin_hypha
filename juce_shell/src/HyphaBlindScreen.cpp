@@ -15,7 +15,7 @@ bool Screen::operator== (const Screen& other) const noexcept
 {
     const auto key = [] (const Screen& screen)
     {
-        return std::tie (screen.title, screen.instruction, screen.detail, screen.endExplanation, screen.trialNotice, screen.guidanceShown, screen.cause, screen.recovery, screen.reservedCause, screen.reservedRecovery,
+        return std::tie (screen.title, screen.instruction, screen.detail, screen.endExplanation, screen.trialNotice, screen.guidanceShown, screen.cause, screen.recovery, screen.reservedCause, screen.reservedRecovery, screen.unguidedInstruction,
                          screen.sourcesShown, screen.sourceOneEnabled, screen.sourceTwoEnabled, screen.audible,
                          screen.sourceOne, screen.sourceTwo, screen.sourceReason, screen.revealShown, screen.revealEnabled, screen.revealTitle, screen.alignOffShown,
                          screen.approveShown, screen.approveText, screen.approveTitle, screen.approveDescription,

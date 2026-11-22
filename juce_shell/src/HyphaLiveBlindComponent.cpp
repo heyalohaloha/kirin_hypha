@@ -94,6 +94,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         if (current.signalWait) screen.guidanceShown = false;
     }
     screen.instruction = screen.guidanceShown ? juce::String() : instruction;
+    if (live) screen.unguidedInstruction = instruction;
     // One sentence: END says once what it gives back, the level and then the A to B chain.
     if (current.candidate)
         explanation += explanation == normalLevel || explanation == loweredLevel
@@ -116,7 +117,11 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         if (screen.trialNotice.isNotEmpty()) screen.trialNotice += "\n";
         screen.trialNotice += label;
         if (! (returnDb > 0.05)) screen.detail = label;
-        else if (! screen.guidanceShown && (! revealed || instruction == "Sources revealed; keep comparing")) screen.instruction = label;
+        else if (! revealed || instruction == "Sources revealed; keep comparing")
+        {
+            screen.unguidedInstruction = label;
+            if (! screen.guidanceShown) screen.instruction = label;
+        }
     }
     const char* firstA = current.candidate ? "1: A" : "1: PRE";
     const char* firstB = current.candidate ? "1: B" : "1: POST";

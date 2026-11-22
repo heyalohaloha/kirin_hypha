@@ -19,7 +19,8 @@ struct Screen
     juce::String cause, recovery;
     // Guidance the host can raise without a click (the DAW stopped). The trial keeps its rows free so
     // END is where it was when the guidance appears, and a press meant for END lands on END.
-    juce::String reservedCause, reservedRecovery;
+    // `unguidedInstruction` is the instruction that guidance replaces, so both states can be laid out.
+    juce::String reservedCause, reservedRecovery, unguidedInstruction;
     bool sourcesShown = false, sourceOneEnabled = false, sourceTwoEnabled = false;
     int audible = 0;  // 1・2：鳴っているソース（そのボタンを点ける）
     juce::String sourceOne { "SOURCE 1" }, sourceTwo { "SOURCE 2" };
