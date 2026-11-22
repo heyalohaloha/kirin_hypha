@@ -162,10 +162,11 @@ void verifyBlindTrialLayout (Require check)
         {
             must (priority.size() >= 2 && isInline (priority[0]) && concealed == priority.size() - 1,
                   "only the highest-priority complete notice is retained when the full stack does not fit");
-            // This offscreen fixture has no native peer. The shortcut fixture checks the live AX handler.
-            must (more && more->isAccessible() && more->getDescription().isNotEmpty()
+            // Normal hover help must not duplicate the owned disclosure. The hosted fixture
+            // independently checks the AX Description and Help against the full text.
+            must (more && more->isAccessible() && more->getDescription().isNotEmpty() && more->getTooltip().isEmpty()
                   && more->getButtonText() == "+" + juce::String (concealed) && more->getWantsKeyboardFocus(),
-                  "the +N control counts exactly the hidden notices and exposes their full descriptions");
+                  "the +N control counts and describes hidden notices without a second stock tooltip");
         }
         else must (more && !more->isVisible(), "no overflow badge when every notice fits");
 
