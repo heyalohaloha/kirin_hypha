@@ -2,9 +2,9 @@
 
 #include "HyphaTextButton.h"
 #include "HyphaLiveCompareRecoveryText.h"
+#include "HyphaTooltipLookAndFeel.h"
 
 #include <algorithm>
-#include <memory>
 #include <vector>
 
 namespace hypha::blind_ui::notice_stack
@@ -40,8 +40,7 @@ inline std::vector<Note> ordered (const juce::String& trial, const juce::String&
     return notes;
 }
 
-// The badge exposes the hidden *full* text, not the count alone. The native tooltip
-// opens on pointer entry, keyboard focus, or activation without spending a layout row.
+// This is an owned disclosure, not a stock tooltip timed against the mouse.
 class More final : public HyphaTextButton
 {
 public:
@@ -50,21 +49,31 @@ public:
         onClick = [this] { reveal(); };
     }
 
+    void attachDisclosure (juce::Component& surface)
+    {
+        panel.setComponentID (getComponentID() + "-disclosure");
+        surface.addChildComponent (panel);
+    }
+
     void setNotices (const juce::StringArray& raw)
     {
         juce::StringArray localized;
         for (const auto& line : raw) localized.add (text_style::shownText (line));
         const auto next = localized.joinIntoString ("\n");
-        const bool changed = next != fullText;
-        fullText = next;
+        if (panel.getName() != next)
+        {
+            panel.setName (next);
+            panel.repaint();
+        }
         setButtonText (raw.isEmpty() ? juce::String() : "+" + juce::String (raw.size()));
         setTitle (getButtonText());
-        setDescription (fullText);
-        setTooltip (fullText);
-        setVisible (raw.size() > 0);
-        if (!isVisible()) hide();
-        else if (changed && tip) reveal();
+        setDescription (next);
+        setVisible (!raw.isEmpty());
+        if (raw.isEmpty()) dismiss();
+        else if (panel.isVisible()) positionDisclosure();
     }
+
+    void dismiss() { panel.setVisible (false); }
 
     void mouseEnter (const juce::MouseEvent& event) override
     {
@@ -74,7 +83,7 @@ public:
     void mouseExit (const juce::MouseEvent& event) override
     {
         HyphaTextButton::mouseExit (event);
-        if (!hasKeyboardFocus (true)) hide();
+        if (!hasKeyboardFocus (true)) dismiss();
     }
     void focusGained (FocusChangeType cause) override
     {
@@ -84,23 +93,44 @@ public:
     void focusLost (FocusChangeType cause) override
     {
         HyphaTextButton::focusLost (cause);
-        if (!isMouseOver()) hide();
+        dismiss();
     }
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (panel.isShowing() && key.isKeyCode (juce::KeyPress::escapeKey))
+        {
+            dismiss();
+            return true;
+        }
+        return HyphaTextButton::keyPressed (key);
+    }
+    void moved() override { if (panel.isVisible()) positionDisclosure(); }
+    void resized() override { if (panel.isVisible()) positionDisclosure(); }
 
 private:
     void reveal()
     {
-        if (fullText.isEmpty() || !isShowing() || getPeer() == nullptr) return;
-        if (!tip) tip = std::make_unique<juce::TooltipWindow> (nullptr, -1);
-        tip->displayTip (getScreenBounds().getBottomLeft(), fullText);
+        if (panel.getName().isEmpty() || !isShowing() || panel.getParentComponent() == nullptr) return;
+        positionDisclosure();
+        panel.setVisible (true);
+        panel.toFront (false);
     }
-    void hide()
+    void positionDisclosure()
     {
-        if (tip) tip->hideTip();
-        tip.reset();
+        if (const auto* surface = panel.getParentComponent())
+            panel.setBounds (panel.look.getTooltipBounds (panel.getName(), getBounds().getCentre(),
+                                                          surface->getLocalBounds()));
     }
 
-    juce::String fullText;
-    std::unique_ptr<juce::TooltipWindow> tip;
+    struct Disclosure final : juce::Component
+    {
+        Disclosure()
+        {
+            setInterceptsMouseClicks (false, false);
+            setAccessible (false);  // The badge already exposes the complete text to readers.
+        }
+        void paint (juce::Graphics& g) override { look.drawTooltip (g, getName(), getWidth(), getHeight()); }
+        TooltipLookAndFeel look;
+    } panel;
 };
 }

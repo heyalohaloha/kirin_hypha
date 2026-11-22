@@ -48,6 +48,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage not
     addChildComponent (notice);
     moreNotices.setComponentID (idPrefix + "-more-notices");
     addChildComponent (moreNotices);
+    moreNotices.attachDisclosure (*this);
     look.wrappedDetail = &detail; look.fixedStatus = notes == NoteLanguage::prelocalized ? &status : nullptr;
     look.wrappedNotice = &notice;
     question.setComponentID (idPrefix + "-guess-question");

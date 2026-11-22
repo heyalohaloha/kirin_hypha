@@ -67,6 +67,7 @@ public:
     const Screen& screen() const noexcept { return shown; }
     void paint (juce::Graphics&) override;
     void resized() override;
+    void visibilityChanged() override { if (!isVisible()) moreNotices.dismiss(); }
 
 private:
     void timerCallback() override;

@@ -124,15 +124,14 @@ void verifyBlindTrialLayout (Require check)
             if (isInline (raw)) continue;
             ++concealed;
             const auto translated = text_style::shownText (raw);
-            must (more && more->isVisible() && more->getTooltip().contains (translated)
-                && more->getDescription().contains (translated), "hidden notice retains full text for help and accessibility");
+            must (more && more->isVisible() && more->getDescription().contains (translated), "hidden notice retains full text for help and accessibility");
         }
         if (concealed > 0)
         {
             must (priority.size() >= 2 && isInline (priority[0]) && concealed == priority.size() - 1,
                   "only the highest-priority complete notice is retained when the full stack does not fit");
             // This offscreen fixture has no native peer. The shortcut fixture checks the live AX handler.
-            must (more && more->isAccessible() && more->getDescription() == more->getTooltip()
+            must (more && more->isAccessible() && more->getTooltip().isEmpty()
                   && more->getButtonText() == "+" + juce::String (concealed) && more->getWantsKeyboardFocus(),
                   "the +N control counts exactly the hidden notices and exposes their full descriptions");
         }

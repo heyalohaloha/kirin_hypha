@@ -1,4 +1,5 @@
 #include "ShortcutKeyRig.h"
+#include "BlindNoticeFocusContractTest.h"
 #include "../src/HyphaShortcutText.h"
 #include <algorithm>
 #include <chrono>
@@ -224,12 +225,12 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
     require (completion && completion->isVisible() && completion->getText() == screen.instruction,
              "Q preserves the required final-vote instruction");
     require ((inlineNotice && inlineNotice->isVisible() && inlineNotice->getText().contains ("End Blind Compare first"))
-                || (more && more->isVisible() && more->getTooltip().contains (refusal)
-                    && more->getDescription().contains (refusal)), "Q puts its reason in the accessible notice area");
+                || (more && more->isVisible() && more->getDescription().contains (refusal)), "Q puts its reason in the accessible notice area");
     const auto* accessibility = more != nullptr ? more->getAccessibilityHandler() : nullptr;
     require (more && more->isVisible() && accessibility && accessibility->getDescription().contains (refusal),
              "a real hosted +N exposes the refused shortcut reason to accessibility");
     require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
+    blind_notice_focus_test::verify (rig, blind, require);
     blind.setBounds (originalBounds);
     open = false;
     blind.setVisible (false);
