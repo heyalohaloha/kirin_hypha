@@ -140,6 +140,7 @@ const Entry entries[] = {
     { "MATCH over 24 dB", u8"MATCHの差が24 dBを超えています" },
     { "No MATCH: timing not confirmed", u8"位置を確かめられず、MATCHしていません" },
     { "ALL PLAYED lost audio. END and restart.", u8"再生した音声の一部を取得できませんでした。ENDで終了し、最初からやり直してください。" },
+    { "No MATCH: play at least 3 seconds", u8"3秒以上再生してからMATCHしてください。" },
     { "No MATCH: not enough signal", u8"信号が足りず、MATCHしていません" },
     { "MATCH: POST %1", u8"MATCH：POST %1" },
     { "MATCH off: original levels", u8"MATCHを外しました（元の音量）" },
