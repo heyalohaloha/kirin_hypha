@@ -13,7 +13,7 @@ A free, open-source loudness meter and gain-matched A/B (before/after) compariso
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
 <p align="center">
-<a href="#download"><b>Download 1.1.58</b></a> &nbsp;·&nbsp;
+<a href="#download"><b>Download 1.1.59</b></a> &nbsp;·&nbsp;
 <a href="#start-in-under-a-minute"><b>Start in a minute</b></a> &nbsp;·&nbsp;
 <a href="#what-you-can-do"><b>What you can do</b></a> &nbsp;·&nbsp;
 <a href="#the-full-manual"><b>Manual</b></a> &nbsp;·&nbsp;
@@ -31,7 +31,7 @@ passes through unchanged with zero added latency.
 |---|---|
 | Price | Free |
 | License | GPLv3 ([LICENSE](LICENSE)); the source is this repository |
-| Latest version | 1.1.58 ([release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58)) |
+| Latest version | 1.1.59 ([release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.59)) |
 | Download | macOS PKG and Windows EXE under [Download](#download) and on [GitHub Releases](https://github.com/heyalohaloha/kirin_hypha/releases) |
 | macOS | macOS 12 or later, Universal (Apple Silicon and Intel): AU, VST3 and AAX Native, signed and notarized |
 | Windows | Windows 10 or 11, x64: VST3 and AAX Native in an Authenticode-signed installer |
@@ -187,16 +187,16 @@ library, and Keep / Record saves a playback's measurements with the song. See [M
 
 ## Download
 
-**Hypha 1.1.58 is available for macOS and Windows.** Both installers include PRE and POST.
+**Hypha 1.1.59 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
-| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.58/Kirin-Hypha-1.1.58-macOS-Universal.pkg) | AU · VST3 · AAX Native |
-| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.58/Kirin-Hypha-1.1.58-Windows-x64-Setup.exe) | VST3 · AAX Native |
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.59/Kirin-Hypha-1.1.59-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.59/Kirin-Hypha-1.1.59-Windows-x64-Setup.exe) | VST3 · AAX Native |
 
 Official macOS release packages and plug-ins are signed and notarized. Official Windows release
 installers and plug-ins are Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
-[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.58).
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.59).
 
 <details>
 <summary>Download verification and release provenance</summary>
