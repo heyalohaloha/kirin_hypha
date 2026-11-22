@@ -44,15 +44,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         ? (!stopped && !current.candidate && guidance.reason == live_compare::RecoveryReason::notWritten
             ? live_compare_ui::preProcessingCause : live_compare_ui::cause (guidance.reason)) : "";
     screen.recovery = screen.guidanceShown ? guidance.instruction : "";
-    if (live)
-    {
-        live_compare::LiveBlindStatus halted;
-        halted.prolongedWait = true;
-        halted.reason = live_compare::RecoveryReason::stopped;
-        const auto halt = live_compare_ui::blindRecovery (halted, false);
-        screen.reservedCause = live_compare_ui::cause (halt.reason);
-        screen.reservedRecovery = halt.instruction;
-    }
+    if (live) blind_ui::keepStoppedGuidanceRows (screen);
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     const juce::String normalLevel = "END restores normal level";

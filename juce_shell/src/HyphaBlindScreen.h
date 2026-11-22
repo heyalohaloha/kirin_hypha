@@ -47,6 +47,18 @@ struct Screen
     bool operator!= (const Screen& other) const noexcept { return ! (*this == other); }
 };
 
+// Every BLIND that compares its sources keeps the rows of the stopped guidance free through this one
+// rule, so the same state has SOURCE, REVEAL and END at the same coordinates on each of them.
+inline void keepStoppedGuidanceRows (Screen& screen)
+{
+    live_compare::LiveBlindStatus halted;
+    halted.prolongedWait = true;
+    halted.reason = live_compare::RecoveryReason::stopped;
+    const auto halt = live_compare_ui::blindRecovery (halted, false);
+    screen.reservedCause = live_compare_ui::cause (halt.reason);
+    screen.reservedRecovery = halt.instruction;
+}
+
 class ScreenComponent : public juce::Component, private juce::Timer
 {
 public:
