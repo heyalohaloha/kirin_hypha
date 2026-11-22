@@ -62,6 +62,47 @@ template<class Require> void verifyWholeMatchBlindReusesListen (Require require)
     renderWholeMatchProductBlocks (host, 96);
 }
 
+template<class Require> void verifyBlindRefusesUnappliedListenRevision (Require require)
+{
+    using namespace live_compare;
+    ProductTestClock wall;
+    for (const bool whole : { false, true })
+    {
+        CandidateHost<Require> host (wall, require, 2, 512);
+        host.pair();
+        auto& post = host.post();
+        post.setWholeMatchPreferred (whole);
+        require (post.startLiveCompare() == StartResult::started, "pending boundary starts real LISTEN");
+        renderWholeMatchProductBlocks (host, 420);
+        const auto measured = post.measureLiveCompare (true);
+        require (measured.ok() && measured.wholeOwnerBound == whole,
+                 "LISTEN measured the actual LAST 4 s or ALL PLAYED route selected by the case");
+        const auto plan = planMatch (measured, 0.0);
+        require (static_cast<bool> (post.applyLiveCompareMatch (plan,
+            plan.needsApproval ? MatchChoice::lowerPost : MatchChoice::basis)),
+            "LISTEN has approved a real complete MATCH");
+        // No audio callback or artificial receipt between applying this plan and pressing BLIND.
+        const auto pending = LiveTimingFixtureAccess::gainRevision (post).load();
+        const auto before = post.liveCompareStatus();
+        require (before.matched && !before.matchReady
+            && LiveTimingFixtureAccess::gainReceipt (post) != pending,
+            "the approved LISTEN revision has not settled on the audio thread at the press");
+        require (post.beginLiveBlind() == StartResult::started
+            && post.liveBlindStatus().stage == BlindStage::preparing,
+            "BLIND starts through the normal processor method");
+        require (!LiveTimingFixtureAccess::wholeSpanEnabledForTest (post),
+                 "an unapplied revision does not start an ALL PLAYED measurement in BLIND");
+        for (int n = 0; n < 560 && post.liveBlindStatus().stage != BlindStage::active; ++n)
+            renderWholeMatchProductBlocks (host, 1);
+        const auto chosen = LiveTimingFixtureAccess::gainRevision (post).load();
+        require (post.liveBlindStatus().stage == BlindStage::active && chosen != pending
+            && LiveTimingFixtureAccess::gainReceipt (post) == chosen,
+            "BLIND reaches active only after applying a recent-window MATCH, never by a late LISTEN receipt");
+        post.finishLiveCompare();
+        renderWholeMatchProductBlocks (host, 96);
+    }
+}
+
 template<class Require> void verifyDirectBlindUsesRecent (Require require)
 {
     using namespace live_compare;
@@ -142,6 +183,7 @@ template<class Require> void verifyWholeMatchPreClockRace (Require require)
 template<class Require> void verifyWholeMatchSpanProduct (Require require)
 {
     verifyWholeMatchBlindReusesListen (require);
+    verifyBlindRefusesUnappliedListenRevision (require);
     verifyDirectBlindUsesRecent (require);
     verifyWholeMatchPreClockRace (require);
 }
