@@ -1,12 +1,25 @@
 #pragma once
 
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <utility>
 
 namespace hypha::blind_ui::result_layout
 {
+// The active RESULT inherits the same two independent causes as the trial.
+// The frozen PNG has its own already-localized notes and never calls this.
+inline juce::String liveNotes (const juce::String& instruction, const juce::String& endExplanation,
+                              const juce::String& notice)
+{
+    juce::StringArray lines;
+    for (const auto& line : { endExplanation, notice })
+        if (line.isNotEmpty()) lines.add (text_style::shownText (line));
+    if (instruction.isNotEmpty() && ! notice.contains (instruction))
+        lines.addIfNotAlreadyThere (text_style::shownText (instruction));
+    return lines.joinIntoString ("\n");
+}
 // Measure the three result rows at their actual width without shrinking their horizontal metrics.
 // The result editor is the first row, followed by compensation and the note.
 inline std::pair<int, bool> measureRows (const std::array<juce::TextEditor*, 3>& bodies,

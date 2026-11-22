@@ -140,7 +140,6 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
             if (chance.isNotEmpty()) screen.preferenceResultText += "\n" + chance;
             screen.sourceOne = "1: " + (current.trial.firstPre ? nameA : nameB);
             screen.sourceTwo = "2: " + (current.trial.firstPre ? nameB : nameA);
-            screen.preferenceResultNote = text_style::shownText(screen.instruction) + "\n" + text_style::shownText(screen.detail);
         }
         if (approvedGainsValid && approvedGainGeneration == current.generation) {
             const auto signedGain=[](double value) {
