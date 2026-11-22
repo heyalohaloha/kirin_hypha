@@ -33,6 +33,20 @@ private:
     bool elapsed = false;
 };
 
+inline juce::Rectangle<int> placementOnDisplay (juce::Rectangle<int> available, juce::Rectangle<int> window,
+                                                juce::Point<int> pointer, int inset, int pointerClearance)
+{
+    const auto area = available.reduced (inset);
+    if (area.getWidth() < window.getWidth() || area.getHeight() < window.getHeight()) return {};
+    for (const auto x : { area.getX(), area.getRight() - window.getWidth() })
+    for (const auto y : { area.getY(), area.getBottom() - window.getHeight() })
+    {
+        const auto candidate = window.withPosition (x, y);
+        if (!candidate.expanded (pointerClearance).contains (pointer)) return candidate;
+    }
+    return {};
+}
+
 template <typename Require>
 void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen, Require require)
 {
@@ -48,19 +62,22 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     window.setContentNonOwned (&blind, true);
     const auto pointer = juce::Desktop::getMousePosition();
     const auto displays = juce::Desktop::getInstance().getDisplays().getRectangleList (true);
-    juce::Rectangle<int> placement;
-    for (const auto display : displays)
+    const juce::Rectangle<int> smallDisplay (0, 0, 600, 400), fixtureWindow (0, 0, 302, 228);
+    const juce::Point<int> centredPointer (310, 200);
+    const auto tight = placementOnDisplay (smallDisplay, fixtureWindow, centredPointer, 0, 0);
+    require (placementOnDisplay (smallDisplay, fixtureWindow, centredPointer, 8, 4).isEmpty()
+             && !tight.isEmpty() && smallDisplay.contains (tight) && !tight.contains (centredPointer),
+             "the compact-display fallback fits while leaving the real pointer untouched");
+
+    const auto findPosition = [&] (int inset, int clearance)
     {
-        const auto area = display.reduced (8);
-        if (area.getWidth() < window.getWidth() || area.getHeight() < window.getHeight()) continue;
-        for (const auto x : { area.getX(), area.getRight() - window.getWidth() })
-        for (const auto y : { area.getY(), area.getBottom() - window.getHeight() })
-        {
-            const juce::Rectangle<int> candidate (x, y, window.getWidth(), window.getHeight());
-            if (placement.isEmpty() && !candidate.expanded (4).contains (pointer)) placement = candidate;
-        }
-        if (!placement.isEmpty()) break;
-    }
+        for (const auto display : displays)
+            if (const auto fit = placementOnDisplay (display, window.getLocalBounds(), pointer, inset, clearance);
+                !fit.isEmpty()) return fit;
+        return juce::Rectangle<int>();
+    };
+    auto placement = findPosition (8, 4);
+    if (placement.isEmpty()) placement = findPosition (0, 0);
     require (!placement.isEmpty(), "fixture window fits a screen area outside the untouched pointer");
     window.setBounds (placement);
     window.setVisible (true);
