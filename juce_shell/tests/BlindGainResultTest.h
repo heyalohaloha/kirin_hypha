@@ -81,13 +81,20 @@ void verifyBlindGainResult(Require require,Fits fits,const juce::File& root,cons
             // Use the actual frozen save sheet and its capture model, not only the legacy layout.
             h.view.setState(h.status,true,static_cast<float>(std::pow(10.0,-3.5/20.0)));
             require(h.view.screen().matchedGainText==text,"approved per-source gain remains in the live result");
+            text_style::ShownTextLog previewText;
             h.view.openImageSheet();
             require(h.view.imageSheetOpen(),"approved-gain result opens the production save sheet");
             const auto exportModel=blind_image::captureScreen(h.view.imageSheet().facts());
             const auto exportNotes=exportModel.instruction+" "+exportModel.preferenceResultNote+" "+exportModel.detail;
+            const auto clippingNote=language==i18n::Language::japanese
+                ? juce::String::fromUTF8(u8"クリッピングを避けて3.5 dB下げました")
+                : juce::String("Lowered 3.5 dB to avoid clipping");
             require(exportModel.matchedGainText.isEmpty() && !exportNotes.contains("+1.2")
-                && !exportNotes.contains(juce::String::fromUTF8(u8"−2.3")) && exportNotes.contains("3.5"),
-                "frozen export excludes actual approved per-source gains but keeps its clipping-avoidance note");
+                && !exportNotes.contains(juce::String::fromUTF8(u8"−2.3")) && exportNotes.contains(clippingNote),
+                "frozen export excludes actual approved per-source gains but keeps the whole clipping-avoidance note");
+            if(rounds==1 && language==i18n::Language::japanese)
+                require(previewText.texts().contains(clippingNote),
+                    "the real save preview draws the complete clipping note in the selected language");
             h.view.closeImageSheet();
             h.publish();
             h.view.setCovered(true); require(!body->isVisible(),"image sheet covers gain");

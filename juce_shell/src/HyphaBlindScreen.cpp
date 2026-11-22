@@ -25,7 +25,7 @@ bool Screen::operator== (const Screen& other) const noexcept
     return key (*this) == key (other);
 }
 
-ScreenComponent::ScreenComponent (const juce::String& idPrefix)
+ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage notes)
 {
     setComponentID (idPrefix + "-screen");
     setOpaque (true);
@@ -46,7 +46,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix)
     notice.setColour (juce::Label::textColourId, COL_NORMAL);
     notice.setMinimumHorizontalScale (1.0f);
     addChildComponent (notice);
-    look.wrappedDetail = &detail;
+    look.wrappedDetail = &detail; look.fixedStatus = notes == NoteLanguage::prelocalized ? &status : nullptr;
     look.wrappedNotice = &notice;
     question.setComponentID (idPrefix + "-guess-question");
     outcome.setComponentID (idPrefix + "-guess-outcome");
@@ -225,7 +225,7 @@ void ScreenComponent::apply()
     const bool preferenceResult = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
     preferenceResultBody.setVisible (shown.preferenceResultText.isNotEmpty());
     const auto resultText = shown.preferenceResultText;
-    auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText(shown.instruction) + "\n" + text_style::shownText(shown.detail);
+    auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText (shown.instruction, look.policyFor (status)) + "\n" + text_style::shownText (shown.detail, look.policyFor (detail));
     if (preferenceResult && shown.guidanceShown)
     {
         // A guidance label can still be valid after REVEAL. Give its text a measured row
@@ -387,7 +387,7 @@ void ScreenComponent::resized()
         if (label.getText().isEmpty()) return 0;
         const auto border = label.getBorderSize();
         const auto width = juce::jmax (1, area.getWidth() - border.getLeftAndRight());
-        const auto measured = text_style::shownWrappedHeight (label.getText(), label.getFont(), width);
+        const auto measured = text_style::shownWrappedHeight (label.getText(), label.getFont(), width, look.policyFor (label));
         return juce::roundToInt (std::ceil (measured)) + border.getTopAndBottom() + 2;
     };
     const auto place = [] (juce::Label& label, juce::Rectangle<int> bounds)

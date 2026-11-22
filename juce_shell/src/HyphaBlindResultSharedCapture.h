@@ -51,7 +51,7 @@ inline juce::Image renderShared (const Facts& facts, int pixels = pixelSize)
 {
     // Square file format continues; its inner panel shares the RESULT component rather than
     // an alternative visual layout. The two export-only caption lines stay outside the panel.
-    blind_ui::ScreenComponent surface ("result-png");
+    blind_ui::ScreenComponent surface ("result-png", blind_ui::ScreenComponent::NoteLanguage::prelocalized);
     surface.setBounds (0, 0, 600, 400);
     surface.setScreen (captureScreen (facts));
     if (auto* end = surface.findChildWithID ("result-png-end")) end->setVisible (false);

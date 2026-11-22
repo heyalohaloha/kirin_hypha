@@ -46,7 +46,9 @@ class ScreenComponent : public juce::Component, private juce::Timer
 {
 public:
     // 部品の ID は「<prefix>-screen」「<prefix>-source-1」…（LIVE BLIND は live-blind、VERSION BLIND は version-blind）。
-    explicit ScreenComponent (const juce::String& idPrefix);
+    // The frozen export model has already localized its note fields.
+    enum class NoteLanguage { translate, prelocalized };
+    explicit ScreenComponent (const juce::String& idPrefix, NoteLanguage = NoteLanguage::translate);
     ~ScreenComponent() override;
     std::function<void(int)> onSelect;
     std::function<void()> onReveal, onEnd, onApprove, onAlignOff, onSaveImage;
@@ -74,16 +76,22 @@ private:
     {
         presentation::Context wrappedContext = presentation::defaultContext();
         const juce::Label* fixedQuestion = nullptr;
-        const juce::Label *wrappedDetail = nullptr, *wrappedNotice = nullptr;
+        const juce::Label *wrappedDetail = nullptr, *wrappedNotice = nullptr, *fixedStatus = nullptr;
+        text_style::LabelPolicy policyFor (const juce::Label& label) const noexcept
+        {
+            return fixedStatus != nullptr && (&label == fixedStatus || &label == wrappedDetail)
+                ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized;
+        }
         void drawLabel (juce::Graphics& g, juce::Label& label) override
         {
             if (&label == fixedQuestion) juce::LookAndFeel_V4::drawLabel (g, label);
+            else if (&label == fixedStatus) drawLabelWithPolicy (g, label, policyFor (label));
             else if (&label == wrappedDetail || &label == wrappedNotice)
             {
                 g.setColour (label.findColour (juce::Label::textColourId));
                 g.setFont (labelFont (wrappedContext, typography::TextRole::compactExplanation, typography::Composition::information));
                 text_style::drawLines (g, label.getText(),
-                    label.getBorderSize().subtractedFrom (label.getLocalBounds()), label.getJustificationType(), 2);
+                    label.getBorderSize().subtractedFrom (label.getLocalBounds()), label.getJustificationType(), 2, policyFor (label));
             }
             else TextLookAndFeel::drawLabel (g, label);
         }

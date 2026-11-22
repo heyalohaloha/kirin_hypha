@@ -274,9 +274,9 @@ float wrappedHeight (const juce::String& shown, const juce::Font& font, int widt
     return layout.getHeight();
 }
 
-float shownWrappedHeight (const juce::String& text, const juce::Font& font, int width)
+float shownWrappedHeight (const juce::String& text, const juce::Font& font, int width, LabelPolicy policy)
 {
-    const auto shown = shownText (text);
+    const auto shown = shownText (text, policy);
     return wrappedHeight (shown, requiresJapaneseGlyphs (shown) ? nativeTextFontLike (font) : font,
                           width);
 }
@@ -393,10 +393,10 @@ void drawEllipsizedKeepingVersion (juce::Graphics& graphics, const juce::String&
 }
 
 void drawLines (juce::Graphics& graphics, const juce::String& text, juce::Rectangle<int> area,
-                juce::Justification justification, int maximumLines)
+                juce::Justification justification, int maximumLines, LabelPolicy policy)
 {
     if (area.isEmpty() || text.isEmpty()) return;
-    const auto shown = shownText (text);
+    const auto shown = shownText (text, policy);
     const ShownFont font (graphics, shown);
     if (maximumLines > 1)
         drawWrapped (graphics, shown, area, justification);
