@@ -37,6 +37,14 @@ void verifyKeysList (ShortcutKeyRig& rig, Require require)
     require (rig.keys().isVisible() && offer (rig, true) && ! rig.keys().isVisible() && offer (rig, false),
              "a second offered Esc closes the list again");
     rig.up();
+    rig.press ('F');
+    require (rig.keys().isVisible() && offer (rig, true) && ! rig.keys().isVisible(),
+             "an offered key-down closes the list before the host switches to native release");
+    require (! juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey),
+             "fixture has no physical Esc held");
+    rig.editor->keyStateChanged (false);  // native key-up with no VST3 onKeyUp
+    require (! offer (rig, true) && ! offer (rig, false),
+             "after native-only release the next offered Esc stays the host's");
     rig.editor->grabKeyboardFocus();
 }
 

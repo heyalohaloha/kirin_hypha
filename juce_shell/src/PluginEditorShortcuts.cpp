@@ -85,7 +85,13 @@ bool KirinHyphaEditor::kirinHostKeyOffered (const juce::KeyPress& key, bool isKe
 
 bool KirinHyphaEditor::keyStateChanged (bool isKeyDown)
 {
-    if (! isKeyDown) heldShortcutKeys.released();
+    if (! isKeyDown)
+    {
+        heldShortcutKeys.released();
+        // Some hosts offer VST3 key-down but deliver the release through the native peer.
+        if (offeredEscape.holding() && ! juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey))
+            offeredEscape.clear();
+    }
    #if JUCE_WINDOWS
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isKeyDown && juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey)
