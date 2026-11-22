@@ -465,9 +465,11 @@ static void matchesAllProvenPlaybackWithoutChangingLastFour()
 }
 
 #include "live_match_span_incomplete_test.h"
+#include "LiveMatchSpanAuditTest.h"
 
 int main()
 {
+    hypha::tests::match_span_audit::verify(require);
     incompleteAllPlayedCannotMeasureUntilRestart();
     matchesAllProvenPlaybackWithoutChangingLastFour();
     freshMatchesAtSupportedRates();
