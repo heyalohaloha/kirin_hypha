@@ -38,6 +38,7 @@ struct MatchResult
     std::uint64_t proof = 0, preRun = 0;
     bool proofBound = false;
     GainIdentity wholeOwner {};
+    std::uint64_t wholePreClock = 0;
     bool wholeOwnerBound = false;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
@@ -62,6 +63,7 @@ struct MatchPlan
     std::uint64_t proof = 0, preRun = 0;
     bool proofBound = false;
     GainIdentity wholeOwner {};
+    std::uint64_t wholePreClock = 0;
     bool wholeOwnerBound = false;
 };
 

@@ -296,7 +296,9 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     }
     const auto currentOwner = hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket());
     if (plan.wholeOwnerBound
-        && (mapping->ring()->header.run.load (std::memory_order_acquire) != plan.preRun
+        && (liveCompare.renderer.historyView().preClock != plan.wholePreClock
+            || mapping->ring()->header.run.load (std::memory_order_acquire) != plan.preRun
+            || mapping->ring()->header.timing.generation.load (std::memory_order_acquire) != plan.wholePreClock
             || !plan.wholeOwner.same (currentOwner)))
         return { MatchFailure::stale };
     liveCompare.gainApproval.bind (currentOwner);

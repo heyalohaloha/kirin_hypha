@@ -19,7 +19,7 @@
             historyStart.store (block.clock, std::memory_order_release);
             historyProof.fetch_add (1);
         }
-        historyPreRun.store (decision.run);
+        historyPreRun.store (decision.run); historyPreClock.store (decision.preClock);
         matchOffset.store (decision.k, std::memory_order_release);
         matchOffsetValid.store (proven, std::memory_order_release);
         const auto offset = block.project - block.clock;

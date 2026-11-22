@@ -1,5 +1,4 @@
 #pragma once
-
 #include "LiveCompareAlign.h"
 
 #include <cstdint>
@@ -38,7 +37,7 @@ struct Decision
     std::int64_t candidate = 0;
     bool invalidatedByDisagreement = false;
     bool timelineChanged = false;
-    std::uint64_t run = 0;
+    std::uint64_t run = 0, preClock = 0;
     TimelineBreak loss = TimelineBreak::none;
     LoopEntryFailure loopFailure = LoopEntryFailure::none;
 };
@@ -241,6 +240,7 @@ public:
             decision.verdict = Verdict::loopWaiting;
             return fill (decision);
         }
+        decision.preClock = ring.header.timingGeneration.load (std::memory_order_acquire);
         decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels);
        #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
         if (afterCorrespondenceCopyForTest) afterCorrespondenceCopyForTest (ring);

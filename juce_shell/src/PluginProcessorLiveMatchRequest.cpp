@@ -112,7 +112,8 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
 
     if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
     if (!drained || !view.kValid || ring.header.ownerClosed.load(std::memory_order_acquire) != 0
-        || ring.header.run.load(std::memory_order_acquire) != view.preRun) return result;
+        || ring.header.run.load(std::memory_order_acquire) != view.preRun
+        || ring.header.timing.generation.load(std::memory_order_acquire) != view.preClock) return result;
     if (!span.enough()) { result.failure = MatchFailure::tooShort; return result; }
     KirinLiveMatchSpanFacts facts {};
     if (!span.measure(facts))
@@ -121,6 +122,8 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     if (!current.kValid || current.proof != view.proof || current.preRun != view.preRun
         || ring.header.run.load(std::memory_order_acquire) != view.preRun
         || ring.header.ownerClosed.load(std::memory_order_acquire) != 0
+        || current.preClock != view.preClock
+        || ring.header.timing.generation.load(std::memory_order_acquire) != view.preClock
         || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
     { result.failure = MatchFailure::stale; return result; }
     result.measuredDb = facts.post_lufs - facts.pre_lufs;
@@ -128,7 +131,7 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(
     result.ceilingDbtp = std::max({-1.0, facts.pre_peak, facts.post_peak});
     result.analysisUnits = span.frames();
     result.seconds = static_cast<double>(span.frames()) / preparedFormat.sampleRate;
-    result.wholeOwner = owner; result.wholeOwnerBound = true;
+    result.wholeOwner = owner; result.wholeOwnerBound = true; result.wholePreClock = view.preClock;
     result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
     result.failure = std::abs(result.measuredDb) <= maximumMatchDb ? MatchFailure::none : MatchFailure::outOfRange;
     return result;

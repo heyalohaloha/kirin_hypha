@@ -168,7 +168,7 @@ public:
         std::int64_t start = 0, end = 0, k = 0;
         std::int32_t blockFrames = 0;
         bool kValid = false;
-        std::uint64_t proof = 0, preRun = 0;
+        std::uint64_t proof = 0, preRun = 0, preClock = 0;
     };
 
     HistoryView historyView() const noexcept
@@ -184,7 +184,7 @@ public:
         view.k = matchOffset.load (std::memory_order_acquire);
         view.kValid = matchOffsetValid.load (std::memory_order_acquire);
         view.proof = historyProof.load();
-        view.preRun = historyPreRun.load();
+        view.preRun = historyPreRun.load(); view.preClock = historyPreClock.load();
         if (seq != historySequence.load()) return {};
         return view;
     }
@@ -495,6 +495,6 @@ private:
     std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
     RendererAlignment alignment;
-    std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 };
+    std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 }, historyPreClock { 0 };
 };
 }

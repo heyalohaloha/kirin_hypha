@@ -56,6 +56,7 @@ MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
     plan.generationBound = result.generationBound;
     plan.proof = result.proof; plan.preRun = result.preRun; plan.proofBound = result.proofBound;
     plan.wholeOwner = result.wholeOwner; plan.wholeOwnerBound = result.wholeOwnerBound;
+    plan.wholePreClock = result.wholePreClock;
     plan.ceilingDbtp = result.ceilingDbtp;
     const double held = std::min (0.0, heldPostDb);
     const double needed = result.measuredDb + held; // POST already sounds `held` dB quieter
