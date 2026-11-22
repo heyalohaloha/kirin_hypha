@@ -69,9 +69,13 @@ bool KirinHyphaEditor::kirinHostKeyOffered (const juce::KeyPress& key, bool isKe
     {
         auto* peer = getPeer();
         if (! isShowing() || peer == nullptr) return false;
-        // Under a menu or a question the peer sends the press to that layer, and as with a native
-        // press the host is not given a key from under it.
-        if (juce::Component::getNumCurrentlyModalComponents() > 0) { peer->handleKeyPress (press); return true; }
+        // Under a menu or a question the press goes to that layer's own window, and the host gets it
+        // back only when that layer did not use it.
+        if (auto* modal = juce::Component::getCurrentlyModalComponent())
+        {
+            auto* modalPeer = modal->getPeer();
+            return modalPeer != nullptr && modalPeer->handleKeyPress (press);
+        }
         auto* focused = juce::Component::getCurrentlyFocusedComponent();
         return focused == this || isParentOf (focused) ? peer->handleKeyPress (press) : keyPressed (press);
     });
