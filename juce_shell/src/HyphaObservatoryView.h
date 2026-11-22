@@ -189,7 +189,7 @@ public:
                               const KirinChainPoint*, const KirinObservatoryFrame* fallback = nullptr);
     std::uint64_t levelChainRevision (bool latestOnly) const noexcept;
     void setRecordDisplay (const KirinRecordDisplay&, bool available);
-    void setWatchDisplay (const KirinWatchDisplay&, bool available);
+    bool setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setChainObservation (const KirinChainSnapshot&, const KirinChainPoint*);
     void clearChainObservation();
     void setShortTermLoudness (bool);

@@ -347,7 +347,7 @@ void verify (observatory::Role role, int width, Face face)
     text_style::ShownTextLog log;
     const auto full = render (view);
     check (log.texts().joinIntoString (" ").contains ("0 ="), "real View names its zero");
-    if (face == Face::crest && width == 300) verifyMetricFrameRepaint (view, frame, full, render, differences, check);
+    if (face == Face::crest && width == 300) verifyMetricFrameRepaint (view, frame, full, render, differences, check, meter(), reference(), embeddedMid());
     controls (view);
     const auto dial = hybrid_vu::needle_painter::faceBounds (view.getLocalBounds()).toNearestInt();
     for (int which = 0; which < 3; ++which)

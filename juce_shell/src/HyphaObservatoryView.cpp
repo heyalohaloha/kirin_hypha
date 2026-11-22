@@ -226,14 +226,15 @@ void View::setExternalConnectionLabelVisible (bool visible)
     repaint (connectionArea);
 }
 
-void View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
+bool View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
 {
     if (watchDisplayAvailable == available && observation_equality::same (watchDisplay, display))
-        return;
+        return false;
     watchDisplay = display;
     watchDisplayAvailable = available;
-    if (selectedDomain == Domain::level)
-        repaint (bodyArea);
+    const bool visible = selectedDomain == Domain::level || hybridVuVisible();
+    if (visible) repaint (bodyArea);
+    return visible;
 }
 
 void View::setShortTermLoudness (bool shortTerm)
