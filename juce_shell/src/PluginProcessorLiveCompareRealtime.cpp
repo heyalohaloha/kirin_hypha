@@ -195,7 +195,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     // tuple this thread last read whole, so PRE never drops to POST for it; receipts, BLIND and the
     // level commit below still see the write in progress (coherent stays false). A trial's pending
     // quieter-side level is not carried over a stale tuple.
-    auto gains = hypha::live_compare::readGainSnapshot (liveCompare);
+    auto gains = hypha::live_compare::readGainSnapshot (liveCompare); hypha::live_compare::confirmGainProof (liveCompare, gains);
     const bool coherent = gains.coherent;
     if (coherent) liveCompare.lastGains = gains;
     else if (liveCompare.lastGains.coherent && ! liveCompare.blindLevel.pending()) gains = liveCompare.lastGains;

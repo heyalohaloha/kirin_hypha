@@ -18,6 +18,7 @@
 #include "LiveCompareReentry.h"
 #include "CandidateProcessorState.h"
 #include "LiveCompareGainApproval.h"
+#include "LiveCompareGainProof.h"
 #include "LiveBlindPreparation.h"
 #include "LiveCompareContentHold.h"
 #include "LiveCompareWaitNotice.h"
@@ -116,6 +117,7 @@ struct ProcessorState
     NamedSelection selection;
     NamedReentry reentry; // Audio Thread only; no output/Blind authority
     GainApproval gainApproval; // all fields covered by gainRevision
+    GainProof gainProof;       // an ALL PLAYED approval's PRE clock, confirmed by the audio thread on first use
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
     std::atomic<std::uint64_t> blindGainRevision { 0 }; // trial's approved tuple, not a UI inference
     std::uint64_t blindInheritedGainRevision = 0; // non-RT: only the applied LISTEN tuple seen at BLIND entry

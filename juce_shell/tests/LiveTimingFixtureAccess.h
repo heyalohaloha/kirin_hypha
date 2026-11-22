@@ -305,6 +305,8 @@ public:
     }
     static std::atomic<std::uint64_t>& gainRevision (KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.gainRevision; }
+    static std::uint64_t discardedGainProof (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.gainProof.discarded.load (std::memory_order_acquire); }
     // Whether a block during a gain writer still outputs the last whole tuple (INV-LC26, B-1772).
     static bool lastWholeGainsUsable (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.lastGains.coherent && ! processor.liveCompare.blindLevel.pending(); }

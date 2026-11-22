@@ -265,22 +265,16 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
                                                      hypha::live_compare::MatchChoice choice)
 {
     const juce::ScopedTryLock formatLock (handleLock);
-    if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire))
-        return { hypha::live_compare::MatchFailure::stale };
-    using hypha::live_compare::MatchChoice;
-    using hypha::live_compare::MatchFailure;
+    using hypha::live_compare::MatchChoice; using hypha::live_compare::MatchFailure;
+    if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)) return { MatchFailure::stale };
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
         || liveCompare.completion.pending() || liveCompare.blind.command().active()
         || ! liveCompare.authority.permitted()
         || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
         return { MatchFailure::stale };
     const auto failure = hypha::live_compare::validateMatchPlan (plan, choice); if (failure != MatchFailure::none) return { failure };
-    if (plan.proofBound)
-    {
-        const auto history = liveCompare.renderer.historyView();
-        if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)
-            return { MatchFailure::stale };
-    }
+    if (const auto history = liveCompare.renderer.historyView(); plan.proofBound
+        && (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)) return { MatchFailure::stale };
     const bool lower = choice == MatchChoice::lowerPost;
     const double preDb = lower ? 0.0 : plan.preGainDb;
     const double postDb = lower ? plan.lowerPostGainDb : plan.postGainDb;
@@ -293,28 +287,34 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     bool applied = false;
     liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
     {
-        if (mapping.ring() == nullptr
-            || mapping.ring()->header.ownerClosed.load (std::memory_order_acquire) != 0
-            || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
-            || ! liveCompare.sessionActive.load (std::memory_order_acquire)
-            || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
-            || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
-            return;
-        const auto currentOwner = hypha::live_compare::gainIdentity (*mapping.ring(), liveCompare.authority.ticket());
-        if (plan.proofBound || plan.wholeOwnerBound)
+        const auto* ring = mapping.ring();
+        // The session and PRE's clock, run and owner: before the commit lock, and again under it.
+        const auto current = [&]
         {
+            if (ring == nullptr || ring->header.ownerClosed.load (std::memory_order_acquire) != 0
+                || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
+                || ! liveCompare.sessionActive.load (std::memory_order_acquire)
+                || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
+                || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
+                return false;
+            if (! plan.proofBound && ! plan.wholeOwnerBound) return true;
             const auto history = liveCompare.renderer.historyView();
-            if (!history.kValid || history.proof != plan.proof || history.preRun != plan.preRun
-                || (plan.wholeOwnerBound && (history.preClock != plan.wholePreClock
-                    || !hypha::live_compare::wholeProofCurrent(*mapping.ring(), history) || !plan.wholeOwner.same(currentOwner))))
-                return;
-        }
+            if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun) return false;
+            return ! plan.wholeOwnerBound || (history.preClock == plan.wholePreClock
+                && hypha::live_compare::wholeProofCurrent (*ring, history)
+                && plan.wholeOwner.same (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
+        };
+        if (! current()) return;
+        hypha::live_compare::liveMatchCommitStage (0);
         const juce::ScopedLock commitLock (liveCompare.matchCommitLock);
         const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
-        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)) return; // no revision was opened for a rejected proof
+        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)
+            || ! current()) return; // no revision was opened for a rejected proof
+        hypha::live_compare::liveMatchCommitStage (1);
         hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
         if (!update || wantedPost > liveCompare.postTarget.load(std::memory_order_acquire)) return;
-        liveCompare.gainApproval.bind (currentOwner);
+        liveCompare.gainProof.keep (liveCompare, update.published(), plan.wholeOwnerBound, plan.wholePreClock, plan.preRun);
+        liveCompare.gainApproval.bind (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket()));
         liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
         liveCompare.gain.store (linear (preDb), std::memory_order_release);
         liveCompare.postTarget.store (wantedPost, std::memory_order_release);
