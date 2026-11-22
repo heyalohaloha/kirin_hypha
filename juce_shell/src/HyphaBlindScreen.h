@@ -17,6 +17,9 @@ struct Screen
     juce::String title, instruction, detail, endExplanation, trialNotice;
     bool guidanceShown = false;  // 止まった・待っている理由（cause）と直し方（recovery）の 2 行
     juce::String cause, recovery;
+    // Guidance the host can raise without a click (the DAW stopped). The trial keeps its rows free so
+    // END is where it was when the guidance appears, and a press meant for END lands on END.
+    juce::String reservedCause, reservedRecovery;
     bool sourcesShown = false, sourceOneEnabled = false, sourceTwoEnabled = false;
     int audible = 0;  // 1・2：鳴っているソース（そのボタンを点ける）
     juce::String sourceOne { "SOURCE 1" }, sourceTwo { "SOURCE 2" };

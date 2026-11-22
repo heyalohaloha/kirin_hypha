@@ -73,6 +73,7 @@ inline void ScreenComponent::layoutTrial (bool choosingRounds, bool fixedProgres
         + allNoticeHeight + titleHeight > getHeight();
     const int rows = actions + static_cast<int> (choosingRounds && !combineRounds);
     int discretionary = juce::jmax (0, getHeight() - fixedHeight - rows * minimumAction);
+    const int available = discretionary;
     bool showTitle = discretionary >= allNoticeHeight + titleHeight;
     bool showStatus = requiredStatus > 0 || discretionary >= allNoticeHeight + (showTitle ? titleHeight : 0) + statusHeight;
     discretionary -= (showTitle ? titleHeight : 0) + (showStatus ? statusHeight - requiredStatus : 0);
@@ -93,6 +94,12 @@ inline void ScreenComponent::layoutTrial (bool choosingRounds, bool fixedProgres
     notice.setText (inlineText, juce::dontSendNotification);
     const auto noticeHeight = measure (notice, inlineText);
     discretionary -= noticeHeight + (showGuidance ? causeHeight + recoveryHeight : 0);
+    // The rows of the stopped guidance stay free while it is not shown, so neither the height nor the
+    // position of the action rows changes when it appears. Longer notices still take what they need.
+    const auto reserved = shown.reservedCause.isEmpty() && shown.reservedRecovery.isEmpty() ? 0
+        : juce::jmin (available, titleHeight + measure (cause, shown.reservedCause) + measure (recovery, shown.reservedRecovery));
+    const auto kept = juce::jmax (0, reserved - (available - discretionary));
+    discretionary -= kept;
     const auto actionHeight = trial_layout::actionHeightFor (discretionary, rows, preferredAction);
 
     // Fixed-height regions are consumed from the top in order. No rectangle is centred
@@ -110,6 +117,7 @@ inline void ScreenComponent::layoutTrial (bool choosingRounds, bool fixedProgres
     else { place (cause, {}); place (recovery, {}); }
     place (notice, area.removeFromTop (noticeHeight));
     if (outcomeHeight > 0) place (outcome, area.removeFromTop (outcomeHeight));
+    area.removeFromTop (kept);
 
     moreNotices.setPresentationContext (context);
     moreNotices.setNotices (hidden);
