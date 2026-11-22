@@ -13,7 +13,7 @@ void verifyBlindTrialLayout (Require check)
 {
     using live_compare::BlindStage;
     using namespace blind_ui::trial_layout;
-    enum class Notice { none, repeating, changed, unmeasured, notRemeasured, repeatingAndUnmeasured };
+    enum class Delay { none, changed, unmeasured, notRemeasured };
     const auto require = [&] (bool ok, const juce::String& why) { check (ok, why.toRawUTF8()); };
     const auto preferenceFile = temporaryParent().getNonexistentChildFile ("blind-layout-prefs", ".txt");
     const auto label = [] (juce::Component& view, const char* suffix)
@@ -29,8 +29,9 @@ void verifyBlindTrialLayout (Require check)
     for (const bool guess : { false, true })
     for (const int votePhase : { 0, 1, 2, 3 })
     for (const bool lowered : { false, true })
-    for (const auto notice : { Notice::none, Notice::repeating, Notice::changed, Notice::unmeasured,
-                              Notice::notRemeasured, Notice::repeatingAndUnmeasured })
+    for (const auto delay : { Delay::none, Delay::changed, Delay::unmeasured, Delay::notRemeasured })
+    for (const bool repeating : { false, true })
+    for (const bool prePaused : { false, true })
     {
         // 450% is the real 900x600 component transformed by the 1.5 host display factor.
         // GUESS and a 5/10 preference trial are separate modes, never simultaneous in product.
@@ -51,17 +52,19 @@ void verifyBlindTrialLayout (Require check)
             for (int vote = 0; vote < votes; ++vote) { h.heard (3); h.choose (1); }
             if (!finalVote) h.heard (3);
         }
-        h.status.contentUnmeasured = notice == Notice::unmeasured || notice == Notice::repeatingAndUnmeasured;
-        h.status.contentUnapplied = notice == Notice::changed;
-        h.status.contentNotRemeasured = notice == Notice::notRemeasured;
-        const bool repeating = notice == Notice::repeating || notice == Notice::repeatingAndUnmeasured;
+        h.status.contentUnmeasured = delay == Delay::unmeasured;
+        h.status.contentUnapplied = delay == Delay::changed;
+        h.status.contentNotRemeasured = delay == Delay::notRemeasured;
+        h.status.prolongedWait = prePaused;
+        h.status.observation = prePaused ? live_compare::RecoveryReason::notWritten : live_compare::RecoveryReason::none;
         h.view.setState (h.status, true, lowered ? 0.616595f : 1.0f, repeating);
 
         const auto context = juce::String (language == i18n::Language::japanese ? "JA" : "EN")
             + " " + juce::String (width) + "@" + juce::String (scale) + " rounds=" + juce::String (rounds)
             + " candidate=" + juce::String (int (candidate)) + " guess=" + juce::String (int (guess))
             + " votePhase=" + juce::String (votePhase) + " lowered=" + juce::String (int (lowered))
-            + " notice=" + juce::String (int (notice));
+            + " delay=" + juce::String (int (delay)) + " repeating=" + juce::String (int (repeating))
+            + " prePaused=" + juce::String (int (prePaused));
         const auto must = [&] (bool ok, const juce::String& why) { require (ok, context + ": " + why); };
         const auto explanation = label (h.view, "text-3");
         const auto note = label (h.view, "notice");
@@ -77,38 +80,63 @@ void verifyBlindTrialLayout (Require check)
         must (explanation && explanation->getText().contains (lowered ? "4.2 dB" : "END restores normal level"),
               "END return level retained");
         auto* more = dynamic_cast<juce::Button*> (h.view.findChildWithID ("live-blind-more-notices"));
-        const auto hasNotice = [&] (const juce::String& raw)
+        const auto* cause = label (h.view, "text-4");
+        const auto* remedy = label (h.view, "text-5");
+        const auto& actual = h.view.screen();
+        const auto guide = actual.cause + (actual.cause.isNotEmpty() && actual.recovery.isNotEmpty() ? "\n" : "") + actual.recovery;
+        const bool isPrePause = prePaused && !candidate;
+        juce::StringArray priority;
+        if (isPrePause)
         {
-            const bool inlineText = note && note->isVisible() && note->getText().contains (raw);
-            const auto hiddenText = text_style::shownText (raw);
-            return inlineText || (more && more->isVisible() && more->getTooltip().contains (hiddenText)
-                && more->getDescription().contains (hiddenText));
-        };
-        if (notice != Notice::none)
-        {
-            if (note && note->isVisible())
-            {
-                whole (note, "visible notice fits in a separate measured row");
-                must (explanation && explanation->getBottom() <= note->getY(), "read END before the notice");
-            }
-            if (repeating) must (hasNotice ("Repeated audio: checked per block"), "full periodic notice is readable");
-            if (h.status.contentUnmeasured)
-                must (hasNotice (juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice()),
-                      "full unmeasured notice and advice are readable");
-            if (h.status.contentUnapplied) must (hasNotice (live_compare_ui::unappliedNotice()), "full delay change is readable");
-            if (h.status.contentNotRemeasured)
-                must (hasNotice (live_compare_ui::notRemeasuredNotice()), "full unremeasured notice is readable");
-            if (more && more->isVisible())
-            {
-                const auto* accessibility = more->getAccessibilityHandler();
-                must (note && note->isVisible() && more->getTooltip().isNotEmpty()
-                    && accessibility && accessibility->getDescription() == more->getTooltip(),
-                    "overflow retains the highest-priority full notice, and reads out all hidden text");
-                must (more->getButtonText().startsWithChar ('+') && more->getWantsKeyboardFocus(),
-                      "overflow is a +N keyboard control");
-            }
+            must (actual.cause == live_compare_ui::preProcessingCause && actual.recovery.isNotEmpty(), "PRE pause is a full cause/remedy");
+            priority.add (guide);
         }
-        else must (note && !note->isVisible() && more && !more->isVisible(), "ordinary trial has no notice badge");
+        if (delay == Delay::changed) priority.add (live_compare_ui::unappliedNotice());
+        if (repeating) priority.add ("Repeated audio: checked per block");
+        if (delay == Delay::unmeasured)
+            priority.add (juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice());
+        if (delay == Delay::notRemeasured) priority.add (live_compare_ui::notRemeasuredNotice());
+        if (prePaused && !isPrePause)
+        {
+            must (actual.guidanceShown && guide.isNotEmpty(), "candidate pair keeps its own recovery message");
+            priority.add (guide);
+        }
+        const auto isInline = [&] (const juce::String& raw)
+        {
+            if (guide.isNotEmpty() && raw == guide)
+                return cause && remedy && (actual.cause.isEmpty() || cause->isVisible())
+                       && (actual.recovery.isEmpty() || remedy->isVisible());
+            return note && note->isVisible() && note->getText().contains (raw);
+        };
+        if (note && note->isVisible())
+        {
+            whole (note, "visible notice fits in a measured row");
+            must (explanation && explanation->getBottom() <= note->getY(), "read END before notices");
+        }
+        if (isPrePause && isInline (guide))
+        {
+            whole (cause, "complete PRE pause cause");
+            whole (remedy, "complete PRE pause remedy");
+        }
+        int concealed = 0;
+        for (const auto& raw : priority)
+        {
+            if (isInline (raw)) continue;
+            ++concealed;
+            const auto translated = text_style::shownText (raw);
+            must (more && more->isVisible() && more->getTooltip().contains (translated)
+                && more->getDescription().contains (translated), "hidden notice retains full text for help and accessibility");
+        }
+        if (concealed > 0)
+        {
+            must (priority.size() >= 2 && isInline (priority[0]) && concealed == priority.size() - 1,
+                  "only the highest-priority complete notice is retained when the full stack does not fit");
+            // This offscreen fixture has no native peer. The shortcut fixture checks the live AX handler.
+            must (more && more->isAccessible() && more->getDescription() == more->getTooltip()
+                  && more->getButtonText() == "+" + juce::String (concealed) && more->getWantsKeyboardFocus(),
+                  "the +N control counts exactly the hidden notices and exposes their full descriptions");
+        }
+        else must (more && !more->isVisible(), "no overflow badge when every notice fits");
 
         if (h.view.screen().roundsEnabled)
         {

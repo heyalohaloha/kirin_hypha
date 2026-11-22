@@ -206,19 +206,31 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
              "the keys reach the same requests as the buttons");
     screen.votingComplete = true;
     screen.instruction = "All rounds answered; reveal when ready";
-    screen.endExplanation = "END restores normal level";
+    screen.title = "LIVE BLIND";
+    screen.endExplanation = "Lowered 4.2 dB to avoid clipping; END restores it";
+    screen.guidanceShown = true;
+    screen.cause = live_compare_ui::preProcessingCause;
+    screen.recovery = "Keep playing; resumes when confirmed";
+    screen.trialNotice = juce::String ("Repeated audio: checked per block") + "\n"
+        + live_compare_ui::unappliedNotice();
+    const auto originalBounds = blind.getBounds();
+    blind.setSize (300, 200);
     blind.setScreen (screen);
     require (rig.press ('Q'), "Q is refused in the terminal ballot state");
     const auto* completion = dynamic_cast<juce::Label*> (blind.findChildWithID ("live-blind-text-2"));
     const auto* inlineNotice = dynamic_cast<juce::Label*> (blind.findChildWithID ("live-blind-notice"));
-    const auto* more = dynamic_cast<juce::Button*> (blind.findChildWithID ("live-blind-more-notices"));
+    auto* more = dynamic_cast<juce::Button*> (blind.findChildWithID ("live-blind-more-notices"));
     const auto refusal = text_style::shownText ("End Blind Compare first");
     require (completion && completion->isVisible() && completion->getText() == screen.instruction,
              "Q preserves the required final-vote instruction");
     require ((inlineNotice && inlineNotice->isVisible() && inlineNotice->getText().contains ("End Blind Compare first"))
                 || (more && more->isVisible() && more->getTooltip().contains (refusal)
                     && more->getDescription().contains (refusal)), "Q puts its reason in the accessible notice area");
+    const auto* accessibility = more != nullptr ? more->getAccessibilityHandler() : nullptr;
+    require (more && more->isVisible() && accessibility && accessibility->getDescription().contains (refusal),
+             "a real hosted +N exposes the refused shortcut reason to accessibility");
     require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
+    blind.setBounds (originalBounds);
     open = false;
     blind.setVisible (false);
     rig.editor->grabKeyboardFocus();
