@@ -3,6 +3,7 @@
 #include "../src/HyphaBlindResultImage.h"
 #include "../src/HyphaBlindPreferenceText.h"
 #include "../src/HyphaCapturePngFile.h"
+#include <array>
 #include <stdexcept>
 #include <cmath>
 #include <iostream>
@@ -237,8 +238,9 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
                 "named revealed cards and preference summary use the same names");
             require(namesFile.deleteFile(),"named fixture settings removed");
         }
-        for (bool candidate : {false,true}) for (int width : {300,600,900}) {
-            Harness h(5,candidate,file); h.view.setBounds(0,0,width,width*2/3);
+        for (bool candidate : {false,true}) for (int width : {300,303,330,375,450,600,900}) {
+            Harness h(5,candidate,file); h.view.setBounds(0,0,width,width*2/3); h.view.setVisible(true);
+            const bool originalPreviewWidth = width==300 || width==600 || width==900;
             live_compare::GainSnapshot gain;
             gain.coherent=true; gain.retained=true; gain.revision=2;
             gain.pre=static_cast<float>(std::pow(10.0,1.2/20.0));
@@ -274,58 +276,100 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
                 };
                 return find(find,h.view);
             };
-            const auto selector = childById("live-blind-rounds-5");
-            const auto progress = childById("live-blind-rounds-label");
-            require(selector && progress && selector->isVisible()==(width>=450),"selector is available at 600/900 and hidden at 300");
-            auto* count = dynamic_cast<juce::Label*>(progress);
+            std::array<HyphaTextButton*,3> options {};
+            const std::array<int,3> values {1,5,10};
+            auto* count = dynamic_cast<juce::Label*>(childById("live-blind-rounds-label"));
             auto* prefer = dynamic_cast<juce::Label*>(childById("live-blind-guess-question"));
+            auto* outcome = dynamic_cast<juce::Label*>(childById("live-blind-guess-outcome"));
+            auto* instruction = dynamic_cast<juce::Label*>(childById("live-blind-text-2"));
+            auto* reveal = dynamic_cast<HyphaTextButton*>(childById("live-blind-reveal"));
             require(h.view.screen().guessQuestionFixed && count && count->getText()=="ROUNDS"
                 && prefer && prefer->getText()=="Which do you prefer?",
                 "fixed selector and choice prompt keep English in both languages");
-            for (int value : { 1, 5, 10 }) {
-                const auto id = "live-blind-rounds-" + juce::String(value);
-                auto* option = dynamic_cast<HyphaTextButton*>(childById(id.toRawUTF8()));
-                require(option && option->displayedText()==juce::String(value)+juce::String::fromUTF8(u8"×"),
+            for (std::size_t i=0; i<values.size(); ++i) {
+                const auto id = "live-blind-rounds-" + juce::String(values[i]);
+                options[i] = dynamic_cast<HyphaTextButton*>(childById(id.toRawUTF8()));
+                require(options[i] && options[i]->displayedText()==juce::String(values[i])+juce::String::fromUTF8(u8"×"),
                     "fixed count control keeps its numeric mark");
             }
-            const auto verifyCoverRoundTrip = [&] (bool answered) {
-                auto* one=childById("live-blind-rounds-1");
-                auto* ten=childById("live-blind-rounds-10");
-                auto* outcome=childById("live-blind-guess-outcome");
-                require(one && ten && outcome,"covered round controls exist");
+            const auto verifyVisibleText = [&] (juce::Label* label, const juce::String& expected) {
+                require(label && label->isVisible() && label->getText()==expected, "required round text is visible and exact");
+                if (!label) return;
+                const auto body = label->getBorderSize().subtractedFrom(label->getLocalBounds());
+                require(label->getFont().getHeight()>=12.0f && h.view.getLocalBounds().contains(label->getBounds())
+                    && text_style::shownWrappedHeight(expected,label->getFont(),body.getWidth())<=body.getHeight(),
+                    "required round text fully fits at a readable size");
+            };
+            enum class RoundsPhase { choose, locked, complete };
+            const auto verifyRoundPhase = [&] (RoundsPhase phase) {
+                const bool choosing=phase==RoundsPhase::choose, locked=phase==RoundsPhase::locked;
+                require(count && count->isVisible()==choosing, "round heading never duplicates locked progress");
+                for (auto* option : options) {
+                    require(option && option->isVisible()==choosing, "round choice is present only while changeable");
+                    if (option && choosing) {
+                        const auto area=option->getBounds();
+                        require(option->isEnabled() && option->getHeight()>=24 && !area.isEmpty()
+                            && h.view.getLocalBounds().contains(area) && h.view.getComponentAt(area.getCentre())==option,
+                            "every available round choice has a >=24px reachable target");
+                    }
+                }
+                if (locked) {
+                    verifyVisibleText(outcome,blind_preference::roundProgress(h.view.preferenceTrial().roundNumber(),h.view.preferenceTrial().planned()));
+                    require(prefer && prefer->isVisible() && outcome && prefer->getY()==outcome->getY()
+                        && !prefer->getBounds().intersects(outcome->getBounds()), "only the vote-question row shows the locked progress");
+                }
+                if (phase==RoundsPhase::complete) {
+                    require(h.view.screen().votingComplete && prefer && !prefer->isVisible() && outcome && !outcome->isVisible()
+                        && reveal && reveal->isVisible() && reveal->isEnabled() && reveal->getHeight()>=24,
+                        "last vote removes voting/progress and keeps the explicit REVEAL action");
+                    verifyVisibleText(instruction,"All rounds answered; reveal when ready");
+                }
+            };
+            const auto verifyCoverRoundTrip = [&] (RoundsPhase phase) {
+                verifyRoundPhase(phase);
                 h.view.setCovered(true);
-                require(!selector->isVisible() && !progress->isVisible()
-                    && !one->isVisible() && !ten->isVisible(),"covered immediately hides every round control");
+                require(count && !count->isVisible() && outcome && !outcome->isVisible(),
+                    "cover hides the round heading and progress");
+                for (auto* option : options) require(option && !option->isVisible(), "cover hides every round choice");
+                if (phase==RoundsPhase::complete)
+                    require(instruction && !instruction->isVisible() && reveal && !reveal->isVisible(),
+                        "cover hides the completion texts and action");
                 h.view.resized();
                 h.view.setCovered(false);
-                const bool large=width>=450;
-                require(progress->isVisible()==large && selector->isVisible()==(large && !answered)
-                    && one->isVisible()==(large && !answered) && ten->isVisible()==(large && !answered),
-                    "uncover restores selector or progress; compact stays hidden");
-                require(outcome->isVisible()==!large,"uncover keeps only compact inline progress");
+                verifyRoundPhase(phase);
             };
-            verifyCoverRoundTrip(false);
-            save("selector");
+            verifyCoverRoundTrip(RoundsPhase::choose);
+            int changed = 0;
+            h.view.onPreferenceRoundsChanged = [&] (int value) { changed=value; };
+            for (const std::size_t i : {0u,2u,1u}) {
+                if (options[i]) options[i]->onClick();
+                require(changed==values[i] && h.view.activePreferenceRounds()==values[i]
+                    && h.view.preferenceTrial().planned()==(values[i]==1 ? 0u : static_cast<unsigned>(values[i]))
+                    && h.view.screen().guessShown==(values[i]!=1) && h.accepted==0,
+                    "round choices change the real planned count without recording a vote");
+            }
+            verifyRoundPhase(RoundsPhase::choose);
+            if (originalPreviewWidth) save("selector");
             h.heard(3);
             auto* answerOne=dynamic_cast<HyphaTextButton*>(childById("live-blind-guess-1"));
             auto* sourceOne=childById("live-blind-source-1");
-            auto* reveal=dynamic_cast<HyphaTextButton*>(childById("live-blind-reveal"));
             auto* end=childById("live-blind-end");
             require(answerOne && sourceOne && reveal && end && answerOne->isEnabled()
                 && answerOne->findColour(juce::TextButton::textColourOffId)==COL_NORMAL,
                 "available preference choice contrasts with disabled lettering");
             require(sourceOne->getHeight()>=60 && answerOne->getHeight()==end->getHeight()
                 && reveal->getHeight()==end->getHeight()
-                && (!selector->isVisible() || selector->getHeight()==end->getHeight()),
+                && options[1] && options[1]->getHeight()==end->getHeight() && end->getHeight()>=24,
                 "source cards retain their minimum; other interactive rows use one common height");
             require(reveal->displayedText()=="REVEAL","Reveal stays English in both languages");
             h.choose(1); h.heard(3); h.choose(2);
-            require(h.view.preferenceTrial().roundNumber()==3 && !selector->isVisible(),"answered selector buttons replaced by progress");
-            require(progress->isVisible()==(width>=450),"small-size progress fallback does not overlap");
-            if (auto* label=dynamic_cast<juce::Label*>(progress); label && label->isVisible())
-                require(label->getFont().getHeight()>=12.0f,"progress text remains at least 12px");
-            verifyCoverRoundTrip(true);
-            save("round3"); h.reveal(); save("result");
+            require(h.view.preferenceTrial().roundNumber()==3 && h.accepted==2,
+                "two accepted votes reach the third round");
+            verifyCoverRoundTrip(RoundsPhase::locked);
+            for (auto* option : options) if (option) option->onClick();
+            require(h.view.activePreferenceRounds()==5 && h.accepted==2,
+                "hidden locked choices do not change the total or record another vote");
+            if (originalPreviewWidth) { save("round3"); h.reveal(); save("result"); }
             // A fresh generation gives five accepted A votes without exposing hidden mapping.
             h.status.stage=live_compare::BlindStage::idle; h.publish();
             ++h.status.generation; ++h.status.trial.epoch; h.status.trial.revealed=false;
@@ -336,7 +380,9 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
                 h.choose(firstA?1:2);
             }
             require(h.accepted==5 && h.view.trialSummary().a==5 && h.view.trialSummary().b==0,"majority fixture has five accepted A answers");
+            verifyCoverRoundTrip(RoundsPhase::complete);
             h.reveal();
+            if (!originalPreviewWidth) continue;
             const auto summary=blind_preference::summaryLine(h.view.trialSummary(),candidate);
             const auto chance=blind_preference::probabilityLine(h.view.trialSummary());
             require(summary.isNotEmpty() && chance.isNotEmpty()
