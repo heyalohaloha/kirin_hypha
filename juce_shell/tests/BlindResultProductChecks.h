@@ -121,4 +121,39 @@ inline void verifyBlindResultFixedAtReveal (const juce::File& sandbox)
     afterReveal (pre, timing, "a real substitute");
     r.end();
 }
+
+// The RESULT and its open SAVE IMAGE end when PRE is really gone (its pair, or PRE itself), with or without the
+// window; a window only closed and opened again keeps the same RESULT.
+inline void verifyBlindResultEndsWithItsPre (const juce::File& sandbox)
+{
+    ScopedChainTimingStorage preferences (sandbox);
+    const auto target = sandbox.getChildFile ("blind-lost.png");
+    for (const auto [owner, window] : { std::pair { false, false }, std::pair { true, true }, std::pair { true, false } })
+    {
+        BlindRig r (sandbox);
+        const auto memory = r.post->liveBlindTrialMemory();
+        r.start (5);
+        for (int round = 0; round < 2; ++round) { r.hearBoth(); r.answer (1); }
+        r.hearBoth(); r.reveal();
+        const auto result = r.blind().screen();
+        require (result.preferenceResultText.isNotEmpty() && memory->preference.answered() == 2, "two answers reach the RESULT");
+        r.close(); r.advance (0.2); r.open(); r.blind().setPreferenceFile (r.names); r.advance (0.2);
+        require (r.blind().screen().preferenceResultText == result.preferenceResultText && r.blind().screen().saveImageShown
+                 && memory->preference.answered() == 2, "a closed and reopened window keeps the RESULT");
+        r.blind().openImageSheet();
+        require (r.blind().imageSheetOpen(), "SAVE IMAGE is open");
+        auto late = r.blind().imageSave();
+        if (! window) r.close();
+        if (owner) LiveTimingFixtureAccess::retirePreparedFormatRing (*r.pre); // PRE leaves the host
+        else r.post->clearPairCandidate();
+        r.advance (0.3);
+        require (r.status().stage == live_compare::BlindStage::invalidated, "the lost PRE ends the trial");
+        require (memory->activeRounds == 0 && memory->preference.answered() == 0, "its answers go with it");
+        if (! window) { r.open(); r.blind().setPreferenceFile (r.names); r.advance (0.2); }
+        require (! r.blind().imageSheetOpen() && ! r.blind().screen().saveImageShown
+                 && r.blind().screen().preferenceResultText.isEmpty(), "no window shows the old RESULT");
+        require (! late (target) && ! r.blind().saveImageTo (target) && ! target.exists(), "the save window's late answer writes nothing");
+        require (r.status().stage == live_compare::BlindStage::invalidated, "refreshing revives nothing");
+    }
+}
 }

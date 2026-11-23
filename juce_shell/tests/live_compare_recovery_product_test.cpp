@@ -439,7 +439,10 @@ int main (int argc, char** argv)
     if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
     if (runs ("choice")) hypha::tests::editor_product::verifyMatchChoiceControls();
     if (runs ("choice") || part == "blind")
+    {
         hypha::tests::editor_product::verifyBlindResultFixedAtReveal (sandbox.directory());
+        hypha::tests::editor_product::verifyBlindResultEndsWithItsPre (sandbox.directory());
+    }
     if (runs ("trace")) hypha::tests::editor_product::verifySelectionTrace (sandbox.directory());
     std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

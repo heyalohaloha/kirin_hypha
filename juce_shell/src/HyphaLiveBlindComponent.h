@@ -68,8 +68,10 @@ public:
     void openImageSheet();
     bool imageSheetOpen() const noexcept;
     blind_image::Sheet& imageSheet() noexcept { return *sheet; }
-    // Writes the sheet's image to `file`; a failure stays on the sheet with its reason.
+    // Writes the sheet's image to `file`; a failure stays on the sheet with its reason. Nothing once the RESULT ended.
     bool saveImageTo (const juce::File& file);
+    // The save one opening of the sheet asked for: answered after that sheet closed or its RESULT ended, it writes nothing.
+    std::function<bool (const juce::File&)> imageSave();
     juce::File imageSaveInitialDirectory() const;
     void closeImageSheet();
     void resized() override;
@@ -83,12 +85,15 @@ private:
     void retainPreferenceNotes();
     bool rememberNames();
     void chooseImageFile();
+    bool imageOpeningStands (std::uint32_t opening) const noexcept;
 
     std::shared_ptr<TrialMemory> memory = std::make_shared<TrialMemory>();
     int rounds = 1; // configured next trial; the memory holds the active one
     bool preferenceBusy = false, memoryAdopted = false;
     live_compare::LiveBlindStatus current;
     bool playing = false, repeating = false, guessOn = false, namesRemembered = true;
+    bool imageHeld = false;         // the sheet was opened on a trial the memory held
+    std::uint32_t imageOpening = 0; // one number for each opening of the sheet
     float actualPost = 1.0f;
     juce::File preferences;
     juce::File lastImageFolder;

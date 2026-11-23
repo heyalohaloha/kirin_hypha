@@ -186,8 +186,10 @@ bool Component::imageSheetOpen() const noexcept { return sheet->isVisible(); }
 
 void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPlaying, float postActual, bool repeatingAudio)
 {
-    // A new trial starts without an answer and without the last trial's image.
-    if (next.generation != current.generation || next.trial.epoch != current.trial.epoch) closeImageSheet();
+    // A new trial starts without an answer and without the last trial's image; a RESULT that ended (its pair,
+    // owner, format or gain lost) takes its sheet and the save window with it.
+    if (next.generation != current.generation || next.trial.epoch != current.trial.epoch
+        || next.stage != Stage::active || next.trial.invalidated || ! next.trial.revealed) closeImageSheet();
     const bool startsTrial = next.stage == Stage::active && !next.trial.invalidated && !next.trial.revealed
         && (current.stage != Stage::active || current.trial.invalidated || current.generation != next.generation);
     // A reopened window continues the trial the plugin kept, and only that one.
@@ -250,6 +252,8 @@ blind_image::Facts Component::resultFacts() const
 void Component::openImageSheet()
 {
     if (! screen().saveImageShown) return;
+    ++imageOpening;
+    imageHeld = memory->holds (current.generation, current.trial.epoch);
     sheet->open (resultFacts());
     sheet->setBounds (getLocalBounds());
     sheet->setVisible (true);
@@ -284,15 +288,17 @@ void Component::chooseImageFile()
     chooser = std::make_unique<juce::FileChooser> (i18n::tr ("Save the BLIND RESULT image"),
         imageSaveInitialDirectory().getChildFile (name), "*.png", true);
     juce::Component::SafePointer<Component> safeThis (this);
+    const auto opening = imageOpening;
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                              #if ! JUCE_WINDOWS
                               | juce::FileBrowserComponent::warnAboutOverwriting
                              #endif
                               ,
-                          [safeThis] (const juce::FileChooser& chosen)
+                          [safeThis, opening, save = imageSave()] (const juce::FileChooser& chosen)
     {
         if (safeThis == nullptr) return;
         const auto file = chosen.getResult();
+        if (file != juce::File {} && ! safeThis->imageOpeningStands (opening)) { save (file); return; } // says it is not saved
        #if JUCE_WINDOWS
         capture::choosePngTarget (file, [safeThis] (const juce::File& target, std::function<void (bool)> reply)
         {
@@ -303,11 +309,28 @@ void Component::chooseImageFile()
                 i18n::tr ("Cancel"), i18n::tr ("Replace"), safeThis.getComponent());
             juce::NativeMessageBox::showAsync (options, [deliver = std::move (reply)] (int result)
             { deliver (capture::replacePngApproved (result)); });
-        }, [safeThis] (const juce::File& target) { if (safeThis != nullptr) safeThis->saveImageTo (target); });
+        }, [save] (const juce::File& target) { save (target); });
        #else
-        if (file != juce::File {}) safeThis->saveImageTo (file.withFileExtension (".png"));
+        if (file != juce::File {}) save (file.withFileExtension (".png"));
        #endif
     });
+}
+
+bool Component::imageOpeningStands (std::uint32_t opening) const noexcept
+{
+    return sheet->isVisible() && opening == imageOpening
+        && (! imageHeld || memory->holds (current.generation, current.trial.epoch));
+}
+
+std::function<bool (const juce::File&)> Component::imageSave()
+{
+    return [safeThis = juce::Component::SafePointer<Component> (this), opening = imageOpening] (const juce::File& file)
+    {
+        if (safeThis == nullptr) return false;
+        if (safeThis->imageOpeningStands (opening)) return safeThis->saveImageTo (file);
+        safeThis->setActionNotice ("Image not saved");
+        return false;
+    };
 }
 
 juce::File Component::imageSaveInitialDirectory() const
@@ -330,6 +353,7 @@ juce::File Component::imageSaveInitialDirectory() const
 bool Component::saveImageTo (const juce::File& file)
 {
     // Made on the message thread from the frozen RESULT; the audio is never touched.
+    if (! imageOpeningStands (imageOpening)) return false;
     const auto saved = capture::writePng (blind_image::renderShared (sheet->facts()), file);
     if (saved != capture::PngSave::saved)
     {

@@ -1,5 +1,6 @@
 #pragma once
 #include "../src/HyphaLiveBlindComponent.h"
+#include "../src/HyphaBlindImageSheet.h"
 #include "../src/HyphaBlindResultImage.h"
 #include "../src/HyphaCapturePngFile.h"
 #include <memory>
@@ -45,6 +46,75 @@ inline bool same (const juce::Image& a, const juce::Image& b)
         for (int x = 0; x < a.getWidth(); x += 3)
             if (a.getPixelAt (x, y) != b.getPixelAt (x, y)) return false;
     return true;
+}
+
+// The trial really ends while SAVE IMAGE is open: the sheet, its answers and the save window's late answer go
+// together. A closed and reopened window, and a sheet opened again on the same RESULT, still save.
+template <typename Require>
+void verifyRevoked (Require require, const juce::File& root)
+{
+    using Status = live_compare::LiveBlindStatus;
+    const auto names = root.getChildFile ("blind-revoked-names"), target = root.getChildFile ("blind-revoked.png");
+    const auto revealed = [&] (Window& window, Status& status, int rounds) {
+        for (int i = 0; i < (rounds == 1 ? 1 : 2); ++i)
+        {
+            status.trial.played = 3; window.show (status);
+            if (rounds > 1) window.view.onGuess (1);
+        }
+        status.trial.revealed = true; window.show (status);
+        window.view.openImageSheet();
+        require (window.view.imageSheetOpen() && window.view.trialSummary().total() == (rounds == 1 ? 0u : 2u), "SAVE IMAGE is open on the RESULT");
+    };
+    const auto lost = [&] (const char* what, auto&& change) {
+        for (const int rounds : { 1, 5 })
+        {
+            const auto where = juce::String (what) + ", " + juce::String (rounds) + " rounds: ";
+            const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+            auto status = trial (false);
+            Window window (kept, status, names, rounds);
+            revealed (window, status, rounds);
+            const auto late = window.view.imageSave();
+            change (status); window.show (status);
+            require (! window.view.imageSheetOpen(), where + "its sheet closes");
+            require (window.view.trialSummary().total() == 0 && window.view.screen().preferenceResultText.isEmpty()
+                     && ! window.view.screen().saveImageShown, where + "the old RESULT is gone");
+            require (! late (target) && ! window.view.saveImageTo (target) && ! target.exists(), where + "a late save writes nothing");
+            require (window.view.actionNoticeShown() == "Image not saved", where + "and says so");
+            window.view.openImageSheet();
+            require (! window.view.imageSheetOpen() && ! late (target) && ! target.exists(), where + "nothing opens it again");
+            status = trial (false); status.generation += 9; status.trial.epoch = 70;
+            window.show (status); revealed (window, status, rounds);
+            require (! late (target) && ! target.exists(), where + "a new RESULT never answers the old save");
+        }
+    };
+    lost ("a lost pair or owner", [] (Status& status) { status.stage = live_compare::BlindStage::invalidated; status.trial.active = false; });
+    lost ("a revoked trial", [] (Status& status) { status.stage = live_compare::BlindStage::invalidated; status.trial = {}; });
+    lost ("a trial the audio ended", [] (Status& status) { status.trial.invalidated = true; });
+    lost ("END", [] (Status& status) { status.stage = live_compare::BlindStage::finishing; ++status.generation; status.trial = {}; });
+    for (const int rounds : { 1, 5 })
+    {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        auto window = std::make_unique<Window> (kept, status, names, rounds);
+        revealed (*window, status, rounds);
+        // The plugin forgets first; the window's next refresh has not come yet.
+        const auto before = *kept;
+        const auto late = window->view.imageSave();
+        *kept = {};
+        require (! late (target) && ! target.exists(), "a forgotten trial is never saved, also before the window refreshes");
+        *kept = before;
+        window->view.closeImageSheet();
+        window->view.openImageSheet();
+        require (! late (target) && ! target.exists(), "an earlier opening's answer never saves a later one");
+        window.reset();
+        window = std::make_unique<Window> (kept, status, names, rounds);
+        window->view.openImageSheet();
+        const auto again = window->view.imageSave();
+        window->show (status); // the same RESULT, refreshed
+        require (window->view.imageSheetOpen() && again (target) && target.existsAsFile() && target.deleteFile()
+                 && ! window->view.imageSheetOpen(), "a reopened window still saves its RESULT");
+    }
+    require (names.deleteFile() && ! target.exists(), "the revoked fixture leaves no file");
 }
 
 template <typename Require>
@@ -137,5 +207,6 @@ void verify (Require require, const juce::File& root)
         require (a.view.trialSummary().total() == 1 && b.view.trialSummary().total() == 0, "instances never share answers");
     }
     require (! file.exists(), "the kept trial writes no file");
+    verifyRevoked (require, root);
 }
 }

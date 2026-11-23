@@ -164,6 +164,9 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
 void KirinHyphaProcessorBase::serviceLiveBlind()
 {
     serviceLiveCompare();
+    // A trial that ended by itself (its pair, PRE owner, format, authority or gain lost) never comes back:
+    // its answers and RESULT go now, also without a window. A closed window alone ends nothing.
+    if (role == Role::Post && liveCompare.blindStage == BlindStage::invalidated) forgetBlindTrial();
     const auto preparingLoss = liveCompare.blindTiming.failure();
     if (preparingLoss != RecoveryReason::none
         && (liveCompare.blindStage == BlindStage::preparing || liveCompare.blindStage == BlindStage::settling
