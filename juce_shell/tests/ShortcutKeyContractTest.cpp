@@ -258,9 +258,14 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
         const auto translated = text_style::shownText (refusal);
         auto* badge = more();
         const auto* accessibility = badge != nullptr ? badge->getAccessibilityHandler() : nullptr;
-        require (translated != refusal && badge && badge->isShowing() && accessibility
-                 && accessibility->getDescription().contains (translated),
-                 "a real overflowing Japanese badge exposes the complete refused shortcut reason to accessibility");
+        require (translated != refusal, "the Q refusal is translated in Japanese");
+        // Whether the narrow Japanese stack overflows depends on the platform's measured font.
+        if (badge != nullptr && badge->isShowing())
+            require (accessibility && accessibility->getDescription().contains (translated),
+                     "a real overflowing Japanese badge exposes the complete refused shortcut reason to accessibility");
+        else
+            require (inlineNotice() && inlineNotice()->isVisible() && inlineNotice()->getText().contains (translated),
+                     "when the Japanese notices fit, the Q refusal is shown directly");
     }
     require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
     blind_notice_focus_test::verify (rig, blind, require);

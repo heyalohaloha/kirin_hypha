@@ -4,6 +4,7 @@
 #include "HyphaTextStyle.h"
 
 #include <array>
+#include <cmath>
 #include <utility>
 
 namespace hypha::blind_ui::result_layout
@@ -45,5 +46,24 @@ inline std::pair<int, bool> measureRows (const std::array<juce::TextEditor*, 3>&
         fitsWidth = fitsWidth && body.getTextWidth() <= bounds.getWidth();
     }
     return std::pair { total, fitsWidth };
+}
+// Some platform fonts wrap a short final word alone ("times." under "... in 100"). Narrow the
+// centred result by the width of the word before it, measured with the final font and width,
+// so the two end together. Keep the original width when that adds a line or does not help.
+inline void keepLastWordCompany (juce::TextEditor& body)
+{
+    const auto text = body.getText().trimEnd();
+    const auto last = text.lastIndexOfChar (' ');
+    if (last <= 0) return;
+    const auto prior = text.substring (0, last).lastIndexOfAnyOf (" \n") + 1;
+    if (prior <= 0 || prior >= last || text[prior - 1] == '\n') return;
+    const auto lineOf = [&body] (int index) { return body.getCaretRectangleForCharIndex (index).getY(); };
+    if (lineOf (prior) == lineOf (last + 1)) return;
+    const auto original = body.getBounds();
+    const auto height = body.getTextHeight();
+    const auto shift = juce::roundToInt (std::ceil (body.getFont().getStringWidthFloat (text.substring (prior, last + 1))));
+    body.setBounds (original.reduced ((shift + 1) / 2, 0));
+    if (body.getTextHeight() > height || lineOf (prior) != lineOf (last + 1))
+        body.setBounds (original);
 }
 }

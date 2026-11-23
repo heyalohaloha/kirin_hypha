@@ -371,6 +371,7 @@ void ScreenComponent::resized()
         const auto groupHeight = heights[0] + heights[1];
         auto centred = panel.withSizeKeepingCentre (panel.getWidth(), groupHeight);
         preferenceResultBody.setBounds (centred.removeFromTop (heights[0]));
+        result_layout::keepLastWordCompany (preferenceResultBody);
         matchedGainBody.setBounds (centred);
         return;
     }
