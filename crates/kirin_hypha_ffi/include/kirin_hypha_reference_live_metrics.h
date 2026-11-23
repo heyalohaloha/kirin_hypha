@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 /* One native Session observation. NaN is missing. No audio or Record changes.
- * PRE values are formed only from a same-snapshot, confirmed exact-pair difference.
+ * In POST, a metric with a confirmed pair carries own and PRE values of the one newest 100 ms
+ * boundary that PRE and POST published (at most one second old); observed_frames stays the
+ * current observation. Without a confirmed pair own is the current value and PRE is missing.
  * False leaves output untouched; callers must not extend an old value's lifetime.
  * UI/non-RT thread only. */
 typedef struct {

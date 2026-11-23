@@ -4,6 +4,7 @@ use super::*;
 mod pre_sharp;
 #[path = "reference_live_metrics_ffi.rs"]
 mod reference_live_metrics;
+pub(crate) use reference_live_metrics::ReferencePairHold;
 #[path = "time_snapshot_ffi.rs"]
 mod time_ffi;
 pub use time_ffi::*;
