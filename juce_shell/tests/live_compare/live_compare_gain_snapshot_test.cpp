@@ -55,7 +55,8 @@ struct State
     Hooked<bool> matchLimited { false, 4 }, matchRetained { false, 5 };
     HookedApproval gainApproval;
     std::atomic<bool> matched { true };
-    std::atomic<std::uint64_t> gainReceipt { 0 }, matchGeneration { 1 }, sessionGeneration { 1 };
+    Hooked<std::uint64_t> gainReceipt { 0, 0 };
+    std::atomic<std::uint64_t> matchGeneration { 1 }, sessionGeneration { 1 };
     std::atomic<std::uint64_t> blindGainRevision { 0 };
     std::atomic<std::uint32_t> matchRun { 1 }, playbackRun { 1 };
 };
@@ -126,6 +127,70 @@ void publicationInterleavingsAreRejected()
     require (! currentGainReceipt (state, unreceived), "pair revoke after snapshot immediately rejects the current receipt");
     require (state.authority.arm (state.authority.ticket()), "new explicit permission can be armed");
     require (! currentGainReceipt (state, unreceived), "new permission cannot re-authorise an old approved identity");
+}
+// The audio thread moves the trial onto its quieter-side tuple and its receipt follows a block later. Wherever that
+// receipt lands in the message thread's reading, the trial is pending or current; only a real loss ends it.
+void receiveNow() { active->gainReceipt.value.store (active->gainRevision.value.load()); }
+void aReceiptArrivingDuringTheReadingEndsNothing()
+{
+    State state; active = &state;
+    publish (state, 0.7f, 0.5f, 1.0f, false, first);
+    state.blindGainRevision.store (state.gainRevision.value.load()); receiveNow();
+    require (blindReceipt (state) == BlindReceipt::current, "the trial starts on a received tuple");
+    const auto commit = [&state] { // as the audio thread does at the ceiling: the trial moves with the tuple
+        GainUpdate update (state.gainRevision.value);
+        state.blindGainRevision.store (update.published());
+    };
+    commit();
+    require (blindReceipt (state) == BlindReceipt::pending && ! currentBlindReceipt (state),
+             "the committed tuple waits for its receipt: no SOURCE, no REVEAL and no loss");
+    // Control: the old decision read the receipt twice, once for each answer, and the receipt lands between them.
+    arm (0, &receiveNow);
+    const bool oldCurrent = state.gainReceipt.load() == state.gainRevision.value.load();
+    const bool oldPending = state.gainReceipt.load() != state.gainRevision.value.load();
+    require (! oldCurrent && ! oldPending, "control reproduces a receipt that is neither current nor pending");
+    for (int occurrence = 1; occurrence <= 3; ++occurrence)
+    {
+        commit(); arm (0, &receiveNow, occurrence);
+        const auto seen = blindReceipt (state);
+        require (seen == BlindReceipt::pending || seen == BlindReceipt::current, "an arriving receipt never ends the trial");
+        receiveNow(); arm (0, nullptr);
+        require (blindReceipt (state) == BlindReceipt::current, "the arrived receipt is current");
+    }
+    // A writer at any boundary of the reading decides nothing; the next reading does.
+    for (int field = 1; field <= 7; ++field)
+    {
+        commit(); receiveNow();
+        arm (field, [] { GainUpdate update (active->gainRevision.value); active->blindGainRevision.store (update.published()); });
+        require (blindReceipt (state) == BlindReceipt::changing, "a moving tuple is read again, never lost");
+        arm (0, nullptr);
+        require (blindReceipt (state) == BlindReceipt::pending, "and then waits for its own receipt");
+        receiveNow();
+    }
+    {
+        GainUpdate writing (state.gainRevision.value);
+        require (blindReceipt (state) == BlindReceipt::changing && ! currentBlindReceipt (state), "an open writer permits nothing");
+    }
+    // Negative controls: every real end of the approval is lost at once, received or not.
+    for (const bool received : { true, false })
+    for (int end = 0; end < 6; ++end)
+    {
+        State lost; active = &lost;
+        publish (lost, 0.7f, 0.5f, 1.0f, false, first);
+        lost.blindGainRevision.store (lost.gainRevision.value.load());
+        if (received) receiveNow();
+        require (blindReceipt (lost) == (received ? BlindReceipt::current : BlindReceipt::pending), "a standing approval");
+        if (end == 0) lost.authority.revoke();
+        if (end == 1) lost.sessionActive.store (false);
+        if (end == 2) lost.matchRetained.store (false);
+        if (end == 3) lost.matchLimited.store (true);
+        if (end == 4) publish (lost, 0.6f, 0.4f, 1.0f, false, first); // another tuple: not the trial's
+        if (end == 5) publish (lost, 0.7f, 0.5f, 1.0f, false, second); // another authority's approval
+        if (end == 5) lost.blindGainRevision.store (lost.gainRevision.value.load());
+        require (blindReceipt (lost) == BlindReceipt::lost && ! currentBlindReceipt (lost), "a real end is lost");
+        if (received) receiveNow();
+        require (blindReceipt (lost) == BlindReceipt::lost, "and a later receipt never revives it");
+    }
 }
 float nextIdlePost = 0.5f;
 void changeIdleApproval() { publish (*active, 0.25f, nextIdlePost, 0.7f, true, second); }
@@ -259,6 +324,7 @@ void preparationPublicationRequiresTheNewAdmissionWithoutClobberingReusedMatch()
 int main()
 {
     publicationInterleavingsAreRejected(); approvalCannotMoveBetweenConditions();
+    aReceiptArrivingDuringTheReadingEndsNothing();
     idleSubsetIsBoundedAndNeverApprovesComparison();
     preparationPublicationRequiresTheNewAdmissionWithoutClobberingReusedMatch();
     std::puts ("Gain snapshot: PASS (causal old-read control, publication/END fences, all tuple fields, identity negatives)");

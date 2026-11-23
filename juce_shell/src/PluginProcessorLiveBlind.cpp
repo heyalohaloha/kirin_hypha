@@ -320,8 +320,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.candidateHostInactive = candidateHostInactive();
     if (status.candidate) status.matchSecondsRemaining = liveCompare.renderer.matchSecondsRemaining();
     const auto state = liveCompareStatus();
-    const auto gains = readGainSnapshot (liveCompare);
-    const bool receipt = currentBlindReceipt (liveCompare);
+    const auto receipt = blindReceipt (liveCompare);
     status.reason = state.reason;
     status.signalWait = status.stage == BlindStage::preparing
         && (status.waiting == MatchFailure::tooShort || status.waiting == MatchFailure::notEnoughSignal)
@@ -366,9 +365,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
         status.stage = BlindStage::invalidated;
         status.reason = status.trial.reason;
     }
-    else if (status.stage == BlindStage::active
-        && gains.coherent && !receipt && ! pendingBlindReceipt (liveCompare)
-        && gains.revision == liveCompare.gainRevision.load (std::memory_order_acquire))
+    else if (status.stage == BlindStage::active && receipt == BlindReceipt::lost) // never a receipt still on its way
     {
         status.trial = {};
         status.stage = BlindStage::invalidated;

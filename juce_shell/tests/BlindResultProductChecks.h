@@ -156,4 +156,46 @@ inline void verifyBlindResultEndsWithItsPre (const juce::File& sandbox)
         require (r.status().stage == live_compare::BlindStage::invalidated, "refreshing revives nothing");
     }
 }
+
+// What the audio thread does when the raised PRE meets the ceiling: the trial moves onto the quieter-side tuple, and
+// the tuple's receipt follows in a later block.
+inline live_compare::ProcessorState& commitTrialTuple (BlindRig& r)
+{
+    auto& state = r.post.get()->*privateMember (NoticeLiveState {});
+    live_compare::GainUpdate update (state.gainRevision);
+    require (static_cast<bool> (update), "the audio thread's one bounded commit");
+    state.blindGainRevision.store (update.published(), std::memory_order_release);
+    return state;
+}
+
+// A receipt that lands while the message thread reads the trial costs no accepted answer; a real loss does.
+inline void verifyBlindAnswersSurviveAReceipt (const juce::File& sandbox)
+{
+    ScopedChainTimingStorage preferences (sandbox);
+    BlindRig r (sandbox);
+    r.start (5);
+    r.hearBoth(); r.answer (1); r.hearBoth();
+    const auto trial = r.status();
+    static live_compare::ProcessorState* racing = nullptr;
+    for (int race = 0; race < 3; ++race)
+    {
+        racing = &commitTrialTuple (r);
+        require (r.status().stage == live_compare::BlindStage::active && ! r.post->selectLiveBlind (1),
+                 "the tuple waits for its receipt and permits no choice");
+        live_compare::afterBlindReceiptReadForTest = [] { racing->gainReceipt.store (racing->gainRevision.load()); };
+        const auto during = r.status();
+        racing = &commitTrialTuple (r);
+        (r.editor.get()->*privateMember (NoticeEditorTick {}))();
+        live_compare::afterBlindReceiptReadForTest = nullptr;
+        require (during.stage == live_compare::BlindStage::active && during.trial.epoch == trial.trial.epoch
+                 && r.blind().trialSummary().total() == 1 && r.blind().preferenceTrial().generation() == trial.generation
+                 && r.blind().preferenceTrial().epoch() == trial.trial.epoch, "an arriving receipt keeps the answer and its round");
+        r.advance (0.2); // the real callbacks receive the tuple
+        require (r.status().stage == live_compare::BlindStage::active && r.blind().trialSummary().total() == 1, "and so do real callbacks");
+    }
+    r.hearBoth(); r.answer (2);
+    require (r.blind().trialSummary().total() == 2, "the trial goes on");
+    r.post->clearPairCandidate(); r.advance (0.2);
+    require (r.blind().trialSummary().total() == 0 && ! r.blind().screen().revealShown, "a lost pair clears the answers");
+}
 }
