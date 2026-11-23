@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HyphaPreSingleDialPreview.h"
+#include "HyphaMetricInstrumentText.h"
 
 namespace hypha::metric_face
 {
@@ -82,7 +83,7 @@ inline void drawCandidateText (juce::Graphics& g, const juce::String& text,
     juce::Colour colour, text_style::LabelPolicy policy = text_style::LabelPolicy::localized)
 {
     constexpr auto instrument = typography::Composition::instrument;
-    context.referenceCompact = true;
+    context = instrumentContext (context);
     g.setFont (labelFont (context, role, instrument));
     g.setColour (colour);
     text_style::draw (g, text, box, context, role, juce::Justification::centred, 1, instrument, policy);
@@ -167,55 +168,23 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     }
 }
 
-inline juce::String candidateSignedNumber (double value)
+inline void paintCandidateWords (juce::Graphics& g, const CandidateWords& words, presentation::Context context)
 {
-    if (! std::isfinite (value)) return juce::String::charToString (0x2014);
-    return (value > 0 ? "+" : "") + juce::String (value, 2);
-}
-
-inline void paintCandidateDetails (juce::Graphics& g, juce::Rectangle<int> chassis,
-    const metric_needle::Frame& frame, const metric_needle::Reading& facts,
-    bool one, presentation::Context context)
-{
-    const auto lineHeight = juce::jlimit (12, 24, juce::roundToInt (chassis.getHeight() * 0.047f));
-    const auto fitted = [&] (float x, float y, float width) {
-        return juce::Rectangle<int> (juce::roundToInt (chassis.getWidth() * width), lineHeight)
-            .withCentre ({chassis.getX() + juce::roundToInt (chassis.getWidth() * x),
-                          chassis.getY() + juce::roundToInt (chassis.getHeight() * y)});
+    const auto draw = [&] (const CandidateWord& word, juce::Colour colour) {
+        if (word.text.isNotEmpty())
+            drawCandidateText (g, word.text, word.box, context, typography::TextRole::legend, colour,
+                               text_style::LabelPolicy::fixed);
     };
-    const auto drawDetail = [&] (const juce::String& text, juce::Rectangle<int> box, juce::Colour colour) {
-        drawCandidateText (g, text, box, context, typography::TextRole::legend, colour, text_style::LabelPolicy::fixed);
-    };
-    drawDetail ("PRE " + candidateSignedNumber (one ? facts.own : facts.pre),
-                fitted (0.145f, 0.615f, 0.24f), COL_SPECTRUM_PRE);
-    drawDetail ("REF " + candidateSignedNumber (facts.reference),
-                fitted (one ? 0.855f : 0.50f, 0.615f, 0.24f), COL_SPECTRUM_DELTA);
-    if (! one)
-        drawDetail ("POST " + candidateSignedNumber (facts.own), fitted (0.855f, 0.615f, 0.24f), COL_FLORA_BR);
-    const auto summary = fitted (0.5f, 0.685f, 0.90f);
-    const bool ready = frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
-    const auto song = juce::String::fromUTF8 (frame.song.c_str());
-    if (ready)
-    {
-        auto songBox = summary;
-        const auto zeroBox = song.isEmpty() ? summary : songBox.removeFromLeft (summary.getWidth() * 2 / 5);
-        drawDetail ("0 = " + juce::String (frame.median, 2) + " " + metric_needle::unit (frame.face), zeroBox, COL_NORMAL);
-        if (song.isNotEmpty()) drawDetail (song, songBox, COL_TEXT_SECONDARY);
-    }
-    else if (frame.status != metric_needle::Status::measuring && ! frame.reason.empty())
-        drawDetail (text_style::shownText (metric_needle::reasonText (frame.reason)), summary, COL_NORMAL);
-    else if (song.isNotEmpty())
-        drawDetail (song, summary, COL_TEXT_SECONDARY);
-}
-
-inline juce::Rectangle<int> candidateHeadlineBounds (juce::Rectangle<int> chassis, bool singleReady)
-{
-    if (singleReady)
-        return {chassis.getX() + juce::roundToInt (chassis.getWidth() * 0.045f),
-                chassis.getY() + juce::roundToInt (chassis.getHeight() * 0.495f),
-                juce::roundToInt (chassis.getWidth() * 0.185f), 18};
-    return chassis.withTrimmedTop (juce::roundToInt (chassis.getHeight() * 0.31f))
-        .removeFromTop (18).withSizeKeepingCentre (chassis.getWidth() / 4, 18);
+    draw (words.pre, COL_SPECTRUM_PRE);
+    draw (words.reference, COL_SPECTRUM_DELTA);
+    draw (words.post, COL_FLORA_BR);
+    draw (words.zero, COL_NORMAL);
+    // The song stands on the engraved glass now: between the zero's tone and the quiet one, so it stays legible.
+    const auto song = COL_TEXT_SECONDARY.interpolatedWith (COL_NORMAL, 0.5f);
+    draw (words.song, song);
+    draw (words.notice, words.noticeIsSong ? song : COL_NORMAL);
+    draw (words.noticeEnd, COL_NORMAL);
+    drawCandidateText (g, words.headline.text, words.headline.box, context, typography::TextRole::legend, COL_NORMAL);
 }
 
 inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
@@ -240,13 +209,7 @@ inline bool paintMetricCandidate (juce::Graphics& g, juce::Rectangle<int> outer,
         paintCandidateDial (g, chassis, dial, frame, own ? facts.ownPosition : facts.prePosition,
                             own ? facts.own : facts.pre, isPre, own, facts, cap, context);
     }
-    paintCandidateDetails (g, chassis, frame, facts, one, context);
-    const auto headline = frame.status == metric_needle::Status::measuring ? juce::String ("PREPARING")
-        : frame.status != metric_needle::Status::ready || ! std::isfinite (frame.median) ? juce::String ("UNAVAILABLE")
-        : juce::String (metric_needle::label (frame.face));
-    const bool ready = frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
-    const auto line = candidateHeadlineBounds (chassis, one && ready);
-    drawCandidateText (g, headline, line, context, typography::TextRole::legend, COL_NORMAL);
+    paintCandidateWords (g, candidateWords (chassis, frame, facts, one, context), context);
     return true;
 }
 }

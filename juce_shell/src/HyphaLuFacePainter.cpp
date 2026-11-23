@@ -1,5 +1,6 @@
 #include "HyphaLuFacePainter.h"
 
+#include "HyphaMeterGlass.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 #include "HyphaVuNeedlePainter.h"
@@ -104,6 +105,16 @@ void paintNeedle (juce::Graphics& g, const DialGeometry& dial, float width, Need
 
 struct LegendItem { const char* name; Needle needle; };
 
+float legendItemWidth (const juce::Font& font, const LegendItem& item)
+{ return font.getHeight() * 1.45f + std::ceil (font.getStringWidthFloat (item.name)) + 2.0f; }
+
+float legendWidth (const juce::Font& font, const std::vector<LegendItem>& items)
+{
+    auto width = 0.0f;
+    for (const auto& item : items) width += legendItemWidth (font, item) + (width > 0.0f ? font.getHeight() * 0.9f : 0.0f);
+    return width;
+}
+
 void paintLegend (juce::Graphics& g, juce::Rectangle<float> row, const std::vector<LegendItem>& items,
                   const presentation::Context& context, std::vector<TextBox>* trace)
 {
@@ -122,32 +133,41 @@ void paintLegend (juce::Graphics& g, juce::Rectangle<float> row, const std::vect
     }
 }
 
-// One row below both hubs keeps the Reference zero away from needles and scale figures.
-void paintZeroText (juce::Graphics& g, juce::Rectangle<float> face, const Frame& view, bool compact,
+// The Reference zero stands on the glass, above the gold rim and inside its curved corners: one row below
+// both hubs, and at the small sizes two rows between them.
+void paintZeroText (juce::Graphics& g, juce::Rectangle<int> bounds, const Frame& view, bool compact,
                     std::vector<TextBox>* trace)
 {
+    namespace glass = metric_face::glass;
     const auto context = faceContext (view.vu.presentation);
     const auto font = labelFont (context, TextRole::legend, instrument);
-    auto plate = juce::Rectangle<float> (face.getX() + face.getWidth() * 0.025f,
-        face.getBottom() - std::ceil (font.getHeight() * 1.25f), face.getWidth() * 0.95f,
-        std::ceil (font.getHeight() * 1.25f));
+    const auto line = juce::jmax (12, static_cast<int> (std::ceil (font.getHeight())));
+    const auto floorPixel = static_cast<int> (std::floor (glass::y (bounds, glass::bottom)));
+    const auto edge = compact ? glass::pairedHubs[0] + glass::hubRadius
+                              : glass::inset (glass::row (bounds, static_cast<float> (floorPixel) - static_cast<float> (line) * 0.2f));
+    const auto right = compact ? glass::pairedHubs[1] - glass::hubRadius : glass::width - edge;
+    auto plate = glass::band (bounds, edge, right, floorPixel - line, floorPixel).toFloat();
+    const auto upper = plate.translated (0.0f, static_cast<float> (-line)); // the row above, at the small sizes
     if (view.facts.zero == lu_needle::Zero::noSong)
     {
-        const auto text = view.vu.role == observatory::Role::post
-            ? "CHOOSE A SONG IN B OR C" : "CHOOSE A SONG IN POST REFERENCE";
-        g.setColour (COL_NORMAL); g.setFont (labelFont (context, TextRole::legend, instrument));
-        text_style::drawText (g, text, plate, juce::Justification::centred, true);
-        note (trace, text, plate, font); return;
+        const auto text = text_style::shownText (view.vu.role == observatory::Role::post
+            ? "CHOOSE A SONG IN B OR C" : "CHOOSE A SONG IN POST REFERENCE");
+        const bool two = compact && text_style::shownWidth (font, text, text_style::LabelPolicy::fixed) > plate.getWidth();
+        const auto rows = two ? metric_face::twoRows (text, font, plate.getWidth()) : std::array<juce::String, 2> { juce::String(), text };
+        if (two) drawFixed (g, rows[0], upper, context, TextRole::legend, COL_NORMAL, juce::Justification::centred, trace);
+        drawFixed (g, rows[1], plate, context, TextRole::legend, COL_NORMAL, juce::Justification::centred, trace);
+        return;
     }
     const bool delta = ! compact && std::isfinite (view.reading.postMinusPre);
     const float width = plate.getWidth();
-    auto name = plate.removeFromLeft (width * (compact ? 0.55f : 0.32f));
+    const auto name = compact ? upper : plate.removeFromLeft (width * 0.32f);
     drawFixed (g, "0 = " + displayableText (view.facts.song), name, context,
-        TextRole::legend, ivory, juce::Justification::centredLeft, trace);
+        TextRole::legend, ivory, compact ? juce::Justification::centred : juce::Justification::centredLeft, trace);
     if (view.facts.zero != lu_needle::Zero::ready)
     {
         g.setColour (COL_NORMAL); g.setFont (labelFont (context, TextRole::legend, instrument));
-        text_style::drawText (g, "NOT MEASURED IN KIRIN OS", plate, juce::Justification::centredRight, true);
+        text_style::drawText (g, "NOT MEASURED IN KIRIN OS", plate,
+                              compact ? juce::Justification::centred : juce::Justification::centredRight, true);
         note (trace, "NOT MEASURED IN KIRIN OS", plate, font); return;
     }
     auto value = plate.removeFromLeft (compact ? plate.getWidth() : width * 0.18f);
@@ -167,19 +187,23 @@ void paintZeroText (juce::Graphics& g, juce::Rectangle<float> face, const Frame&
         note (trace, "REF: NO VALUE HERE", plate, font);
         return;
     }
+    // The legend keeps what it needs at the right, and POST - PRE stands before it.
+    std::vector<LegendItem> items;
+    if (std::isfinite (view.reading.samePlace)) items.push_back ({ "REF", Needle::samePlace });
+    if (std::isfinite (view.reading.pre)) items.push_back ({ "PRE", Needle::pre });
     if (delta)
-        drawFixed (g, juce::String ("POST - PRE") + "  " + lu_needle::signedLu (view.reading.postMinusPre) + " LU",
-            plate.removeFromLeft (width * 0.30f), context, TextRole::legend, COL_NORMAL,
-            juce::Justification::centredRight, trace);
+    {
+        const auto text = juce::String ("POST - PRE") + "  " + lu_needle::signedLu (view.reading.postMinusPre) + " LU";
+        const auto needed = std::ceil (font.getStringWidthFloat (text)) + 4.0f;
+        const auto after = mono.isNotEmpty() ? std::ceil (font.getStringWidthFloat (mono)) + 4.0f : legendWidth (font, items);
+        drawFixed (g, text, plate.removeFromLeft (juce::jmax (needed, juce::jmin (width * 0.30f, plate.getWidth() - after - font.getHeight() * 0.5f))),
+            context, TextRole::legend, COL_NORMAL, juce::Justification::centredRight, trace);
+        plate.removeFromLeft (font.getHeight() * 0.5f);
+    }
     if (mono.isNotEmpty())
         drawFixed (g, mono, plate, context, TextRole::legend, COL_NORMAL, juce::Justification::centredRight, trace);
     else
-    {
-        std::vector<LegendItem> items;
-        if (std::isfinite (view.reading.samePlace)) items.push_back ({ "REF", Needle::samePlace });
-        if (std::isfinite (view.reading.pre)) items.push_back ({ "PRE", Needle::pre });
         paintLegend (g, plate, items, context, trace);
-    }
 }
 
 }
@@ -283,7 +307,7 @@ void paintLive (juce::Graphics& g, juce::Rectangle<int> bounds, const Frame& vie
             context, TextRole::secondaryValue, std::isfinite (values[channel]) ? COL_NORMAL : COL_TEXT_SECONDARY,
             juce::Justification::centred, trace);
     }
-    paintZeroText (g, face, view, compact, trace);
+    paintZeroText (g, bounds, view, compact, trace);
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const Frame& view, std::vector<TextBox>* trace)
