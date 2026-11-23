@@ -20,17 +20,31 @@ pub struct KirinReferenceLiveMetricFrame {
 
 type CrestPsr = [Option<f64>; 2];
 
-/// Ordinary contention is not a missing pair: the last confirmed boundary keeps its original
-/// lifetime, and only for the same measurement and source span. UI thread only.
+/// Ordinary contention is not a missing pair: the last confirmed boundary stays for a moment, within
+/// its original lifetime and only for the same measurement, pairing and playback. UI thread only.
 #[derive(Default)]
-pub(crate) struct ReferencePairHold(Mutex<Option<(PairSource, time_ffi::PairedBoundary)>>);
+pub(crate) struct ReferencePairHold(Mutex<Option<HeldPair>>);
+
+#[derive(Clone, Copy)]
+struct HeldPair {
+    source: PairSource,
+    confirmed: Instant,
+    pair: time_ffi::PairedBoundary,
+}
 
 #[derive(Clone, Copy, PartialEq)]
 struct PairSource {
     measurement_epoch: u64,
     generation: u64,
     span_token: u64,
+    pairing: u64,
+    playback: u64,
 }
+
+/// Long enough for a lock to be released, far shorter than the comparison lifetime.
+const CONTENTION_HOLD: Duration = Duration::from_millis(200);
+/// The snapshot shelf is written in microseconds; one display frame must not lose both needles.
+const SNAPSHOT_ATTEMPTS: usize = 4;
 
 impl ReferencePairHold {
     fn clear(&self) {
@@ -47,11 +61,18 @@ impl ReferencePairHold {
     ) -> Option<time_ffi::PairedBoundary> {
         let mut held = self.0.try_lock().ok()?;
         if let Ok(pair) = pair {
-            *held = pair.map(|pair| (source, pair));
-        } else {
-            *held = held.filter(|(from, pair)| *from == source && now < pair.until);
+            *held = pair.map(|pair| HeldPair {
+                source,
+                confirmed: now,
+                pair,
+            });
         }
-        held.map(|(_, pair)| pair)
+        *held = held.filter(|held| {
+            held.source == source
+                && now < held.pair.until
+                && now.saturating_duration_since(held.confirmed) < CONTENTION_HOLD
+        });
+        held.map(|held| held.pair)
     }
 }
 
@@ -84,10 +105,13 @@ fn confirmed_pair(
     engine: &KirinHyphaEngine,
     snapshot: &MeterSessionSnapshot,
 ) -> Option<time_ffi::PairedBoundary> {
+    let exchange = engine.meter_delta_history.as_ref()?;
     let source = PairSource {
         measurement_epoch: snapshot.measurement_epoch,
         generation: snapshot.generation,
-        span_token: engine.meter_delta_history.as_ref()?.time_post_span_token(),
+        span_token: exchange.time_post_span_token(),
+        pairing: exchange.time_authority_revision(),
+        playback: engine.watch_playback_pass_id.load(Ordering::Acquire),
     };
     let pair = time_ffi::paired_boundary_values(engine, snapshot);
     engine
@@ -109,7 +133,12 @@ pub unsafe extern "C" fn kirin_hypha_poll_reference_live_metrics(
         }
         let engine = unsafe { &*handle };
         let before = engine.signal_state_abi();
-        let Some(snapshot) = engine.poll_meter_session() else {
+        let Some(snapshot) = (0..SNAPSHOT_ATTEMPTS).find_map(|attempt| {
+            if attempt > 0 {
+                std::thread::yield_now();
+            }
+            engine.poll_meter_session()
+        }) else {
             return false;
         };
         if !matches!(snapshot.layout.channel_count(), 1 | 2) {
@@ -188,6 +217,8 @@ mod tests {
             measurement_epoch: 1,
             generation: 2,
             span_token: 3,
+            pairing: 4,
+            playback: 5,
         };
         let pair = time_ffi::PairedBoundary {
             until: start + Duration::from_millis(1000),
@@ -198,13 +229,20 @@ mod tests {
         let hold = ReferencePairHold::default();
         assert!(hold.resolve(source, busy(), start).is_none());
         assert!(hold.resolve(source, Ok(Some(pair)), start).is_some());
-        for ms in [33, 500, 999] {
+        for ms in [33, 199] {
             let now = start + Duration::from_millis(ms);
             assert_eq!(hold.resolve(source, busy(), now).unwrap().own, pair.own);
         }
-        // Expired, then gone for good: contention never renews the boundary.
-        assert!(hold.resolve(source, busy(), pair.until).is_none());
+        // Contention never renews the boundary, and it is gone for good afterwards.
+        assert!(hold
+            .resolve(source, busy(), start + CONTENTION_HOLD)
+            .is_none());
         assert!(hold.resolve(source, busy(), start).is_none());
+        // Neither the hold nor a late success outlives the boundary itself.
+        let late = pair.until - Duration::from_millis(10);
+        assert!(hold.resolve(source, Ok(Some(pair)), late).is_some());
+        assert!(hold.resolve(source, busy(), pair.until).is_none());
+        assert!(hold.resolve(source, Ok(Some(pair)), pair.until).is_none());
         for changed in [
             PairSource {
                 measurement_epoch: 9,
@@ -216,6 +254,14 @@ mod tests {
             },
             PairSource {
                 span_token: 9,
+                ..source
+            },
+            PairSource {
+                pairing: 9,
+                ..source
+            },
+            PairSource {
+                playback: 9,
                 ..source
             },
         ] {

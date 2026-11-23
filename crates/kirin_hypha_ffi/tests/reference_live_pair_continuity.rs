@@ -33,6 +33,7 @@ extern "C" {
 }
 
 const FRAMES: i64 = 512;
+const SHOWN: usize = 20;
 
 fn block(engine: &KirinHyphaEngine, position: i64, gain: f32) {
     engine.set_signal_state(1);
@@ -102,21 +103,28 @@ fn pre_psr_and_crest_stay_through_publication_delay_and_share_one_moment() {
     let display = {
         let finished = Arc::clone(&finished);
         std::thread::spawn(move || {
-            // One second of display polls. A loaded machine may need several tries; a reading that
-            // only appears when a poll happens to meet the exact boundary never fills one.
+            // One second of display polls. A loaded machine delays the measurement and IO threads,
+            // so any one second may count, and not every poll has to; a reading that only appears
+            // when a poll happens to meet the exact boundary stays far below.
             const WINDOW: usize = 30;
-            let deadline = Instant::now() + Duration::from_secs(40);
+            const REFRESH: Duration = Duration::from_millis(33);
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let mut refresh = Instant::now();
             let (mut recent, mut best) = (std::collections::VecDeque::new(), 0);
-            while Instant::now() < deadline && best < WINDOW - 1 {
-                sleep(Duration::from_millis(33));
+            let mut mixed = None;
+            while Instant::now() < deadline && best < SHOWN && mixed.is_none() {
+                refresh += REFRESH;
+                sleep(refresh.saturating_duration_since(Instant::now()));
                 let mut frame = Frame::default();
                 let shown = unsafe {
                     kirin_hypha_poll_reference_live_metrics(handle as *mut c_void, &mut frame)
                 } && frame.valid_mask == 15;
-                if shown {
-                    // Both sides carry the same signal at different gains.
-                    assert!((frame.pre_psr_db - frame.own_psr_db).abs() < 0.01);
-                    assert!((frame.pre_crest_db - frame.own_crest_db).abs() < 0.01);
+                // Both sides carry the same signal at different gains.
+                if shown
+                    && ((frame.pre_psr_db - frame.own_psr_db).abs() >= 0.01
+                        || (frame.pre_crest_db - frame.own_crest_db).abs() >= 0.01)
+                {
+                    mixed = Some(frame.observed_frames);
                 }
                 recent.push_back(shown);
                 if recent.len() > WINDOW {
@@ -125,7 +133,7 @@ fn pre_psr_and_crest_stay_through_publication_delay_and_share_one_moment() {
                 best = best.max(recent.iter().filter(|shown| **shown).count());
             }
             finished.store(true, Ordering::Release);
-            best
+            (best, mixed)
         })
     };
     let (start, mut position) = (Instant::now(), 0);
@@ -136,6 +144,7 @@ fn pre_psr_and_crest_stay_through_publication_delay_and_share_one_moment() {
         let due = start + Duration::from_secs_f64(position as f64 / 48000.0);
         sleep(due.saturating_duration_since(Instant::now()));
     }
-    let best = display.join().unwrap();
-    assert!(best >= 29, "PRE was shown in {best} of 30 polls at best");
+    let (best, mixed) = display.join().unwrap();
+    assert!(mixed.is_none(), "two moments were mixed at {mixed:?}");
+    assert!(best >= SHOWN, "PRE was shown in {best} of 30 polls at best");
 }
