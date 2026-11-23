@@ -247,8 +247,9 @@ BALANCE shows frequency and level only while you point at it. The BLIND result i
 in English and Japanese. When timing changes during a live BLIND round, listen to both sources
 again before answering.
 
-In live PRE/POST LISTEN, MENU > MATCH SPAN sets what MATCH measures: LAST 4 s (default) or
-ALL PLAYED, all audio played and confirmed during the LISTEN session (at least 3 seconds).
+In live PRE/POST LISTEN, MENU > MATCH SPAN, chosen before you start LISTEN, sets what MATCH
+measures: LAST 4 s (default) or ALL PLAYED, all audio played and confirmed during the LISTEN
+session (at least 3 seconds).
 BLIND uses the match you set in LISTEN.
 
 The [release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.59) list all changes. To update, download the installer for your platform above, close your
@@ -281,9 +282,9 @@ PRE の比較メーターは中央に 1 つの盤、POST は左に PRE、右に 
 PRE と POST の時間位置が確認できないときは、差分の履歴を空けます。POST 自体の値は引き続き表示します。
 
 BALANCE の周波数とレベルは、指している間だけ表示します。BLIND の結果表示を日英ともに読みやすくしました。
-ライブ BLIND の途中でタイミングが変わった場合は、回答する前に両方のソースを聴き直します。
+ライブ BLIND の途中でタイミングが変わった場合は、回答する前に両方のソースを聴き直してください。
 
-ライブの PRE/POST の LISTEN で、MATCH が測る範囲を MENU の MATCH SPAN で選べます。LAST 4 s（直近 4 秒、既定）か
+ライブの PRE/POST の LISTEN で、MATCH が測る範囲を、LISTEN を始める前に MENU の MATCH SPAN で選べます。LAST 4 s（直近 4 秒、既定）か
 ALL PLAYED（その LISTEN で再生して確かめた音のすべて。3 秒以上）です。BLIND は LISTEN で合わせた MATCH をそのまま使います。
 
 ## Modes
