@@ -37,6 +37,8 @@ void View::invalidateSessionPresentation()
 bool View::retainSessionPoll (const KirinObservatoryFrame* frame,
     const KirinMeterSessionV2* coverage, unsigned status, bool packetReady, double nowMs)
 {
+    // The last reading before a stop reaches the screen even when no later poll changes it.
+    if (levelReadout.takeDue (nowMs)) repaint (bodyArea);
     const auto decision = sessionPresentation.decide ({ frame, coverage, status, packetReady }, nowMs);
     if (decision == session_presentation::Decision::retain) return true;
     if (decision == session_presentation::Decision::accept && coverage != nullptr)

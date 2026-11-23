@@ -120,6 +120,44 @@ void verifyCoverageRepaint (const KirinObservatoryFrame& frame, KirinMeterSessio
     view.setSessionCoverage (coverage);
     require (probe->requests == 4 && ! view.sessionSummaryPending(), "coverage recovery repaints even with the same summary values");
 }
+// The stop arrives first, its last reading one poll later and then nothing changes: the number
+// held for NUM RATE still reaches the screen, with one paint and no steady repainting.
+void verifyStoppedReadingCatchesUp (KirinObservatoryFrame frame, KirinMeterSessionV2 coverage)
+{
+    observatory::View view (observatory::Role::post);
+    view.setSize (900, 600);
+    view.setVisible (true);
+    view.setLevelNumericInterval (1000);
+    juce::Image screen (juce::Image::ARGB, 900, 600, true);
+    juce::Graphics graphics (screen);
+    const auto poll = [&] (double now)
+    { return view.retainSessionPoll (&frame, &coverage, KIRIN_SNAPSHOT_SUCCESS, true, now); };
+    coverage.session = frame.meter;
+    coverage.processed_frames = frame.meter.active_frames;
+    coverage.pending_frames = 0;
+    coverage.summary_status = KIRIN_SESSION_SUMMARY_COMPLETE;
+    const auto start = juce::Time::getMillisecondCounterHiRes();
+    poll (start);
+    view.setObservatoryFrame (frame, true);
+    view.paintEntireComponent (graphics, true);
+    frame.meter.lufs_s += 1.0;
+    frame.meter.max_lufs_m += 1.0;
+    coverage.session = frame.meter;
+    poll (start + 100);
+    view.setObservatoryFrame (frame, true);
+    view.paintEntireComponent (graphics, true);
+    auto* probe = new CoverageRepaintProbe;
+    view.setCachedComponentImage (probe);
+    probe->requests = 0;
+    poll (start + 200);
+    const auto waiting = probe->requests;
+    poll (start + 60'000);
+    const auto due = probe->requests;
+    for (int at = 1; at <= 10; ++at) poll (start + 60'000 + 100 * at);
+    require (waiting == 0 && due == 1 && probe->requests == 1
+             && probe->lastArea == view.bodyBounds().getIntersection (view.getLocalBounds()),
+             "a held LEVEL reading asks for exactly one body paint after its interval");
+}
 void verifyHeldCoverage (KirinObservatoryFrame frame)
 {
     for (bool pending : { false, true })
@@ -339,6 +377,7 @@ void verifySessionCoverageContract()
     KirinMeterSessionV2 coverage { 2, sizeof (coverage), frame.meter, 2'880'000, 479,
                                  KIRIN_SESSION_SUMMARY_PENDING_TAIL, {} };
     verifyCoverageRepaint (frame, coverage);
+    verifyStoppedReadingCatchesUp (frame, coverage);
     verifyHeldCoverage (frame);
     verifyPlayingAndTimeCapture (frame);
     verifyNumericCoverageBoundary (frame);

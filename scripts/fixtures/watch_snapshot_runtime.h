@@ -29,6 +29,7 @@ struct View {
     KirinWatchDisplay watchDisplay {}; bool watchDisplayAvailable = false;
     Domain selectedDomain = Domain::level; Target selectedTarget = Target::absolute;
     int bodyArea = 0, paints = 0;
+    struct { bool takeDue(double) const { return false; } } levelReadout; // paint-side port; no paint runs here
     double numericInterval = -1;
     hypha::session_presentation::Gate sessionPresentation;
     KirinMeterSessionV2 sessionCoverage {}; bool haveSessionCoverage = false;
