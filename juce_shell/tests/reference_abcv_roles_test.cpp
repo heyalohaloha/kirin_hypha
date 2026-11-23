@@ -231,7 +231,16 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     };
     const auto wait = [&] (const auto& condition, const char* what)
     {
-        if (hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] { host (true); return condition (controller.snapshot()); })) return;
+        // Feed at least one block per block of audio time. A condition that needs more A input must
+        // not wait for a publication that only that input can cause.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes (5);
+        for (bool ready = false; std::chrono::steady_clock::now() < deadline;)
+        {
+            hypha::tests::reference_control::waitUntil (
+                std::min (deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds (10)),
+                [&] { host (true); return ready = condition (controller.snapshot()); });
+            if (ready) return;
+        }
         const auto s = controller.snapshot();
         std::cerr << "roles: " << what << " / B " << (s.referenceSelection ? s.referenceSelection->rejectionCode : "-") << '\n';
         require (false, what);
