@@ -1,6 +1,7 @@
 #pragma once
 #include "HyphaMetricSharedZero.h"
 #include "HyphaLuReferenceFacts.h"
+#include "HyphaMetricReferenceState.h"
 #include "reference_audition/ReferenceMetricPublication.h"
 namespace hypha::metric_needle
 {
@@ -17,7 +18,10 @@ inline SharedReferenceZero referenceZero (const reference_audition::Snapshot& ru
         ? static_cast<std::uint32_t> (hostRate) : 0u;
     zero.channels = hostChannels;
     if (readable && role)
-    { zero.song = role->candidateName; zero.status = metric_needle::Status::measuring; zero.reason = "preparing"; }
+    {
+        const auto waiting = unmeasured (runtime, *role);
+        zero.song = role->candidateName; zero.status = waiting.status; zero.reason = waiting.reason;
+    }
     if (readable && role && measured && measured->selectionGeneration == role->selectionGeneration)
     {
         zero.status = metric_needle::Status::unavailable;

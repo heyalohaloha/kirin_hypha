@@ -3,6 +3,7 @@
 #include "HyphaLuReferenceFacts.h"
 #include "reference_audition/ReferenceMetricPublication.h"
 #include "PluginProcessor.h"
+#include "HyphaMetricReferenceState.h"
 #include "HyphaMetricReferenceZero.h"
 
 namespace hypha::metric_editor
@@ -56,7 +57,11 @@ inline metric_needle::Frame facts (KirinHyphaProcessorBase& processor,
     result.song = role->candidateName.toStdString();
     const auto measured = role->nativeMetrics;
     if (!measured || measured->selectionGeneration != role->selectionGeneration)
-    { result.status = metric_needle::Status::measuring; result.reason = "preparing"; return result; }
+    {
+        const auto waiting = metric_needle::unmeasured (runtime, *role);
+        result.status = waiting.status; result.reason = waiting.reason;
+        return result;
+    }
     const auto index = face == metric_needle::Face::psr ? 0u : face == metric_needle::Face::crest ? 1u : 2u;
     result.reason = (measured->cueReasons[index].isNotEmpty() ? measured->cueReasons[index] : measured->reason).toStdString();
     if (measured->state == metrics::Availability::measuring)

@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include "CrestNeedleStyleContract.h"
 #include "MetricFrameRepaintContract.h"
+#include "MetricReferenceStateContract.h"
 namespace hypha::tests
 {
 namespace
@@ -241,7 +242,7 @@ void verifyEmbeddedPreLabelOutsideNeedle()
         view.lu().setFacts (reference()); view.setMetricFace (face);
         check (view.metricFaceActive(), "real mid PRE face active");
         const auto chassis = mf::pre_preview::chassisBounds (view.getLocalBounds());
-        const auto title = mf::candidateHeadlineBounds (chassis, true);
+        const auto title = mf::candidateHeadlineBounds (chassis, true, true, presentation::forEditor (v.width, v.height));
         const auto dial = mf::candidateDial (chassis, *mid, observatory::Role::pre, 0);
         const auto cap = mid->pre.frontCapRadius3072 * chassis.getWidth() / 3072.0f + 1.5f;
         for (int turn = 0; turn <= 100; ++turn)
@@ -277,21 +278,7 @@ void verifyEmbeddedPreLabelOutsideNeedle()
     }
 }
 
-void verifyEmbeddedMidTypography()
-{
-    auto style = presentation::forEditor (300, 200); style.referenceCompact = true;
-    constexpr auto family = typography::Composition::instrument;
-    juce::Image image (juce::Image::RGB, 300, 200, true); juce::Graphics g (image);
-    for (const auto role : {typography::TextRole::axis, typography::TextRole::legend})
-    {
-        g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::unit, family));
-        check (g.getCurrentFont().getHeight() < 12.0f, "the initial unit font must be smaller than the required role");
-        metric_face::drawCandidateText (g, "+24", {10, 10, 60, 18}, style, role, COL_NORMAL);
-        check (g.getCurrentFont().getHeight() == labelFont (style, role, family).getHeight()
-               && g.getCurrentFont().getHeight() >= 12.0f, "axis and legend explicitly replace the prior unit font");
-    }
-}
-
+#include "MetricInstrumentTextContract.h"
 void controls (observatory::View& view)
 {
     check (view.lu().controlFontHeightForTest() >= 12, "control font floor");
@@ -471,8 +458,11 @@ void verifyMetricFaceContract()
     verifyEmbeddedMidReference();
     const i18n::ScopedLanguage english (i18n::Language::english);
     verifyEmbeddedPreLabelOutsideNeedle();
-    verifyEmbeddedMidTypography();
+    metric_text_contract::verifyEmbeddedMidTypography();
     verifyCrestNeedleStyle (*embeddedMid(), check);
+    metric_reference_state_contract::run (check);
+    // Every UI render mode runs this file first; the words are checked once, in the metric face's own test.
+    if (std::getenv ("HYPHA_METRIC_FACE_ONLY") != nullptr) metric_text_contract::run (embeddedMid());
     for (const auto role : {observatory::Role::pre, observatory::Role::post})
         for (const int width : {300,450,600,900})
             for (const auto face : {Face::psr,Face::crest,Face::sharp}) verify (role,width,face);
