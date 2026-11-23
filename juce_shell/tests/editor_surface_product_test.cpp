@@ -307,8 +307,8 @@ private:
 
     void timerCallback() override
     {
-        // 48 cases, the 450% ones magnified by the software renderer on Windows: a hang, not a slow case.
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (180), "surface round trip timeout");
+        // 48 cases, slow at 450% on the Windows software renderer and on a virtual macOS timer: a hang, not a slow case.
+        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (270), "surface round trip timeout");
         buffer.clear();
         processor->processBlock (buffer, midi);
         clock.position += buffer.getNumSamples();

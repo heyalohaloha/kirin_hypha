@@ -326,7 +326,9 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_editor_surface_product COMMAND KirinEditorSurfaceProductTests)
     add_test(NAME kirin_editor_keep_tail_timeout_product COMMAND KirinEditorSurfaceProductTests --keep-tail-timeout-only)
     set_tests_properties(kirin_editor_keep_tail_timeout_product PROPERTIES TIMEOUT 90)
-    set_tests_properties(kirin_editor_surface_product PROPERTIES TIMEOUT 240)
+    # A passing run on a virtual macOS runner has taken 239 seconds, and one a little slower was cut
+    # at 240 with 46 of the 48 surface cases done. The limit is for a hang, so it leaves that room.
+    set_tests_properties(kirin_editor_surface_product PROPERTIES TIMEOUT 360)
 endif()
 
 if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
