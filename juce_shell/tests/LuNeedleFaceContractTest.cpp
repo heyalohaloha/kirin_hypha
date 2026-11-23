@@ -100,10 +100,13 @@ bool needleAt (const juce::Image& with, const juce::Image& without, juce::Rectan
     return brightness (with, point) > brightness (without, point) + 50;
 }
 
+// A sentence on the glass may take two rows at the small sizes: one box, or two in order.
 bool shows (const observatory::View& view, const juce::String& text)
 {
-    for (const auto& box : const_cast<observatory::View&> (view).lu().textForTest())
-        if (box.text == text) return true;
+    const auto& boxes = const_cast<observatory::View&> (view).lu().textForTest();
+    for (std::size_t index = 0; index < boxes.size(); ++index)
+        if (boxes[index].text == text
+            || (index + 1 < boxes.size() && boxes[index].text + " " + boxes[index + 1].text == text)) return true;
     return false;
 }
 

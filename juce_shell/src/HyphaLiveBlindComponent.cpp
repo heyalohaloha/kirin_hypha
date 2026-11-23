@@ -161,11 +161,11 @@ Component::Component() : blind_ui::ScreenComponent ("live-blind"), preferences (
     addChildComponent (*sheet);
     onGuess = [this] (int source)
     {
-        if (activeRounds > 1) { choosePreference (source); return; }
+        if (memory->activeRounds > 1) { choosePreference (source); return; }
         if (! screen().guessOpen || (source != 1 && source != 2)) return;  // the answer is fixed at REVEAL
-        answer = source;
-        answerGeneration = current.generation;
-        answerEpoch = current.trial.epoch;
+        memory->answer = source;
+        memory->answerGeneration = current.generation;
+        memory->answerEpoch = current.trial.epoch;
         show();
     };
     onRounds = [this] (int value) {
@@ -190,10 +190,13 @@ void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPl
     if (next.generation != current.generation || next.trial.epoch != current.trial.epoch) closeImageSheet();
     const bool startsTrial = next.stage == Stage::active && !next.trial.invalidated && !next.trial.revealed
         && (current.stage != Stage::active || current.trial.invalidated || current.generation != next.generation);
+    // A reopened window continues the trial the plugin kept, and only that one.
+    if (std::exchange (memoryAdopted, false) && !memory->holds (next.generation, next.trial.epoch)) resetPreference();
     current = next;
-    if (startsTrial && !preferenceBusy) { resetPreference(); activeRounds = rounds;
-        preferenceNameA = blind_image::rememberedName(preferences,current.candidate,false);
-        preferenceNameB = blind_image::rememberedName(preferences,current.candidate,true); }
+    if (startsTrial && !preferenceBusy && !memory->holds (next.generation, next.trial.epoch)) { resetPreference(); memory->activeRounds = rounds;
+        memory->generation = current.generation; memory->epoch = current.trial.epoch;
+        memory->preferenceNameA = blind_image::rememberedName(preferences,current.candidate,false);
+        memory->preferenceNameB = blind_image::rememberedName(preferences,current.candidate,true); }
     playing = hostPlaying;
     actualPost = postActual;
     repeating = repeatingAudio;
@@ -209,16 +212,16 @@ void Component::setGuessing (bool on)
 
 void Component::show()
 {
-    if (current.generation != answerGeneration || current.trial.epoch != answerEpoch) answer = 0;
+    if (current.generation != memory->answerGeneration || current.trial.epoch != memory->answerEpoch) memory->answer = 0;
     auto displayed = current;
-    if (activeRounds != 0 && displayed.trial.revealed && preference.answered() > 0) {
-        displayed.trial.usedPostFallback |= preferenceFallback;
-        displayed.trial.fallbackForTiming |= preferenceTimingFallback;
-        displayed.trial.fallbackForCeiling |= preferenceCeilingFallback;
-        if (displayed.contentNoticeMs == 0) displayed.contentNoticeMs = preferenceContentNoticeMs;
+    if (memory->activeRounds != 0 && displayed.trial.revealed && memory->preference.answered() > 0) {
+        displayed.trial.usedPostFallback |= memory->preferenceFallback;
+        displayed.trial.fallbackForTiming |= memory->preferenceTimingFallback;
+        displayed.trial.fallbackForCeiling |= memory->preferenceCeilingFallback;
+        if (displayed.contentNoticeMs == 0) displayed.contentNoticeMs = memory->preferenceContentNoticeMs;
     }
-    auto next = screenFor (displayed, playing, actualPost, repeating, { activeRounds <= 1 && guessOn, answer });
-    if (activeRounds != 0) decoratePreference (next);
+    auto next = screenFor (displayed, playing, actualPost, repeating, { memory->activeRounds <= 1 && guessOn, memory->answer });
+    if (memory->activeRounds != 0) decoratePreference (next);
     setScreen (next);
 }
 
@@ -228,15 +231,15 @@ blind_image::Facts Component::resultFacts() const
     facts.candidate = current.candidate;
     facts.firstPre = current.trial.firstPre;
     facts.selected = current.trial.selected;
-    facts.guess = guessOn && current.trial.revealed ? answer : 0;
+    facts.guess = guessOn && current.trial.revealed ? memory->answer : 0;
     facts.loweredDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     auto noted = current;
-    if (activeRounds != 0 && current.trial.revealed && preference.phase() == blind_preference::Phase::revealed) {
-        facts.preference = preference.summary();
-        noted.trial.usedPostFallback |= preferenceFallback;
-        noted.trial.fallbackForTiming |= preferenceTimingFallback;
-        noted.trial.fallbackForCeiling |= preferenceCeilingFallback;
-        if (noted.contentNoticeMs == 0) noted.contentNoticeMs = preferenceContentNoticeMs;
+    if (memory->activeRounds != 0 && current.trial.revealed && memory->preference.phase() == blind_preference::Phase::revealed) {
+        facts.preference = memory->preference.summary();
+        noted.trial.usedPostFallback |= memory->preferenceFallback;
+        noted.trial.fallbackForTiming |= memory->preferenceTimingFallback;
+        noted.trial.fallbackForCeiling |= memory->preferenceCeilingFallback;
+        if (noted.contentNoticeMs == 0) noted.contentNoticeMs = memory->preferenceContentNoticeMs;
     }
     facts.note = resultNote (noted);
     facts.nameA = blind_image::rememberedName (preferences, current.candidate, false);
@@ -260,7 +263,7 @@ bool Component::rememberNames()
     const auto facts = sheet->facts();
     const auto a = blind_image::rememberName (preferences, facts.candidate, false, sheet->nameField (false).getText());
     const auto b = blind_image::rememberName (preferences, facts.candidate, true, sheet->nameField (true).getText());
-    if (a && b) { preferenceNameA = facts.nameA; preferenceNameB = facts.nameB; show(); }
+    if (a && b) { memory->preferenceNameA = facts.nameA; memory->preferenceNameB = facts.nameB; show(); }
     return a && b;
 }
 

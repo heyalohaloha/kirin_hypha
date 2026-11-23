@@ -137,14 +137,18 @@ summaries. Reference is measured at the host's supported sample rate and mono/st
 without MATCH gain. The native reader is separate from audition playback.
 
 The own needle shows the current value minus that zero. POST can add a PRE needle only when the
-same-time paired observation is valid. Its REF needle requires FOLLOW A and a measured value at
-that position; missing data is not drawn as zero. The set band is the p10–p90 range of the songs'
-Cue medians, with each song counted once. It stays absent until every member has completed the
-same-definition measurement. A failed, missing, or still-preparing song is not silently dropped
-from the set.
+same-time paired observation is valid. On PSR and CREST, both needles then show the newest 100 ms
+boundary that PRE and POST both published, so they always belong to the same moment and stay through
+ordinary publication delay; PRE goes away when no such boundary is within one second. Its REF needle
+requires FOLLOW A and a measured value at that position; missing data is not drawn as zero. The set
+band is the p10–p90 range of the songs' Cue medians, with each song counted once. It stays absent
+until every member has completed the same-definition measurement. A failed, missing, or
+still-preparing song is not silently dropped from the set.
 
 **PREPARING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
-usable baseline is available. Changing a face never changes audio, Record, Keep, or MATCH.
+usable baseline is available; when the REFERENCE page says the source cannot be used, the face says
+**UNAVAILABLE** with the reason, in POST and in the PRE of its chain, and returns to **PREPARING**
+once the source can be used. Changing a face never changes audio, Record, Keep, or MATCH.
 PRE measures its own PSR and CREST and uses the Reference selected by POST in the same chain.
 Opening a PRE metric face can request that measurement without opening POST's window or
 selecting the same face in POST. If no POST or Reference selection is available, PRE explains

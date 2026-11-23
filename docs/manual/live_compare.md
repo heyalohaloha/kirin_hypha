@@ -165,7 +165,8 @@ if it still does not work, use the on-screen buttons to do the same thing instea
    a short ramp of up to 5 ms. If the DAW sends no audio callbacks for half a second, Hypha completes
    the return state during that quiet. The first audio block afterward starts on POST and uses the
    same short ramp to reach normal level; the ramp may continue across short blocks.
-6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running.
+6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running, with its
+   answers and its RESULT.
    A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
    the DAW reports, and another audition are never attenuated. Measurements remain before this path.

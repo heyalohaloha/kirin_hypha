@@ -89,11 +89,20 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
               state.presentation, typography::TextRole::shellTitle,
               typography::Composition::shell, COL_NORMAL, juce::Justification::centredLeft);
 
+    const auto whole = title;
     auto record = title.removeFromRight (title.getWidth() * (width < 450.0f ? 0.28f : 0.205f));
     auto connection = title;
     if (width >= 450.0f)
         connection.removeFromLeft (connection.getWidth() * 0.60f);
     const auto dot = juce::jlimit (3.0f, 11.0f, width * 0.010f);
+    // The place REC would take is open until it records, and the space before the light is open too: a
+    // longer source name takes both, in that order, before it is shortened with an ellipsis.
+    const auto statusFont = labelFont (state.presentation, typography::TextRole::status);
+    const auto named = dot * 3.4f + std::ceil (text_style::shownWidth (statusFont, state.connectionText)) + 1.0f;
+    if (! state.recording) connection.setRight (whole.getRight());
+    else connection.removeFromRight (dot); // clear of the line before REC
+    if (named > connection.getWidth())
+        connection.setLeft (juce::jmax (whole.getX(), connection.getRight() - named));
     const auto connectionDot = juce::Point<float> (connection.getX() + dot,
                                                     connection.getCentreY());
     const auto brightConnection = state.connectionColour.interpolatedWith (
@@ -104,10 +113,10 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
     g.fillEllipse (connectionDot.x - dot * 0.45f, connectionDot.y - dot * 0.45f,
                    dot * 0.9f, dot * 0.9f);
     connection.removeFromLeft (dot * 3.4f);
-    drawText (g, state.connectionText, connection.reduced (0.0f, area.getHeight() * 0.15f),
-              state.presentation, typography::TextRole::status, typography::Composition::shell,
-              brightConnection,
-              juce::Justification::centredLeft);
+    g.setColour (brightConnection);
+    g.setFont (labelFont (state.presentation, typography::TextRole::status));
+    text_style::drawEllipsized (g, state.connectionText, connection.reduced (0.0f, area.getHeight() * 0.15f).toNearestInt(),
+                                juce::Justification::centredLeft);
 
     if (state.recording)
     {

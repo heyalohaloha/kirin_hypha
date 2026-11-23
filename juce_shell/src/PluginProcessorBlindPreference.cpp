@@ -1,8 +1,22 @@
 #include "PluginProcessor.h"
+#include "HyphaLiveBlindMemory.h"
 #include <cmath>
 #include "reference_audition/ReferenceBlindSession.h"
 
 using namespace hypha::live_compare;
+
+std::shared_ptr<hypha::live_blind_ui::TrialMemory> KirinHyphaProcessorBase::liveBlindTrialMemory()
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    if (liveCompare.blindTrialMemory == nullptr)
+        liveCompare.blindTrialMemory = std::make_shared<hypha::live_blind_ui::TrialMemory>();
+    return liveCompare.blindTrialMemory;
+}
+
+void KirinHyphaProcessorBase::forgetBlindTrial()
+{
+    if (liveCompare.blindTrialMemory != nullptr) *liveCompare.blindTrialMemory = {};
+}
 
 std::optional<bool> KirinHyphaProcessorBase::acceptLiveBlindPreference (
     int source, std::uint64_t generation, std::uint32_t epoch)

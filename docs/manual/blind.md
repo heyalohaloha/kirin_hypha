@@ -41,9 +41,10 @@ From two completed rounds onward, except when the percentage rounds to 100%, it 
 occur when choosing at random, using a two-sided binomial calculation. This is a description of the
 choices, not an assessment of the listener, an ABX identification test, or proof of better sound.
 
-Preference answers and hidden assignments remain in memory for the current trial. END, restoring
-saved plug-in state, or changing the pair, format or owner clears them; restoring state does not
-resume a trial. Answers are not automatically written to disk, learned from, or used to change audio.
+Preference answers and hidden assignments remain in memory for the current trial, also while the
+window is closed: opening it again shows the same round, or the same RESULT and SAVE IMAGE. END,
+restoring saved plug-in state, or changing the pair, format or owner clears them; restoring state does
+not resume a trial. Answers are not automatically written to disk, learned from, or used to change audio.
 The round-count setting is remembered separately. A previous GUESS-on setting is read as five rounds
 when no new preference setting has been saved.
 

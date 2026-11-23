@@ -1,5 +1,6 @@
 #include "../src/HyphaBlindScreen.h"
 #include "ShortcutTestAccess.h"
+#include "BlindTrialWindowTest.h"
 #include "TestProcessorStorage.h"
 #include "ReferenceSelectionReopenTest.h"
 #include "../src/HyphaLanguage.h"
@@ -305,6 +306,7 @@ void verifyShortcutEditorActions()
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void verifyShortcutBlindScreenActions()
 {
+    verifyBlindTrialAcrossWindows();
     blind_ui::ScreenComponent component ("shortcut-blind");
     int source = 0, reveals = 0, ends = 0;
     component.onSelect = [&] (int selected) { source = selected; };

@@ -235,6 +235,7 @@ const Entry entries[] = {
     { "Unsupported audio format", u8"対応していない音声形式" },
     { "Audio could not be read", u8"音声を読み込めません" },
     { "Audio source changed", u8"参照音声が変更されました" },
+    { "Audio source unavailable", u8"参照音源を使えません" },
     { "Private copy required", u8"検証済みコピーが必要です" },
     { "Audio exceeds scan limit", u8"計測できる長さを超えています" },
     { "Audio is too short", u8"音声が短すぎます" },

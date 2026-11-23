@@ -322,19 +322,18 @@ pub struct KirinHyphaEngine {
     /// On-demand ATTACK measurement path. Unsupported host rates keep this absent; supported rates
     /// allocate bounded ingress at prepare time, but remain inactive until the POST page enables it.
     attack_runtime: Option<Arc<kirin_measure::AttackRuntime>>,
-    /// Exact-pair request/snapshot coordination. All filesystem work runs on the existing IO
-    /// worker; the UI only changes visibility and polls the latest immutable view.
+    /// Exact-pair requests and snapshots; filesystem work stays on the IO worker, the UI only polls.
     spectrum: Arc<SpectrumCoordinator>,
     /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
     /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
-    /// Record/Keep, Watch pass, pairing and editor lifetimeから独立した常設メーターセッション。
-    /// replace可能なMeasure workerの外側で所有し、worker再起動では破棄しない。
+    /// Record/Keep・Watch pass・pairing・editorから独立した常設メーターセッション。worker再起動でも残す。
     meter_session: Option<Arc<Mutex<MeterSession>>>,
     /// UI polling shelf for completed observations. It is never held while EBU processing runs.
     meter_session_publication: Option<Arc<MeterSessionPublication>>,
     /// Exact sample-time POST−PRE TIME join. Filesystem work stays on the existing IO worker.
     meter_delta_history: Option<Arc<MeterDeltaHistoryExchange>>,
+    reference_pair_hold: meter_observation_ffi::ReferencePairHold, // UI poll only
     /// Offline bounce 用 TRACE queue（Measure → IO）。
     record_trace_queue: RecordTraceQueue,
     /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
@@ -746,6 +745,7 @@ impl KirinHyphaEngine {
             session_summary,
             meter_session,
             meter_session_publication,
+            reference_pair_hold: Default::default(),
             meter_delta_history,
             record_trace_queue,
             record_take_tracker,

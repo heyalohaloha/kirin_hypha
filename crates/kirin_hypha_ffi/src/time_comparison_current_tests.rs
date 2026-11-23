@@ -123,50 +123,60 @@ fn continuity_source_and_pair_edges_retire_before_one_second() {
 }
 
 #[test]
-fn reference_reconstruction_requires_the_exact_absolute_aperture() {
-    let now = Instant::now();
-    let (point, _, view) = tests::joined(now);
-    let exact = level::exact_values_for_current(
-        &view,
-        point.wire.span,
-        Some(&point),
-        point.wire.observed,
-        now,
-    );
-    assert_eq!(exact, Some((point.wire.values, point.wire.crest)));
-    let mut latest = point.clone();
-    latest.wire.observed += 4800;
-    latest.wire.endpoint = latest.wire.endpoint.map(|end| end + 4800);
-    // Existing LEVEL keeps its bounded publication-lag behavior.
-    assert!(level::values_for_current(&view, point.wire.span, Some(&latest), now).is_some());
-    assert!(level::exact_values_for_current(
-        &view,
-        point.wire.span,
-        Some(&latest),
-        latest.wire.observed,
-        now
-    )
-    .is_none());
-    assert!(level::exact_values_for_current(
-        &view,
-        point.wire.span,
-        None,
-        point.wire.observed,
-        now
-    )
-    .is_none());
-    let mut span = point.wire.span;
-    span.generation += 1;
-    assert!(
-        level::exact_values_for_current(&view, span, Some(&point), point.wire.observed, now)
-            .is_none()
-    );
-    assert!(level::exact_values_for_current(
-        &view,
-        point.wire.span,
-        Some(&point),
-        point.wire.observed,
-        now + Duration::from_secs(2)
-    )
-    .is_none());
+fn reference_reconstruction_uses_one_confirmed_boundary_through_publication_lag() {
+    let start = Instant::now();
+    let (point, _, view) = tests::joined(start);
+    let span = point.wire.span;
+    let mut own = point.clone();
+    own.wire.values = [Some(-20.0), Some(-21.0), Some(-6.0), Some(12.0), None, None];
+    own.wire.crest = Some(9.0);
+    let at = |boundaries: u64, psr: f64| {
+        let mut later = own.clone();
+        later.wire.observed += 4800 * boundaries;
+        later.wire.endpoint = later
+            .wire
+            .endpoint
+            .map(|end| end + 4800 * boundaries as i64);
+        later.wire.values[3] = Some(psr);
+        later.wire.crest = Some(psr - 3.0);
+        later
+    };
+    // POST may be ahead of the newest common boundary for the whole comparison lifetime: the PRE
+    // reading stays, and it is that boundary's own value, never POST's newer one.
+    for boundaries in 0..10_u64 {
+        let tail: Vec<_> = (0..=boundaries)
+            .map(|step| at(step, 12.0 + step as f64))
+            .collect();
+        let now = start + Duration::from_millis(100 * boundaries);
+        let pair = level::paired_boundary_for_current(&view, span, &tail, now).unwrap();
+        assert_eq!(pair.own.0[3], Some(12.0));
+        assert_eq!(pair.own.1, Some(9.0));
+        assert_eq!(pair.difference.0[3], point.wire.values[3]);
+        assert_eq!(pair.difference.1, point.wire.crest);
+    }
+    let tail = [own.clone(), at(1, 13.0)];
+    // The boundary itself must still be held, and nothing outlives one second.
+    assert!(level::paired_boundary_for_current(&view, span, &tail[1..], start).is_none());
+    assert!(level::paired_boundary_for_current(&view, span, &[], start).is_none());
+    for ms in [1000, 1001, 5000] {
+        let now = start + Duration::from_millis(ms);
+        assert!(level::paired_boundary_for_current(&view, span, &tail, now).is_none());
+    }
+    // A newer known missing metric is not publication lag.
+    let mut missing = tail.clone();
+    missing[1].wire.values[3] = None;
+    let pair = level::paired_boundary_for_current(&view, span, &missing, start).unwrap();
+    assert!(pair.difference.0[3].is_none() && pair.difference.1.is_some());
+    let mut changed = span;
+    changed.generation += 1;
+    assert!(level::paired_boundary_for_current(&view, changed, &tail, start).is_none());
+    for variant in 0..3 {
+        let mut other = tail.clone();
+        match variant {
+            0 => other[0].wire.run += 1,
+            1 => other[0].wire.endpoint = Some(0),
+            _ => other[0].wire.usable = false,
+        }
+        assert!(level::paired_boundary_for_current(&view, span, &other, start).is_none());
+    }
 }

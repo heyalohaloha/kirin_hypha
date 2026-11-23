@@ -2,9 +2,11 @@
 
 #include <memory>
 #include <optional>
+#include <utility>
 #include "HyphaBlindPreferenceTrial.h"
 
 #include "HyphaBlindScreen.h"
+#include "HyphaLiveBlindMemory.h"
 #include "live_compare/LiveCompareProcessorState.h"
 
 // The image and its sheet stay out of the editor's headers (HyphaBlindImageSheet.h).
@@ -17,7 +19,7 @@ class Sheet;
 namespace hypha::live_blind_ui
 {
 // GUESS (2026-11-11, optional, off by default): whether this trial asks "Which one is B?" and the
-// answer given so far (0 before one is chosen). The answer lives on the screen only and is never stored.
+// answer given so far (0 before one is chosen). The answer lives with its trial and is never saved.
 struct Guess
 {
     bool asked = false;
@@ -39,6 +41,9 @@ public:
     ~Component() override;
     void setState (const live_compare::LiveBlindStatus& next, bool hostPlaying, float postActual, bool repeatingAudio = false);
     const live_compare::LiveBlindStatus& state() const noexcept { return current; }
+    // The plugin's own memory of the trial, kept while its window is closed. Set once, before the first setState.
+    void setTrialMemory (std::shared_ptr<TrialMemory> kept)
+    { if (kept != nullptr) { memory = std::move (kept); memoryAdopted = true; } }
 
     // GUESS from MENU. Off, the screen is exactly the Blind it always was.
     void setGuessing (bool on);
@@ -47,9 +52,9 @@ public:
     bool canChangePreferenceRounds() const noexcept;
     std::function<void (int)> onPreferenceRoundsChanged;
     int preferenceRounds() const noexcept { return rounds; }
-    int activePreferenceRounds() const noexcept { return activeRounds; }
-    const blind_preference::Trial& preferenceTrial() const noexcept { return preference; }
-    blind_preference::Summary trialSummary() const noexcept { return preference.summary(); }
+    int activePreferenceRounds() const noexcept { return memory->activeRounds; }
+    const blind_preference::Trial& preferenceTrial() const noexcept { return memory->preference; }
+    blind_preference::Summary trialSummary() const noexcept { return memory->preference.summary(); }
     // Caller supplies only currently revalidated approved gain, never estimated audio.
     void setPreferenceApprovedGains (std::uint64_t generation, std::optional<live_compare::GainSnapshot> gain);
     std::function<std::optional<bool> (int, std::uint64_t, std::uint32_t)> onPreferenceAnswer;
@@ -74,28 +79,17 @@ private:
     void refreshPreference();
     void choosePreference (int);
     void resetPreference();
-    juce::String preferenceNameA, preferenceNameB;
     void decoratePreference (blind_ui::Screen&) const;
     void retainPreferenceNotes();
     bool rememberNames();
     void chooseImageFile();
 
-    blind_preference::Trial preference;
-    int rounds = 1, activeRounds = 0; // configured next trial / captured active trial
-    bool preferenceBusy = false, awaitingEpoch = false;
-    std::uint32_t expectedEpoch = 0;
-    bool preferenceFallback = false, preferenceTimingFallback = false, preferenceCeilingFallback = false;
-    double preferenceContentNoticeMs = 0;
-    bool approvedGainsValid = false;
-    std::optional<live_compare::GainSnapshot> approvedGainAtStart;
-    double approvedPreDb = 0, approvedPostDb = 0;
-    std::uint64_t approvedGainGeneration = 0;
+    std::shared_ptr<TrialMemory> memory = std::make_shared<TrialMemory>();
+    int rounds = 1; // configured next trial; the memory holds the active one
+    bool preferenceBusy = false, memoryAdopted = false;
     live_compare::LiveBlindStatus current;
     bool playing = false, repeating = false, guessOn = false, namesRemembered = true;
     float actualPost = 1.0f;
-    int answer = 0;
-    std::uint64_t answerGeneration = 0;
-    std::uint32_t answerEpoch = 0;
     juce::File preferences;
     juce::File lastImageFolder;
     std::unique_ptr<blind_image::Sheet> sheet;

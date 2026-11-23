@@ -106,7 +106,7 @@ void reasons()
     require (legacy.status == Status::ready && legacy.reason.empty(), "old record decodes without reason");
     value.status = Status::unavailable;
     value.song = juce::String::repeatedString (juce::String::fromUTF8 ("長い曲名🎶"), 100);
-    for (const auto* code : {"select_reference_post", "preparing", "unsupported_format", "read_failed", "source_changed", "private_copy_required",
+    for (const auto* code : {"select_reference_post", "preparing", "unsupported_format", "read_failed", "source_changed", "source_unavailable", "private_copy_required",
                              "capacity_exceeded", "audio_too_short", "cue_too_short", "no_valid_value", "analysis_failed"})
     {
         value.reason = code;

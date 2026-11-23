@@ -118,6 +118,7 @@ inline const char* reasonText (const std::string& code) noexcept
     if (code == "unsupported_format") return "Unsupported audio format";
     if (code == "read_failed") return "Audio could not be read";
     if (code == "source_changed") return "Audio source changed";
+    if (code == "source_unavailable") return "Audio source unavailable";
     if (code == "private_copy_required") return "Private copy required";
     if (code == "capacity_exceeded") return "Audio exceeds scan limit";
     if (code == "audio_too_short") return "Audio is too short";
