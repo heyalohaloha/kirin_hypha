@@ -109,8 +109,7 @@ Some DAWs, including Logic Pro and Cakewalk (Sonar), take letter keys first. Cli
 if it still does not work, use the on-screen buttons to do the same thing instead.
 
 1. In POST, select the exact PRE pair. Before starting, use **MENU → MATCH SPAN** to choose
-   **LAST 4 s** (the default) or **ALL PLAYED**. At 200% and above, press **LISTEN** (**PRE/POST LISTEN**
-   at 300% and above) in the footer.
+   **LAST 4 s** (the default) or **ALL PLAYED**. At 200% and above, press **LISTEN** in the footer.
 2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms. The next LISTEN
    starts on the side you chose last, saved with the project; BLIND and A/B always start on their
    own terms, and opening or restoring a project never starts LISTEN.
