@@ -443,6 +443,7 @@ int main (int argc, char** argv)
         hypha::tests::editor_product::verifyBlindResultFixedAtReveal (sandbox.directory());
         hypha::tests::editor_product::verifyBlindResultEndsWithItsPre (sandbox.directory());
         hypha::tests::editor_product::verifyBlindAnswersSurviveAReceipt (sandbox.directory());
+        hypha::tests::editor_product::verifyNextRoundWaitsForItsReceipt (sandbox.directory());
     }
     if (runs ("trace")) hypha::tests::editor_product::verifySelectionTrace (sandbox.directory());
     std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";

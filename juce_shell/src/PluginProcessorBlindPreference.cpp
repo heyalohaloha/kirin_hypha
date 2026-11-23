@@ -41,8 +41,9 @@ bool KirinHyphaProcessorBase::nextLiveBlindPreferenceRound (std::uint64_t genera
         return false;
     }
     if (result != BlindSession::NextPreference::started) return false;
-    // No gain, approval, ceiling, attenuation or named selection changes here.
-    if (!liveCompare.authority.permitted() || !currentBlindReceipt (liveCompare))
+    // No gain, approval, ceiling, attenuation or named selection changes here. A tuple the audio thread commits
+    // meanwhile keeps the trial (its receipt follows); only a real loss ends the assignment just made.
+    if (!liveCompare.authority.permitted() || blindReceipt (liveCompare) == BlindReceipt::lost)
     { liveCompare.blind.end(); return false; }
     requestServiceTimer();
     return true;

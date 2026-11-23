@@ -80,6 +80,7 @@ private:
     void show();
     void refreshPreference();
     void choosePreference (int);
+    void startNextAssignment();
     void resetPreference();
     void decoratePreference (blind_ui::Screen&) const;
     void retainPreferenceNotes();

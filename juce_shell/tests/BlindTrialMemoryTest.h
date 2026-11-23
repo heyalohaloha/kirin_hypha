@@ -117,6 +117,84 @@ void verifyRevoked (Require require, const juce::File& root)
     require (names.deleteFile() && ! target.exists(), "the revoked fixture leaves no file");
 }
 
+// The gain receipt is still on its way when an answer is accepted: the answer stays, the next round starts once when
+// the receipt stands, and nothing is answered or assigned twice. REVEAL, END and a lost trial ask for none.
+template <typename Require>
+void verifyNextAssignmentWaits (Require require, const juce::File& root)
+{
+    using Phase = blind_preference::Phase;
+    const auto file = root.getChildFile ("blind-next-fixture");
+    for (const bool candidate : { false, true }) for (const int rounds : { 5, 10 })
+    {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (candidate);
+        unsigned asked = 0, granted = 0, refuse = 0;
+        bool random = true;
+        std::unique_ptr<Window> window;
+        const auto open = [&] {
+            window = std::make_unique<Window> (kept, status, file, rounds);
+            window->view.onPreferenceNext = [&] (std::uint64_t generation, std::uint32_t epoch) {
+                ++asked;
+                require (generation == status.generation && epoch == status.trial.epoch && ! status.trial.revealed, "only the answered round asks");
+                if (refuse > 0) { --refuse; window->show (status); return false; } // a refusal refreshes the window too
+                if (! random) { status.stage = live_compare::BlindStage::invalidated; status.reason = live_compare::RecoveryReason::randomUnavailable;
+                                window->show (status); return false; }
+                ++granted; ++status.trial.epoch; status.trial.played = 0; window->show (status); return true;
+            };
+        };
+        const auto answer = [&] (unsigned refusals) {
+            status.trial.played = 3; window->show (status);
+            refuse = refusals; window->view.onGuess (1);
+        };
+        open();
+        answer (3);
+        const auto epoch = status.trial.epoch;
+        require (window->view.trialSummary().total() == 1 && asked == 1 && granted == 0
+                 && window->view.preferenceTrial().phase() == Phase::awaitingAssignment && ! window->view.screen().guessOpen,
+                 "the accepted answer stays while its receipt is on its way");
+        window->view.onGuess (2); window->view.onGuess (1);
+        require (window->view.trialSummary().total() == 1 && asked == 1, "the waiting round takes no second answer");
+        window->show (status); window->show (status);
+        require (asked == 3 && granted == 0 && window->view.trialSummary().total() == 1, "each refresh asks once");
+        window->show (status);
+        require (asked == 4 && granted == 1 && status.trial.epoch == epoch + 1 && window->view.trialSummary().total() == 1
+                 && window->view.preferenceTrial().phase() == Phase::listening && window->view.preferenceTrial().roundNumber() == 2,
+                 "the standing receipt starts the next round once");
+        for (int again = 0; again < 4; ++again) window->show (status);
+        require (asked == 4 && granted == 1, "nothing is assigned twice");
+        answer (0);
+        require (asked == 5 && granted == 2 && window->view.trialSummary().total() == 2, "an ordinary answer moves at once");
+        // The window closes while the round waits: the reopened one goes on with it.
+        answer (1);
+        require (granted == 2 && window->view.trialSummary().total() == 3, "the third answer waits");
+        const auto waiting = status.trial.epoch;
+        open();
+        window->show (status);
+        require (status.trial.epoch == waiting + 1 && window->view.trialSummary().total() == 3
+                 && window->view.preferenceTrial().phase() == Phase::listening, "a reopened window starts the waiting round once");
+        // REVEAL while waiting: the answers so far, and no further assignment.
+        answer (100);
+        const auto before = asked;
+        status.trial.revealed = true; window->show (status); window->show (status);
+        require (asked == before && window->view.preferenceTrial().phase() == Phase::revealed && window->view.trialSummary().total() == 4,
+                 "REVEAL takes the answers so far and asks for nothing");
+        // A real loss while waiting clears the answers, and nothing is assigned afterwards.
+        status = trial (candidate); status.generation += 5; status.trial.epoch = 90; window->show (status);
+        answer (100);
+        const auto lost = asked;
+        status.stage = live_compare::BlindStage::invalidated; window->show (status); window->show (status);
+        require (asked == lost && window->view.trialSummary().total() == 0, "a lost trial clears the answers and asks for nothing");
+        // Randomness fails at the waiting request: it says so and ends.
+        status = trial (candidate); status.generation += 6; status.trial.epoch = 120; window->show (status);
+        answer (1); random = false;
+        const auto failing = asked;
+        window->show (status); window->show (status);
+        require (asked == failing + 1 && window->view.trialSummary().total() == 0
+                 && window->view.actionNoticeShown() == "Random assignment was unavailable", "failed randomness ends the waiting round once");
+    }
+    require (! file.exists(), "waiting writes no file");
+}
+
 template <typename Require>
 void verify (Require require, const juce::File& root)
 {
@@ -208,5 +286,6 @@ void verify (Require require, const juce::File& root)
     }
     require (! file.exists(), "the kept trial writes no file");
     verifyRevoked (require, root);
+    verifyNextAssignmentWaits (require, root);
 }
 }

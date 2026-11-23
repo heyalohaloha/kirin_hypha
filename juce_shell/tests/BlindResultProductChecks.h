@@ -198,4 +198,65 @@ inline void verifyBlindAnswersSurviveAReceipt (const juce::File& sandbox)
     r.post->clearPairCandidate(); r.advance (0.2);
     require (r.blind().trialSummary().total() == 0 && ! r.blind().screen().revealShown, "a lost pair clears the answers");
 }
+
+// The tuple moves between an accepted answer and its next round: the round starts once, when the receipt stands.
+inline void verifyNextRoundWaitsForItsReceipt (const juce::File& sandbox)
+{
+    ScopedChainTimingStorage preferences (sandbox);
+    BlindRig r (sandbox);
+    r.start (5);
+    static live_compare::ProcessorState* racing = nullptr;
+    static int reads = 0;
+    const auto trialEpoch = [&r] { return r.status().trial.epoch; };
+    const auto phase = [&r] { return r.blind().preferenceTrial().phase(); };
+    const auto goesOn = [&] (std::uint32_t from, unsigned answers, const char* why) {
+        for (int n = 0; n < 60 && trialEpoch() == from; ++n) r.advance (0.05);
+        r.advance (0.3);
+        require (trialEpoch() == from + 1 && phase() == blind_preference::Phase::listening
+                 && r.blind().trialSummary().total() == answers && r.status().stage == live_compare::BlindStage::active, why);
+    };
+    // Committed right after the answer: the request is refused and the round waits for real callbacks.
+    const auto answerThenCommit = [&r] {
+        auto accept = r.blind().onPreferenceAnswer;
+        r.blind().onPreferenceAnswer = [&r, accept] (int source, std::uint64_t generation, std::uint32_t epoch)
+        {
+            const auto accepted = accept (source, generation, epoch);
+            if (accepted) commitTrialTuple (r);
+            return accepted;
+        };
+        r.blind().onGuess (1);
+        r.blind().onPreferenceAnswer = accept;
+    };
+    r.hearBoth();
+    auto from = trialEpoch();
+    answerThenCommit();
+    require (trialEpoch() == from && phase() == blind_preference::Phase::awaitingAssignment
+             && r.blind().trialSummary().total() == 1, "the answer stays while the next round waits");
+    r.blind().onGuess (2);
+    (r.editor.get()->*shortcutMember (ShortcutBlindReveal {}))();
+    require (r.blind().trialSummary().total() == 1 && ! r.status().trial.revealed, "no second answer and no early REVEAL");
+    goesOn (from, 1, "the received tuple starts the next round once");
+    // The window closes while the round waits; the reopened one goes on.
+    r.hearBoth(); from = trialEpoch();
+    answerThenCommit();
+    require (trialEpoch() == from && r.blind().trialSummary().total() == 2, "the second answer waits too");
+    r.close(); r.advance (0.2); r.open(); r.blind().setPreferenceFile (r.names);
+    goesOn (from, 2, "a reopened window has the next round once");
+    // Committed while the new assignment is checked: the trial goes on with it.
+    racing = &(r.post.get()->*privateMember (NoticeLiveState {}));
+    r.hearBoth(); from = trialEpoch(); reads = 0;
+    live_compare::afterBlindReceiptReadForTest = [] { if (++reads == 3) { // answer, request, then the assignment's own check
+        live_compare::GainUpdate update (racing->gainRevision); racing->blindGainRevision.store (update.published()); } };
+    r.blind().onGuess (1);
+    live_compare::afterBlindReceiptReadForTest = nullptr;
+    require (reads >= 3, "the assignment checks the trial again");
+    goesOn (from, 3, "a tuple moving under the new assignment keeps the trial");
+    // Negative control: the session really ends at that same point.
+    r.hearBoth(); reads = 0;
+    live_compare::afterBlindReceiptReadForTest = [] { if (++reads == 3) racing->sessionActive.store (false); };
+    r.blind().onGuess (1);
+    live_compare::afterBlindReceiptReadForTest = nullptr;
+    r.advance (0.2);
+    require (r.status().stage != live_compare::BlindStage::active && r.blind().trialSummary().total() == 0, "a real end at that point ends the trial");
+}
 }

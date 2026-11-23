@@ -202,7 +202,12 @@ void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPl
     playing = hostPlaying;
     actualPost = postActual;
     repeating = repeatingAudio;
-    if (!preferenceBusy) refreshPreference();
+    if (!preferenceBusy)
+    {
+        refreshPreference();
+        startNextAssignment();
+        refreshPreference();
+    }
     show();
 }
 

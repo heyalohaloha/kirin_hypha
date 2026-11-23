@@ -76,21 +76,33 @@ void Component::choosePreference (int source)
         preferenceBusy = false; refreshPreference(); show(); return;
     }
     retainPreferenceNotes();
-    if (memory->preference.phase() == blind_preference::Phase::awaitingAssignment) {
-        // The existing session refuses epoch exhaustion rather than wrapping.
-        memory->expectedEpoch = static_cast<std::uint32_t> (epoch + 1u);
-        const bool started = epoch != std::numeric_limits<std::uint32_t>::max()
-            && onPreferenceNext && onPreferenceNext (generation, epoch);
-        memory->awaitingEpoch = started;
-        if (!started && current.reason == live_compare::RecoveryReason::randomUnavailable) {
-            memory->preference.randomnessFailed();
-            setActionNotice ("Random assignment was unavailable");
-        }
-        // Other refusals (stale epoch, lost authority or pending gain receipt)
-        // retain the processor's real recovery state, never claim an RNG failure.
-    }
     preferenceBusy = false;
+    startNextAssignment();
     refreshPreference(); show();
+}
+// The accepted answer's next assignment, for its own round only. A gain receipt still on its way refuses it without
+// a change, so each refresh asks again; the first that is granted moves the round and no later one is asked.
+void Component::startNextAssignment()
+{
+    const auto generation = current.generation;
+    const auto epoch = current.trial.epoch;
+    if (preferenceBusy || memory->awaitingEpoch || current.trial.revealed
+        || current.stage != live_compare::BlindStage::active || current.trial.invalidated
+        || memory->preference.phase() != blind_preference::Phase::awaitingAssignment
+        || memory->preference.generation() != generation || memory->preference.epoch() != epoch) return;
+    // The existing session refuses epoch exhaustion rather than wrapping.
+    memory->expectedEpoch = static_cast<std::uint32_t> (epoch + 1u);
+    preferenceBusy = true;
+    const bool started = epoch != std::numeric_limits<std::uint32_t>::max()
+        && onPreferenceNext && onPreferenceNext (generation, epoch);
+    memory->awaitingEpoch = started;
+    if (!started && current.reason == live_compare::RecoveryReason::randomUnavailable) {
+        memory->preference.randomnessFailed();
+        setActionNotice ("Random assignment was unavailable");
+    }
+    // Other refusals (stale epoch, lost authority or pending gain receipt)
+    // retain the processor's real recovery state, never claim an RNG failure.
+    preferenceBusy = false;
 }
 void Component::setPreferenceApprovedGains (std::uint64_t generation,
     std::optional<live_compare::GainSnapshot> gain)
