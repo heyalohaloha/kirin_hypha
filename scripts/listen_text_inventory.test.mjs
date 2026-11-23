@@ -67,7 +67,7 @@ test('a format change during the LISTEN press asks for the press again, not for 
   assert.equal(message, 'Audio format changed. Press LISTEN again.');
   assert.ok(recovery.includes(`formatChangedStartNotice = "${message}";`), 'the ledger matches the action source exactly');
   const expectedJapanese = cases.match(/live_compare_ui::formatChangedStartNotice, u8"([^"]+)"/)?.[1];
-  assert.equal(expectedJapanese, '音声形式が変わりました。もう一度LISTENを押してください');
+  assert.equal(expectedJapanese, '形式が変わりました。LISTENを押し直してください');
   assert.ok(japaneseNotices.includes(`{ "${message}", u8"${expectedJapanese}" }`), 'the production Japanese notice matches');
   assert.match(cases, /add \(formatChangedStart\.english\);/);
   assert.match(layout, /i18n::tr \(listen_text::formatChangedStart\.english\)/);
