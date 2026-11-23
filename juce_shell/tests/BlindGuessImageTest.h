@@ -69,10 +69,17 @@ void requireScreenFits (juce::Component& view, Require require, const juce::Stri
         if (auto* label = dynamic_cast<juce::Label*> (child); label != nullptr && label->getText().isNotEmpty())
         {
             const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-            require (text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth()) <= bounds.getHeight() + 0.5f,
-                     where + ": text fits " + text_style::shownText (label->getText()) + " in " + bounds.toString() + " needs "
-                         + juce::String (text_style::shownWidth (label->getFont(), label->getText())) + " x "
-                         + juce::String (text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth())));
+            const auto* screen = dynamic_cast<const blind_ui::ScreenComponent*> (&view);
+            const bool fixedQuestion = screen != nullptr && screen->screen().guessQuestionFixed
+                && label->getComponentID().endsWith ("-guess-question");
+            const auto policy = fixedQuestion ? text_style::LabelPolicy::fixed : text_style::LabelPolicy::localized;
+            const auto shown = text_style::shownText (label->getText(), policy);
+            const auto height = fixedQuestion ? text_style::wrappedHeight (shown, label->getFont(), bounds.getWidth())
+                : text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth());
+            require (height <= bounds.getHeight() + 0.5f,
+                     where + ": text fits " + shown + " in " + bounds.toString() + " needs "
+                         + juce::String (text_style::shownWidth (label->getFont(), label->getText(), policy)) + " x "
+                         + juce::String (height));
         }
     }
     editor_reachability::checkAtDisplayScales (view, [&] (float scale, const juce::String& problem)
@@ -305,6 +312,18 @@ void verifyBlindGuessAndImage (Require check)
             && view.imageSheet().reasonShown() == "This folder cannot be written; choose another", "a locked folder says so");
         locked.setReadOnly (false, false);
        #endif
+        const auto frozenExport = view.imageSheet().facts();
+        const auto safeScreen = blind_image::captureScreen (frozenExport);
+        require (safeScreen.sourcesShown && ! safeScreen.revealShown && ! safeScreen.saveImageShown
+                    && safeScreen.title == "BLIND RESULT", "PNG is formed by the same static RESULT component");
+        require (safeScreen.matchedGainText.isEmpty(), "shared export never contains per-source matched gains");
+        auto loweredExport = frozenExport;
+        loweredExport.loweredDb = 3.5;
+        const auto loweredScreen = blind_image::captureScreen (loweredExport);
+        require (loweredScreen.matchedGainText.isEmpty()
+            && (loweredScreen.instruction + loweredScreen.preferenceResultNote).contains ("3.5 dB"),
+            "shared export retains the separate clipping-avoidance note");
+        const auto expectedImage = blind_image::renderShared (frozenExport);
         const auto target = folder.getChildFile ("result.png");
         require (view.saveImageTo (target) && ! view.imageSheetOpen() && view.actionNoticeShown() == "Image saved", "saved");
         require (ui_preferences::read (preferenceFixture, "blind-image-folder")
@@ -316,6 +335,10 @@ void verifyBlindGuessAndImage (Require check)
         require (reopened.imageSaveInitialDirectory() == folder, "a new editor remembers the saved folder");
         const auto saved = juce::ImageFileFormat::loadFrom (target);
         require (saved.getWidth() == blind_image::pixelSize && saved.getHeight() == blind_image::pixelSize, "a 1080 square PNG");
+        for (int y : { 0, 270, 540, 810, 1079 })
+            for (int x = 0; x < saved.getWidth(); ++x)
+                require (saved.getPixelAt (x, y) == expectedImage.getPixelAt (x, y),
+                         "saved PNG uses the same RESULT projection as the image-sheet preview");
         require (hypha::tests::removeFixtureDirectory (folder), "remove the saved folder fixture");
         require (view.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory)
                  && reopened.imageSaveInitialDirectory() == juce::File::getSpecialLocation (juce::File::userPicturesDirectory),
@@ -348,6 +371,17 @@ void verifyBlindGuessAndImage (Require check)
             ? juce::String ("Audio estimate: POST box may have been 12.34 ms off")
             : juce::String::fromUTF8 (u8"音の推定：POST boxが12.34 msずれていた可能性");
         require (blind_image::detail::noteWithNames (namedNote) == expectedEstimate, "A/B estimate uses the typed name");
+        {
+            text_style::ShownTextLog sharedPaint;
+            const auto shared = blind_image::renderShared (namedNote, 540);
+            const auto& lines = sharedPaint.texts();
+            const auto caption = i18n::tr (blind_image::closingSentence);
+            require (shared.isValid() && lines.contains (blind_image::address) && lines.contains (caption),
+                     "the shared export paints the literal address and the localized sentence");
+            if (language == i18n::Language::japanese)
+                require (!misses().contains (blind_image::address) && caption != blind_image::closingSentence,
+                         "the unchanged address does not enter the catalog, but the closing sentence does");
+        }
         if (language == i18n::Language::japanese)
         {
             blind_image::Facts literalName;

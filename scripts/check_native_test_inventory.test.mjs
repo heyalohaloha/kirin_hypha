@@ -173,9 +173,85 @@ test('initial source phase wait has release selection, build target and updated 
   assert.ok(selection.test('kirin_reference_initial_source_phase_wait'));
   const targets = source.match(/JUCE_TEST_TARGETS=\(([\s\S]*?)\n\)/)[1].trim().split(/\s+/);
   assert.equal(targets.filter(name => name === 'KirinInitialSourcePhaseWaitTests').length, 1);
-  assert.match(source, /^JUCE_TEST_COUNT=344$/m);
+  assert.match(source, /^JUCE_TEST_COUNT=380$/m);
 });
 
+
+test('all LISTEN layout shards use fixed CTest count, arguments, timeout and release selectors', () => {
+  const source = readFileSync(new URL('./test_release_source.sh', import.meta.url), 'utf8');
+  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const sourceRegex = source.match(/JUCE_TEST_REGEX='([^']+)'/)[1];
+  const windowsStep = ci.split('kirin_reaper_clock|kirin_reaper_correspondence')[1].split("'")[0];
+  const windowsRegex = `^(kirin_reaper_clock|kirin_reaper_correspondence${windowsStep}`;
+  const stem = 'kirin_listen_text_layout';
+  const expected = new Map([
+    [stem, ['--recovery-only']],
+    [`${stem}_keep_tail`, ['--keep-tail-notice-only']],
+    [`${stem}_footer`, ['--footer-only']],
+    [`${stem}_blind_ui`, ['--blind-ui-only']],
+    [`${stem}_blind_image`, ['--blind-image-only']],
+    [`${stem}_footer_restore`, ['--footer-restoration-only']],
+    ...Array.from({ length: 17 }, (_, n) => [`${stem}_blind_trial_${n}`, ['--blind-trial-layout-only', String(n), '17']]),
+    ...Array.from({ length: 12 }, (_, n) => [`${stem}_paint_${n}`, ['--paint-only', String(n), '12']]),
+  ]);
+  const releaseArgs = source.match(/JUCE_TEST_TARGETS=\(([\s\S]*?)\n\)/)[1].trim().split(/\s+/);
+  assert.equal(releaseArgs.filter(target => target === 'KirinListenTextLayoutTests').length, 1);
+  assert.match(source, new RegExp(`^JUCE_TEST_COUNT=${346 + expected.size - 1}$`, 'm'));
+
+  const parent = path.join(process.cwd(), 'target', 'native-inventory-fixtures');
+  mkdirSync(parent, { recursive: true });
+  const root = mkdtempSync(path.join(parent, 'listen-shards-'));
+  const cmake = fileURLToPath(new URL('../juce_shell/cmake/ListenTextLayoutTests.cmake', import.meta.url));
+  try {
+    writeFileSync(path.join(root, 'CMakeLists.txt'), `cmake_minimum_required(VERSION 3.22)
+project(ListenLayoutInventoryFixture NONE)
+enable_testing()
+add_executable(KirinListenTextLayoutTests IMPORTED)
+set_target_properties(KirinListenTextLayoutTests PROPERTIES IMPORTED_LOCATION "\${CMAKE_COMMAND}")
+include("${cmake}")
+`);
+    const build = path.join(root, 'build');
+    const configured = spawnSync('cmake', ['-S', root, '-B', build], { encoding: 'utf8' });
+    assert.equal(configured.status, 0, configured.stderr);
+    const inventory = (regex) => {
+      const additional = regex ? ['-R', regex] : [];
+      const result = spawnSync('ctest', ['--test-dir', build, '--show-only=json-v1', ...additional], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout).tests;
+    };
+    const sortedNames = (registered) => registered.map(({ name }) => name).sort();
+    for (const selected of [undefined, sourceRegex, windowsRegex])
+      assert.deepEqual(sortedNames(inventory(selected)), [...expected.keys()].sort());
+    for (const { name, command, properties } of inventory()) {
+      assert.deepEqual(command.slice(1), expected.get(name), name);
+      assert.equal(properties.find(property => property.name === 'TIMEOUT')?.value, 300, name);
+    }
+    for (const selector of [sourceRegex, windowsRegex])
+      for (const invalid of ['_blind_trial_17', '_paint_12', '_made_up'])
+        assert.equal(new RegExp(selector).test(stem + invalid), false, stem + invalid);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('MATCH reentry cases have exact release selection and one native build target', () => {
+  const source = readFileSync(new URL('./test_release_source.sh', import.meta.url), 'utf8');
+  const selection = new RegExp(source.match(/JUCE_TEST_REGEX='([^']+)'/)[1]);
+  const selectionNames = source.match(/JUCE_TEST_REGEX='([^']+)'/)[1].split('|');
+  const registration = readFileSync(new URL('../juce_shell/cmake/LocalBlind.cmake', import.meta.url), 'utf8');
+  const registered = registration.match(/foreach\(scenario IN ITEMS ([^\n]+)\)\n\s+add_test\(NAME kirin_live_reentry_/)[1].split(/\s+/);
+  const exclusions = JSON.parse(readFileSync(new URL('./release_native_test_exclusions.json', import.meta.url), 'utf8'));
+  for (const suffix of ['restart', 'compensation']) {
+    const scenario = `match-span-${suffix}`;
+    const name = `kirin_live_reentry_${scenario}_product`;
+    assert.equal(registered.filter(item => item === scenario).length, 1, `CTest registration for ${name}`);
+    assert.ok(selection.test(name), `release selection omitted ${name}`);
+    assert.equal(selectionNames.filter(item => item === name).length, 1, `expected one exact selection for ${name}`);
+    assert.equal(exclusions.some(entry => entry.name === name), false, `release excludes ${name}`);
+  }
+  assert.equal(selection.test('kirin_live_reentry_match-span-invented_product'), false);
+  const targets = source.match(/JUCE_TEST_TARGETS=\(([\s\S]*?)\n\)/)[1].trim().split(/\s+/);
+  assert.equal(targets.filter(name => name === 'KirinLiveReentryProductTests').length, 1);
+});
 
 test('all four known roles must exist with their own property, even if required is present', () => {
   for (const role of fixtures()) {

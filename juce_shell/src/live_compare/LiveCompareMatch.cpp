@@ -55,6 +55,9 @@ MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
     plan.generation = result.generation;
     plan.generationBound = result.generationBound;
     plan.proof = result.proof; plan.preRun = result.preRun; plan.proofBound = result.proofBound;
+    plan.wholeOwner = result.wholeOwner; plan.wholeOwnerBound = result.wholeOwnerBound;
+    plan.wholePreClock = result.wholePreClock;
+    plan.compensationProof = result.compensationProof; plan.compensationProofBound = result.compensationProofBound;
     plan.ceilingDbtp = result.ceilingDbtp;
     const double held = std::min (0.0, heldPostDb);
     const double needed = result.measuredDb + held; // POST already sounds `held` dB quieter
@@ -129,6 +132,9 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
 {
     MatchResult result;
     const auto view = renderer.historyView();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest (false);
+   #endif
     if (view.samples == nullptr || ! view.kValid)
         return result;
     const auto available = std::min (view.end - view.start, view.frames - 1);
@@ -160,6 +166,7 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
         result.failure = MatchFailure::stale;
         return result;
     }
+    result.compensationProof = view.compensationProof; result.compensationProofBound = true;
     result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
     result.seconds = static_cast<double> (frames) / sampleRate;
     result.ceilingDbtp = std::max ({ -1.0, result.postPeakDbtp, result.prePeakDbtp });

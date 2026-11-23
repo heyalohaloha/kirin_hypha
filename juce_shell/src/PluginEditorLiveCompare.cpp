@@ -52,7 +52,8 @@ juce::String matchFailure (MatchFailure failure)
         case MatchFailure::none:            return {};
         // These only end a MATCH at its deadline (it measures again until then); LISTEN goes on.
         case MatchFailure::notProven:       return "No MATCH: timing not confirmed";
-        case MatchFailure::tooShort:
+        case MatchFailure::tooShort:        return "No MATCH: play at least 3 seconds";
+        case MatchFailure::wholeSpanLost: return "ALL PLAYED lost audio. END and restart.";
         case MatchFailure::overwritten:
         case MatchFailure::notEnoughSignal: return "No MATCH: not enough signal";
         case MatchFailure::outOfRange:      return "MATCH over 24 dB";
@@ -97,7 +98,7 @@ void KirinHyphaEditor::matchLiveCompare (std::uint64_t menuGeneration)
         if (! hypha::live_compare_ui::currentNamedAction (processorRef.liveCompareStatus(), menuGeneration, false))
             return;
     }
-    const auto result = processorRef.measureLiveCompare();
+    const auto result = processorRef.measureLiveCompare(true);
     if (! result.ok())
     {
         const bool waiting = result.failure == MatchFailure::notProven

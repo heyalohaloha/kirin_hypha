@@ -29,6 +29,8 @@ blind_ui::Screen versionBlindScreen (const State& state)
     screen.sourceOne = revealed ? "1: " + (state.blindOneIsComparison ? compared : juce::String ("A")) : juce::String ("SOURCE 1");
     screen.sourceTwo = revealed ? "2: " + (state.blindOneIsComparison ? juce::String ("A") : compared) : juce::String ("SOURCE 2");
     screen.sourcesShown = active || revealed;
+    // The same rows as LIVE BLIND stay free, so both BLIND screens place the same state the same way.
+    if (active || revealed) blind_ui::keepStoppedGuidanceRows (screen);
     // Only while the trial runs; a stopped Blind keeps the generic refusal (a request it kept is not a switch).
     screen.sourceReason = ! (active || revealed) ? juce::String()
                         : state.blindPaused ? juce::String ("Play the DAW to continue")

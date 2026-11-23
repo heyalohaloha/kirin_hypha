@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaKirinPopupMenu.h"
 #include "HyphaLocalBlindReturnIntent.h"
 
 #include <memory>
@@ -75,6 +76,8 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool isKeyDown) override;
+    // Esc offered by the host before its own command for it (JUCE patch 0015); true keeps it here.
+    bool kirinHostKeyOffered (const juce::KeyPress&, bool isKeyDown) override;
     void focusLost (FocusChangeType) override;
     void focusOfChildComponentChanged (FocusChangeType) override;
 
@@ -90,22 +93,14 @@ private:
     void closeKeysList();
     void refreshKeysList();
     hypha::shortcuts::HeldKeys heldShortcutKeys;
+    hypha::shortcuts::OfferedEscape offeredEscape;
     juce::Component::SafePointer<juce::Component> keysFocusReturn;
     bool keysOpenedInBlind = false;
     bool helpLineActive() const;
     void updateHelpLine();
     // The window, rows, marks and headers are TextLookAndFeel's one Kirin Select drawing; this
     // look only chooses the native menu font, which carries Japanese (INV-S40).
-    class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
-    {
-    public:
-        juce::Font getPopupMenuFont() override
-        {
-            return hypha::nativeTextFont (hypha::presentation::forOutput (
-                450, 300, hypha::presentation::OutputTarget::popup),
-                hypha::typography::TextRole::menu);
-        }
-    };
+    using PairMenuLookAndFeel = hypha::kirin_popup::LookAndFeel;
 
     void timerCallback() override;
     // The language every hosted editor shows follows LanguagePreference; a change lays the whole

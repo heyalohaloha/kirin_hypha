@@ -7,6 +7,7 @@
 #include <array>
 #include <cassert>
 #include <vector>
+#include <tuple>
 #include <utility>
 
 // External UI, settings and processor ports for the complete shipping methods.
@@ -28,14 +29,16 @@ struct View {
     KirinWatchDisplay watchDisplay {}; bool watchDisplayAvailable = false;
     Domain selectedDomain = Domain::level; Target selectedTarget = Target::absolute;
     int bodyArea = 0, paints = 0;
+    struct { bool takeDue(double) const { return false; } } levelReadout; // paint-side port; no paint runs here
     double numericInterval = -1;
     hypha::session_presentation::Gate sessionPresentation;
     KirinMeterSessionV2 sessionCoverage {}; bool haveSessionCoverage = false;
+    KirinObservatoryFrame observatoryFrame {}; bool frameAvailable = false;
     void invalidateSessionPresentation();
     bool retainSessionPoll(const KirinObservatoryFrame*,const KirinMeterSessionV2*,unsigned,bool,double);
     void setLevelNumericInterval(double ms) { numericInterval = ms; }
     void repaint(int) { ++paints; }
-    void setWatchDisplay(const KirinWatchDisplay&, bool);
+    bool setWatchDisplay(const KirinWatchDisplay&, bool);
     void setSurroundMeasurementOnly(bool) {} void setMeasurementFormatHeld(bool) {}
     bool setHybridVuOnRecordEnabled(bool) { return false; } bool setHostRecording(bool) { return false; }
     void setVuCalibration(int, bool) {} bool hybridVuVisible() const { return false; } void toFront(bool) {}

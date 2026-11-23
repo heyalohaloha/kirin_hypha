@@ -66,7 +66,12 @@ public:
     // shipped font carries, are drawn here from the display copy. Editing keeps the value itself.
     void drawLabel (juce::Graphics& g, juce::Label& label) override
     {
-        const auto shown = text_style::shownText (label.getText());
+        drawLabelWithPolicy (g, label, text_style::LabelPolicy::localized);
+    }
+
+    void drawLabelWithPolicy (juce::Graphics& g, juce::Label& label, text_style::LabelPolicy policy)
+    {
+        const auto shown = text_style::shownText (label.getText(), policy);
         if (label.isBeingEdited() || (! requiresJapaneseGlyphs (shown) && shown == label.getText()))
         {
             juce::LookAndFeel_V4::drawLabel (g, label);
@@ -79,7 +84,7 @@ public:
         g.setFont (requiresJapaneseGlyphs (shown) ? nativeTextFontLike (getLabelFont (label)) : getLabelFont (label));
         const auto area = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
         text_style::drawLines (g, label.getText(), area, label.getJustificationType(),
-                               juce::jmax (1, (int) ((float) area.getHeight() / height)));
+                               juce::jmax (1, (int) ((float) area.getHeight() / height)), policy);
         g.setColour (label.findColour (juce::Label::outlineColourId).withMultipliedAlpha (alpha));
         g.drawRect (label.getLocalBounds());
     }

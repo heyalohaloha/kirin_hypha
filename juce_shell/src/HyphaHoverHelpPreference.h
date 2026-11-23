@@ -63,6 +63,16 @@ public:
         if (component.isCurrentlyBlockedByAnotherModalComponent()
             || juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
             return tip;
+        const auto id = component.getComponentID();
+        if (id.startsWith ("live-blind-source-") || id.startsWith ("version-blind-source-")
+            || id.startsWith ("local-blind-source-"))
+        {
+            // A source already names itself on the blind button. Repeating the same static
+            // title below its shortcut creates a second row with no additional information.
+            if (const auto* button = dynamic_cast<const juce::Button*> (&component);
+                button != nullptr && tip.trim() == i18n::tr (button->getButtonText()).trim())
+                return shortcuts::controlMark (component);
+        }
         return shortcuts::withMark (tip, shortcuts::controlMark (component));
     }
 

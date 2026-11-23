@@ -217,6 +217,8 @@ above 100% and below 300%, FOLLOW A sits beside the song. At 300% LOOP and FOLLO
   song. ONE or ALL, how ALL draws and the lines shown are saved with the project (earlier versions of
   Hypha ignore them). Below 300 %, a compact Balance shows the current ONE or ALL selection,
   with the same line colours and numbered legend. At 100 %, ONE / ALL and the chart stay visible with DETAILS closed; open DETAILS for the playback and target controls, then close it to restore the chart.
+  Point at BALANCE to read the frequency and level at that position. The point reading is not
+  shown when the pointer leaves the chart; hiding it does not hide the chart or change playback.
 - **C**: CHECK SET, the song, one Check selector, the Cue, and MATCH. At 100%, the CHECK SET and Check
   selectors, MATCH, LUFS-I, MAX TP and one status line remain on the page. Open DETAILS for LOOP, FOLLOW A,
   Cue selection and CUE / SONG; close it to return to the simpler view. C uses only the song, Cue and bands chosen in Kirin OS; measured targets belong to B. C's status line stays at the bottom of its own page. At 300%, the first view in the Check definition

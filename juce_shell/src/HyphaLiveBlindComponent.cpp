@@ -44,6 +44,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         ? (!stopped && !current.candidate && guidance.reason == live_compare::RecoveryReason::notWritten
             ? live_compare_ui::preProcessingCause : live_compare_ui::cause (guidance.reason)) : "";
     screen.recovery = screen.guidanceShown ? guidance.instruction : "";
+    if (live) blind_ui::keepStoppedGuidanceRows (screen);
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     const juce::String normalLevel = "END restores normal level";
@@ -53,7 +54,8 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     if (failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange ? "MATCH over 24 dB"
             : current.waiting == live_compare::MatchFailure::notProven ? "No MATCH: timing not confirmed"
-            : current.waiting == live_compare::MatchFailure::tooShort || current.waiting == live_compare::MatchFailure::notEnoughSignal
+            : current.waiting == live_compare::MatchFailure::tooShort ? "No MATCH: play at least 3 seconds"
+            : current.waiting == live_compare::MatchFailure::notEnoughSignal
                 ? "No MATCH: not enough signal" : "MATCH failed; try again";
     else if (stopped)
     {
@@ -85,13 +87,18 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         if (current.signalWait) screen.guidanceShown = false;
     }
     screen.instruction = screen.guidanceShown ? juce::String() : instruction;
+    if (live) screen.unguidedInstruction = instruction;
     // One sentence: END says once what it gives back, the level and then the A to B chain.
     if (current.candidate)
         explanation += explanation == normalLevel || explanation == loweredLevel
             ? " and the A to B chain" : " and restores the A to B chain";
-    screen.detail = explanation;
+    screen.detail = screen.endExplanation = explanation;
     // The rise on END is named before anything else (INV-LC14).
-    if (live && !revealed && repeatingAudio && ! (returnDb > 0.05)) screen.detail = "Repeated audio: checked per block";
+    if (live && !revealed && repeatingAudio)
+    {
+        screen.trialNotice = "Repeated audio: checked per block";
+        if (! (returnDb > 0.05)) screen.detail = screen.trialNotice;
+    }
     // INV-LC28: the same words for both sources; PRE kept playing at its clock position. A lowered
     // level keeps its own line (named first), so the label takes the plain guidance line instead.
     if (live && (current.contentUnmeasured || current.contentNotRemeasured || current.contentUnapplied))
@@ -100,8 +107,14 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
             ? juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice()
             : current.contentUnapplied ? juce::String (live_compare_ui::unappliedNotice())
             : juce::String (live_compare_ui::notRemeasuredNotice());
+        if (screen.trialNotice.isNotEmpty()) screen.trialNotice += "\n";
+        screen.trialNotice += label;
         if (! (returnDb > 0.05)) screen.detail = label;
-        else if (! screen.guidanceShown && (! revealed || instruction == "Sources revealed; keep comparing")) screen.instruction = label;
+        else if (! revealed || instruction == "Sources revealed; keep comparing")
+        {
+            screen.unguidedInstruction = label;
+            if (! screen.guidanceShown) screen.instruction = label;
+        }
     }
     const char* firstA = current.candidate ? "1: A" : "1: PRE";
     const char* firstB = current.candidate ? "1: B" : "1: POST";
@@ -314,7 +327,7 @@ juce::File Component::imageSaveInitialDirectory() const
 bool Component::saveImageTo (const juce::File& file)
 {
     // Made on the message thread from the frozen RESULT; the audio is never touched.
-    const auto saved = capture::writePng (blind_image::render (sheet->facts()), file);
+    const auto saved = capture::writePng (blind_image::renderShared (sheet->facts()), file);
     if (saved != capture::PngSave::saved)
     {
         sheet->setReason (saved == capture::PngSave::notMade ? "The image could not be made; try again"

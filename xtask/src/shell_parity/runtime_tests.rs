@@ -1,9 +1,12 @@
     #[test]
     fn localized_juce_menus_use_the_native_text_font() {
-        assert!(PLUGIN_EDITOR_H.contains(
-            "return hypha::nativeTextFont (hypha::presentation::forOutput ("
-        ));
-        assert!(PLUGIN_EDITOR_H.contains("hypha::typography::TextRole::menu"));
+        // The menu look lives in the shared popup header; the editor only names it.
+        let font = between(KIRIN_POPUP_MENU_H, "juce::Font getPopupMenuFont() override", "};");
+        assert!(font.contains("return nativeTextFont (presentation::forOutput ("));
+        assert!(font.contains("typography::TextRole::menu"));
+        assert!(!KIRIN_POPUP_MENU_H.contains("monoFont"));
+        assert!(PLUGIN_EDITOR_H.contains("using PairMenuLookAndFeel = hypha::kirin_popup::LookAndFeel;"));
+        assert!(!PLUGIN_EDITOR_H.contains("getPopupMenuFont"));
         assert!(!PLUGIN_EDITOR_H.contains(
             "return hypha::monoFont ("
         ));

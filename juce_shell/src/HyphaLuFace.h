@@ -4,6 +4,7 @@
 #include "kirin_hypha_ffi.h"
 
 #include <functional>
+#include <optional>
 #include <vector>
 
 namespace hypha::hybrid_vu
@@ -22,7 +23,7 @@ public:
     std::function<void()> onLayoutChange;                          // the owner lays out and repaints
 
     void restore (bool luFace, lu_needle::Window);
-    void setCommonFace (bool isLu, const juce::String& label);
+    void setCommonFace (bool isLu, const juce::String& label, bool sharpOffered = true);
     std::function<void()> onFaceMenu;
     void setFacts (const lu_needle::Facts&);
     const lu_needle::Facts& facts() const noexcept { return current; }
@@ -34,6 +35,8 @@ public:
     void hideControls();
     // Takes the controls' places from the left of the VU row.
     void layout (juce::Rectangle<int>& row, int buttonHeight, const presentation::Context&);
+    void layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady = std::nullopt);
+    juce::String referenceStatus (std::optional<bool> metricReady = std::nullopt) const;
     void paint (juce::Graphics&, juce::Rectangle<int> bounds, const State&, const KirinDelta&,
                 bool deltaAvailable, float pixelScale);
 
@@ -53,6 +56,7 @@ private:
 
     juce::Component& owner;
     std::unique_ptr<Control> faceButton, windowButton;
+    juce::Label referenceStatusLabel;
     lu_needle::Facts current;
     bool luSelected = false, snapNext = true, commonFace = false;
     lu_needle::Window chosenWindow = lu_needle::Window::momentary;

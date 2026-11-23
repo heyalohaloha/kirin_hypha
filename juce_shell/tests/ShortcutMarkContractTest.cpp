@@ -87,7 +87,10 @@ void verifyShortcutMarks()
     require (refTip ("reference-cue").startsWith ("CUE Shift+X / C"), "the Cue shows its pair");
     require (refTip ("reference-preset").startsWith ("SET Shift+Q / W"), "the set shows its pair");
     auto& blind = rig.editor.get()->*shortcutMember (ShortcutLiveBlindView {});
-    require (tip.getTipFor (*blind.findChildWithID ("live-blind-source-1")).startsWith ("SOURCE 1 1"), "SOURCE 1 shows 1");
+    auto* sourceOne = dynamic_cast<juce::TextButton*> (blind.findChildWithID ("live-blind-source-1"));
+    require (sourceOne != nullptr, "blind source button exists");
+    sourceOne->setTooltip (sourceOne->getButtonText());
+    require (tip.getTipFor (*sourceOne) == "SOURCE 1 1", "source hint shows its key once, without a duplicate title");
     require (tip.getTipFor (*blind.findChildWithID ("live-blind-reveal")).startsWith ("REVEAL Shift+E"), "REVEAL shows its key");
     require (tip.getTipFor (*blind.findChildWithID ("live-blind-end")).startsWith ("END T"), "END shows T");
    #endif

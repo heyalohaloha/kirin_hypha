@@ -5,6 +5,16 @@
 
 namespace hypha::live_compare
 {
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+// A MATCH plan passed every check and the commit lock is not taken yet.
+inline void (*beforeLiveMatchCommitLockForTest)() = nullptr;
+#endif
+inline void beforeLiveMatchCommitLock()
+{
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (beforeLiveMatchCommitLockForTest) beforeLiveMatchCommitLockForTest();
+   #endif
+}
 struct GainIdentity
 {
     std::uint64_t pair = 0, ownerA = 0, ownerB = 0, authority = 0;

@@ -18,7 +18,10 @@ Release retrospectively. Local fixtures and CI success are not actual distributi
 
 The public asset registry records material hashes and per-use holds. Its Unknown entries describe
 missing rights/use evidence, not an infringement finding. Current CMake unconditionally embeds
-three GUI PNGs in PRE and POST. The maintainer declared these Codex-created images were generated from
+four GUI PNGs in PRE and POST, including the distinct one-dial and two-dial backgrounds. The
+registry documents the current hashes and each material's creation and permitted uses.
+
+For the earlier three-image inventory, the maintainer declared these Codex-created images were generated from
 textual instructions, with no third-party image inputs or specific existing-product/design
 reproduction instruction. Scoped generation/copy/hash evidence corroborates the known outputs;
 a retained input JPEG shows a Hypha-labelled mockup, not evidence of a third-party product. These

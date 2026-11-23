@@ -36,13 +36,14 @@ void KirinHyphaProcessorBase::serviceLiveCompareMatch()
     const auto now = callbackWallNanos();
     if (now < liveCompare.namedMatchNext) return;
     liveCompare.namedMatchNext = now + 500'000'000;
-    const auto measured = measureLiveCompare();
+    const auto measured = measureLiveCompare(true);
     liveCompare.namedMatchWaiting = measured.failure;
     const auto since = liveCompare.namedMatchSince;
     const bool expired = since != 0 && now >= since && now - since >= namedMatchLimitNanos;
     if (!measured.ok())
     {
-        if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan || expired)
+        if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan
+            || measured.failure == MatchFailure::wholeSpanLost || expired)
         {
             liveCompare.namedMatchPlan = {};
             liveCompare.namedMatchPlan.failure = measured.failure;
@@ -81,4 +82,63 @@ bool KirinHyphaProcessorBase::takeLiveCompareMatch (hypha::live_compare::MatchPl
     applied = liveCompare.namedMatchApplied;
     liveCompare.namedMatchReady = false;
     return true;
+}
+
+void KirinHyphaProcessorBase::setWholeMatchPreferred(bool enabled) noexcept
+{
+    // Saved with the project: the host hears of a real change, as it does for AUTO ALIGN.
+    if (!liveCompare.sessionActive.load(std::memory_order_acquire)
+        && liveCompare.wholeMatchPreferred.exchange(enabled, std::memory_order_acq_rel) != enabled)
+        updateHostDisplay(ChangeDetails {}.withNonParameterStateChanged(true));
+}
+
+void KirinHyphaProcessorBase::serviceLiveMatchSpan()
+{
+    if (role != Role::Post) return;
+    auto& span = liveCompare.renderer.wholeMatch;
+    if (!liveCompare.sessionActive.load(std::memory_order_acquire) || !liveCompare.authority.permitted())
+    { if (!span.enabled()) span.clear(); return; }
+    if (!candidateCompareActive()) span.service(&kirin_hypha_live_match_span_cut);
+}
+
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureWholeLiveMatch(const hypha::live_compare::Ring& ring, std::uint32_t rate)
+{
+    using namespace hypha::live_compare;
+    MatchResult result;
+    auto& span = liveCompare.renderer.wholeMatch;
+    const auto target = span.snapshot();
+    const auto owner = gainIdentity(ring, liveCompare.authority.ticket());
+    const auto view = liveCompare.renderer.historyView();
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (duringLiveMatchReadLeaseForTest) duringLiveMatchReadLeaseForTest(true);
+   #endif
+    const bool drained = span.serviceThrough(target,
+        std::numeric_limits<std::uint64_t>::max(), &kirin_hypha_live_match_span_cut);
+
+    if (span.lost()) { result.failure = MatchFailure::wholeSpanLost; return result; }
+    if (!drained || (view.compensationProof & 1u) != 0
+        || liveCompare.compensationState.load(std::memory_order_acquire) != view.compensationProof
+        || !wholeProofCurrent(ring, view) || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
+        return result;
+    if (!span.enough()) { result.failure = MatchFailure::tooShort; return result; }
+    KirinLiveMatchSpanFacts facts {};
+    if (!span.measure(facts))
+    { result.failure = span.lost() ? MatchFailure::wholeSpanLost : MatchFailure::notEnoughSignal; return result; }
+    const auto current = liveCompare.renderer.historyView();
+    if (!wholeProofCurrent(ring, current) || current.proof != view.proof
+        || current.preRun != view.preRun || current.preClock != view.preClock
+        || current.compensationProof != view.compensationProof
+        || liveCompare.compensationState.load(std::memory_order_acquire) != view.compensationProof
+        || !owner.same(gainIdentity(ring, liveCompare.authority.ticket())))
+    { result.failure = MatchFailure::stale; return result; }
+    result.measuredDb = facts.post_lufs - facts.pre_lufs;
+    result.prePeakDbtp = facts.pre_peak; result.postPeakDbtp = facts.post_peak;
+    result.ceilingDbtp = std::max({-1.0, facts.pre_peak, facts.post_peak});
+    result.analysisUnits = span.frames();
+    result.seconds = static_cast<double>(span.frames()) / rate;
+    result.wholeOwner = owner; result.wholeOwnerBound = true; result.wholePreClock = view.preClock;
+    result.compensationProof = view.compensationProof; result.compensationProofBound = true;
+    result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
+    result.failure = std::abs(result.measuredDb) <= maximumMatchDb ? MatchFailure::none : MatchFailure::outOfRange;
+    return result;
 }

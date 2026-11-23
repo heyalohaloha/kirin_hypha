@@ -3,6 +3,7 @@
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaTextStyle.h"
+#include "ShownLabelHeight.h"
 #include <tuple>
 
 namespace hypha::tests
@@ -50,12 +51,8 @@ void verifyLiveContentHoldUi (Require require)
                                  "notice controls remain inside the editor at 100 to 300 percent");
                         if (auto* label = dynamic_cast<juce::Label*> (child))
                         {
-                            juce::AttributedString text;
-                            text.append (text_style::shownText (label->getText()), label->getFont(), juce::Colours::white);
-                            juce::TextLayout layout;
                             const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                            layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                            require (layout.getHeight() <= bounds.getHeight(), "both languages fit the hold instructions without truncation");
+                            require (shownLabelHeight (*label) <= bounds.getHeight(), "both languages fit the hold instructions without truncation");
                         }
                     }
                     const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_SHELL_PREVIEW_DIR", {});
@@ -127,12 +124,8 @@ void verifyLiveContentHoldUi (Require require)
                                  "RESULT with both facts keeps every control inside the editor at 100 to 300 percent");
                         if (auto* label = dynamic_cast<juce::Label*> (child))
                         {
-                            juce::AttributedString attributed;
-                            attributed.append (text_style::shownText (label->getText()), label->getFont(), juce::Colours::white);
-                            juce::TextLayout layout;
                             const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                            layout.createLayout (attributed, static_cast<float> (bounds.getWidth()));
-                            require (layout.getHeight() <= bounds.getHeight(), "both RESULT facts fit without truncation");
+                            require (shownLabelHeight (*label) <= bounds.getHeight(), "both RESULT facts fit without truncation");
                         }
                     }
                 }

@@ -12,6 +12,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     endCandidateCompare();
     // End logical ownership now. The published mapping remains leased for the RT fade/ramp.
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.renderer.wholeMatch.suspend();
     liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // END ends this LISTEN
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();
@@ -68,9 +69,15 @@ bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
 StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t> pressedTicket)
 {
     blindStorageFailed.store (false, std::memory_order_release);
+    const auto permission = pressedTicket.value_or (liveCompare.authority.ticket());
+    // Freeze the eligible LISTEN receipt when the request arrives, before servicing or acquiring
+    // the trial scope. An RT acknowledgement that comes later cannot approve this inheritance.
+    const auto atRequest = readGainSnapshot (liveCompare);
+    const bool canInherit = atRequest.identity.authority == permission
+        && liveCompare.verdict.load (std::memory_order_acquire) == static_cast<std::uint8_t> (Verdict::accepted)
+        && currentGainReceipt (liveCompare, atRequest);
     const juce::ScopedLock pairLock (automaticPair.lock);
     using Phase = hypha::local_blind::ProductSessionPhase;
-    const auto permission = pressedTicket.value_or (liveCompare.authority.ticket());
     serviceLiveCompare();
     if (permission != liveCompare.authority.ticket())
         return StartResult::notReady;  // a restore or pair change since the press, checked under the pair lock
@@ -83,7 +90,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     const bool startedHere = ! liveCompare.sessionActive.load (std::memory_order_acquire);
     if (startedHere)
     {
-        const auto result = startLiveCompare (pressedTicket);
+        const auto result = startLiveCompare (pressedTicket, false, false);
         if (result != StartResult::started) return result;
     }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -137,12 +144,14 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
     liveCompare.blindPlayedFrom = liveCompare.playedFrames.load (std::memory_order_acquire);
     liveCompare.blindContentNoticeMs = 0.0;
     liveCompare.blindWaiting = MatchFailure::notProven;
+    liveCompare.blindInheritedGainRevision = !startedHere && canInherit ? atRequest.revision : 0;
     liveCompare.blindStage = BlindStage::preparing;
     // Every explicit trial owns a new timing admission. A current named MATCH tuple is kept,
     // then re-certified by the first fresh RT proof; old renderer/UI proof never seeds this epoch.
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
     const auto requiredAdmission = liveCompare.blindTimingRequest.load (std::memory_order_relaxed) + 1;
+    liveCompare.renderer.wholeMatch.suspend(); // P41: BLIND borrows the approved gain, never the LISTEN accumulator.
     liveCompare.blindTiming.begin (requiredAdmission);
     liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
     liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
@@ -208,9 +217,12 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     // Timing is proven again: what is left is the window filling, said as a signal wait, never a
     // stale timing reason.
     if (liveCompare.blindWaiting == MatchFailure::notProven) liveCompare.blindWaiting = MatchFailure::tooShort;
-    if (status.matchReady)
+    const auto gains = readGainSnapshot (liveCompare);
+    const bool inherited = gains.coherent && liveCompare.blindInheritedGainRevision != 0
+        && gains.revision == liveCompare.blindInheritedGainRevision;
+    const bool eligibleGain = inherited || liveCompare.blindStage == BlindStage::settling;
+    if (eligibleGain && status.matchReady)
     {
-        const auto gains = readGainSnapshot (liveCompare);
         if (! currentGainReceipt (liveCompare, gains)) return;
         liveCompare.blindGainRevision.store (gains.revision, std::memory_order_release);
         if (! liveCompare.blind.startWith (hypha::reference_audition::secureRandomBit))
@@ -227,7 +239,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         liveCompare.blindStage = BlindStage::active;
         return;
     }
-    if (status.matched && ! status.matchLimited) return; // the RT gain ramp has not settled
+    if (eligibleGain && status.matched && ! status.matchLimited) return; // wait only for the chosen gain ramp
     const auto history = liveCompare.renderer.historyView();
     // A seek back leaves the history behind the last measured end: count fresh audio from its new start,
     // so MATCH measures again half a second after the audio comes, not only past the old end.

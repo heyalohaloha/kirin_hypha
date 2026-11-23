@@ -42,10 +42,10 @@ juce::StringArray japaneseLines (const juce::String& shown, const juce::Font&, f
 float wrappedHeight (const juce::String& shown, const juce::Font&, int width);
 // The height drawLines gives `text` at `width`: in the current language, and in the native font
 // when that is Japanese.
-float shownWrappedHeight (const juce::String& text, const juce::Font&, int width);
+float shownWrappedHeight (const juce::String& text, const juce::Font&, int width, LabelPolicy = LabelPolicy::localized);
 // Up to `maximumLines` lines, wrapped at spaces (or anywhere in Japanese) and never compressed.
 void drawLines (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
-                juce::Justification, int maximumLines);
+                juce::Justification, int maximumLines, LabelPolicy = LabelPolicy::localized);
 void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                juce::Justification, bool useEllipsesIfTooLong = true);
 void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float>,

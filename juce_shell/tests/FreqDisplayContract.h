@@ -349,6 +349,11 @@ inline void verifyFreqDisplayContract()
                "LEVEL holds a factual value for the selected interval");
         frame.meter.generation++; frame.meter.lufs_m = -30;
         check (read.read (frame, 501).meter.lufs_m == -30, "LEVEL session boundaries replace the hold");
+        check (! read.takeDue (2000), "a shown reading asks for no further paint");
+        frame.meter.lufs_m = -40;
+        check (read.read (frame, 600).meter.lufs_m == -30 && ! read.takeDue (1000) && read.takeDue (1001)
+               && ! read.takeDue (3000) && read.read (frame, 1001).meter.lufs_m == -40 && ! read.takeDue (9000),
+               "a reading held by the last paint asks for one paint when its interval ends");
     }
     {
         level_readout::Display read; read.setInterval (1000);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include "../local_blind/RtPublicationSlot.h"
 #include "AaxChunkPosition.h"
 #include "LiveCompareAaxGroup.h"
@@ -118,6 +120,7 @@ struct ProcessorState
     GainApproval gainApproval; // all fields covered by gainRevision
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
     std::atomic<std::uint64_t> blindGainRevision { 0 }; // trial's approved tuple, not a UI inference
+    std::uint64_t blindInheritedGainRevision = 0; // non-RT: only the applied LISTEN tuple seen at BLIND entry
     // Audio Thread only: the ratio a BLIND trial (epoch) took on the gain revision it met the ceiling
     // with (PRE back at unity, POST lowered as much), until the audio thread commits it as a new
     // revision. `post` is that lowered POST target: a gain writer landing first never raises POST.
@@ -223,6 +226,7 @@ struct ProcessorState
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     OffsetEstimate offsetFacts, contentJumpFacts; // message thread, diagnostic only; never saved
     std::atomic<bool> autoAlign { true };         // INV-LC28; saved only when off
+    std::atomic<bool> wholeMatchPreferred { false };
     std::atomic<bool> listenPre { false };        // the side LISTEN last chose (INV-LC4); saved only when PRE
     std::atomic<std::uint64_t> alignFormat { 0 }, alignPreference { 0 }, alignPeer { 0 };
     AlignmentConditions alignmentConditions; // Audio Thread only
@@ -238,8 +242,8 @@ struct ProcessorState
     std::atomic<std::uint64_t> hostResetGeneration { 0 };
     std::uint64_t hostResetSeen = 0, stopSeen = 1; // Audio Thread only
     bool wasPlaying = false;                      // Audio Thread only
-    std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
-    std::atomic<std::uint64_t> compensationRevision { 0 };
+    std::recursive_mutex matchCommitLock; // non-RT: host compensation publication vs final MATCH approval
+    std::atomic<std::uint64_t> compensationState { 0 }; // INV-LC8: revision and low OFF bit published atomically
     std::uint64_t compensationSeen = 0;
     bool compensationWasOff = false;              // Audio Thread only
     // Shared callback result for analysis, LISTEN and BLIND; never persisted.

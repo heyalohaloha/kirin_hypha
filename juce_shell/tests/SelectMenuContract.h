@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/HyphaReferenceSelectorLookAndFeel.h"
+#include "../src/HyphaKirinPopupMenu.h"
 #include "../src/HyphaSelectMenu.h"
 
 #include <cstdlib>
@@ -82,6 +83,17 @@ inline void writeReview (const juce::Image& image, const juce::String& name)
 
 inline void verify()
 {
+    juce::Component meter, normal;
+    for (int width : { 300, 600, 1350 })
+    {
+        const auto meterOptions = kirin_popup::options (meter, meter, width);
+        const auto normalOptions = kirin_popup::options (normal, normal, width);
+        require (meterOptions.getTargetComponent() == &meter
+                 && meterOptions.getMinimumWidth() == normalOptions.getMinimumWidth()
+                 && meterOptions.getStandardItemHeight() == ui_contract::pairMenuItemHeight
+                 && meterOptions.getMaximumNumColumns() == 1,
+                 "meter uses normal MENU dimensions without losing its own anchor");
+    }
     const i18n::ScopedLanguage language (i18n::Language::english);
     TextLookAndFeel common;
     reference_ui::ReferenceSelectorLookAndFeel reference;

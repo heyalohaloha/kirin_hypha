@@ -26,7 +26,7 @@ use smallvec::{smallvec, SmallVec};
 
 use UpsamplingScanner::*;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum UpsamplingScanner {
     Mono2F(InterpF<24, 2, [f32; 1]>),
     Stereo2F(InterpF<24, 2, [f32; 2]>),
@@ -148,7 +148,7 @@ impl UpsamplingScanner {
 }
 
 /// True peak measurement.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TruePeak {
     /// Interpolator/resampler.
     interp: UpsamplingScanner,

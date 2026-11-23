@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -161,5 +162,34 @@ public:
 private:
     struct Held { int key, raw; };
     std::vector<Held> held;
+};
+
+// Esc that a host offers to the window before its own command for it, and before any native key
+// event (VST3 IPlugView::onKeyDown). A host that is told "not used" may close the plug-in window,
+// so an Esc the window used stays the window's for the whole press: its repeats, its release, and
+// a native copy of the same press are not given back.
+class OfferedEscape
+{
+public:
+    // `deliver` sends the plain press down the window's usual key path and says whether it was used.
+    template <typename Deliver>
+    bool offered (const juce::KeyPress& key, bool isKeyDown, Deliver&& deliver)
+    {
+        if (! key.isKeyCode (juce::KeyPress::escapeKey)) return false;
+        if (! isKeyDown) return std::exchange (held, false);
+        if (held) return true;  // the same press, repeating
+        if (key.getModifiers().isAnyModifierKeyDown()) return false;
+        return held = deliver (key);
+    }
+    // A host that also sends the native event: the copy of a press already used here.
+    bool nativeCopy (const juce::KeyPress& key) const
+    {
+        return held && key.isKeyCode (juce::KeyPress::escapeKey) && ! key.getModifiers().isAnyModifierKeyDown();
+    }
+    void clear() noexcept { held = false; }
+    bool holding() const noexcept { return held; }
+
+private:
+    bool held = false;
 };
 }

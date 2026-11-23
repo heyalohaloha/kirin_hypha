@@ -159,15 +159,29 @@ template <class Require> void verifyRecoveryGuidance (Require require)
                      "BLIND explains a host-paused PRE without asking to enable it or revealing a source");
             require (language != i18n::Language::japanese || i18n::hasTranslation (shown.cause),
                      "the PRE processing cause is translated");
-            for (const int width : { 300, 375, 450, 600, 750, 900 })
+            for (const int width : { 300, 303, 330, 375, 450, 600, 750, 900 })
             {
                 live_blind_ui::Component view; view.setSize (width, width * 2 / 3); view.setScreen (shown);
+                int previousBottom = 0;
                 for (const auto* id : { "live-blind-text-4", "live-blind-text-5" })
                 {
                     const auto* label = dynamic_cast<const juce::Label*> (view.findChildWithID (id));
                     require (label != nullptr && label->getFont().getHeight() >= 14.0f,
                              "the PRE processing guidance is readable at each size");
+                    if (!label) continue;
+                    require (label->isVisible() && view.getLocalBounds().contains (label->getBounds())
+                             && previousBottom <= label->getY(), "PRE pause cause and remedy have separate in-bounds rows");
+                    const auto body = label->getBorderSize().subtractedFrom (label->getLocalBounds());
+                    require (text_style::shownWrappedHeight (label->getText(), label->getFont(), body.getWidth()) <= body.getHeight(),
+                             "the whole rendered PRE pause explanation fits at the required type size");
+                    previousBottom = label->getBottom();
                 }
+                const auto* source = view.findChildWithID ("live-blind-source-1");
+                require (source && source->isVisible() && source->getHeight() >= 60,
+                         "the larger guidance does not shrink SOURCE");
+                for (const auto* id : { "live-blind-text-4", "live-blind-text-5" })
+                    if (const auto* label = view.findChildWithID (id); source && label)
+                        require (!source->getBounds().intersects (label->getBounds()), "guidance does not cover SOURCE");
             }
         }
     }

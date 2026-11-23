@@ -4,6 +4,7 @@
 #include "HyphaChainSummaryText.h"
 #include "HyphaChannelReadoutLayout.h"
 #include "HyphaComparisonPresentation.h"
+#include "HyphaCompactLevelRows.h"
 #include "HyphaLevelMetricContract.h"
 #include "HyphaBoundedText.h"
 #include "HyphaSurfaceMaterial.h"
@@ -293,13 +294,20 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                 selectedShortTermLoudness ? "S" : "M", "TP", "CREST"
             };
             const std::array<const char*, 3> units { "LU", "dB", "dB" };
+            const bool onePanel = density == Density::compact;
+            if (onePanel) drawPanel (g, area, family);
             for (int index = 0; index < 3; ++index)
-                drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
-                            index == 0 ? (selectedShortTermLoudness ? level_metrics::Metric::shortTerm : level_metrics::Metric::momentary)
-                                : index == 1 ? level_metrics::Metric::truePeak : level_metrics::Metric::crest),
-                            hypha::delta() + labels[(size_t) index],
-                            optionValue (values[(size_t) index], deltaFactsAvailable()),
-                            units[(size_t) index], family, context, true);
+            {
+                const auto row = metricHelpArea (onePanel ? compact_level_rows::take (area, 3-index)
+                    : area.removeFromLeft (area.getWidth() / (3-index)).reduced (2),
+                    index == 0 ? (selectedShortTermLoudness ? level_metrics::Metric::shortTerm : level_metrics::Metric::momentary)
+                               : index == 1 ? level_metrics::Metric::truePeak : level_metrics::Metric::crest);
+                const auto label = hypha::delta() + labels[(size_t) index];
+                const auto value = optionValue (values[(size_t) index], deltaFactsAvailable());
+                if (onePanel) compact_level_rows::paintRow (g, row, label, valueText (value, 1, true),
+                    units[(size_t) index], {}, std::isfinite (value), context);
+                else drawMetric (g, row, label, value, units[(size_t) index], family, context, true);
+            }
             return;
         }
         const std::array<double, 4> values {
@@ -355,14 +363,19 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             trackStem ? level_metrics::Metric::crest : level_metrics::Metric::integrated,
             level_metrics::Metric::maximumTruePeak
         };
+        const bool onePanel = density == Density::compact;
+        if (onePanel) drawPanel (g, area, family);
         for (int index = 0; index < 3; ++index)
-            drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
-                        compactMetrics[(size_t) index]),
-                        compactLabels[(size_t) index],
-                        optionValue (compactValues[(size_t) index],
-                                     compactAvailable[(size_t) index]),
-                        compactUnits[(size_t) index], family, context, false, 1,
-                        index == 2 ? maximumBound : juce::String());
+        {
+            const auto i = static_cast<size_t> (index);
+            const auto row = metricHelpArea (onePanel ? compact_level_rows::take (area, 3-index)
+                : area.removeFromLeft (area.getWidth() / (3-index)).reduced (2), compactMetrics[i]);
+            const auto value = optionValue (compactValues[i], compactAvailable[i]);
+            const auto bound = index == 2 ? maximumBound : juce::String();
+            if (onePanel) compact_level_rows::paintRow (g, row, compactLabels[i], valueText (value, 1, false),
+                compactUnits[i], bound, std::isfinite (value), context);
+            else drawMetric (g, row, compactLabels[i], value, compactUnits[i], family, context, false, 1, bound);
+        }
         if (! channelStrips.isEmpty())
             paintChannelStrips (g, channelStrips);
         return;
@@ -453,6 +466,14 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
         ? juce::String ("MAX M ") + juce::String (observatoryFrame.meter.max_lufs_m, 1) + " LUFS"
         : juce::String();
     const auto held = levelInspection.held();
+    if (! levelHistoryFactsAvailable())
+    {
+        static const std::vector<KirinMeterHistoryEntry> noVerifiedHistory;
+        capture_history::paint (g, levelHistoryArea, noVerifiedHistory, true,
+            static_cast<double> (observatoryFrame.meter.sample_rate), presentationContext(), std::nullopt,
+            comparison_presentation::statusText (observatoryFrame.comparison_state, observatoryFrame.comparison_reason));
+        return;
+    }
     capture_history::paint (g, levelHistoryArea, held ? levelInspection.snapshot : history,
                             target() == ObservationTarget::delta,
                             held ? levelInspection.sampleRate : static_cast<double> (observatoryFrame.meter.sample_rate),

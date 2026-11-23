@@ -437,8 +437,41 @@ static void matchOnCapsAKeptBoostAtTheCeiling()
     require (ceilingCappedGainDb (6.0, -1.0, std::numeric_limits<double>::quiet_NaN()) == 0.0, "no valid evidence never raises PRE");
 }
 
+static void matchesAllProvenPlaybackWithoutChangingLastFour()
+{
+    Pair pair;
+    auto& span = pair.renderer.wholeMatch;
+    span.prepare (true, rate, 2);
+    const auto feed = [&](int n, float pre, float post) {
+        for (int i = 0; i < n; ++i)
+        {
+            pair.runBlocks (20, pre, post);
+            span.service();
+        }
+    };
+    feed (5, 0.3f, 0.6f);
+    KirinLiveMatchSpanFacts facts {};
+    require (!span.enough() && !span.measure (facts), "all played waits for three proven seconds");
+    feed (40, 0.3f, 0.6f); // intro: quieter and deliberately mismatched
+    feed (19, 0.9f, 0.9f); // chorus: latest four seconds match
+    require (span.enough() && span.measure (facts), "all played uses the proven paired blocks");
+    const auto last = computeMatch (*pair.ring, pair.renderer, rate);
+    require (last.ok() && std::abs(last.measuredDb) < 0.1, "LAST 4 s retains its existing analysis");
+    require (facts.post_lufs - facts.pre_lufs > 0.1, "earlier proven intro contributes to ALL PLAYED");
+    span.restart();
+    require (!span.enough() && !span.measure (facts), "fresh LISTEN epoch cannot reuse earlier PCM");
+    span.clear();
+    require (!span.enabled() && !span.measure (facts), "END removes accumulated MATCH data");
+}
+
+#include "live_match_span_incomplete_test.h"
+#include "LiveMatchSpanAuditTest.h"
+
 int main()
 {
+    hypha::tests::match_span_audit::verify(require);
+    incompleteAllPlayedCannotMeasureUntilRestart();
+    matchesAllProvenPlaybackWithoutChangingLastFour();
     freshMatchesAtSupportedRates();
     normalRateReadinessDoesNotGrow();
     hypha::tests::verifyHighRateRingWindows<Pair> (require);

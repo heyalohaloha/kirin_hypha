@@ -81,7 +81,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     liveCompareButton.setVisible (full && entryShown && ! captureFrame);
     for (auto* entry : { &candidateCompareButton, &liveCompareButton })
         unavailable::set (*entry, liveCompareState.entryEnabled, liveCompareState.entryRefusal);
-    liveCompareButton.setButtonText (getWidth() < 900 ? "LISTEN" : "PRE/POST LISTEN");
+    liveCompareButton.setButtonText ("LISTEN");
     if (layoutLiveCompareFooter (actions))
         return;
     // Reserve NOTE and Stop slots: starting a recording does not move primary actions.

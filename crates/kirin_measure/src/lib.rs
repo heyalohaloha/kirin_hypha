@@ -30,6 +30,7 @@ pub mod ingest_contract;
 pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
+pub mod live_match_span;
 pub mod local_blind_capture_protocol;
 pub mod local_blind_capture_result;
 pub mod log_bands;
@@ -420,7 +421,6 @@ fn daw_session_id_cell() -> &'static Arc<RwLock<String>> {
 pub fn generate_project_hash() -> String {
     uuid::Uuid::new_v4().to_string()
 }
-
 /// プロセス単位 `project_uuid` の現在値を読み取る。
 ///
 /// セル空のときは lazy fallback で生成 UUID を返す（テスト・diagnostics 用途）。

@@ -19,6 +19,9 @@ void model()
     for (const auto face : {Face::psr, Face::crest, Face::sharp})
     {
         const auto range = extent (face);
+        require (rangeEdge (face, -range) == 0 && rangeEdge (face, range) == 0
+            && rangeEdge (face, -range * 2) == -1 && rangeEdge (face, range * 2) == 1
+            && rangeEdge (face, missing) == 0, "out of range edges are explicit");
         require (normalized (face, -range) == 0.0f && normalized (face, 0) == 0.5f
             && normalized (face, range) == 1.0f, "symmetric scale endpoints and zero");
         require (normalized (face, range * 2) == 1.0f && normalized (face, -range * 2) == 0.0f,
@@ -50,7 +53,7 @@ void model()
         require (!reading (frame).relativeBand, "offscale band not painted as false endpoint band");
     }
     require (!normalized (Face::lu, 0) && !normalized (Face::vu, 0), "LU and VU cannot borrow metric scale");
-    require (extent (Face::sharp) == 1 && extent (Face::psr) == 9 && extent (Face::crest) == 9,
+    require (extent (Face::sharp) == 1.5 && extent (Face::psr) == 24 && extent (Face::crest) == 24,
              "acum and dB extents remain distinct");
 }
 void render()
@@ -68,8 +71,8 @@ void render()
                                            hypha::presentation::defaultContext(), &trace);
                 require (!trace.empty(), "render exposes text contracts");
                 const std::vector<juce::String> expectedTicks = face == Face::sharp
-                    ? std::vector<juce::String> {"-1", "-0.5", "0", "+0.5", "+1"}
-                    : std::vector<juce::String> {"-9", "-6", "-3", "0", "+3", "+6", "+9"};
+                    ? std::vector<juce::String> {"-1.5", "-1.0", "-0.5", "0", "+0.5", "+1.0", "+1.5"}
+                    : std::vector<juce::String> {"-24", "-16", "-8", "0", "+8", "+16", "+24"};
                 // The heading is followed by every scale label, in dial order.
                 require (trace.size() >= expectedTicks.size() + 2, "all scale ticks recorded");
                 for (std::size_t tick = 0; tick < expectedTicks.size(); ++tick)
@@ -151,7 +154,7 @@ void integratedGeometry()
         for (const auto language : {hypha::i18n::Language::english, hypha::i18n::Language::japanese})
         {
             hypha::i18n::setCurrent (language);
-            require (hypha::i18n::hasTranslation ("MEASURING") && hypha::i18n::hasTranslation ("UNAVAILABLE"),
+            require (hypha::i18n::hasTranslation ("PREPARING") && hypha::i18n::hasTranslation ("UNAVAILABLE"),
                      "both status words have Japanese catalog entries");
             const int height = width * 2 / 3;
             const auto face = hypha::hybrid_vu::needle_painter::faceBounds ({0,0,width,height});
@@ -164,7 +167,7 @@ void integratedGeometry()
             std::vector<hypha::metric_face::TextBox> trace;
             hypha::metric_face::paint (graphics, bounds, frame, context, &trace, true);
             if (status != Status::ready)
-                require (std::any_of (trace.begin(), trace.end(), [&] (const auto& box) { return box.text.contains (hypha::i18n::tr (status == Status::measuring ? "MEASURING" : "UNAVAILABLE")); }),
+                require (std::any_of (trace.begin(), trace.end(), [&] (const auto& box) { return box.text.contains (hypha::i18n::tr (status == Status::measuring ? "PREPARING" : "UNAVAILABLE")); }),
                          "status is translated before joining the unchanged song title");
             require (trace.back().text.contains (juce::String::fromUTF8 (frame.song.c_str())), "song name is never translated");
             const auto chrome = chromeAreas (face);

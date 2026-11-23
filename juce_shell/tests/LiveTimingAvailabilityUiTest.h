@@ -2,6 +2,7 @@
 #include "../src/HyphaLiveBlindComponent.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaTextStyle.h"
+#include "ShownLabelHeight.h"
 
 namespace hypha::tests
 {
@@ -50,12 +51,8 @@ void verifyLiveTimingAvailabilityUi (Require require)
                                  "availability controls fit at 100/125/150 percent");
                         if (auto* label = dynamic_cast<juce::Label*> (child))
                         {
-                            juce::AttributedString text;
-                            text.append (text_style::shownText (label->getText()), label->getFont(), juce::Colours::white);
-                            juce::TextLayout layout;
                             const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                            layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                            require (layout.getHeight() <= bounds.getHeight(), "day-to-day waiting and approval translations fit");
+                            require (shownLabelHeight (*label) <= bounds.getHeight(), "day-to-day waiting and approval translations fit");
                         }
                     }
                     const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});

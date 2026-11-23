@@ -11,6 +11,7 @@ void KirinHyphaProcessorBase::invalidateLiveComparePair() noexcept
 {
     if (role != Role::Post) return;
     liveCompare.pairRevocationGeneration.store (liveCompare.authority.revoke(), std::memory_order_release);
+    liveCompare.renderer.wholeMatch.suspend();
     liveCompare.selection.end (hypha::live_compare::RecoveryReason::pairChanged);
     requestServiceTimer(); // cleanup is deferred; RT authority already rejects the old ring
 }
@@ -357,7 +358,7 @@ hypha::live_compare::PreAlignInput KirinHyphaProcessorBase::preAlignInput (hypha
     in.context = liveCompare.alignContext();
     in.host = { candidateCompareActive(), liveCompare.alignPeer.load (std::memory_order_acquire),
                 liveCompare.alignConditions.load (std::memory_order_acquire),
-                liveCompare.compensationRevision.load (std::memory_order_acquire) };
+                liveCompare.compensationState.load (std::memory_order_acquire) };
     in.revision = liveCompare.renderer.alignRevision();
     in.k = liveCompare.renderer.alignClockK(); in.clock = &liveCompare.renderer.alignState().readiness;
     in.active = true;

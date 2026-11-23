@@ -33,7 +33,10 @@ may change. If a random assignment cannot be prepared, Hypha stops rather than u
 
 After at least one answer, you can press **REVEAL** without finishing all the rounds. An unanswered
 round is not counted. After the final answer, Hypha invites you to reveal; it does not reveal automatically.
-The result reports the number of times you chose PRE or POST (A or B in A/B), or the equal counts.
+After **REVEAL**, the result identifies the anonymous sources and shows the number of votes for
+each role (PRE/POST or A/B), including equal counts. The result text is available in English and
+Japanese; the main controls, including **REVEAL** and **END**, keep their English labels.
+If timing changes during a live round before you answer, listen to both sources again before voting.
 From two completed rounds onward, except when the percentage rounds to 100%, it also reports how often a preference at least this uneven would
 occur when choosing at random, using a two-sided binomial calculation. This is a description of the
 choices, not an assessment of the listener, an ABX identification test, or proof of better sound.
@@ -57,9 +60,14 @@ at matched level.** for one round, or **N blind rounds at matched level.** for t
 Hypha address. Song and track names are not collected automatically. When saving fails, the reason
 stays on the screen.
 
-Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
-another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match, and a MATCH
-you turned off is not reused: BLIND then matches on its own.
+## Level matching
+
+For live PRE/POST comparisons, **MENU → MATCH SPAN** affects LISTEN only. With
+**LISTEN → MATCH → BLIND**, BLIND reuses a valid, fully applied LISTEN match from either
+**LAST 4 s** (the default) or **ALL PLAYED**. The gain, true-peak ceiling and any approved
+attenuation carry over as one match; AUTO stops. BLIND does not collect **ALL PLAYED** audio.
+When you start BLIND directly, turn MATCH off, or have only **TP LIMIT**, BLIND prepares a
+match from its usual recent window. The span setting does not change A/B or Reference MATCH.
 
 BLIND matches by raising the quieter source, as long as it stays under the ceiling (the larger of
 −1 dBTP and the measured true peaks). When raising it would peak above the ceiling, already at MATCH

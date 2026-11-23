@@ -340,7 +340,13 @@ mod tests {
         assert!(body.contains("juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);"));
         assert!(body.contains("[safeThis, candidates = cands] (int result)"));
         assert!(body.contains("safeThis->handleCandidateMenu (result, candidates);"));
-        assert!(PLUGIN_EDITOR_CPP.contains("static PairMenuLookAndFeel lookAndFeel;"));
+        // One function-static look, owned by the shared popup header and handed out by the editor.
+        let look = cpp_body(PLUGIN_EDITOR_CPP, "KirinHyphaEditor::pairMenuLookAndFeel()");
+        assert!(look.contains("return hypha::kirin_popup::appearance();"));
+        assert!(KIRIN_POPUP_MENU_H.contains("static LookAndFeel lookAndFeel;"));
+        assert!(KIRIN_POPUP_MENU_H.contains(".withDeletionCheck (lifetime)"));
+        assert!(PLUGIN_EDITOR_H.contains("static PairMenuLookAndFeel& pairMenuLookAndFeel();"));
+        assert!(!PLUGIN_EDITOR_H.contains("PairMenuLookAndFeel lookAndFeel;"));
         assert!(!PLUGIN_EDITOR_H.contains("PairMenuLookAndFeel       pairMenuLookAndFeel"));
         assert!(!PLUGIN_EDITOR_H.contains("menuCandidates;"));
     }

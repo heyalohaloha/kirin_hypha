@@ -30,6 +30,7 @@ enum class TextRole
     noticeBody,
     noticeCompact,
     listenChoice,
+    compactExplanation,
     historyAxis,
     historyLegend,
 };
@@ -126,6 +127,7 @@ constexpr Scale roleScale (TextRole role, Composition composition) noexcept
         case TextRole::noticeBody: return roleScale (TextRole::action, composition);
         case TextRole::noticeCompact: return roleScale (TextRole::legend, composition);
         case TextRole::listenChoice: return roleScale (TextRole::body, composition);
+        case TextRole::compactExplanation: return { 12.0f, 12.0f, 12.0f, 12.0f, 12.0f };
     }
     return { 11.0f, 11.0f, 11.0f, 11.0f, 11.0f };
 }
@@ -149,6 +151,7 @@ constexpr Overflow overflowFor (TextRole role) noexcept
         case TextRole::noticeBody:
         case TextRole::noticeCompact:
         case TextRole::listenChoice:
+        case TextRole::compactExplanation:
         case TextRole::status:
         case TextRole::tooltip: return Overflow::wrap;
         case TextRole::selector:

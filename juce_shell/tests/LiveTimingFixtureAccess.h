@@ -54,6 +54,12 @@ public:
     { processor.serviceLiveContentTiming(); }
     static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
     { processor.timerCallback(); }
+    static bool wholeSpanEnabledForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.wholeMatch.enabled(); }
+    static std::uint64_t wholeSpanPublishedForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.wholeMatch.snapshot(); }
+    static std::uint64_t wholeSpanConsumedForTest (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.renderer.wholeMatch.frames(); } // message thread only
     static bool liveCompareNeedsService (KirinHyphaProcessorBase& processor)
     { return processor.liveCompareNeedsService(); }
     static const juce::CriticalSection& handleOwnership (KirinHyphaProcessorBase& processor)
@@ -134,7 +140,7 @@ public:
     static void blindWaiting (KirinHyphaProcessorBase& processor, hypha::live_compare::BlindStage stage)
     { processor.liveCompare.blindStage = stage; }
     static void compensationDisabled (KirinHyphaProcessorBase& processor, bool disabled)
-    { processor.liveCompare.compensationOff.store (disabled); }
+    { processor.kirinHostDelayCompensationStateChanged (!disabled); }
     static hypha::live_compare::OffsetEstimate jumpFacts (const KirinHyphaProcessorBase& processor)
     { return processor.liveCompare.contentJumpFacts; }
     // Each new clock mapping (or a block that fails its sample check) opens a new content check.

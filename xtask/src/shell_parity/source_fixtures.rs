@@ -19,6 +19,11 @@
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditor.h"
     ));
+    // The one menu look every editor popup shares (font, static instance, shared options).
+    const KIRIN_POPUP_MENU_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaKirinPopupMenu.h"
+    ));
     const PLUGIN_EDITOR_OBSERVATORY_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditorObservatory.cpp"

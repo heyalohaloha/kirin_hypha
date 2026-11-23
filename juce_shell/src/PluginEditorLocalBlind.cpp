@@ -11,6 +11,17 @@ bool finished (Phase phase) noexcept
 {
     return phase == Phase::idle || phase == Phase::returned || phase == Phase::failed;
 }
+
+// Layout runs again on a size or language change. The covering screen stays on top, and takes the keys
+// from what it covers; keys already inside it, or held by another window, stay where the user put them.
+void raiseCoveringScreen (const juce::Component& editor, juce::Component& screen)
+{
+    screen.toFront (false);
+    const auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    const bool held = focused == &screen || screen.isParentOf (focused);
+    const bool covered = focused != nullptr && (focused == &editor || editor.isParentOf (focused)) && ! held;
+    if (covered && screen.isShowing()) screen.grabKeyboardFocus();
+}
 }
 
 void KirinHyphaEditor::configureLocalBlindProduct()
@@ -241,7 +252,7 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
     versionBlindView.setBounds (scaleRoot.getLocalBounds());
     versionBlindView.setVisible (versionBlindShown);
     setLocalBlindIsolation (localBlindOpen || liveBlindOpen || versionBlindShown);
-    if (liveBlindOpen) liveBlindView.toFront (true);
+    if (liveBlindOpen) raiseCoveringScreen (*this, liveBlindView);
     if (versionBlindShown)
     {
         versionBlindView.toFront (false);  // REF の更新が前に出しても、Blind の画面がいつも上
@@ -250,7 +261,7 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
     syncAnalysisDemand();
     if (localBlindOpen)
     {
-        localBlindView.toFront (true);
+        raiseCoveringScreen (*this, localBlindView);
         localBlindView.setAccessible (true);
     }
 }

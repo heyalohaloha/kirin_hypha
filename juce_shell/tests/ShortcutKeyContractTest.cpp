@@ -1,4 +1,6 @@
 #include "ShortcutKeyRig.h"
+#include "BlindNoticeFocusContractTest.h"
+#include "HostOfferedEscapeContractTest.h"
 #include "../src/HyphaShortcutText.h"
 #include <algorithm>
 #include <chrono>
@@ -204,6 +206,73 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
     blind.setScreen (screen);
     require (rig.press ('2') && chosen == 2 && rig.pressShift ('E') && reveals == 1 && rig.press ('T') && ends == 1,
              "the keys reach the same requests as the buttons");
+    screen.votingComplete = true;
+    screen.instruction = "All rounds answered; reveal when ready";
+    screen.title = "LIVE BLIND";
+    screen.endExplanation = "Lowered 4.2 dB to avoid clipping; END restores it";
+    screen.guidanceShown = true;
+    screen.cause = live_compare_ui::preProcessingCause;
+    screen.recovery = "Keep playing; resumes when confirmed";
+    screen.trialNotice = juce::String ("Repeated audio: checked per block") + "\n"
+        + live_compare_ui::unappliedNotice();
+    const auto originalBounds = blind.getBounds();
+    blind.setSize (300, 200);
+    const auto refusal = juce::String ("End Blind Compare first");
+    const auto completionRemains = [&]
+    {
+        const auto* completion = dynamic_cast<const juce::Label*> (blind.findChildWithID ("live-blind-text-2"));
+        require (completion && completion->isVisible() && completion->getText() == screen.instruction,
+                 "Q preserves the required final-vote instruction");
+    };
+    const auto more = [&] { return blind.findChildWithID ("live-blind-more-notices"); };
+    const auto inlineNotice = [&]
+    {
+        return dynamic_cast<const juce::Label*> (blind.findChildWithID ("live-blind-notice"));
+    };
+    const auto requireFreshQ = [&]
+    {
+        blind.setActionNotice ({});
+        const auto* notice = inlineNotice();
+        const auto* badge = more();
+        require (blind.actionNoticeShown().isEmpty() && notice && badge
+                 && !notice->getText().contains (refusal)
+                 && !badge->getDescription().contains (text_style::shownText (refusal)),
+                 "this language starts without a previous Q refusal in either notice path");
+    };
+    {
+        const i18n::ScopedLanguage language (i18n::Language::english);
+        blind.setScreen (screen);
+        requireFreshQ();
+        require (rig.press ('Q'), "Q is refused in the terminal ballot state");
+        completionRemains();
+        const auto* notice = inlineNotice();
+        require (notice && notice->isVisible() && notice->getText().contains (refusal)
+                 && more() && !more()->isVisible(), "when all notices fit, the Q refusal is shown directly");
+    }
+    {
+        const i18n::ScopedLanguage language (i18n::Language::japanese);
+        blind.setScreen (screen);
+        requireFreshQ();
+        require (rig.press ('Q'), "Q is refused in the narrow Japanese terminal ballot");
+        completionRemains();
+        const auto translated = text_style::shownText (refusal);
+        auto* badge = more();
+        const auto* accessibility = badge != nullptr ? badge->getAccessibilityHandler() : nullptr;
+        require (translated != refusal, "the Q refusal is translated in Japanese");
+        // Whether the narrow Japanese stack overflows depends on the platform's measured font.
+        if (badge != nullptr && badge->isShowing())
+            require (accessibility && accessibility->getDescription().contains (translated),
+                     "a real overflowing Japanese badge exposes the complete refused shortcut reason to accessibility");
+        else
+            // The inline label keeps the source text and translates it when painted.
+            require (inlineNotice() && inlineNotice()->isVisible() && inlineNotice()->getText().contains (refusal),
+                     "when the Japanese notices fit, the Q refusal is shown directly");
+    }
+    require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");
+    blind_notice_focus_test::verify (rig, blind, require);
+    blind.setBounds (originalBounds);
+    offered_escape_test::verifyImageSheet (rig, blind, require);
+    offered_escape_test::verifyImageSheetName (rig, require);
     open = false;
     blind.setVisible (false);
     rig.editor->grabKeyboardFocus();
@@ -339,6 +408,7 @@ void verifyShortcutKeys()
     verifyTextAndMenusComeFirst (rig);
     verifyOnePressOneAction (rig);
     verifyKeysList (rig);
+    offered_escape_test::verifyKeysList (rig, require);
 
     // A control does not keep the keys after a click, so Return stays the host's.
     auto* button = view.findChildWithID ("observatory-time");

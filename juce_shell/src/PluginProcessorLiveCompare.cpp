@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <thread>
+#include <tuple>
 
 // Live PRE/POST compare, stage 1 (AGENTS R-12, INV-LC1 to INV-LC3). PRE owns a ring for its own
 // identity; POST opens it for an explicit user session and plays PRE only where the correspondence
@@ -82,9 +83,8 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
         collectWithin (liveCompare.ring);
     }
 }
-
 hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket,
-                                                                            bool lastSide)
+                                                                            bool lastSide, bool captureListenSpan)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     using hypha::live_compare::StartResult;
@@ -92,13 +92,20 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     serviceLiveCompare();
     if (role != Role::Post)
         return StartResult::notPost;
-    if (! writesEnabled.load (std::memory_order_acquire) || permission != liveCompare.authority.ticket())
+    // A host may re-prepare on its own thread. Rate, channels, their prepare, the engine's enable and
+    // the PRE this start is for are read as one under its lock, and once more before the ring opens.
+    const auto format = [this] { const juce::ScopedLock formatLock (handleLock);
+        return std::tuple (preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()),
+                           liveCompare.formatGeneration.load (std::memory_order_acquire),
+                           writesEnabled.load (std::memory_order_acquire), liveComparePreInstance()); };
+    const auto started = format(); const auto rate = static_cast<std::uint32_t> (std::get<0> (started));
+    const auto& pre = std::get<4> (started);
+    if (! std::get<3> (started) || permission != liveCompare.authority.ticket())
         return StartResult::notReady;  // a restore or pair change since the press, checked under the pair lock
     if (! liveCompareSupported())
         return StartResult::unsupportedLayout;
     const auto admission = liveCompareAdmission (false);
     if (admission != StartResult::started) return admission;
-    const auto pre = liveComparePreInstance();
     if (pre.isEmpty())
         return StartResult::noPair;
     // Each admitted candidate start owns a fresh alignment, even for the same peer. A correction this
@@ -115,12 +122,16 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
     stopLiveCompare();
     if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,
             liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,
-            [&] { liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate); }))
+            [&] {
+                liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), std::get<0> (started));
+                liveCompare.renderer.wholeMatch.prepare (captureListenSpan && wholeMatchPreferred() && liveCompare.candidate.selectedPre.empty(),
+                    rate, std::get<1> (started));
+            }))
         return StartResult::notReady;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
-    if (! mapping->open (key, static_cast<std::uint32_t> (preparedFormat.sampleRate), false))
-        return StartResult::preUnavailable;
+    if (! mapping->open (key, rate, false)) // a ring refused for a rate the host just changed is not a stopped PRE
+        return std::get<2> (format()) != std::get<2> (started) ? StartResult::formatChanged : StartResult::preUnavailable;
     if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
         return StartResult::preMultiMono;
     liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
@@ -140,17 +151,17 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std:
             liveCompare.alignFormat.fetch_add (1, std::memory_order_acq_rel);
         liveCompare.contentHold.stopped();
     }
-    if (! publishMapping (liveCompare.ring, std::move (mapping)))
-        return StartResult::notReady;
-    if (! liveCompare.authority.arm (permission))
-    {
-        stopLiveCompare();
-        return StartResult::notReady;
+    { // The ring opens only for the prepare, the enabled engine and the PRE this start read; a later
+      // prepare finds the session open and ends it.
+        const juce::ScopedLock formatLock (handleLock);
+        if (format() != started) { stopLiveCompare(); return StartResult::notReady; }
+        if (! publishMapping (liveCompare.ring, std::move (mapping))) return StartResult::notReady;
+        if (! liveCompare.authority.arm (permission)) { stopLiveCompare(); return StartResult::notReady; }
+        liveCompare.waitNotice.begin (hypha::live_compare::callbackWallNanos());
+        liveCompare.sessionActive.store (true, std::memory_order_release);
+        liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
+        liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
     }
-    liveCompare.waitNotice.begin (hypha::live_compare::callbackWallNanos());
-    liveCompare.sessionActive.store (true, std::memory_order_release);
-    liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
-    liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     // 仕様 A：live 比較を始めたら、停止前の Reference の選択へ自動で戻さない。
     if (referenceAuditionController != nullptr) referenceAuditionController->forgetHeldAudition();
@@ -179,6 +190,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
                 ? liveCompare.blindPreparationReason : reason);
     }
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.renderer.wholeMatch.suspend();
     liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // a new LISTEN begins after this stop
     liveCompare.namedMatchPending = liveCompare.namedMatchReady = false;
     liveCompare.blindTiming.end();
@@ -224,45 +236,48 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
     }
 }
 
-hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare()
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::measureLiveCompare(bool selectedSpan)
 {
-    // Message thread: reads the POST history and PRE's ring through atomics only.
-    hypha::live_compare::MatchResult result;
-    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
-        || ! liveCompare.authority.permitted())
-        return result;
-    const auto* mapping = liveCompare.ring.control();
-    if (mapping == nullptr || mapping->ring() == nullptr)
-        return result;
-    const auto generation = liveCompare.sessionGeneration.load (std::memory_order_acquire);
-    result = hypha::live_compare::computeMatch (*mapping->ring(), liveCompare.renderer, mapping->rate());
-    if (generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)
-        || ! liveCompare.authority.permitted()) return {};
+    using namespace hypha::live_compare;
+    MatchResult result;
+    if (role != Role::Post || !liveCompare.sessionActive.load(std::memory_order_acquire)
+        || !liveCompare.authority.permitted()) return result;
+    const auto generation = liveCompare.sessionGeneration.load(std::memory_order_acquire);
+    liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
+    {
+        const auto* ring = mapping.ring();
+        if (ring == nullptr || ring->header.ownerClosed.load(std::memory_order_acquire) != 0) return;
+        {
+            const juce::ScopedTryLock formatLock (handleLock);
+            if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)) return;
+        } // analysis uses leased storage and the channels LISTEN started with, not a long mutex
+        result = selectedSpan && !candidateCompareActive() && liveCompare.renderer.wholeMatch.enabled()
+            ? measureWholeLiveMatch(*ring, mapping.rate()) : computeMatch(*ring, liveCompare.renderer, mapping.rate());
+        const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
+        if (ring->header.ownerClosed.load(std::memory_order_acquire) != 0 || (compensation & 1u) != 0
+            || (result.compensationProofBound && result.compensationProof != compensation)) result = {};
+    });
+    if (generation != liveCompare.sessionGeneration.load(std::memory_order_acquire)
+        || !liveCompare.authority.permitted()) return {};
     result.generation = generation;
     result.generationBound = true;
     return result;
 }
-
 // Message thread. A plan that needs approval takes the user's choice: lower POST with PRE at its
-// level, or raise PRE only up to the ceiling. The guard's ceiling is stored before the gains.
 hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch (const hypha::live_compare::MatchPlan& plan,
                                                      hypha::live_compare::MatchChoice choice)
 {
-    using hypha::live_compare::MatchChoice;
-    using hypha::live_compare::MatchFailure;
+    const juce::ScopedTryLock formatLock (handleLock);
+    using hypha::live_compare::MatchChoice; using hypha::live_compare::MatchFailure;
+    if (!formatLock.isLocked() || formatChangeHeld.load(std::memory_order_acquire)) return { MatchFailure::stale };
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
         || liveCompare.completion.pending() || liveCompare.blind.command().active()
         || ! liveCompare.authority.permitted()
         || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
         return { MatchFailure::stale };
-    const auto failure = hypha::live_compare::validateMatchPlan (plan, choice);
-    if (failure != MatchFailure::none) return { failure };
-    if (plan.proofBound)
-    {
-        const auto history = liveCompare.renderer.historyView();
-        if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)
-            return { MatchFailure::stale };
-    }
+    const auto failure = hypha::live_compare::validateMatchPlan (plan, choice); if (failure != MatchFailure::none) return { failure };
+    if (const auto history = liveCompare.renderer.historyView(); plan.proofBound
+        && (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)) return { MatchFailure::stale };
     const bool lower = choice == MatchChoice::lowerPost;
     const double preDb = lower ? 0.0 : plan.preGainDb;
     const double postDb = lower ? plan.lowerPostGainDb : plan.postGainDb;
@@ -272,38 +287,55 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
     // Only END/RETURN can raise POST; remeasure a stale plan rather than undo that approval.
     if (wantedPost > liveCompare.postTarget.load (std::memory_order_acquire))
         return { MatchFailure::stale };
-    hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
-    const auto* mapping = liveCompare.ring.control();
-    if (! update || mapping == nullptr || mapping->ring() == nullptr
-        || mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) != 0
-        || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
-        || ! liveCompare.sessionActive.load (std::memory_order_acquire)
-        || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
-        || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
-        return { MatchFailure::stale };
-    if (plan.proofBound)
+    bool applied = false;
+    liveCompare.ring.withControlReader([&](const SharedRingMapping& mapping)
     {
-        const auto history = liveCompare.renderer.historyView();
-        if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)
-            return { MatchFailure::stale };
-    }
-    liveCompare.gainApproval.bind (hypha::live_compare::gainIdentity (*mapping->ring(), liveCompare.authority.ticket()));
-    liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
-    liveCompare.gain.store (linear (preDb), std::memory_order_release);
-    liveCompare.postTarget.store (wantedPost, std::memory_order_release);
-    liveCompare.matchRun.store (liveCompare.playbackRun.load (std::memory_order_acquire), std::memory_order_release);
-    liveCompare.matchGeneration.store (plan.generationBound ? plan.generation
-        : liveCompare.sessionGeneration.load (std::memory_order_acquire), std::memory_order_release);
-    liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
-    liveCompare.matched.store (true, std::memory_order_release);
-    liveCompare.matchRetained.store (true, std::memory_order_release);
-    liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
-    liveCompare.matchPeakDbtp = plan.prePeakDbtp; // MATCH on checks a kept boost from here
-    return {};
+        const auto* ring = mapping.ring();
+        // The session and PRE's clock, run and owner: before the commit lock, and again under it.
+        // PRE is another audio thread and can still move its clock after the second check; the level
+        // measured over what was played stays the approved one.
+        const auto current = [&]
+        {
+            if (ring == nullptr || ring->header.ownerClosed.load (std::memory_order_acquire) != 0
+                || wantedPost > liveCompare.postTarget.load (std::memory_order_acquire)
+                || ! liveCompare.sessionActive.load (std::memory_order_acquire)
+                || ! liveCompare.authority.permitted() || liveCompare.completion.pending()
+                || (plan.generationBound && plan.generation != liveCompare.sessionGeneration.load (std::memory_order_acquire)))
+                return false;
+            if (! plan.proofBound && ! plan.wholeOwnerBound) return true;
+            const auto history = liveCompare.renderer.historyView();
+            if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun) return false;
+            return ! plan.wholeOwnerBound || (history.preClock == plan.wholePreClock
+                && hypha::live_compare::wholeProofCurrent (*ring, history)
+                && plan.wholeOwner.same (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
+        };
+        if (! current()) return;
+        const auto currentOwner = hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket());
+        hypha::live_compare::beforeLiveMatchCommitLock();
+        const std::lock_guard<std::recursive_mutex> commitLock (liveCompare.matchCommitLock);
+        const auto compensation = liveCompare.compensationState.load(std::memory_order_acquire);
+        if ((compensation & 1u) != 0 || (plan.compensationProofBound && compensation != plan.compensationProof)
+            || ! current()) return; // no revision was opened for a rejected proof
+        hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
+        if (!update || wantedPost > liveCompare.postTarget.load(std::memory_order_acquire)) return;
+        liveCompare.gainApproval.bind (currentOwner);
+        liveCompare.ceilingLinear.store (linear (plan.ceilingDbtp), std::memory_order_release);
+        liveCompare.gain.store (linear (preDb), std::memory_order_release);
+        liveCompare.postTarget.store (wantedPost, std::memory_order_release);
+        liveCompare.matchRun.store (liveCompare.playbackRun.load (std::memory_order_acquire), std::memory_order_release);
+        liveCompare.matchGeneration.store (plan.generationBound ? plan.generation
+            : liveCompare.sessionGeneration.load (std::memory_order_acquire), std::memory_order_release);
+        liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
+        liveCompare.matched.store (true, std::memory_order_release);
+        liveCompare.matchRetained.store (true, std::memory_order_release);
+        liveCompare.matchOff.store (false, std::memory_order_release); // a new MATCH replaces one turned off
+        liveCompare.matchPeakDbtp = plan.prePeakDbtp; // MATCH on checks a kept boost from here
+        applied = true;
+    });
+    return {applied ? MatchFailure::none : MatchFailure::stale};
 }
 
-// Message thread (INV-LC16): AUTO moves PRE's gain only. The ceiling and POST stay as the explicit
-// MATCH approved them; the Audio Thread ramps the new gain over 50 ms.
+// INV-LC16: AUTO ramps only PRE; approved ceiling and POST stay fixed.
 bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
 {
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
@@ -325,8 +357,10 @@ bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
 // clock can prove the correspondence: POST sounds and PRE waits until it is on again.
 void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged (bool enabled)
 {
-    if (liveCompare.compensationOff.exchange (! enabled, std::memory_order_acq_rel) != ! enabled)
-        liveCompare.compensationRevision.fetch_add (1, std::memory_order_release);
+    const std::lock_guard<std::recursive_mutex> commitLock (liveCompare.matchCommitLock); // non-RT, never waits for a measurement
+    const auto old = liveCompare.compensationState.load(std::memory_order_relaxed);
+    const auto off = static_cast<std::uint64_t>(!enabled);
+    if ((old & 1u) != off) liveCompare.compensationState.store(((old & ~std::uint64_t{1}) + 2) | off, std::memory_order_release);
 }
 
 // INV-LC9: Pro Tools names this instance's group once, before the first prepare (JUCE patch 0010).
@@ -340,34 +374,20 @@ void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
     finishLiveCompare();
 }
-
-bool KirinHyphaProcessorBase::takeLiveCompareGuardTrip() noexcept
-{
-    return liveCompare.guardTripped.exchange (false, std::memory_order_acq_rel);
-}
-
-std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
-{
-    return liveCompare.playbackRun.load (std::memory_order_acquire);
-}
-
 // Message thread: all comparison surfaces read the same callback result.
 bool KirinHyphaProcessorBase::analysisPairingLoopBlocked() const noexcept
 {
     return analysisPairingLoopBlock() != hypha::live_compare::LoopPairingBlock::none;
 }
-
 hypha::live_compare::LoopPairingBlock KirinHyphaProcessorBase::analysisPairingLoopBlock() const noexcept
 {
     return role == Role::Post ? liveCompare.loopBlock.load (std::memory_order_relaxed)
                              : hypha::live_compare::LoopPairingBlock::none;
 }
-
 bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
 {
     return liveCompare.preWaitSeen.exchange (false, std::memory_order_acq_rel);
 }
-
 bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
 {
     // INV-LC9: AAX offers the live compare on stereo instances and on the only instance of its
@@ -375,7 +395,6 @@ bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
     return role == Role::Post && stereoWorkflowsSupported() && ! aaxMultiMonoMember()
         && hypha::live_compare::sharedRingAvailable();
 }
-
 // Message thread. What POST measured between PRE's callback and its own over the last seconds
 // (LiveCompareChainTiming.h). A reading for the screen only: nothing decides or switches on it.
 hypha::live_compare::ChainTimingView KirinHyphaProcessorBase::chainTimingView() const noexcept
@@ -386,7 +405,6 @@ hypha::live_compare::ChainTimingView KirinHyphaProcessorBase::chainTimingView() 
     return hypha::live_compare::summarise (report, preparedFormat.sampleRate,
                                           hypha::live_compare::callbackWallNanos());
 }
-
 // INV-LC9: a mono AAX instance that the host does not show to be the only one of its group: one
 // channel of a multi-mono set, or a host that names no groups. Pro Tools processes the channels of
 // a set on parallel threads (G1 record, section 10), so no instance can switch them all in a block.
@@ -394,7 +412,6 @@ bool KirinHyphaProcessorBase::aaxMultiMonoMember() const noexcept
 {
     return wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2 && ! liveCompare.aaxGroup.alone();
 }
-
 // Message thread. A session belongs to the PRE ring it opened: a changed or cleared pair, or a PRE
 // that closed that ring (re-prepared, removed), ends it. Returns true when it ended the session.
 bool KirinHyphaProcessorBase::serviceLiveCompare()
@@ -473,7 +490,6 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
                                 : hypha::live_compare::RecoveryReason::preUnavailable);
     return true;
 }
-
 #include "live_compare/LiveCompareProcessorStatus.h"
 #include "live_compare/LiveCompareMatchToggle.h"
 #include "live_compare/CandidateProcessorControl.h"

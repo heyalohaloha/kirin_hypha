@@ -1,5 +1,7 @@
 #pragma once
 #include "BlindPreferenceComponentTest.h"
+#include "../src/HyphaBlindImageSheet.h"
+#include "../src/HyphaBlindResultSharedCapture.h"
 namespace hypha::tests
 {
 template<typename Require, typename Fits>
@@ -76,6 +78,39 @@ void verifyBlindGainResult(Require require,Fits fits,const juce::File& root,cons
             const auto layout=blind_image::layoutFor(h.view.resultFacts());
             juce::String saved; for(const auto& item:layout.items) saved+=item.text;
             require(!saved.contains("+1.2") && !saved.contains(juce::String::fromUTF8(u8"−2.3")),"saved image excludes compensation gains");
+            // No attenuation: an active delay warning cannot replace the END explanation at REVEAL.
+            h.status.contentUnmeasured = true;
+            h.view.setState (h.status, true, 1.0f);
+            const auto end = candidate ? juce::String ("END restores normal level and the A to B chain")
+                                       : juce::String ("END restores normal level");
+            const auto delay = juce::String (live_compare_ui::unmeasuredNotice()) + " / " + live_compare_ui::chainDelayNotice();
+            const auto endText = text_style::shownText (end), delayText = text_style::shownText (delay);
+            const auto notesWithDelay = note->getText();
+            require (note->isVisible() && notesWithDelay.indexOf (endText) >= 0
+                && notesWithDelay.indexOf (delayText) > notesWithDelay.indexOf (endText)
+                && notesWithDelay.indexOf (delayText) == notesWithDelay.lastIndexOf (delayText),
+                "visible result keeps the normal-level END text and unmeasured delay notice, in separate lines");
+            fullTextVisible (*note);
+            h.status.contentUnmeasured = false;
+            // Use the actual frozen save sheet and its capture model, not only the legacy layout.
+            h.view.setState(h.status,true,static_cast<float>(std::pow(10.0,-3.5/20.0)));
+            require(h.view.screen().matchedGainText==text,"approved per-source gain remains in the live result");
+            text_style::ShownTextLog previewText;
+            h.view.openImageSheet();
+            require(h.view.imageSheetOpen(),"approved-gain result opens the production save sheet");
+            const auto exportModel=blind_image::captureScreen(h.view.imageSheet().facts());
+            const auto exportNotes=exportModel.instruction+" "+exportModel.preferenceResultNote+" "+exportModel.detail;
+            const auto clippingNote=language==i18n::Language::japanese
+                ? juce::String::fromUTF8(u8"クリッピングを避けて3.5 dB下げました")
+                : juce::String("Lowered 3.5 dB to avoid clipping");
+            require(exportModel.matchedGainText.isEmpty() && !exportNotes.contains("+1.2")
+                && !exportNotes.contains(juce::String::fromUTF8(u8"−2.3")) && exportNotes.contains(clippingNote),
+                "frozen export excludes actual approved per-source gains but keeps the whole clipping-avoidance note");
+            if(rounds==1 && language==i18n::Language::japanese)
+                require(previewText.texts().contains(clippingNote),
+                    "the real save preview draws the complete clipping note in the selected language");
+            h.view.closeImageSheet();
+            h.publish();
             h.view.setCovered(true); require(!body->isVisible(),"image sheet covers gain");
             h.view.setCovered(false); require(body->isVisible(),"gain returns after sheet closes");
             auto changed=gain; ++changed.revision;

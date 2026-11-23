@@ -1,12 +1,15 @@
+#include "BinaryData.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaMetricFacePainter.h"
+#include "../src/HyphaPreSingleDialPreview.h"
 #include "../src/HyphaVuNeedlePainter.h"
 #include <cstdlib>
 #include "../src/HyphaTextStyle.h"
 #include <iostream>
 #include <stdexcept>
-
+#include "CrestNeedleStyleContract.h"
+#include "MetricFrameRepaintContract.h"
 namespace hypha::tests
 {
 namespace
@@ -68,6 +71,227 @@ void preview (const juce::Image& image, const juce::String& name)
     check (stream != nullptr && stream->setPosition (0) && stream->truncate().wasOk(), "open PNG");
     check (juce::PNGImageFormat().writeImageToStream (image, *stream), "write PNG");
 }
+void verifyIndependentPreDial (int width, const Frame& frame)
+{
+    namespace pre = metric_face::pre_preview;
+    const juce::Rectangle<int> canvas (width, width * 2 / 3);
+    const auto chassis = pre::chassisBounds (canvas);
+    check (chassis == canvas, "3:2 backgrounds keep original scale");
+    const auto fitted = pre::chassisBounds (canvas.withHeight (canvas.getHeight() - 7));
+    check (fitted.getWidth() * 2 == fitted.getHeight() * 3, "non-3:2 outer bounds still fit uniformly");
+    const auto centre = pre::singleDial (chassis).pivot;
+    check (std::abs (centre.x - chassis.getCentreX()) < 1.0f, "PRE one vector dial is centred");
+    const auto masks = pre::hubMasks (chassis);
+    check (masks[0].getRight() < centre.x && masks[1].getX() > centre.x, "masks cover only the old hub regions");
+    KirinMeterSession meter {};
+    KirinWatchDisplay watch {};
+    hybrid_vu::State state { observatory::Role::pre, meter, watch };
+    state.presentation = presentation::forEditor (width, canvas.getHeight());
+    juce::Image base (juce::Image::RGB, width, canvas.getHeight(), true);
+    { juce::Graphics g (base); hybrid_vu::paintStatic (g, chassis, state); }
+    const auto masked = pre::withLocalGrainCovers (base);
+    const int protectedRow = juce::roundToInt (chassis.getHeight() * pre::protectedGoldRow /
+                                               static_cast<float> (pre::chassisAssetHeight));
+    for (int y = 0; y < canvas.getHeight(); ++y)
+        for (int x = 0; x < width; ++x)
+            if (y >= protectedRow || (! masks[0].getSmallestIntegerContainer().contains (x, y)
+                && ! masks[1].getSmallestIntegerContainer().contains (x, y)))
+                check (base.getPixelAt (x, y) == masked.getPixelAt (x, y), "frame/texture outside the two local masks is pixel-identical");
+    check (differences (base, masked, masks[0].getSmallestIntegerContainer()) > 0
+        && differences (base, masked, masks[1].getSmallestIntegerContainer()) > 0,
+        "both old hub regions are affected; a transparent/no-op mask is not a pass");
+    auto sample = frame;
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const auto lang = language == i18n::Language::english ? "en" : "ja";
+        for (auto which : { "ready", "preparing", "zero", "range-out", "unavailable" })
+        {
+            sample = frame;
+            if (juce::String (which) == "preparing") sample.status = Status::measuring;
+            if (juce::String (which) == "unavailable") sample.status = Status::unavailable;
+            if (juce::String (which) == "zero") sample.own = frame.median;
+            if (juce::String (which) == "range-out") sample.own = frame.median + 2.0 * metric_needle::extent (frame.face);
+            juce::Image image (juce::Image::RGB, width, canvas.getHeight(), true);
+            juce::Graphics g (image);
+            pre::paint (g, canvas, state, sample);
+            preview (image, juce::String ("pre-single-native-") + metric_needle::label (frame.face)
+                     + "-" + lang + "-" + which + "-" + juce::String (width));
+        }
+    }
+}
+void verifyChassisSelectionAndStaticCache()
+{
+    using metric_face::MetricChassisPair;
+    check (metric_face::dialCount (observatory::Role::pre) == 1
+            && metric_face::dialCount (observatory::Role::post) == 2, "PRE B and POST A share one role-count rule");
+    MetricChassisPair bank;
+    bank.pre.image = juce::Image (juce::Image::RGB, 1536, 1024, true);
+    check (! bank.isValid(), "do not enable an incomplete mid pair");
+    bank.post = juce::Image (juce::Image::RGB, 1536, 1024, true);
+    check (bank.isValid(), "complete explicit fixtures enable mid only in this test");
+    KirinMeterSession meter {};
+    KirinWatchDisplay watch {};
+    const auto box = juce::Rectangle<int> (600, 400);
+    juce::Image layer (juce::Image::RGB, 900, 600, true);
+    juce::Graphics g (layer);
+    metric_face::MeterBackdrop backdrop;
+    auto frame = Frame {};
+    const hybrid_vu::State state { observatory::Role::pre, meter, watch };
+    check (! metric_face::paintMetricCandidate (g, box, state, frame, nullptr, backdrop)
+            && backdrop.buildsForTest() == 0, "no selected artwork touches no legacy pixels");
+    check (metric_face::paintMetricCandidate (g, box, state, frame, &bank, backdrop)
+            && backdrop.buildsForTest() == 1, "initial candidate draws one static raster");
+    frame.status = Status::measuring;
+    metric_face::paintMetricCandidate (g, box, state, frame, &bank, backdrop);
+    check (backdrop.buildsForTest() == 1, "new measurement does not rerasterize chassis");
+    metric_face::paintMetricCandidate (g, layer.getBounds(), state, frame, &bank, backdrop);
+    check (backdrop.buildsForTest() == 2, "changed size invalidates candidate raster exactly once");
+    frame.face = Face::vu;
+    const hybrid_vu::State post { observatory::Role::post, meter, watch };
+    check (! metric_face::paintMetricCandidate (g, box, post, frame, &bank, backdrop)
+            && backdrop.buildsForTest() == 2, "POST VU is never redirected by the metric candidate");
+}
+std::shared_ptr<const metric_face::MetricChassisPair> embeddedMid()
+{
+    using namespace BinaryData;
+    auto image = [] (const void* data, int n) { return juce::ImageFileFormat::loadFrom (data, static_cast<std::size_t> (n)); };
+    auto mid = std::make_shared<const metric_face::MetricChassisPair> (metric_face::MetricChassisPair {
+        {image (hybrid_vu_chassis_single_png, hybrid_vu_chassis_single_pngSize), {1531.0f, 1251.0f}},
+        image (hybrid_vu_chassis_png, hybrid_vu_chassis_pngSize)});
+    check (mid->isValid() && mid->post.getWidth() == 1536 && mid->post.getHeight() == 1024,
+           "use the embedded shipping images, not surrogate colours or a missing bank");
+    return mid;
+}
+void verifyEmbeddedMidReference()
+{
+    namespace mf = metric_face;
+    const auto mid = embeddedMid();
+    for (const auto role : {observatory::Role::pre, observatory::Role::post})
+    for (const auto language : {i18n::Language::english, i18n::Language::japanese})
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const bool pre = role == observatory::Role::pre;
+        context = pre ? "embedded PRE PSR" : "embedded POST PSR";
+        observatory::View view (role, mid);
+        view.setSize (600, 400);
+        view.setMeterSnapshot (meter(), true);
+        view.setManualHybridVuVisible (true);
+        view.lu().setFacts (reference());
+        view.setMetricFace (Face::psr);
+        check (view.metricFaceActive(), "embedded metric must actually be selected");
+        Frame frame; frame.face = Face::psr; frame.status = Status::ready; frame.ownIsPre = pre;
+        frame.median = 12.0; frame.own = 14.25; frame.pre = 10.75; frame.song = "Synthetic Cue";
+        const auto imageFor = [&] (const Frame& sample) { view.setMetricFrame (sample); return render (view); };
+        const auto plain = imageFor (frame);
+        const auto roi = [] (juce::Point<float> p) { return juce::Rectangle<int> (9, 9).withCentre (p.roundToInt()); };
+        const auto chassis = mf::pre_preview::chassisBounds (view.getLocalBounds());
+        const auto own = mf::candidateDial (chassis, *mid, role, pre ? 0 : 1);
+        // An absent FOLLOW value is different from zero; only the admitted display fact changes here.
+        if (! pre)
+        {
+            auto followed = frame; followed.reference = 22.5;
+            const auto at = *metric_needle::normalized (Face::psr, 10.5);
+            const auto refPoint = [&] (auto geometry) {
+                return geometry.pivot + (mf::candidatePoint (geometry, at) - geometry.pivot) * .60f;
+            };
+            const auto followedImage = imageFor (followed);
+            check (differences (plain, followedImage, roi (refPoint (own))) > 0, "FOLLOW A displays a REF needle on POST");
+            check (differences (plain, followedImage, roi (refPoint (mf::candidateDial (chassis, *mid, role, 0)))) == 0,
+                   "FOLLOW A must not add its needle to the paired PRE dial");
+            frame = followed;
+        }
+        const auto noBand = imageFor (frame);
+        frame.band = {-6, 4};  // differences −18 and −8: visibly away from own and REF needles
+        const auto middle = *metric_needle::normalized (Face::psr, -13.0);
+        text_style::ShownTextLog log;
+        const auto withBand = imageFor (frame);
+        check (differences (noBand, withBand, roi (mf::candidateReferenceBandPoint (own, middle))) > 0,
+               "finished set shows its band on the current dial");
+        if (!pre)
+            check (differences (noBand, withBand, roi (mf::candidateReferenceBandPoint (mf::candidateDial (chassis, *mid, role, 0), middle))) == 0,
+                   "set band is not on the paired PRE dial");
+        check (log.texts().contains ("0 = 12.00 dB") && log.texts().contains ("Synthetic Cue"), "zero and Cue title");
+        check (log.texts().contains (pre ? "PRE +2.25" : "POST +2.25"), "signed own difference");
+        if (!pre) check (log.texts().contains ("PRE -1.25") && log.texts().contains ("REF +10.50"), "signed independent comparisons");
+        log.clear();
+        frame.status = Status::unavailable; frame.reason = "read_failed";
+        imageFor (frame);
+        check (log.texts().contains (i18n::tr ("Audio could not be read")), "known failure appears in the requested language");
+        log.clear();
+        frame.reason = "/private/fixture-placeholder.wav";
+        imageFor (frame);
+        check (!log.texts().joinIntoString (" ").contains (juce::String (frame.reason.c_str())), "unknown reason never exposes its raw value");
+    }
+}
+void verifyEmbeddedPreLabelOutsideNeedle()
+{
+    namespace mf = metric_face;
+    const auto mid = embeddedMid();
+    for (const int physical : {300, 600, 900, 1350})
+    for (const auto face : {Face::psr, Face::crest})
+    {
+        const auto v = observatory::displayViewport (physical, physical * 2 / 3);
+        check (physical != 1350 || (v.width == 900 && v.height == 600 && v.scale == 1.5f), "450% uses actual magnification");
+        context = "embedded PRE headline at " + juce::String (physical);
+        observatory::View view (observatory::Role::pre, mid);
+        view.setSize (v.width, v.height);
+        view.setDisplayedEditorSize (physical, physical * 2 / 3);
+        view.setMeterSnapshot (meter(), true); view.setManualHybridVuVisible (true);
+        view.lu().setFacts (reference()); view.setMetricFace (face);
+        check (view.metricFaceActive(), "real mid PRE face active");
+        const auto chassis = mf::pre_preview::chassisBounds (view.getLocalBounds());
+        const auto title = mf::candidateHeadlineBounds (chassis, true);
+        const auto dial = mf::candidateDial (chassis, *mid, observatory::Role::pre, 0);
+        const auto cap = mid->pre.frontCapRadius3072 * chassis.getWidth() / 3072.0f + 1.5f;
+        for (int turn = 0; turn <= 100; ++turn)
+        {
+            const auto ray = mf::candidateNeedleLine (dial, turn / 100.0f, 1.11f, cap);
+            for (int step = 0; step <= 40; ++step)
+                check (! title.toFloat().expanded (3.0f).contains (ray.getPointAlongLineProportionally (step / 40.0f)),
+                       "PRE heading outside entire swept needle and its glow, including centre zero");
+        }
+        Frame zero; zero.face = face; zero.status = Status::ready; zero.ownIsPre = true;
+        zero.own = zero.median = 12.0;
+        const auto drawAtScale = [&] (const Frame& frame) {
+            view.setMetricFrame (frame);
+            juce::Image image (juce::Image::RGB, physical, physical * 2 / 3, true);
+            juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (v.scale));
+            view.paintEntireComponent (g, true);
+            return image;
+        };
+        text_style::ShownTextLog log;
+        const auto ready = drawAtScale (zero);
+        bool titlePainted = false;
+        for (int i = 0; i < log.texts().size(); ++i)
+            if (log.texts()[i] == metric_needle::label (face) && log.areas()[static_cast<std::size_t> (i)] == title.toFloat()) titlePainted = true;
+        check (titlePainted, "PSR/CREST title is drawn in the safe box, not just calculated");
+        zero.own = metric_needle::missing;
+        const auto noNeedle = drawAtScale (zero);
+        const auto scale = juce::AffineTransform::scale (v.scale);
+        const auto protectedTitle = title.toFloat().transformedBy (scale).getSmallestIntegerContainer();
+        check (differences (ready, noNeedle, protectedTitle) == 0, "real centre needle must not cover any title pixel");
+        const auto midRay = mf::candidateNeedleLine (dial, 0.5f, 1.11f, cap).getPointAlongLineProportionally (0.56f) * v.scale;
+        check (differences (ready, noNeedle, juce::Rectangle<int> (7, 7).withCentre (midRay.roundToInt())) > 0,
+               "positive control: a centre needle really was drawn");
+    }
+}
+
+void verifyEmbeddedMidTypography()
+{
+    auto style = presentation::forEditor (300, 200); style.referenceCompact = true;
+    constexpr auto family = typography::Composition::instrument;
+    juce::Image image (juce::Image::RGB, 300, 200, true); juce::Graphics g (image);
+    for (const auto role : {typography::TextRole::axis, typography::TextRole::legend})
+    {
+        g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::unit, family));
+        check (g.getCurrentFont().getHeight() < 12.0f, "the initial unit font must be smaller than the required role");
+        metric_face::drawCandidateText (g, "+24", {10, 10, 60, 18}, style, role, COL_NORMAL);
+        check (g.getCurrentFont().getHeight() == labelFont (style, role, family).getHeight()
+               && g.getCurrentFont().getHeight() >= 12.0f, "axis and legend explicitly replace the prior unit font");
+    }
+}
+
 void controls (observatory::View& view)
 {
     check (view.lu().controlFontHeightForTest() >= 12, "control font floor");
@@ -118,10 +342,12 @@ void verify (observatory::Role role, int width, Face face)
     frame.reference = frame.median;
     frame.band = {frame.median - range * .25, frame.median + range * .25};
     frame.song = "North Road";
+    if (pre) verifyIndependentPreDial (width, frame);
     view.setMetricFrame (frame);
     text_style::ShownTextLog log;
     const auto full = render (view);
     check (log.texts().joinIntoString (" ").contains ("0 ="), "real View names its zero");
+    if (face == Face::crest && width == 300) verifyMetricFrameRepaint (view, frame, full, render, differences, check, meter(), reference(), embeddedMid());
     controls (view);
     const auto dial = hybrid_vu::needle_painter::faceBounds (view.getLocalBounds()).toNearestInt();
     for (int which = 0; which < 3; ++which)
@@ -170,7 +396,7 @@ void verify (observatory::Role role, int width, Face face)
         for (const auto bad : {0x00e2, 0x0080, 0x0094, 0xfffd})
             check (!shown.containsChar (static_cast<juce::juce_wchar> (bad)), "missing readout never contains UTF-8 mojibake or replacement characters");
         preview (pendingImage, previewName + (status == Status::measuring ? "-measuring" : "-unavailable"));
-        check (log.texts().joinIntoString (" ").contains (status == Status::measuring ? "MEASURING" : "UNAVAILABLE"), "real View explains pending/missing zero");
+        check (log.texts().joinIntoString (" ").contains (status == Status::measuring ? "PREPARING" : "UNAVAILABLE"), "real View explains pending/missing zero");
     }
     {
         auto failed = frame; failed.status = Status::unavailable; failed.reason = "source_changed";
@@ -221,12 +447,32 @@ void verify (observatory::Role role, int width, Face face)
         view.setPreSharpAvailable (false);
         check (!view.metricFaceActive() && view.metricFaceSelection() == face, "PRE SHARP gate revocation retains choice");
     }
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage currentLanguage (language);
+        view.setMetricFace (face);
+        if (pre) view.setPreSharpAvailable (false);
+        check (view.lu().faceControl().getTooltip() == i18n::tr (pre
+                ? "Choose VU / LU / PSR / CREST" : "Choose VU / LU / PSR / CREST / SHARP"),
+               "meter face hint matches options in the current role and language");
+        if (pre)
+        {
+            view.setPreSharpAvailable (true);
+            check (view.lu().faceControl().getTooltip() == i18n::tr ("Choose VU / LU / PSR / CREST / SHARP"),
+                   "PRE tooltip offers SHARP only when the actual menu does");
+        }
+    }
     check (callbacks == 0, "programmatic face changes remain silent");
 }
 }
 void verifyMetricFaceContract()
 {
+    verifyChassisSelectionAndStaticCache();
+    verifyEmbeddedMidReference();
     const i18n::ScopedLanguage english (i18n::Language::english);
+    verifyEmbeddedPreLabelOutsideNeedle();
+    verifyEmbeddedMidTypography();
+    verifyCrestNeedleStyle (*embeddedMid(), check);
     for (const auto role : {observatory::Role::pre, observatory::Role::post})
         for (const int width : {300,450,600,900})
             for (const auto face : {Face::psr,Face::crest,Face::sharp}) verify (role,width,face);

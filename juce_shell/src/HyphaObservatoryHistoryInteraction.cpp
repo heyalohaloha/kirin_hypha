@@ -22,6 +22,11 @@ void View::mouseMove (const juce::MouseEvent& event)
 
 void View::refreshLevelHistoryHover()
 {
+    if (! levelHistoryFactsAvailable())
+    {
+        hoveredLevelHistoryIndex.reset();
+        return;
+    }
     if (levelInspection.held()) return;
     const auto chainVisible = chainSnapshotAvailable && chain_action::View {
         &chainSnapshot, &chainPoints, history.empty() ? 0u : history.back().last_observed_frames
@@ -144,7 +149,7 @@ void View::updateLevelHistoryControls()
 void View::mouseDown (const juce::MouseEvent& event)
 {
     if (selectedDomain != Domain::level || ! fullCockpit() || captureFrame
-        || hybridVuVisible() || recordDisplayShowing() || ! event.mods.isLeftButtonDown()) return;
+        || hybridVuVisible() || recordDisplayShowing() || ! levelHistoryFactsAvailable() || ! event.mods.isLeftButtonDown()) return;
     const auto& entries = levelInspection.held() ? levelInspection.snapshot : history;
     const auto* selectedChainSnapshot = levelInspection.held()
         ? &levelInspection.chainSnapshot : chainSnapshotAvailable ? &chainSnapshot : nullptr;

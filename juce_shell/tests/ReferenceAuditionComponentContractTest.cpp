@@ -23,6 +23,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include "ReferenceChangeNoteActivationTest.h"
 
 namespace hypha::tests
 {
@@ -102,6 +103,7 @@ void verifyReferenceChangeNotesUiContract()
 {
     const auto notesPreview = juce::SystemStats::getEnvironmentVariable("KIRIN_REFERENCE_NOTES_IMAGES", {});
     verifyReferenceChangeNotesUi(notesPreview);
+    verifyReferenceChangeNoteActivation();
     verifyReferenceChangeNotesSurface(notesPreview);
     std::cout << "REFERENCE_CHANGE_NOTES_UI_CONTRACT=PASS\n";
 }

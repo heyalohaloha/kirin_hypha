@@ -140,7 +140,6 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
             if (chance.isNotEmpty()) screen.preferenceResultText += "\n" + chance;
             screen.sourceOne = "1: " + (current.trial.firstPre ? nameA : nameB);
             screen.sourceTwo = "2: " + (current.trial.firstPre ? nameB : nameA);
-            screen.preferenceResultNote = text_style::shownText(screen.instruction) + "\n" + text_style::shownText(screen.detail);
         }
         if (approvedGainsValid && approvedGainGeneration == current.generation) {
             const auto signedGain=[](double value) {
@@ -154,13 +153,19 @@ void Component::decoratePreference (blind_ui::Screen& screen) const
         return;
     }
     if (singleListen) return; // Preserve the ordinary listen/reveal surface.
-    screen.guessShown = true; screen.guessOpen = preference.canAnswer(); screen.guessAnswer = 0;
-    screen.guessQuestion = i18n::tr ("Which do you prefer?");
-    screen.guessOutcome = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
+    screen.votingComplete = preference.phase() == blind_preference::Phase::awaitingReveal;
     screen.revealEnabled = preference.canReveal();
     screen.revealTitle = "Reveal the results after at least one answer";
     if (screen.revealEnabled) screen.alignOffShown = false;
-    if (preference.phase() == blind_preference::Phase::awaitingReveal && !screen.guidanceShown)
+    if (screen.votingComplete)
+    {
+        screen.roundsShown = false;
         screen.instruction = "All rounds answered; reveal when ready";
+        return;
+    }
+    screen.guessShown = true; screen.guessOpen = preference.canAnswer(); screen.guessAnswer = 0;
+    screen.guessQuestion = "Which do you prefer?";
+    screen.guessQuestionFixed = true;
+    screen.guessOutcome = blind_preference::roundProgress(preference.roundNumber(),preference.planned());
 }
 }

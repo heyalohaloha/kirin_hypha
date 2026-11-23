@@ -131,3 +131,8 @@ apply_patch_idempotent \
   "0014" \
   "0014-au-reset-transport-evidence.patch" \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0015" \
+  "0015-vst3-host-offered-escape.patch" \
+  --ignore-whitespace

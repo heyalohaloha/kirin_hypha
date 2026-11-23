@@ -12,10 +12,15 @@ inline metric_needle::Frame preFacts (KirinHyphaProcessorBase& processor, metric
     metric_needle::Frame result;
     result.face = face; result.ownIsPre = true;
     const auto zero = processor.sharedMetricZero (face, readable);
+    result.context.playing = processor.isPlaying();
+    // The PRE record exposes a publisher and monotonic publication revision, not a separate
+    // selection epoch. Conservatively repaint on each new record, including same-name selections.
+    result.context.referenceIdentity = zero.publisher.toStdString();
+    result.context.referenceRevision = zero.generation;
     result.status = zero.status; result.median = zero.median; result.band = zero.band;
     result.song = zero.song.toStdString(); result.reason = zero.reason;
     if (result.reason.empty() && result.status == metric_needle::Status::unavailable) result.reason = "select_reference_post";
-    if (result.status == metric_needle::Status::ready && processor.isPlaying() && processor.hasLiveInput()
+    if (result.status == metric_needle::Status::ready && result.context.playing && processor.hasLiveInput()
         && (face == metric_needle::Face::psr || face == metric_needle::Face::crest))
     {
         KirinReferenceLiveMetricFrame live {};
@@ -26,7 +31,7 @@ inline metric_needle::Frame preFacts (KirinHyphaProcessorBase& processor, metric
         }
     }
     if (result.status == metric_needle::Status::ready && face == metric_needle::Face::sharp
-        && processor.isPlaying() && processor.hasLiveInput())
+        && result.context.playing && processor.hasLiveInput())
     {
         KirinPreSharpFrame live {};
         if (processor.pollPreSharp (live) && live.sample_rate == zero.rate && live.channels == zero.channels
@@ -40,8 +45,14 @@ inline metric_needle::Frame facts (KirinHyphaProcessorBase& processor,
     using namespace reference_audition;
     metric_needle::Frame result;
     result.face = face;
+    result.context.playing = processor.isPlaying();
+    result.context.playbackRun = processor.liveComparePlaybackRun();
     const auto* role = lu_needle::zeroRole (runtime);
     if (!metric_needle::metric (face) || !role) return result;
+    result.context.referenceRevision = role->selectionGeneration;
+    const auto slot = role == runtime.referenceSelection.get() ? "B/" : "C/";
+    result.context.referenceIdentity = (juce::String (slot) + role->presetId + "/"
+        + role->checkId + "/" + role->candidateId + "/" + role->cueId).toStdString();
     result.song = role->candidateName.toStdString();
     const auto measured = role->nativeMetrics;
     if (!measured || measured->selectionGeneration != role->selectionGeneration)
@@ -58,7 +69,7 @@ inline metric_needle::Frame facts (KirinHyphaProcessorBase& processor,
     if (measured->setComplete) result.band = {measured->bands[index].low, measured->bands[index].high};
     result.status = metric_needle::Status::ready;
     const auto& series = *measured->series;
-    if (processor.isPlaying() && processor.hasLiveInput())
+    if (result.context.playing && processor.hasLiveInput())
     {
         if (face == metric_needle::Face::sharp)
         {

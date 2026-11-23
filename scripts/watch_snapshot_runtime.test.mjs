@@ -54,9 +54,11 @@ test('shipping Watch snapshots reach the display model and respect publication r
     const source = join(directory, 'watch.cpp'), binary = join(directory, process.platform === 'win32' ? 'watch.exe' : 'watch');
     writeFileSync(source, `
 #include "watch_snapshot_runtime.h"
-${method(view, 'void View::setWatchDisplay')}
+${method(view, 'bool View::setWatchDisplay')}
 ${method(session, 'void View::invalidateSessionPresentation()')}
 ${method(session, 'bool View::retainSessionPoll')}
+${method(session, 'bool covers (')}
+${method(session, 'auto displayedSummary (')}
 ${method(session, 'void View::setSessionCoverage')}
 ${method(meter, 'void KirinHyphaEditor::refreshWatchSnapshot()')}
 ${method(editor, 'void KirinHyphaEditor::refreshObservatory()')}

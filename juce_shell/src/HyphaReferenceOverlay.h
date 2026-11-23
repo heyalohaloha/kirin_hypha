@@ -96,19 +96,22 @@ struct OverlayShape
     bool unmatched = false;
 };
 
+inline bool overlayShapeIncludes (const OverlayItem& item, const OverlayShape& shape, bool every) noexcept
+{
+    if ((! every && item.line == nullptr) || ! item.drawable() || item.centers->size() != item.medians->size()) return false;
+    if (shape.count == 0) return true;
+    if (item.centers->size() != shape.centers.size()) return false;
+    for (size_t band = 0; band < shape.centers.size(); ++band)
+        if (! (std::abs ((*item.centers)[band] / shape.centers[band] - 1.0) < 1.0e-3)) return false;
+    return true;
+}
+
 inline OverlayShape overlayShape (const std::vector<OverlayItem>& items, bool every = false)
 {
     OverlayShape shape;
-    const auto sameBands = [&shape] (const std::vector<double>& centers)
-    {
-        if (centers.size() != shape.centers.size()) return false;
-        for (size_t band = 0; band < centers.size(); ++band)
-            if (! (std::abs (centers[band] / shape.centers[band] - 1.0) < 1.0e-3)) return false;
-        return true;
-    };
     for (const auto& item : items)
     {
-        if ((item.line == nullptr && ! every) || ! item.drawable() || item.centers->size() != item.medians->size()) continue;
+        if (! overlayShapeIncludes (item, shape, every)) continue;
         if (shape.count == 0)
         {
             shape.centers = *item.centers;
@@ -116,7 +119,6 @@ inline OverlayShape overlayShape (const std::vector<OverlayItem>& items, bool ev
             shape.low.assign (shape.centers.size(), std::numeric_limits<float>::max());
             shape.high.assign (shape.centers.size(), std::numeric_limits<float>::lowest());
         }
-        else if (! sameBands (*item.centers)) continue;
         shape.unmatched = shape.unmatched || ! std::isfinite (item.drawGainDb);
         const auto gain = static_cast<float> (std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0);
         for (size_t band = 0; band < shape.centers.size(); ++band)

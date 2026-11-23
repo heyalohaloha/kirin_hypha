@@ -7,7 +7,12 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "REF not linked", u8"REF未接続" },
+    { "REF no song", u8"REF曲なし" },
+    { "REF unmeasured", u8"REF未計測" },
+    { "REF ready", u8"REFあり" },
     { "Meter face", u8"メーターの表示" },
+    { "Choose VU / LU / PSR / CREST", u8"VU / LU / PSR / CRESTを選びます" },
     { "Choose VU / LU / PSR / CREST / SHARP", u8"VU / LU / PSR / CREST / SHARPを選びます" },
     { "MEASURING", u8"計測中" },
     { "UNAVAILABLE", u8"利用できません" },
@@ -123,7 +128,7 @@ const Entry entries[] = {
     { u8"POST BYPASSED — ENABLE POST TO COMPARE", u8"POSTをバイパス中 — POSTを有効にして比較" },
     // PRE / POST comparison states.
     { u8"MATCHED PAIR — MEASURING", u8"ペア一致 — 計測中" },
-    { u8"MATCHED PAIR — NO COMMON TIME — STOP AND PLAY", u8"ペア一致 — 時刻が揃わない — 停止して再生" },
+    { u8"MATCHED PAIR — NO COMMON TIME", u8"ペア一致 — 時刻が揃わない" },
     { u8"PRE UPDATE DELAYED — HOLDING MATCHED Δ", u8"PRE更新待ち — 時刻の揃ったΔを保持" },
     { u8"PRE UPDATE DELAYED — WAITING FOR MATCHED DATA", u8"PRE更新待ち — 時刻の揃ったデータを待機中" },
     { u8"POST STOPPED — COMPARISON PAUSED", u8"POST停止中 — 比較を停止" },

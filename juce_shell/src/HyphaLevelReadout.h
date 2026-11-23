@@ -58,9 +58,10 @@ public:
             || held.meter_stalled != next.meter_stalled
             || held.delta_available != next.delta_available || held.delta.mode != next.delta.mode;
         if (! ready || boundary || interval <= 0 || now < updated || now - updated >= interval)
-        { held = next; updated = now; ready = true; ++revision; }
+        { held = next; updated = now; ready = true; pending = false; ++revision; }
         else
         {
+            pending = true;
             availability (held.meter, next.meter);
             for (auto member : { &KirinDelta::lufs, &KirinDelta::lufs_s, &KirinDelta::true_peak,
                     &KirinDelta::crest, &KirinDelta::psr, &KirinDelta::n_prime_total, &KirinDelta::sharpness })
@@ -85,11 +86,19 @@ public:
         return heldSummary;
     }
     const KirinObservatoryFrame& frame() const noexcept { return held; }
+    // A paint is what releases a held reading. After the last publication nothing else may ask
+    // for one, so this answers true once when the interval ends after a paint that still held.
+    bool takeDue (double now) noexcept
+    {
+        if (! pending || now - updated < interval) return false;
+        pending = false;
+        return true;
+    }
     double updated = 0;
 private:
     KirinObservatoryFrame held {};
     double interval = 0;
-    bool ready = false, watchReady = false;
+    bool ready = false, watchReady = false, pending = false;
     uint64_t revision = 0, watchRevision = UINT64_MAX, summaryRevision = UINT64_MAX;
     KirinWatchDisplay heldWatch {};
     KirinMeterSession heldSummary {};

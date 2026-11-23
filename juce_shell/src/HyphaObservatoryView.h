@@ -37,7 +37,7 @@ namespace hypha::observatory
 class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    explicit View (Role roleIn);
+    explicit View (Role roleIn, std::shared_ptr<const metric_face::MetricChassisPair> candidateChassis = {});
     void requestHybridVuToggle();
     std::function<void()> onBodyLayoutChanged;
     std::function<void (Domain)> onDomainChange;
@@ -189,7 +189,7 @@ public:
                               const KirinChainPoint*, const KirinObservatoryFrame* fallback = nullptr);
     std::uint64_t levelChainRevision (bool latestOnly) const noexcept;
     void setRecordDisplay (const KirinRecordDisplay&, bool available);
-    void setWatchDisplay (const KirinWatchDisplay&, bool available);
+    bool setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setChainObservation (const KirinChainSnapshot&, const KirinChainPoint*);
     void clearChainObservation();
     void setShortTermLoudness (bool);
@@ -204,7 +204,7 @@ public:
     hybrid_vu::LuFace& lu() noexcept { return luFace; }
     const hybrid_vu::LuFace& lu() const noexcept { return luFace; }
     void setMetricFace (metric_needle::Face); metric_needle::Face metricFaceSelection() const noexcept { return metricSelection.face; }
-    void setMetricFrame (const metric_needle::Frame&); void setPreSharpAvailable (bool);
+    bool setMetricFrame (const metric_needle::Frame&); void setPreSharpAvailable (bool);
     bool metricFaceActive() const noexcept;
     std::function<void (metric_needle::Face)> onMetricFaceChoice;
     bool luFaceShown() const noexcept { return hybridVuVisible() && luFace.active(); }
@@ -379,8 +379,8 @@ private:
     std::size_t metricHelpCount = 0;
     observatory_world::State worldState() const noexcept;
     bool currentFactsAvailable() const noexcept;
-    bool cumulativeFactsAvailable() const noexcept;
-    bool deltaFactsAvailable() const noexcept;
+    bool cumulativeFactsAvailable() const noexcept; bool deltaFactsAvailable() const noexcept;
+    bool levelHistoryFactsAvailable() const noexcept { return target() != ObservationTarget::delta || deltaFactsAvailable(); }
     bool recordDisplayShowing() const noexcept;
     Role role;
     void configureHeaderSelectors();

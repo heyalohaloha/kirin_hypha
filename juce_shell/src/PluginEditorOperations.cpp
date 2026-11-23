@@ -2,7 +2,6 @@
 
 namespace
 {
-    namespace ui = hypha::ui_contract;
     juce::String allKeepMenuLabel (int nReady)
     {
         return juce::String ("All Keep: ") + juce::String (nReady) + " ready POST"
@@ -14,10 +13,7 @@ namespace
 void KirinHyphaEditor::showOperationsMenu()
 {
     processorRef.refreshLicenseForUserAction();
-    const auto options = juce::PopupMenu::Options()
-        .withTargetComponent (&observatoryView.operationsMenuAnchor())
-        .withDeletionCheck (*this).withMinimumWidth (juce::jlimit (300, 420, getWidth()))
-        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
+    const auto options = hypha::kirin_popup::options (observatoryView.operationsMenuAnchor(), *this, getWidth());
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
     operationsMenu().showMenuAsync (options, [safe] (int result)
     { if (safe != nullptr) safe->handleOperationsMenu (result); });

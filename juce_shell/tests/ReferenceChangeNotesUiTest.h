@@ -82,7 +82,14 @@ inline void verifyReferenceChangeNotesUi(const juce::String& preview = {})
     for(int i=0;i<1000;++i) many->notes.push_back({"synthetic#"+juce::String(i+1),"synthetic","Synthetic change",i+1,i*4800,i*.1,false});
     reference_ui::ChangeNotesView view;view.setSize(300,200);
     view.setNotes(many,false,presentation::forEditor(300,200),"many");
-    require(view.noteCount()==1000 && view.getNumChildComponents()==3 && view.selectNote(999),"thousand notes use virtual list, not thousand buttons");
+    auto* virtualList=dynamic_cast<reference_ui::ChangeNoteRows*>(view.findChildWithID("reference-change-notes-list"));
+    auto* toggle=dynamic_cast<juce::Button*>(view.findChildWithID("reference-change-notes-toggle"));
+    require(virtualList && toggle,"thousand-note virtual list controls");
+    toggle->onClick();
+    require(view.noteCount()==1000 && view.getNumChildComponents()==3 && virtualList->rowCount()==1000
+        && virtualList->visibleButtonCount()>0 && virtualList->visibleButtonCount()<20,
+        "thousand notes use a viewport-sized button pool");
+    require(view.selectNote(999),"the full thousandth note remains selectable");
     require(!view.selectNote(1000),"out of range selection rejected");
     int expansion=0; view.onExpansionChanged=[&](bool){++expansion;};
     view.setNotes(notes,false,presentation::forEditor(300,200),"compact");

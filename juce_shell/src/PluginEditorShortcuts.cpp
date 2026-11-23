@@ -38,9 +38,15 @@ hypha::shortcuts::Context KirinHyphaEditor::shortcutContext() const
 
 bool KirinHyphaEditor::keyPressed (const juce::KeyPress& key)
 {
+    if (offeredEscape.nativeCopy (key)) return true;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (matchChoicePopup.isVisible() && key.isKeyCode (juce::KeyPress::escapeKey))
     { matchChoicePopup.close(); return true; }
+    // The SAVE IMAGE sheet is editor-owned rather than a JUCE PopupMenu. Esc inside this
+    // sheet is ours even when focus is on its preview rather than one of its text fields.
+    if (liveBlindView.imageSheetOpen() && key.isKeyCode (juce::KeyPress::escapeKey)
+        && juce::Component::getNumCurrentlyModalComponents() == 0)
+    { liveBlindView.closeImageSheet(); return true; }
    #endif
     if (! shortcutsListening()) return false;
     const auto press = hypha::shortcuts::normalise (key);
@@ -52,12 +58,45 @@ bool KirinHyphaEditor::keyPressed (const juce::KeyPress& key)
     return true;
 }
 
+// A host may ask about Esc before it closes its own window with it, and then no native key event
+// follows (JUCE patch 0015). The press goes where a native one would: to whatever holds the focus
+// in this window and up its parents, so a sheet, a list or a text field that Esc closes answers the
+// same way in every host. With the focus outside the window, the window itself is asked. Esc with
+// nothing of ours to close, and Esc with a modifier, stay the host's.
+bool KirinHyphaEditor::kirinHostKeyOffered (const juce::KeyPress& key, bool isKeyDown)
+{
+    const bool used = offeredEscape.offered (key, isKeyDown, [this] (const juce::KeyPress& press)
+    {
+        auto* peer = getPeer();
+        if (! isShowing() || peer == nullptr) return false;
+        // Under a menu or a question the press goes to that layer's own window, and the host gets it
+        // back only when that layer did not use it.
+        if (auto* modal = juce::Component::getCurrentlyModalComponent())
+        {
+            auto* modalPeer = modal->getPeer();
+            return modalPeer != nullptr && modalPeer->handleKeyPress (press);
+        }
+        auto* focused = juce::Component::getCurrentlyFocusedComponent();
+        return focused == this || isParentOf (focused) ? peer->handleKeyPress (press) : keyPressed (press);
+    });
+    heldShortcutKeys.released();  // no native key-up follows an offered press
+    return used;
+}
+
 bool KirinHyphaEditor::keyStateChanged (bool isKeyDown)
 {
-    if (! isKeyDown) heldShortcutKeys.released();
+    if (! isKeyDown)
+    {
+        heldShortcutKeys.released();
+        // Some hosts offer VST3 key-down but deliver the release through the native peer.
+        if (offeredEscape.holding() && ! juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey))
+            offeredEscape.clear();
+    }
    #if JUCE_WINDOWS
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (isKeyDown && matchChoicePopup.isVisible() && juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey))
+    if (isKeyDown && juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::escapeKey)
+        && (matchChoicePopup.isVisible() || (liveBlindView.imageSheetOpen()
+            && juce::Component::getNumCurrentlyModalComponents() == 0)))
         return true;
    #endif
     // The key press comes with the WM_CHAR after this WM_KEYDOWN, which the host is sent unless it is
@@ -90,12 +129,12 @@ void KirinHyphaEditor::mouseDown (const juce::MouseEvent&)
 
 void KirinHyphaEditor::focusLost (FocusChangeType)
 {
-    if (! hasKeyboardFocus (true)) heldShortcutKeys.clear();
+    if (! hasKeyboardFocus (true)) { heldShortcutKeys.clear(); offeredEscape.clear(); }
 }
 
 void KirinHyphaEditor::focusOfChildComponentChanged (FocusChangeType)
 {
-    if (! hasKeyboardFocus (true)) heldShortcutKeys.clear();
+    if (! hasKeyboardFocus (true)) { heldShortcutKeys.clear(); offeredEscape.clear(); }
 }
 
 // Said where it can be seen: a Blind covers the footer, and its screen says it (without a name).

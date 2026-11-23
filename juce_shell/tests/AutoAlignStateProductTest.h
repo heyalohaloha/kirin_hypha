@@ -98,6 +98,30 @@ void verifyAutoAlignState (juce::AudioProcessor::WrapperType wrapper, Require re
             require (!restored.liveCompareStatus().active, "restoring settings cannot grant output authority");
             restored.releaseResources();
         }
+        if (role == Processor::Role::Post)
+        {
+            // MATCH SPAN is saved with the project too: the MENU action tells the host once per real change.
+            using namespace hypha::tests::editor_product;
+            editor.reset (dynamic_cast<KirinHyphaEditor*> (original.createEditorIfNeeded()));
+            require (editor != nullptr && ! original.wholeMatchPreferred(), "MATCH SPAN is chosen in the shipping editor, from LAST 4 s");
+            original.addListener (&host);
+            const auto spanBefore = host.changes;
+            (editor.get()->*privateMember (AlignMenuChoice {})) (498);
+            require (! original.wholeMatchPreferred() && host.changes == spanBefore,
+                     "choosing the MATCH SPAN already in use tells the host nothing");
+            (editor.get()->*privateMember (AlignMenuChoice {})) (499);
+            require (original.wholeMatchPreferred() && host.changes == spanBefore + 1,
+                     "MENU ALL PLAYED marks non-parameter state dirty exactly once");
+            (editor.get()->*privateMember (AlignMenuChoice {})) (499);
+            require (original.wholeMatchPreferred() && host.changes == spanBefore + 1,
+                     "choosing ALL PLAYED again is not another change");
+            (editor.get()->*privateMember (AlignMenuChoice {})) (498);
+            require (! original.wholeMatchPreferred() && host.changes == spanBefore + 2,
+                     "MENU LAST 4 s is the next real change");
+            original.removeListener (&host);
+            original.editorBeingDeleted (editor.get());
+            editor.reset();
+        }
         original.releaseResources();
     }
 }

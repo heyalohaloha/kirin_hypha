@@ -20,6 +20,7 @@ const char* hypha::live_compare_ui::startFailure (StartResult result) noexcept
         case StartResult::unsupportedLayout: return "Mono / stereo only";
         case StartResult::preUnavailable:    return hypha::live_compare_ui::preUnavailableNotice();
         case StartResult::preMultiMono:      return "PRE is multi-mono: insert it as stereo";
+        case StartResult::formatChanged:     return "Audio format changed. Press LISTEN again.";
     }
     return "";
 }

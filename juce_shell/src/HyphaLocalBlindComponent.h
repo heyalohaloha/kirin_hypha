@@ -85,22 +85,22 @@ private:
     juce::Label statusLabel;
     juce::Label detailLabel;
     juce::Label resultLabel;
-    HyphaTextButton sourceOne { "SOURCE 1" };
-    HyphaTextButton sourceTwo { "SOURCE 2" };
-    HyphaTextButton answerOne { "PREFER 1" };
-    HyphaTextButton answerTwo { "PREFER 2" };
-    HyphaTextButton noPreference { "NO PREFERENCE" };
-    HyphaTextButton cannotDistinguish { "CANNOT TELL" };
-    HyphaTextButton startButton { "START BLIND" };
-    HyphaTextButton namedButton { "NAMED A/B" };
-    HyphaTextButton revealButton { "REVEAL" };
-    HyphaTextButton captureButton { "CAPTURE 4 S" };
-    HyphaTextButton repairButton { "SELECT PRE" };
+    HyphaTextButton sourceOne { "SOURCE 1", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton sourceTwo { "SOURCE 2", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton answerOne { "PREFER 1", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton answerTwo { "PREFER 2", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton noPreference { "NO PREFERENCE", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton cannotDistinguish { "CANNOT TELL", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton startButton { "START BLIND", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton namedButton { "NAMED A/B", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton revealButton { "REVEAL", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton captureButton { "CAPTURE 4 S", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton repairButton { "SELECT PRE", true, text_style::LabelPolicy::fixed };
     reference_ui::ReferenceSelectorLookAndFeel contextLookAndFeel; // Shared shell styling only.
     juce::ComboBox contextChoice;
-    HyphaTextButton stopButton { "STOP" };
-    HyphaTextButton returnButton { "RETURN TO LIVE" };
-    HyphaTextButton closeButton { "CLOSE" };
+    HyphaTextButton stopButton { "STOP", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton returnButton { "RETURN TO LIVE", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton closeButton { "CLOSE", true, text_style::LabelPolicy::fixed };
     meter_context::MeterContext preflightContext = meter_context::defaultContext;
     // The five steps and, before a capture, what the test is (HyphaLocalBlindSteps.h).
     juce::Rectangle<int> stepsArea, purposeArea;

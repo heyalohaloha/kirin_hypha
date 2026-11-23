@@ -1,7 +1,9 @@
 #pragma once
 #include "ReferenceOverlayTest.h"
+#include "../src/HyphaReferenceBlauertZones.h"
 #include "../src/HyphaFooterNoticeFont.h"
 #include "../src/HyphaRecordBindingNotice.h"
+#include "ReferenceCompactBalanceReadoutFitTest.h"
 
 namespace hypha::tests::reference_overlay
 {
@@ -73,9 +75,195 @@ inline void verifyWrappedBalanceNotice()
     }
 }
 
+inline void verifyStandaloneBalanceA()
+{
+    const auto context = presentation::forEditor (300, 200);
+    const juce::Rectangle<float> chart (10.0f, 10.0f, 275.0f, 72.0f);
+    auto waiting = page (1, 0);
+    waiting.songFacts.front().medianDb.clear(); // the selected song has no measured B yet
+    auto a = std::make_shared<ref::KirinSpectrumWindow> (*waiting.aKirin);
+    a->centersHz = { 100.0, 1500.0, 10000.0 }; a->medianDb = { -41, -41, -41 };
+    a->frames = 30;
+    waiting.aKirin = a;
+    waiting.chartPointer = chart.getCentre();
+    const auto read = [&] (const auto& state)
+    {
+        juce::Image image (juce::Image::ARGB, 300, 100, true);
+        juce::Graphics g (image);
+        const text_style::ShownTextLog log;
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+        return log.texts().contains (text_style::shownText ("A -41.0 dB"));
+    };
+    require (read (waiting), "compact BALANCE reads A on its own bands while B is unmeasured");
+    a->frames = 29;
+    require (! read (waiting), "compact BALANCE keeps the existing three-second A minimum");
+    a->frames = 30;
+    waiting.songFacts.front() = page (1, 0).songFacts.front(); // a different grid is now being drawn for B
+    require (! read (waiting), "compact BALANCE does not overlay incompatible A onto a measured B grid");
+
+    waiting.songFacts.front().centersHz = a->centersHz;
+    waiting.songFacts.front().medianDb = { -50, -50, -50 };
+    require (read (waiting), "compact BALANCE accepts a fully compatible measured B grid");
+    waiting.songFacts.front().centersHz[1] = 1700.0;
+    require (! read (waiting), "compact BALANCE rejects a B whose interior band differs despite matching count and last band");
+    waiting.overlay.all = true;
+    waiting.overlay.lines.push_back ({ waiting.songId, 0 });
+    require (! read (waiting), "ALL lines rejects a displayed B with a mismatched interior band");
+
+    auto targetState = page (0, 1);
+    targetState.aKirin = a;
+    targetState.chartPointer = chart.getCentre();
+    auto& target = targetState.targets.collection.items.front();
+    targetState.targets.collection.selected = target.id;
+    target.spectrum.centersHz = a->centersHz;
+    target.spectrum.medianDb = { -50, -50, -50 };
+    require (read (targetState), "compact BALANCE accepts a fully compatible target grid");
+    target.spectrum.centersHz[1] = 1700.0;
+    require (! read (targetState), "compact BALANCE rejects a target whose interior band differs despite matching count and last band");
+}
+
+inline void verifyCompactBalanceRangeReading()
+{
+    auto context = presentation::forEditor (300, 200);
+    context.referenceCompact = true;
+    auto state = page (2, 0);
+    state.aWindowLoudness = std::numeric_limits<double>::quiet_NaN(); // equal B loudness => zero drawing gain
+    auto a = std::make_shared<ref::KirinSpectrumWindow> (*state.aKirin);
+    a->frames = 30;
+    std::fill (a->medianDb.begin(), a->medianDb.end(), -40.0f);
+    state.aKirin = a;
+    for (size_t index = 0; index < state.songFacts.size(); ++index)
+    {
+        auto& fact = state.songFacts[index];
+        fact.lufsI = -20.0; fact.loudnessOffsetLu = 0.0;
+        std::fill (fact.medianDb.begin(), fact.medianDb.end(), index == 0 ? -50.0f : -30.0f);
+    }
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const float height : { 14.0f, 52.0f })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const juce::Rectangle<float> chart (10.0f, 30.0f, 220.0f, height);
+        const auto allowed = chart.withTop (chart.getY() - 14.0f).expanded (0.5f);
+        juce::Image image (juce::Image::ARGB, 300, 120, true);
+        juce::Graphics g (image);
+        text_style::ShownTextLog log;
+        state.chartPointer = chart.getCentre();
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+
+        const int aIndex = log.texts().indexOf (text_style::shownText ("A -40.0 dB"));
+        const int bIndex = log.texts().indexOf (text_style::shownText ("B -50.0 dB"));
+        int rangeIndex = -1;
+        for (int index = 0; index < log.texts().size(); ++index)
+            if (log.texts()[index].contains ("-48.0") && log.texts()[index].contains ("-32.0")) rangeIndex = index;
+        require (aIndex >= 0 && bIndex >= 0 && rangeIndex >= 0,
+                 "100% BALANCE hover reads both compared curves and the true p10/p90 endpoints: " + log.texts().joinIntoString (" | "));
+        for (const auto index : { aIndex, bIndex, rangeIndex })
+            require (allowed.contains (log.areas()[static_cast<size_t> (index)]), "hover values stay in the compact chart or its own caption");
+        require (log.areas()[static_cast<size_t> (rangeIndex)].getY() > log.areas()[static_cast<size_t> (aIndex)].getY(),
+                 "range reading wraps to a lower row instead of being dropped");
+        log.clear();
+        state.chartPointer = { -1.0f, -1.0f };
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+        require (! log.texts().joinIntoString (" | ").contains ("-48.0"), "compact BALANCE range values disappear when pointer leaves");
+    }
+}
+
+inline void verifyCompactBalanceBlauertReading()
+{
+    auto context = presentation::forEditor (300, 200);
+    context.referenceCompact = true;
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const int count : { 1, 2 })
+    for (const float height : { 40.0f, 52.0f })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        auto state = page (count, 0);
+        state.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
+        auto a = std::make_shared<ref::KirinSpectrumWindow> (*state.aKirin);
+        std::fill (a->medianDb.begin(), a->medianDb.end(), -40.0f);
+        state.aKirin = a;
+        for (int index = 0; index < count; ++index)
+        {
+            auto& fact = state.songFacts[static_cast<size_t> (index)];
+            fact.lufsI = -20.0; fact.loudnessOffsetLu = 0.0;
+            std::fill (fact.medianDb.begin(), fact.medianDb.end(), index == 0 ? -50.0f : -30.0f);
+        }
+        const juce::Rectangle<float> chart (10.0f, 30.0f, 252.0f, height);
+        const auto expected = text_style::shownText (reference_ui::blauertReadout ('B', { 0.0, 0.0 }));
+        juce::Image image (juce::Image::ARGB, 300, 120, true);
+        juce::Graphics g (image);
+        text_style::ShownTextLog log;
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+        require (log.texts().contains (expected), "100% BALANCE shows Blauert before hover");
+        log.clear();
+        state.chartPointer = chart.getCentre();
+        reference_ui::paintCompactBalanceChart (g, chart, state, context);
+        const auto blauert = log.texts().indexOf (expected);
+        const auto aIndex = log.texts().indexOf (text_style::shownText ("A -40.0 dB"));
+        const auto bIndex = log.texts().indexOf (text_style::shownText ("B -50.0 dB"));
+        int range = -1;
+        for (int index = 0; index < log.texts().size(); ++index)
+            if (log.texts()[index].contains ("-48.0") && log.texts()[index].contains ("-32.0")) range = index;
+        require (blauert >= 0 && aIndex >= 0 && bIndex >= 0 && ((count == 2) == (range >= 0)),
+                 "100% hover keeps Blauert and both readings, with a range for two songs only: " + log.texts().joinIntoString (" | "));
+        const auto& areas = log.areas();
+        for (const auto index : { aIndex, bIndex, range })
+            if (index >= 0)
+                require (areas[static_cast<size_t> (index)].getY() >= areas[static_cast<size_t> (blauert)].getBottom()
+                             && chart.expanded (0.5f).contains (areas[static_cast<size_t> (index)]),
+                         "hover readings are visible on their own row below Blauert");
+    }
+}
+
+inline void verifyPointedCurveMustJoinTheShape()
+{
+    using Drawing = ref::BalanceOverlay::Drawing;
+    auto state = page (2, 0);
+    state.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
+    auto a = std::make_shared<ref::KirinSpectrumWindow> (*state.aKirin);
+    a->centersHz = { 100.0, 1500.0, 10000.0 }; a->medianDb = { -41, -41, -41 }; a->frames = 30;
+    state.aKirin = a;
+    state.overlay.all = true;
+    for (size_t index = 0; index < state.songFacts.size(); ++index)
+    {
+        auto& fact = state.songFacts[index];
+        fact.centersHz = a->centersHz; fact.medianDb.assign (3, index == 0 ? -45.0f : -35.0f);
+        fact.lufsI = -20.0; fact.loudnessOffsetLu = 0.0;
+        state.overlay.lines.push_back ({ state.songs[index].id, static_cast<int> (index) });
+    }
+    const juce::Rectangle<float> chart (10.0f, 10.0f, 275.0f, 72.0f);
+    state.chartPointer = chart.getCentre();
+    state.overlayPointed = state.songs.back().id;
+    const auto draw = [&]
+    {
+        juce::Image image (juce::Image::ARGB, 300, 100, true);
+        juce::Graphics g (image);
+        const text_style::ShownTextLog log;
+        reference_ui::paintCompactBalanceChart (g, chart, state, presentation::forEditor (300, 200));
+        return log.texts();
+    };
+    for (const auto mode : { Drawing::shape, Drawing::allShape })
+    {
+        state.overlay.drawing = mode;
+        state.songFacts.back().centersHz[1] = 1500.0;
+        require (draw().contains (text_style::shownText ("2 -35.0 dB")), "a compatible hovered song joins the shape");
+        state.songFacts.back().centersHz[1] = 1700.0;
+        const auto mismatched = draw();
+        require (! mismatched.contains (text_style::shownText ("2 -35.0 dB"))
+                     && mismatched.contains (text_style::shownText ("A -41.0 dB"))
+                     && mismatched.contains (text_style::shownText ("MEAN -45.0 dB")),
+                 "one different interior band excludes the hovered song but preserves A and the valid mean");
+    }
+}
+
 // Exercise the real shell: the notice changes the space available to Reference.
 inline void verifyCompactBalanceFit()
 {
+    verifyStandaloneBalanceA();
+    verifyCompactBalanceRangeReading();
+    verifyCompactBalanceBlauertReading();
+    verifyPointedCurveMustJoinTheShape();
+    verifyCompactBalanceReadoutFits();
     juce::StringArray failures;
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_COMPACT_BALANCE_IMAGES", {});
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })

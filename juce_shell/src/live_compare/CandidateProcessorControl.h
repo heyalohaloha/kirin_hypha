@@ -351,9 +351,10 @@ void KirinHyphaProcessorBase::processCandidateReceiver (hypha::live_compare::Rin
     own.header.candidate.bypassed.store (bypassParam != nullptr && bypassParam->get(), std::memory_order_release);
     liveCompare.candidate.receiver.withRealtime ([&] (hypha::live_compare::CandidateReceiver& receiver)
     {
+        const auto compensation = liveCompare.compensationState.load (std::memory_order_acquire);
         receiver.process (own, block, buffer.getArrayOfWritePointers(), buffer.getNumChannels(), usable,
             ! liveCompare.authority.restoring() && receiver.permission == liveCompare.authority.ticket(),
-            liveCompare.compensationOff.load (std::memory_order_acquire), liveCompare.compensationRevision.load (std::memory_order_acquire), offline);
+            (compensation & 1u) != 0, compensation, offline);
     });
 }
 

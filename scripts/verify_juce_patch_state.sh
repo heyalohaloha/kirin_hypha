@@ -24,6 +24,7 @@ EXPECTED_FILES=(
   "modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm"
   "modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp"
   "modules/juce_audio_processors/processors/juce_AudioProcessor.h"
+  "modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h"
   "modules/juce_gui_basics/native/juce_Windowing_mac.mm"
   "modules/juce_gui_extra/juce_gui_extra.h"
 )
@@ -43,6 +44,7 @@ PATCHES=(
   "0012-au-studio-one-window-relayout.patch::--unidiff-zero --ignore-whitespace"
   "0013-vst3-custom-editor-size-constraint.patch::--ignore-whitespace"
   "0014-au-reset-transport-evidence.patch::--ignore-whitespace"
+  "0015-vst3-host-offered-escape.patch::--ignore-whitespace"
 )
 
 die() {
@@ -104,7 +106,7 @@ trap cleanup EXIT
 expected_tree="$tmp_dir/expected"
 mkdir -p "$expected_tree"
 # The full tracked tree is checked above for staged, untracked or unexpected dirty files.
-# Reconstruct only the seven allowed patch targets; copying all JUCE files adds I/O without
+# Reconstruct only the eight allowed patch targets; copying all JUCE files adds I/O without
 # strengthening the byte comparison below.
 git -C "$JUCE_DIR" checkout-index --prefix="$expected_tree/" -- "${EXPECTED_FILES[@]}"
 

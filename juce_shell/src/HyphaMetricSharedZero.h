@@ -17,6 +17,7 @@ struct SharedReferenceZero
     Status status = Status::unavailable;
     std::uint32_t rate = 0, channels = 0;
     std::uint64_t generation = 0;
+    juce::String publisher; // Reader-only cache identity; the on-disk format is unchanged.
     double median = missing;
     Band band;
     juce::String song;
@@ -194,7 +195,7 @@ private:
         if (zero.status == Status::ready && !std::isfinite (zero.median)) return reject;
         if (zero.status != Status::ready && (!std::isnan (zero.median)
             || !std::isnan (zero.band.low) || !std::isnan (zero.band.high))) return reject;
-        zero.song = lines[3]; record.owner = fields[0]; record.writtenAt = static_cast<juce::int64> (ints[1]);
+        zero.song = lines[3]; zero.publisher = record.owner = fields[0]; record.writtenAt = static_cast<juce::int64> (ints[1]);
         record.valid = true; return record;
     }
     juce::File file (const juce::String& scope, Face face) const

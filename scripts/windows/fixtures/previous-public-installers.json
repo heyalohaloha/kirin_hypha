@@ -65,6 +65,14 @@
       "sha256": "67137b6d1e769c155352f384c19b6ade16c40195c9c7d33e42438d4a1affca95",
       "default_scope": "all-users",
       "formats": ["VST3", "AAX"]
+    },
+    {
+      "version": "1.1.58",
+      "file_name": "Kirin-Hypha-1.1.58-Windows-x64-Setup.exe",
+      "bytes": 28512992,
+      "sha256": "54a31ee7ee1e84d69056a73b97271861f538ea60ff36fa1d1d1f3681b1495468",
+      "default_scope": "all-users",
+      "formats": ["VST3", "AAX"]
     }
   ],
   "scenarios": [
@@ -123,6 +131,12 @@
       "expect": "replaced"
     },
     {
+      "id": "all-users-1.1.58",
+      "previous": [{ "version": "1.1.58", "scope": "default" }],
+      "new_scope": "all-users",
+      "expect": "replaced"
+    },
+    {
       "id": "current-user-1.1.50-locked-then-retried",
       "previous": [{ "version": "1.1.50", "scope": "default" }],
       "new_scope": "all-users",
@@ -154,6 +168,7 @@
     "all-users-1.1.55",
     "all-users-1.1.56",
     "all-users-1.1.57",
+    "all-users-1.1.58",
     "current-user-1.1.50-locked-then-retried",
     "current-user-1.1.50-post-locked-then-retried"
   ]

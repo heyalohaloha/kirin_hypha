@@ -90,6 +90,9 @@ void View::resized()
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
+        // POST must prompt for a song before reporting that a selected song's metric is unmeasured.
+        const bool noPostSong = role == Role::post && luFace.facts().zero == lu_needle::Zero::noSong;
+        luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady());
         // Keep the existing calibration centred; its clickable text and the footer notice
         // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendFont = labelFont (context, typography::TextRole::legend,

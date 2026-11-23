@@ -8,7 +8,6 @@
 #include "HyphaReferenceLegend.h"
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceBlauertZones.h"
-#include "HyphaReferenceFrequencyTicks.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -52,17 +51,6 @@ double percentile (std::vector<double> values, double fraction)
     return values[lower] + (values[upper] - values[lower]) * (position - static_cast<double> (lower));
 }
 
-juce::Path curve (const std::vector<double>& centers, const std::vector<float>& values, juce::Rectangle<float> area)
-{
-    juce::Path path;
-    for (size_t index = 0; index < centers.size() && index < values.size(); ++index)
-    {
-        const juce::Point<float> point { xFor (centers[index], area), yFor (values[index], area) };
-        if (index == 0) path.startNewSubPath (point); else path.lineTo (point);  // isEmpty() は線が無いと true
-    }
-    return path;
-}
-
 // 図に載る物。凡例も、A の窓のボタンの場所も、ここから決める。
 struct BalanceSources
 {
@@ -77,7 +65,7 @@ struct BalanceSources
     bool rangeShown (const State& state) const noexcept { return ! state.overlay.all && comparable.size() >= 2; }  // 帯は 2 曲から
 };
 
-BalanceSources balanceSources (const State& state)
+BalanceSources balanceSources (const State& state, bool allowStandaloneA = false)
 {
     BalanceSources sources;
     if (state.targetsEnabled) sources.target = state.targets.collection.find (state.targets.collection.selected);
@@ -96,9 +84,6 @@ BalanceSources balanceSources (const State& state)
     // 曲が無い時は目標の帯域の並びで A を描く（目標だけでも A と比べられる）。
     if (sources.centers.empty() && state.targetsEnabled && ! state.targets.collection.items.empty())
         sources.centers = state.targets.collection.items.front().spectrum.centersHz;
-    sources.aShown = state.aKirin && state.aKirin->frames >= 30 && ! sources.centers.empty()
-        && state.aKirin->centersHz.size() == sources.centers.size()
-        && std::abs (state.aKirin->centersHz.back() / sources.centers.back() - 1.0) < 1.0e-3;
     if (state.overlay.all)
         for (auto& item : overlayItems (state))
         {
@@ -108,9 +93,17 @@ BalanceSources balanceSources (const State& state)
     using Drawing = reference_audition::BalanceOverlay::Drawing;
     if (state.overlay.all && state.overlay.drawing == Drawing::shape) sources.shape = overlayShape (sources.shown);
     if (state.overlay.all && state.overlay.drawing == Drawing::allShape) sources.shape = overlayShape (overlayItems (state), true);
+    const bool comparing = state.overlay.all
+        ? (state.overlay.drawing == Drawing::lines ? ! sources.shown.empty() : sources.shape.count > 0)
+        : sources.chosen != nullptr || sources.target != nullptr || sources.rangeShown (state);
+    const auto aligned = [&state] (const auto& compared)
+    { return reference_audition::blauertBandsAligned (state.aKirin->centersHz, compared); };
+    sources.aShown = state.aKirin && state.aKirin->frames >= 30 && state.aKirin->centersHz.size() >= 2
+        && ! state.aKirin->medianDb.empty() && ((allowStandaloneA && ! comparing) || (! state.overlay.all || ! comparing
+            ? aligned (sources.centers) : state.overlay.drawing != Drawing::lines ? aligned (sources.shape.centers)
+            : std::all_of (sources.shown.begin(), sources.shown.end(), [&aligned] (const auto& item) { return aligned (*item.centers); })));
     return sources;
 }
-
 // 凡例の 1 項目：文字・見本の色と太さ・右の余白（A の窓の矢印）。
 struct LegendEntry
 {
@@ -244,15 +237,17 @@ void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& s
     if (sources.aShown)
     {
         g.setColour (COL_FLORA_BR.withAlpha (0.9f));
-        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+        g.strokePath (linePath (state.aKirin->centersHz, state.aKirin->medianDb, 0.0f, chart), juce::PathStrokeType (2.8f));
         readings.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb, 0.0, minimumHz, maximumHz));
     }
     if (shape.count > 0)
         readings.push_back (drawnCurve ("MEAN", COL_SPECTRUM_DELTA, shape.centers, shape.mean, 0.0, minimumHz, maximumHz));
     juce::String pointedName;
-    if (state.overlayPointed.isNotEmpty())
+    const bool every = state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape;
+    if (shape.count > 0 && state.overlayPointed.isNotEmpty())
         for (const auto& item : overlayItems (state))
-            if (item.id == state.overlayPointed && item.drawable())
+            if (item.id == state.overlayPointed && overlayShapeIncludes (item, shape, every)
+                && (! sources.aShown || reference_audition::blauertBandsAligned (state.aKirin->centersHz, *item.centers)))
             {
                 const auto colour = item.line != nullptr ? overlayLineColour (item.line->colour) : COL_NORMAL;
                 const auto gain = std::isfinite (item.drawGainDb) ? item.drawGainDb : 0.0;
@@ -265,13 +260,12 @@ void paintShape (juce::Graphics& g, juce::Rectangle<float> chart, const State& s
             }
     if (! readings.empty())
         paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
-                           [chart] (float level) { return yFor (level, chart); }, context);
+                           [chart] (float level) { return yFor (level, chart); }, context, nullptr, " dB");
     if (shape.count == 0)
     {
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
         // ALL SHAPE は番号に関わらず全部：入れる物が無いのは値がまだ届いていない時だけ。
-        const bool every = state.overlay.drawing == reference_audition::BalanceOverlay::Drawing::allShape;
         text_style::drawEllipsized (g, sources.linesOn || every ? "REFERENCE VALUES ARRIVE FROM KIRIN OS" : shapeEmptyText,
                                     chart.toNearestInt(), juce::Justification::centred);
     }
@@ -303,7 +297,7 @@ void paintOverlay (juce::Graphics& g, juce::Rectangle<float> chart, const State&
     if (sources.aShown)
     {
         g.setColour (COL_FLORA_BR.withAlpha (pointed >= 0 ? 0.62f : 0.9f));
-        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+        g.strokePath (linePath (state.aKirin->centersHz, state.aKirin->medianDb, 0.0f, chart), juce::PathStrokeType (2.8f));
     }
     const auto stroke = [&] (size_t index, float alpha, float thickness)
     {
@@ -332,7 +326,7 @@ void paintOverlay (juce::Graphics& g, juce::Rectangle<float> chart, const State&
     }
     if (! readings.empty())
         paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
-                           [chart] (float level) { return yFor (level, chart); }, context);
+                           [chart] (float level) { return yFor (level, chart); }, context, nullptr, " dB");
     if (sources.shown.empty())
     {
         g.setColour (COL_TEXT_SECONDARY);
@@ -341,43 +335,18 @@ void paintOverlay (juce::Graphics& g, juce::Rectangle<float> chart, const State&
                                     chart.toNearestInt(), juce::Justification::centred);
     }
 }
-}
 
-juce::Rectangle<int> referenceBalanceAWindowArea (juce::Rectangle<float> bounds, const State& state, presentation::Context context)
+bool paintBalancePlot (juce::Graphics& g, juce::Rectangle<float> chart, const State& state,
+                       const BalanceSources& sources, presentation::Context context)
 {
-    const auto entries = legendEntries (balanceSources (state), state);
-    const auto font = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
-    bounds.removeFromTop (26.0f);
-    const auto legend = takeLegend (bounds, entries, font, state.overlay.all);
-    return legend.withHeight (legendRowHeight).withWidth (juce::jmin (legend.getWidth(),
-        legendItemExtra + referenceTextWidth (font, entries[0].text) + AWindowControl::arrowWidth));
-}
-
-void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
-                            presentation::Context context)
-{
-    surface_material::paintPanel (g, bounds, 0.72f);
+    if (chart.isEmpty()) return false;
+    g.saveState(); g.reduceClipRegion (chart.toNearestInt());
+    paintBlauertZones (g, chart, minimumHz, maximumHz);
     const bool shaped = state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines;
-    help::note (bounds, ! state.overlay.all ? help_text::balance : shaped ? help_text::balanceShape : help_text::balanceAll);
-    auto header = bounds.removeFromTop (26.0f).reduced (9.0f, 2.0f).toNearestInt();
-    g.setColour (COL_NORMAL.withAlpha (0.92f));
-    g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
-    const auto titleFont = labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization);
-    text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (juce::jmin (header.getWidth() / 3,
-                                referenceTextWidth (titleFont, "BALANCE") + 12)), juce::Justification::centredLeft);
-    header.removeFromRight (OverlaySwitch::widthFor (state.overlay.all, context) + 10);  // 描き方・ONE／ALL（REF が置く部品）
-    const auto sources = balanceSources (state);
     const auto* chosen = sources.chosen;
     const auto& centers = sources.centers;
     const auto& comparable = sources.comparable;
     const bool aShown = sources.aShown;
-    const auto entries = legendEntries (sources, state);
-    const auto legendFont = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
-    auto legend = takeLegend (bounds, entries, legendFont, state.overlay.all);
-    auto chart = bounds.reduced (10.0f, 6.0f);
-    paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);
-    paintBlauertZones (g, chart, minimumHz, maximumHz);
-
     // Chart gain is independent of MATCH: before A, align references to each other.
     bool unmatched = false;
     const auto shift = [&state, &unmatched] (const SongFact& fact, bool chosenSong)
@@ -414,7 +383,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     if (aShown && ! state.overlay.all)
     {
         g.setColour (COL_FLORA_BR.withAlpha (0.9f));
-        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+        g.strokePath (linePath (state.aKirin->centersHz, state.aKirin->medianDb, 0.0f, chart), juce::PathStrokeType (2.8f));
         readings.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb, 0.0, minimumHz, maximumHz));
     }
     if (chosen != nullptr && ! state.overlay.all)
@@ -422,7 +391,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         std::vector<float> shifted;
         for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen, true)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
-        g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.4f));
+        g.strokePath (linePath (chosen->centersHz, shifted, 0.0f, chart), juce::PathStrokeType (1.4f));
         readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, chosen->centersHz, shifted, 0.0, minimumHz, maximumHz));
     }
     if (sources.target != nullptr && ! state.overlay.all)
@@ -433,21 +402,67 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         auto values = sources.target->spectrum.medianDb;
         for (auto& value : values) value += offset;
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
-        g.strokePath (curve (sources.target->spectrum.centersHz, values, chart), juce::PathStrokeType (1.4f));
+        g.strokePath (linePath (sources.target->spectrum.centersHz, values, 0.0f, chart), juce::PathStrokeType (1.4f));
         readings.push_back (drawnCurve ("B", COL_SPECTRUM_DELTA, sources.target->spectrum.centersHz, values, 0.0, minimumHz, maximumHz));
     }
-    // 指した所の値（C の図と同じ読み）。図を描いた値をそのまま読む。
+    g.restoreState();
+    const auto contrasts = chosen != nullptr && aShown && ! state.overlay.all
+        ? blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb, chosen->centersHz, chosen->medianDb) : AVersus {};
+    const bool reserveBlauert = context.referenceCompact && chart.getWidth() >= 160.0f && chart.getHeight() >= 40.0f
+        && std::isfinite (contrasts.aMinusOther());
+    bool blauertInCaption = false;
     if (! readings.empty() || sources.rangeShown (state))
     {
+        const auto headroom = context.referenceCompact && ! reserveBlauert && (chart.getHeight() < 40.0f || sources.rangeShown (state)) ? 14.0f : 0.0f;
         const ReadRange range { drawnCurve ("", COL_NORMAL, centers, rangeLow, 0.0, minimumHz, maximumHz),
-                                drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz), blauertReadoutHeight };
-        paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
-                           [chart] (float level) { return yFor (level, chart); }, context, &range);
+                                drawnCurve ("", COL_NORMAL, centers, rangeHigh, 0.0, minimumHz, maximumHz),
+                                ! context.referenceCompact || reserveBlauert ? blauertReadoutHeight : 0.0f, headroom, reserveBlauert };
+        const juce::Graphics::ScopedSaveState readout (g);
+        g.reduceClipRegion (chartReadingClip (chart, headroom));
+        blauertInCaption = paintChartReading (g, chart, minimumHz, maximumHz, state.chartPointer, readings,
+                                              [chart] (float level) { return yFor (level, chart); }, context, &range, " dB");
     }
-    if (chosen != nullptr && aShown && ! state.overlay.all)  // 曲の中の帯どうしの差なので、音量をそろえられない曲でも出せる
-        paintBlauertReadout (g, chart, 'B', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
-                                                          chosen->centersHz, chosen->medianDb),
-                             minimumHz, maximumHz, context);
+    paintBlauertReadout (g, chart, 'B', contrasts, minimumHz, maximumHz, context, blauertInCaption);
+    return unmatched;
+}
+}
+void paintCompactBalanceChart (juce::Graphics& g, juce::Rectangle<float> chart, const State& state,
+                               presentation::Context context)
+{
+    (void) paintBalancePlot (g, chart, state, balanceSources (state, true), context);
+}
+
+juce::Rectangle<int> referenceBalanceAWindowArea (juce::Rectangle<float> bounds, const State& state, presentation::Context context)
+{
+    const auto entries = legendEntries (balanceSources (state), state);
+    const auto font = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
+    bounds.removeFromTop (26.0f);
+    const auto legend = takeLegend (bounds, entries, font, state.overlay.all);
+    return legend.withHeight (legendRowHeight).withWidth (juce::jmin (legend.getWidth(),
+        legendItemExtra + referenceTextWidth (font, entries[0].text) + AWindowControl::arrowWidth));
+}
+
+void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
+                            presentation::Context context)
+{
+    surface_material::paintPanel (g, bounds, 0.72f);
+    const bool shaped = state.overlay.all && state.overlay.drawing != reference_audition::BalanceOverlay::Drawing::lines;
+    help::note (bounds, ! state.overlay.all ? help_text::balance : shaped ? help_text::balanceShape : help_text::balanceAll);
+    auto header = bounds.removeFromTop (26.0f).reduced (9.0f, 2.0f).toNearestInt();
+    g.setColour (COL_NORMAL.withAlpha (0.92f));
+    g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
+    const auto titleFont = labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization);
+    text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (juce::jmin (header.getWidth() / 3,
+                                referenceTextWidth (titleFont, "BALANCE") + 12)), juce::Justification::centredLeft);
+    header.removeFromRight (OverlaySwitch::widthFor (state.overlay.all, context) + 10);  // 描き方・ONE／ALL（REF が置く部品）
+    const auto sources = balanceSources (state);
+    const auto* chosen = sources.chosen;
+    const auto& comparable = sources.comparable;
+    const auto entries = legendEntries (sources, state);
+    const auto legendFont = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
+    auto legend = takeLegend (bounds, entries, legendFont, state.overlay.all);
+    auto chart = bounds.reduced (10.0f, 6.0f);
+    const bool unmatched = paintBalancePlot (g, chart, state, sources, context);
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
     // ALL の描き方の切り替えで見出しに入らない時は、図の右上に（ALL は Blauert の読みを出さないので空いている）。

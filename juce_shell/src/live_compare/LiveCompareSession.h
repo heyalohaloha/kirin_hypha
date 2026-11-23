@@ -1,10 +1,10 @@
 #pragma once
-
 #include "LiveCompareCorrespondence.h"
 #include "LiveCompareRecovery.h"
 #include "LiveCompareGuardRecovery.h"
 #include "LiveCompareGainRamp.h"
 #include "CandidateTransition.h"
+#include "LiveMatchSpan.h"
 
 #include <algorithm>
 #include <atomic>
@@ -120,8 +120,8 @@ struct RenderReport
 class PostRenderer
 {
 public:
-    // Non-RT: sizes the scratch for the largest realtime block, the fade length and the POST input
-    // history that MATCH reads (a power of two of at least historySeconds).
+    LiveMatchSpan wholeMatch;
+    // Non-RT: scratch, fade and power-of-two POST history.
     void prepare (int maximumFrames, double sampleRate)
     {
         candidateTransition.reset();
@@ -146,7 +146,6 @@ public:
         alignment.newSession(); // each new session confirms its own content, retaining only the value
         weight = 0.0f;
     }
-
     bool adoptInitialTiming (const Ring& ring, const BlockClock& block, const TimingEvidence& evidence) noexcept
     { return consumer.adoptInitialTiming (ring, block, evidence); }
     bool needsNewAdmission() const noexcept { return consumer.needsNewAdmission(); }
@@ -168,7 +167,7 @@ public:
         std::int64_t start = 0, end = 0, k = 0;
         std::int32_t blockFrames = 0;
         bool kValid = false;
-        std::uint64_t proof = 0, preRun = 0;
+        std::uint64_t proof = 0, preRun = 0, preClock = 0, compensationProof = 0;
     };
 
     HistoryView historyView() const noexcept
@@ -184,7 +183,7 @@ public:
         view.k = matchOffset.load (std::memory_order_acquire);
         view.kValid = matchOffsetValid.load (std::memory_order_acquire);
         view.proof = historyProof.load();
-        view.preRun = historyPreRun.load();
+        view.preRun = historyPreRun.load(); view.preClock = historyPreClock.load(); view.compensationProof = historyCompensationProof.load();
         if (seq != historySequence.load()) return {};
         return view;
     }
@@ -195,7 +194,6 @@ public:
         return now.kValid && now.proof == view.proof && now.preRun == view.preRun && now.k == view.k
             && start >= now.start && now.end - start <= now.frames;
     }
-
     std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
 
     // PIN needs one contiguous project-time stretch.
@@ -222,11 +220,11 @@ public:
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
                          std::uint64_t candidateToken = 0, bool candidateReceiver = false,
-                         bool lowerOnCeiling = false) noexcept
+                         bool lowerOnCeiling = false, LiveMatchSpan::CaptureToken spanToken = {UINT64_MAX}) noexcept
     {
         auto report = renderBlock (ring, pairKey, sampleRate, block, io, channels, preSelected,
             preGain, post, postTarget, ceilingLinear, blind, timingBlock, diagnosticDecision, align, candidateToken,
-            lowerOnCeiling);
+            lowerOnCeiling, spanToken.epoch == UINT64_MAX ? wholeMatch.captureToken() : spanToken);
         if (candidateToken != 0 || candidateReceiver)
         {
             if (candidateTransition.apply (io, channels, block.frames, fadeFrames,
@@ -241,16 +239,15 @@ public:
         else candidateTransition.reset();
         return report;
     }
-
     RenderReport renderBlock (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
                          float ceilingLinear, bool blind = false,
                          RecoveryReason timingBlock = RecoveryReason::none,
                          Decision* diagnosticDecision = nullptr, AlignPlayback align = AlignPlayback(),
-                         std::uint64_t candidateToken = 0, bool lowerOnCeiling = false) noexcept
+                         std::uint64_t candidateToken = 0, bool lowerOnCeiling = false, LiveMatchSpan::CaptureToken spanToken = {}) noexcept
     {
-        RenderReport report;
+        RenderReport report; LiveMatchSpan::BlockCapture capture {wholeMatch, spanToken};
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
         {
             invalidateHistory();
@@ -290,6 +287,8 @@ public:
         else if (candidateToken == 0 || ring.header.candidate.settled (candidateToken, decision.run,
             inputStart, inputEnd, sampleRate)) recordHistory (block, io, channels, decision);
         else invalidateHistory();
+        if (candidateToken == 0 && inputPosition && block.playing && timingBlock == RecoveryReason::none && decision.verdict == Verdict::accepted)
+            capture.staged = wholeMatch.stage (spanToken, ring, decision.run, inputStart, io, channels, block.frames, block.afterGap || decision.timelineChanged, decision.preClock);
         if (candidateToken != 0)
         {
             const auto duration = timingBlock == RecoveryReason::none ? ring.header.candidate.contiguousFrames (
@@ -321,6 +320,7 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
+        const bool proven = candidateToken == 0 && inputPosition && block.playing; capture.eligible = proven && !preSelected;
         const bool sampleMismatch = align.enabled && alignment.value().verifySamples
             && ! matchingScaledBlock (io, scratch, channels, block.frames, alignment.value().frames == 0);
         if (align.verify && sampleMismatch) alignment.readiness.recheck();
@@ -333,7 +333,7 @@ public:
                                                                               : RecoveryReason::calibrating;
             const bool settled = post.value() >= postTarget && post.value() <= postTarget;
             post.apply (io, channels, block.frames, postTarget);
-            report.stableSource = report.gainSettled = settled;
+            report.stableSource = settled; // PRE was not settled here: no new gain receipt.
             report.audibleSource = settled ? RenderReport::AudibleSource::post : RenderReport::AudibleSource::none;
             return report;
         }
@@ -378,6 +378,7 @@ public:
             return report;
         }
         const float target = preSelected && align.outputAllowed && ! aligned.fading ? 1.0f : 0.0f;
+        capture.eligible = proven && (!preSelected || target > 0.0f);
         if ((blind || target > 0.0f || ! preSelected) && ! aligned.deferred) alignment.served(); // INV-LC28: PRE plays or could
         if (weight <= 0.0f && target <= 0.0f)
         {
@@ -494,6 +495,6 @@ private:
     std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
     RendererAlignment alignment;
-    std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 };
+    std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 }, historyPreClock { 0 }, historyCompensationProof { 0 };
 };
 }

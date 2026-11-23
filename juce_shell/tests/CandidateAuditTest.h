@@ -18,6 +18,7 @@
 #include "CandidateRecoveryPriorityTest.h"
 #include "LiveMatchDeadlineTest.h"
 #include "LiveBlindSeekBackTest.h"
+#include "WholeMatchSpanProductTest.h"
 
 namespace hypha::tests
 {
@@ -45,6 +46,7 @@ template<class Require> void verifyCandidateAudit (Require require)
     verifyCandidateDeadlineTail (require);
     verifyCandidateShortLoopTail (require);
     verifyLiveMatchDeadline (require);
+    verifyWholeMatchSpanProduct (require);
     verifyLiveBlindSeekBack (require);
     verifyLiveBlindPreparationDeadline (require);
     verifyLiveBlindPreparationPlayedTime (require);

@@ -3,6 +3,8 @@
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
+#include "LiveMatchSpanLifecycleProductTest.h"
+#include "LiveMatchFormatLeaseProductTest.h"
 #include "reference_rt_probe.h"
 #include <array>
 #include <atomic>
@@ -30,10 +32,10 @@ struct Clock final : juce::AudioPlayHead
     juce::Optional<PositionInfo> getPosition() const override
     {
         PositionInfo info; info.setIsPlaying (playing);
-        const auto project = (position + shift) % length;
+        const auto project = looping ? (position + shift) % length : position + shift;
         info.setTimeInSamples (project); info.setTimeInSeconds (project / 48000.0);
-        info.setIsLooping (true); info.setBpm (120); info.setPpqPosition (project / 24000.0);
-        info.setLoopPoints (LoopPoints { 0, 1 });
+        info.setIsLooping (looping); info.setBpm (120); info.setPpqPosition (project / 24000.0);
+        if (looping) info.setLoopPoints (LoopPoints { 0, 1 });
         info.setKirinAuxiliaryClockSource (1);
         if (! missing) info.setKirinAuxiliaryClockSamples (position);
         info.setKirinPresentationLatencySource (1);
@@ -41,15 +43,17 @@ struct Clock final : juce::AudioPlayHead
         return info;
     }
     std::int64_t position = 0, shift = 0;
-    bool playing = false, missing = false;
+    bool playing = false, missing = false, looping = true;
     int presentation = 0;
 };
 class Recovery final : private juce::Timer
 {
 public:
-    Recovery (std::vector<float> input, std::string scenario) : signal (std::move (input)), mode (std::move (scenario))
+    Recovery (std::vector<float> input, std::string scenario) : signal (std::move (input)), mode (std::move (scenario)),
+        matchSpan (mode == "match-span-restart", mode == "match-span-compensation")
     {
         preClock.presentation = delay;
+        preClock.looping = postClock.looping = mode != "match-span-compensation";
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
@@ -77,7 +81,7 @@ public:
         audio = std::thread ([this] { processAudio(); }); startTimer (20);
     }
     ~Recovery() override
-    { stopTimer(); running.store (false); audio.join(); pre->releaseResources(); post->releaseResources(); if (alternate) alternate->releaseResources(); }
+    { stopTimer(); running.store (false); matchSpan.releaseForJoin(); audio.join(); pre->releaseResources(); post->releaseResources(); if (alternate) alternate->releaseResources(); }
     bool passed = false;
 private:
     template <typename Predicate> void awaitAudio (Predicate&& predicate)
@@ -152,6 +156,8 @@ private:
                     else stage = 10;
                     break;
                 }
+                if (matchSpan.active())
+                { matchSpan.begin (*post, require); stage = 13; break; }
                 require (post->startLiveCompare() == StartResult::started, "named initial LOOP session starts");
                 post->selectLiveComparePre (true);
                 post->requestLiveCompareMatch(); // accepted before a measurable window, with no editor
@@ -299,6 +305,32 @@ private:
                 require (LiveTimingFixtureAccess::timingAdmission (*post).request == LiveTimingFixtureAccess::timingAdmission (*post).receipt,
                          "new trial owns the actual fresh timing request receipt");
                 post->finishLiveCompare(); stage = 9; break;
+            case 13:
+                if (matchSpan.tick (*post, [&] { pause.store (true); awaitAudio ([this] { return paused.load(); }); },
+                    [&] { pause.store (false); }, require))
+                {
+                    if (mode != "match-span-restart") { post->finishLiveCompare(); stage = 9; break; }
+                    // W1's recovery is complete. Acquire both production measurement paths with
+                    // new LISTEN evidence before testing a concurrent host format change (Y1).
+                    pause.store (true); awaitAudio ([this] { return paused.load(); });
+                    post->stopLiveCompare();
+                    matchSpan.begin (*post, require);
+                    pause.store (false); stage = 14;
+                }
+                break;
+            case 14:
+            {
+                post->serviceLiveMatchSpan();
+                if (LiveTimingFixtureAccess::wholeSpanConsumedForTest (*post) < 48000u * 4u) break;
+                pause.store (true); awaitAudio ([this] { return paused.load(); });
+                const auto recent = post->measureLiveCompare (false);
+                const auto whole = post->measureLiveCompare (true);
+                if (! recent.ok() || ! whole.ok()) { pause.store (false); break; }
+                hypha::tests::match_format_fixture::verify (*post, recent, whole, frames, require);
+                // Keep this host paused through teardown. Its clock is still in the old format.
+                stage = 9;
+                break;
+            }
         }
     }
     float source (std::int64_t frame, int channel) const
@@ -344,12 +376,18 @@ private:
                 { auto& delayed = physical[static_cast<std::size_t> (c)][head]; const auto input = buffer.getSample (c, f); buffer.setSample (c, f, delayed * 0.5f); delayed = input; }
                 head = (head + 1) % delay;
             }
+            const bool marker = matchSpan.pulseEnabled();
+            if (marker)
+                buffer.setSample (0, matchSpan.pulseFrame, matchSpan.offPulse);
             const auto before = LiveTimingFixtureAccess::audioView (*post);
             const auto at = blocks.load();
             if (at == oddStart.load())
             { oddWriter.emplace (LiveTimingFixtureAccess::gainRevision (*post)); require (static_cast<bool> (*oddWriter), "fixture opens one bounded odd writer"); }
             const auto receiptBefore = LiveTimingFixtureAccess::gainReceipt (*post);
+            matchSpan.enterPostCallback();
             beginReferenceRtProbe(); post->processBlock (buffer, midi); heap.fetch_add (endReferenceRtProbe());
+            matchSpan.leavePostCallback();
+            if (marker) matchSpan.observePulse (true, buffer.getSample (0, matchSpan.pulseFrame));
             const auto after = LiveTimingFixtureAccess::audioView (*post);
             if (oddWriter)
             {
@@ -365,7 +403,9 @@ private:
             {
                 for (int c = 0; c < 2; ++c) for (int f = 0; f < frames; ++f)
                 {
-                    const auto expected = source (emitted - delay + f, c) * (exactPre ? before.gain : 0.5f * before.postActual);
+                    const auto expected = marker && exactPost && c == 0 && f == matchSpan.pulseFrame
+                        ? matchSpan.offPulse * before.postActual
+                        : source (emitted - delay + f, c) * (exactPre ? before.gain : 0.5f * before.postActual);
                     if (! juce::exactlyEqual (buffer.getSample (c, f), expected)) pcmErrors.fetch_add (1);
                 }
                 verifiedFrames.fetch_add (frames * 2);
@@ -377,6 +417,7 @@ private:
         }
     }
     std::vector<float> signal; std::string mode;
+    hypha::tests::LiveMatchSpanLifecycleProductTest matchSpan;
     Clock preClock, postClock; std::unique_ptr<Processor> pre, post, alternate;
     std::thread audio; hypha::pair_preview::Ticket preview; MatchPlan oldPlan;
     std::atomic<bool> running { true }, playing { false }, pause { false }, paused { false }, seek { false }, clockHole { false };
@@ -391,7 +432,7 @@ private:
 }
 int main (int argc, char** argv)
 {
-    require (argc == 3, "reentry-product S-1.wav stop|seek|clock|restore|end|blind-stop|compensation");
+    require (argc == 3, "reentry-product S-1.wav stop|seek|clock|restore|end|blind-stop|compensation|match-span-restart|match-span-compensation");
     auto signal = readFixture (argv[1]); ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());

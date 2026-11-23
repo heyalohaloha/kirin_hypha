@@ -38,6 +38,28 @@ inline void verifyReferenceChangeNotesSurface(const juce::String& preview)
         require(panel.getLocalBounds().contains(view->getBounds()),"V notes strip inside parent");
         require(comparison && comparison->isVisible() && !comparison->getBounds().intersects(view->getBounds()),
             "collapsed notes do not cover comparison");
+        auto* toggle=dynamic_cast<juce::Button*>(view->findChildWithID("reference-change-notes-toggle"));
+        auto* notesList=dynamic_cast<reference_ui::ChangeNoteRows*>(view->findChildWithID("reference-change-notes-list"));
+        require(toggle && notesList, "change notes have local controls");
+        const auto original=notes->notes[0].text;
+        auto longNotes=std::make_shared<reference_audition::ChangeNotes>(*notes);
+        longNotes->notes[0].text=juce::String::repeatedString(original.upToFirstOccurrenceOf("\n",false,false)+" ",20)+"TAIL";
+        auto shortNote=longNotes->notes[0];
+        shortNote.noteId="short#2"; shortNote.number=2; shortNote.text="Short note";
+        longNotes->notes.push_back(shortNote); longNotes->openCount=2;
+        state.changeNotes=longNotes; panel.setState(state);
+        toggle->onClick();
+        require(notesList->isVisible() && notesList->getWidth()>=view->getWidth()-12,
+            "V notes list uses the full pane at every width");
+        const auto longRow=notesList->rowBounds(0), shortRow=notesList->rowBounds(1);
+        require(notesList->rowCount()==2 && longRow.getHeight()>shortRow.getHeight()
+            && longRow.getBottom()==shortRow.getY(), "long and short excerpts use their own adjoining heights");
+        require(notesList->excerpt(0).endsWith(juce::String::fromUTF8(u8"…"))
+            && !notesList->excerpt(0).contains("TAIL"), "long excerpt is limited and ends in ellipsis");
+        require(view->selectNote(0) && view->displayedBody().endsWith("TAIL"),
+            "detail keeps the entire note, including the truncation tail");
+        toggle->onClick(); toggle->onClick();
+        state.changeNotes=notes; panel.setState(state);
         const auto save=[&](const juce::String& stage){
             if(preview.isEmpty())return;
             const auto path=juce::File(preview).getChildFile("notes-surface-"+juce::String(language==i18n::Language::japanese?"ja-":"en-")+juce::String(width)+"-"+stage+".png");
@@ -56,11 +78,11 @@ inline void verifyReferenceChangeNotesSurface(const juce::String& preview)
         require(!view->isExpanded() && comparison->isVisible() && view->displayedBody().isEmpty(),"two local back actions restore comparison without retaining text");
         require(view->selectNote(0) && audioCommands==0,"repeated open remains presentation only");
         // Exercise the actual parent's expansion callback while replacing an open V.
-        // Count ListBoxModel rows, not noteCount(): duplicate presentation indices
+        // Count the actual opened row model, not noteCount(): duplicate presentation indices
         // can coexist with an otherwise correct immutable notes receipt.
-        auto* list=dynamic_cast<juce::ListBox*>(view->findChildWithID("reference-change-notes-list"));
+        auto* list=dynamic_cast<reference_ui::ChangeNoteRows*>(view->findChildWithID("reference-change-notes-list"));
         auto* body=dynamic_cast<juce::TextEditor*>(view->findChildWithID("reference-change-notes-body"));
-        require(list && list->getModel() && body,"real notes list and body exist");
+        require(list && body,"real notes list and body exist");
         for(int revision=1;revision<=3;++revision) {
             const auto oldText=view->displayedBody();
             require(view->isExpanded() && oldText.isNotEmpty(),"replacement starts with an open old note");
@@ -74,25 +96,38 @@ inline void verifyReferenceChangeNotesSurface(const juce::String& preview)
             state.versionId="replacement-version-"+juce::String(revision); state.changeNotes=replacement;
             panel.setState(state);
             std::cout<<"NOTES_VERSION_REPLACEMENT width="<<width<<" revision="<<revision
-                <<" rows="<<list->getModel()->getNumRows()<<" notes="<<replacement->notes.size()<<std::endl;
-            require(list->getModel()->getNumRows()==static_cast<int>(replacement->notes.size()),
-                "new V receipt has exactly one list row per note, without callback reentry duplicates");
+                <<" rows="<<list->rowCount()<<" notes="<<replacement->notes.size()<<std::endl;
             require(!view->isExpanded() && view->displayedBody().isEmpty() && !body->isVisible()
                 && body->getTitle().isEmpty() && body->getDescription().isEmpty(),
                 "new V closes old body and clears its accessible text");
             require(comparison->isVisible() && audioCommands==0,"new V restores comparison without audio commands");
+            back->onClick();
+            require(list->isVisible() && list->rowCount()==static_cast<int>(replacement->notes.size()),
+                "new V receipt has exactly one visible list model row per note, without callback reentry duplicates");
+            back->onClick();
             for(int cycle=0;cycle<2;++cycle) {
                 require(view->selectNote(0) && view->displayedBody()==replacement->notes[0].text
                     && !view->displayedBody().contains(oldText),"reopening shows only the new V note");
                 require(!comparison->isVisible(),"new V open body replaces comparison");
                 back->onClick(); back->onClick();
                 require(!view->isExpanded() && view->displayedBody().isEmpty() && comparison->isVisible()
-                    && list->getModel()->getNumRows()==static_cast<int>(replacement->notes.size()) && audioCommands==0,
+                    && list->rowCount()==static_cast<int>(replacement->notes.size()) && audioCommands==0,
                     "repeated local Back preserves unique list and restores comparison without audio commands");
             }
             require(view->selectNote(0),"leave new V open for next replacement or Blind");
         }
+        back->onClick(); // Detail to list; capture actual populated pooled row objects.
+        require(list->isVisible() && list->visibleButtonCount()>0,"the real note list is open before VERSION BLIND");
+        const auto* rowSurface=list->getViewedComponent();
+        require(rowSurface!=nullptr && rowSurface->getNumChildComponents()>0,"visible note rows have accessible controls");
+        bool hadNamedRow=false;
+        for(const auto* row:rowSurface->getChildren())
+            hadNamedRow|=row->isVisible() && row->getTitle().isNotEmpty() && row->getDescription().isNotEmpty();
+        require(hadNamedRow,"the prior note was exposed to accessibility before VERSION BLIND");
         state.blindPhase=reference_ui::BlindPhase::active; panel.setState(state);
+        for(const auto* row:rowSurface->getChildren())
+            require(!row->isVisible() && row->getTitle().isEmpty() && row->getDescription().isEmpty(),
+                "VERSION BLIND clears the old note title and description in every pooled control");
         require(!view->isVisible() && view->noteCount()==0 && view->displayedBody().isEmpty(),"actual V surface hides and clears notes in Blind");
         text_style::ShownTextLog log;
         shell.createComponentSnapshot(shell.getLocalBounds());

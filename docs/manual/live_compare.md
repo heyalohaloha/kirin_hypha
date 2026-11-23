@@ -108,14 +108,30 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
 Some DAWs, including Logic Pro and Cakewalk (Sonar), take letter keys first. Click the Hypha window before pressing a key;
 if it still does not work, use the on-screen buttons to do the same thing instead.
 
-1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
-   300% and above) in the footer.
+1. In POST, select the exact PRE pair. Before starting, use **MENU → MATCH SPAN** to choose
+   **LAST 4 s** (the default) or **ALL PLAYED**. At 200% and above, press **LISTEN** in the footer.
 2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms. The next LISTEN
    starts on the side you chose last, saved with the project; BLIND and A/B always start on their
    own terms, and opening or restoring a project never starts LISTEN.
-3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
-   least three, BS.1770 loudness, up to ±24 dB) and applies that gain to PRE only; the PRE control
-   shows it, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
+3. Press **MATCH** to level PRE to POST.
+   - **LAST 4 s** uses the existing paired measurement on the latest four seconds of confirmed
+     playback. If the loudness comparison has too little signal, it can compare the energy of
+     paired short events such as drum hits instead.
+   - **ALL PLAYED** uses BS.1770 gated integrated loudness on confirmed PRE/POST audio since
+     LISTEN started. It counts repeated playback across loops and seeks, but does not scan the
+     file or count skipped audio. It does not fall back to short-event matching.
+
+   Both spans require at least three seconds of usable playback and limit the match to ±24 dB.
+   If the selected span is too short, the notice is **No MATCH: play at least 3 seconds**
+   (**3秒以上再生してからMATCHしてください。** in Japanese). Keep playing before trying MATCH again.
+   If ALL PLAYED loses some audio, the notice is **ALL PLAYED lost audio. END and restart.**
+   Use END and start a new LISTEN rather than continuing to wait in the same session.
+   The project remembers the span but does not start LISTEN when opened.
+   Re-saving in an older Hypha without this setting discards the choice; the next time you open the project in a version with MATCH SPAN, it uses **LAST 4 s**.
+   The choice applies to LISTEN only. BLIND carries over an eligible, fully applied LISTEN MATCH
+   from either span; without one it prepares a match using its usual recent window. The choice
+   does not change AUTO, Reference MATCH or A/B MATCH. The PRE control shows the
+   applied gain, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
    the measured true peaks, which is common with a loud, limited master, MATCH asks first:
    - **Lower POST** by the whole difference and keep PRE at its own level. POST then reads, for
      example, **POST -7.0 dB**.

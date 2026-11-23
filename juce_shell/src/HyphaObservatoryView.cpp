@@ -39,8 +39,9 @@ void styleButton (juce::TextButton& button)
 }
 }
 
-View::View (Role roleIn) : role (roleIn)
+View::View (Role roleIn, std::shared_ptr<const metric_face::MetricChassisPair> candidateChassis) : role (roleIn)
 {
+    metricSelection.candidateChassis = std::move (candidateChassis);
     setOpaque (true);
     setMouseClickGrabsKeyboardFocus (false);
     initializeLevelHistoryControls(); initializeVuCalibrationControl();
@@ -225,14 +226,15 @@ void View::setExternalConnectionLabelVisible (bool visible)
     repaint (connectionArea);
 }
 
-void View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
+bool View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
 {
     if (watchDisplayAvailable == available && observation_equality::same (watchDisplay, display))
-        return;
+        return false;
     watchDisplay = display;
     watchDisplayAvailable = available;
-    if (selectedDomain == Domain::level)
-        repaint (bodyArea);
+    const bool visible = selectedDomain == Domain::level || hybridVuVisible();
+    if (visible) repaint (bodyArea);
+    return visible;
 }
 
 void View::setShortTermLoudness (bool shortTerm)

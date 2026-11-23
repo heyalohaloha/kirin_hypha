@@ -185,6 +185,14 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         preference.addItem (490, "10 rounds", canChange, liveBlindView.preferenceRounds() == 10);
         menu.addSubMenu ("ROUNDS", preference);
     }
+    if (! processorRef.candidateCompareActive())
+    {
+        juce::PopupMenu span;
+        span.addSectionHeader ("LISTEN MATCH span: last 4 seconds or all played");
+        span.addItem (498, "LAST 4 s", !live.active, !processorRef.wholeMatchPreferred());
+        span.addItem (499, "ALL PLAYED", !live.active, processorRef.wholeMatchPreferred());
+        menu.addSubMenu ("MATCH SPAN", span);
+    }
     menu.addItem (44, processorRef.candidateCompareActive() ? "Align A automatically" : "Align PRE automatically", true, processorRef.liveCompareAutoAlign());
 }
 
@@ -201,6 +209,7 @@ bool KirinHyphaEditor::handleLiveCompareMenu (int result)
             liveBlindView.onPreferenceRoundsChanged (rounds);
         return true;
     }
+    if (result == 498 || result == 499) { processorRef.setWholeMatchPreferred (result == 499); return true; }
     if (result < 40 || result > 44) return false;
     if (result == 44) processorRef.setLiveCompareAutoAlign (! processorRef.liveCompareAutoAlign());
     if (result == 40) requestListenStart();

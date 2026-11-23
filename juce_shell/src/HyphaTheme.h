@@ -69,6 +69,11 @@ namespace hypha
     juce::Font displayTextFont (const juce::String&, const presentation::Context&,
                                 typography::TextRole,
                                 typography::Composition = typography::Composition::shell);
+    // BLIND result density keeps the selected face and only reduces its height when needed.
+    juce::Font nativeTextFont (const presentation::Context&, typography::TextRole,
+                               typography::Composition, float densityScale);
+    juce::Font displayTextFont (const juce::String&, const presentation::Context&,
+                                typography::TextRole, typography::Composition, float densityScale);
     // A long state or legend may fit its own cell without changing the role's normal font.
     juce::Font displayTextFont (const juce::String&, const presentation::Context&,
                                 typography::TextRole, typography::Composition,

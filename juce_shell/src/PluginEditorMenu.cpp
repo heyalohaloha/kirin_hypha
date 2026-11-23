@@ -23,8 +23,7 @@ namespace
 
 KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
 {
-    static PairMenuLookAndFeel lookAndFeel;
-    return lookAndFeel;
+    return hypha::kirin_popup::appearance();
 }
 
 void KirinHyphaEditor::showCandidateMenu()

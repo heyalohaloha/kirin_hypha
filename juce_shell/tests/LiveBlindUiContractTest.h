@@ -6,6 +6,7 @@
 #include "../src/HyphaSurfaceMaterial.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "EditorReachabilityCheck.h"
+#include "ShownLabelHeight.h"
 #include <cmath>
 #include <iostream>
 
@@ -72,6 +73,45 @@ inline void verifyLiveBlindUiContract()
         require (text_style::shownText ("END") == (language == i18n::Language::japanese
             ? juce::String::fromUTF8 (u8"終了") : juce::String ("END")),
             "other END controls retain their default localization");
+        for (const auto& entry : { std::pair { "align-off", juce::String ("ALIGN OFF") },
+                                   std::pair { "save-image", juce::String ("SAVE IMAGE") },
+                                   std::pair { "guess-1", juce::String ("1") },
+                                   std::pair { "guess-2", juce::String ("2") } })
+        {
+            auto* action = dynamic_cast<HyphaTextButton*> (button (
+                (juce::String ("live-blind-") + entry.first).toRawUTF8()));
+            require (action && action->displayedText() == entry.second,
+                "BLIND source actions and result save keep literal labels in both languages");
+        }
+        for (const float level : { 1.0f, 0.616595f })
+        for (const bool needsDelayNotice : { false, true })
+        {
+            live_compare::LiveBlindStatus trial;
+            trial.stage = Stage::active;
+            trial.trial.played = 3;
+            trial.trial.selected = trial.trial.audible = 1;
+            trial.contentUnmeasured = needsDelayNotice;
+            view.setSize (300, 200);
+            view.setGuessing (false);
+            view.setState (trial, true, level);
+            auto* detail = dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-text-3"));
+            auto* displayedNotice = dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-notice"));
+            require (detail && detail->isVisible() && displayedNotice, "compact single listen has visible END explanation");
+            const auto wanted = level < 1.0f ? juce::String ("Lowered 4.2 dB to avoid clipping; END restores it")
+                                              : juce::String ("END restores normal level");
+            require (detail->getText().contains (wanted) && detail->getFont().getHeight() >= 12.0f,
+                "real END explanation and lowered amount are readable in compact single listen");
+            const auto detailArea = detail->getBorderSize().subtractedFrom (detail->getLocalBounds());
+            require (text_style::shownWrappedHeight (detail->getText(), detail->getFont(), detailArea.getWidth())
+                <= detailArea.getHeight() + 0.5f && button ("live-blind-source-1")->getHeight() >= 60
+                && button ("live-blind-source-2")->getHeight() >= 60, "entire explanation and minimum source cards fit together");
+            if (needsDelayNotice)
+            {
+                const auto notice = juce::String (live_compare_ui::unmeasuredNotice());
+                require (displayedNotice->isVisible() && displayedNotice->getText().contains (notice),
+                    "compact single listen retains the unmeasured notice beside the END explanation");
+            }
+        }
         for (auto preset : observatory::sizePresets)
             for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++phase)
             {
@@ -152,14 +192,11 @@ inline void verifyLiveBlindUiContract()
                     }
                     if (auto* label = dynamic_cast<juce::Label*> (child))
                     {
-                        juce::AttributedString text;
-                        text.append (text_style::shownText (label->getText()), label->getFont(), COL_NORMAL);
-                        juce::TextLayout layout;
                         const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                        layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                        if (layout.getHeight() > bounds.getHeight()) std::cerr << preset.width << " phase " << phase
+                        const auto needed = shownLabelHeight (*label);
+                        if (needed > bounds.getHeight()) std::cerr << preset.width << " phase " << phase
                             << ' ' << text_style::shownText (label->getText()) << '\n';
-                        require (layout.getHeight() <= bounds.getHeight(), "instruction fits without truncation");
+                        require (needed <= bounds.getHeight(), "instruction fits without truncation");
                     }
                 }
                 if (preview.isNotEmpty())

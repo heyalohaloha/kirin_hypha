@@ -2,7 +2,7 @@
 
 #include <functional>
 
-#include "HyphaBlindResultImage.h"
+#include "HyphaBlindResultSharedCapture.h"
 #include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaTextButton.h"
 #include "HyphaTextLookAndFeel.h"
@@ -159,7 +159,7 @@ private:
     {
         if (previewArea.isEmpty()) return;
         // Drawn at twice its place so it stays sharp on a high-density display.
-        preview = render (facts(), previewArea.getWidth() * 2);
+        preview = renderShared (facts(), previewArea.getWidth() * 2);
         repaint();
     }
 
@@ -167,7 +167,7 @@ private:
     Facts frozen;
     juce::Label heading, labelA, labelB, reason;
     juce::TextEditor fieldA, fieldB;
-    HyphaTextButton save { "SAVE" }, back { "BACK" };
+    HyphaTextButton save { "SAVE", true, text_style::LabelPolicy::fixed }, back { "BACK", true, text_style::LabelPolicy::fixed };
     juce::Rectangle<int> previewArea;
     juce::Image preview;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Sheet)

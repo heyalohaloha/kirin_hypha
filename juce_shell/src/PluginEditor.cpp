@@ -1,3 +1,4 @@
+#include "BinaryData.h"
 #include "HyphaPairLabels.h"
 #include "PluginEditor.h"
 #include "HyphaRecordBindingNotice.h"
@@ -15,12 +16,22 @@ using hypha::COL_SPECTRUM_DELTA;
 namespace
 {
     namespace ui = hypha::ui_contract;
+    const auto& meterArtwork()
+    {
+        using namespace BinaryData;
+        static const auto artwork = std::make_shared<const hypha::metric_face::MetricChassisPair> (
+            hypha::metric_face::MetricChassisPair {
+                { juce::ImageFileFormat::loadFrom (hybrid_vu_chassis_single_png, static_cast<size_t> (hybrid_vu_chassis_single_pngSize)),
+                  { 1531.0f, 1251.0f } }, // Centre on the full 3072 x 2048 single-dial original.
+                juce::ImageFileFormat::loadFrom (hybrid_vu_chassis_png, static_cast<size_t> (hybrid_vu_chassis_pngSize)) });
+        return artwork;
+    }
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole()),
       observatoryView (isPost ? hypha::observatory::Role::post
-                              : hypha::observatory::Role::pre)
+                              : hypha::observatory::Role::pre, meterArtwork())
 {
     addMouseListener (&unavailableClicks, true);
     analysisOwnerToken = processorRef.beginAnalysisUiSession();

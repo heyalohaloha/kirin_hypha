@@ -41,7 +41,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.contentUnapplied = told.unapplied;
     if (status.contentHeld)
         status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
-    status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
+    status.compensationOff = (liveCompare.compensationState.load (std::memory_order_acquire) & 1u) != 0;
     using Reason = hypha::live_compare::RecoveryReason;
     status.reason = liveCompare.blindStage == hypha::live_compare::BlindStage::idle
         ? selection.reason() : liveCompare.blind.view().reason;
@@ -67,4 +67,12 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     if (permission != liveCompare.authority.ticket() || ! liveCompare.authority.permitted())
         status.active = status.preSelected = status.preAudible = status.matched = status.matchReady = status.matchHeld = status.matchOff = false;
     return status;
+}
+bool KirinHyphaProcessorBase::takeLiveCompareGuardTrip() noexcept
+{
+    return liveCompare.guardTripped.exchange (false, std::memory_order_acq_rel);
+}
+std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
+{
+    return liveCompare.playbackRun.load (std::memory_order_acquire);
 }

@@ -162,8 +162,14 @@ private:
                     // editor checked it refuses the start under the pair lock; a new press then starts.
                     const auto pressed = post->restoreOrPairTicket();
                     juce::MemoryBlock same;
+                    require(!post->wholeMatchPreferred(), "MATCH span is LAST 4 s by default");
+                    post->setWholeMatchPreferred(true);
                     post->getStateInformation (same);
+                    post->setWholeMatchPreferred(false);
                     post->setStateInformation (same.getData(), static_cast<int> (same.getSize()));
+                    require(post->wholeMatchPreferred() && !post->liveCompareStatus().active,
+                        "project restore keeps ALL PLAYED preference without starting LISTEN");
+                    post->setWholeMatchPreferred(false);
                     require (post->startLiveCompare (pressed) != StartResult::started && ! post->liveCompareStatus().active,
                              "a LISTEN press from before a restore of the same state does not start");
                     staleChecked = true;

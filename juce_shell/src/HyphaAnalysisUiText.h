@@ -89,7 +89,7 @@ inline juce::String postLegendTooltip()
 
 inline juce::String markTooltip (bool clear)
 {
-    return clear ? "Clear the MARK reference."
+    return clear ? "Remove MARK"
                  : "MARK: freeze the current full-band Delta curve.";
 }
 

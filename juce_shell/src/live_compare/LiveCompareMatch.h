@@ -1,11 +1,17 @@
 #pragma once
 
 #include "LiveCompareSession.h"
+#include "LiveCompareGainApproval.h"
 
 #include <cstdint>
 
 namespace hypha::live_compare
 {
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+// Called from inside the measurement that was chosen, while it holds its counted read:
+// true from ALL PLAYED (measureWholeLiveMatch), false from LAST 4 s (computeMatch).
+inline void (*duringLiveMatchReadLeaseForTest)(bool whole) = nullptr;
+#endif
 enum class MatchFailure : std::uint8_t
 {
     none,
@@ -15,9 +21,17 @@ enum class MatchFailure : std::uint8_t
     notEnoughSignal, // neither gain policy found enough paired active signal
     outOfRange,      // the final gain (including held POST) is beyond maximumMatchDb
     stale,           // remeasure on the current session; never reuse an old approval
-    invalidPlan      // malformed plan; no gain is applied
+    invalidPlan,     // malformed plan; no gain is applied
+    wholeSpanLost    // ALL PLAYED has a permanent hole until a fresh measurement epoch
 };
 
+// ALL PLAYED's proofs are distinct from the legacy LAST 4 history contract.
+inline bool wholeProofCurrent(const Ring& ring, const PostRenderer::HistoryView& view) noexcept
+{
+    return view.kValid && ring.header.ownerClosed.load(std::memory_order_acquire) == 0
+        && ring.header.run.load(std::memory_order_acquire) == view.preRun
+        && ring.header.timing.generation.load(std::memory_order_acquire) == view.preClock;
+}
 // A MATCH never moves either side by more than this (the TRACK/STEM gate of Local Blind).
 constexpr double maximumMatchDb = 24.0;
 
@@ -35,6 +49,11 @@ struct MatchResult
     bool generationBound = false; // processor-measured plans must stay on the same continuous session
     std::uint64_t proof = 0, preRun = 0;
     bool proofBound = false;
+    GainIdentity wholeOwner {};
+    std::uint64_t wholePreClock = 0;
+    bool wholeOwnerBound = false;
+    std::uint64_t compensationProof = 0;
+    bool compensationProofBound = false;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
 
@@ -57,6 +76,11 @@ struct MatchPlan
     bool generationBound = false;
     std::uint64_t proof = 0, preRun = 0;
     bool proofBound = false;
+    GainIdentity wholeOwner {};
+    std::uint64_t wholePreClock = 0;
+    bool wholeOwnerBound = false;
+    std::uint64_t compensationProof = 0;
+    bool compensationProofBound = false;
 };
 
 MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;

@@ -11,6 +11,11 @@ timed, including which clock each host supplies.
 LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The large view adds M,
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
+The comparison meter faces use a dedicated background for each layout. PRE shows one central dial.
+POST shows two dials: PRE on the left, POST on the right. These are comparison faces, not a change
+to the Hybrid VU's left/right channel layout. When PRE and POST timing cannot be verified, the
+difference history leaves a gap rather than drawing a comparison; the POST reading remains available.
+
 Both supporting rows read PSR, TP, MAX TP, then I for a track or PLR for the mix, then LRA. TRACK
 reads CREST large and 2MIX reads I large. PSR is the dynamics heard now: the 400 ms sample peak minus the 3 s short-term loudness. Under it,
 **SONG** is one figure for the whole song since the Meter Session reset: the highest of those peaks

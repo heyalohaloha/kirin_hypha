@@ -1,5 +1,6 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
+#include "../src/live_compare/LiveCompareRendererLease.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "PublicationStorageContract.h"
@@ -161,11 +162,40 @@ void sharedRing (juce::AudioProcessor::WrapperType format, int channels)
     post->closeLiveBlind(); post->serviceLiveCompare();
     require (owner->ring()->header.timing.ownerA.load() == a && owner->ring()->header.timing.ownerB.load() == b,
              "LISTEN/BLIND preserve PRE lifetime instead of recreating its mapping");
+    // A host re-prepare after LISTEN read its start conditions: the same rate and channels again, but
+    // a rebuilt engine that is not enabled and has no pair yet. The start is refused, not opened on the
+    // PRE it read before, and the next press after the engine is enabled starts.
+    static Processor* reprepared = nullptr;
+    reprepared = post.get();
+    beforeRendererLeaseForTest = +[] { reprepared->prepareToPlay (96000, frames); reprepared->prepareToPlay (48000, frames); };
+    const auto raced = post->startLiveCompare();
+    beforeRendererLeaseForTest = nullptr;
+    require (raced == StartResult::notReady && ! post->liveCompareStatus().active
+        && ! LiveTimingFixtureAccess::timingRingPublished (*post) && owner->ring()->header.demand.load() == 0,
+             "a re-prepare during the start refuses LISTEN and leaves no ring or PCM demand");
+    LiveTimingFixtureAccess::enableFixtureWrites (*post);
+    selectPair (*pre, *post, clock, channels);
+    require (post->startLiveCompare() == StartResult::started, "the next press starts on the enabled engine");
+    post->stopLiveCompare(); post->serviceLiveCompare();
     SharedRingMapping wrongRate;
     require (! wrongRate.open (key, 96000), "wrong-rate POST is rejected");
     LiveTimingFixtureAccess::retirePreparedFormatRing (*pre);
     require (! LiveTimingFixtureAccess::timingRingPublished (*pre), "format change retires PRE owner");
     require (post->startLiveCompare() == StartResult::preUnavailable, "retired PRE cannot start another session");
+    // PRE and POST move to another rate during the press: PRE runs, its ring only refuses the old rate.
+    // That is a format change to press again for, not a stopped PRE to pick again.
+    static Processor* movedPre = nullptr;
+    movedPre = pre.get();
+    beforeRendererLeaseForTest = +[]
+    {
+        movedPre->prepareToPlay (96000, frames); LiveTimingFixtureAccess::enableFixtureWrites (*movedPre);
+        reprepared->prepareToPlay (96000, frames);
+    };
+    const auto changed = post->startLiveCompare();
+    beforeRendererLeaseForTest = nullptr;
+    require (LiveTimingFixtureAccess::timingRingPublished (*pre), "PRE publishes again at the new rate");
+    require (changed == StartResult::formatChanged && ! hypha::live_compare_ui::startNeedsPreChoice (changed)
+        && ! post->liveCompareStatus().active, "a rate change during the start asks for the press again, not another PRE");
     pre->releaseResources(); post->releaseResources();
 }
 

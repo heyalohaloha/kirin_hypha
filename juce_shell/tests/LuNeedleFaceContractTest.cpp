@@ -1,4 +1,5 @@
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -155,6 +156,23 @@ void verifyIntegratedAvailability (observatory::Role role, observatory::SizePres
     juce::Component owner;
     owner.setSize (preset.width, preset.height);
     hybrid_vu::LuFace face (owner);
+    face.setCommonFace (true, "LU");
+    {
+        const i18n::ScopedLanguage english (i18n::Language::english);
+        auto row = juce::Rectangle<int> (0, 0, 170, 20);
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF not linked");
+        face.layoutReferenceStatus (row, 20);
+        KIRIN_LU_FACE_REQUIRE (row.getWidth() < 170);
+        auto facts = readyFacts (-4.0);
+        facts.zero = lu_needle::Zero::noSong;
+        face.setFacts (facts);
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF no song");
+        facts.zero = lu_needle::Zero::noValue;
+        face.setFacts (facts);
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF unmeasured");
+        face.setFacts (readyFacts (-4.0));
+        KIRIN_LU_FACE_REQUIRE (face.referenceStatus() == "REF ready");
+    }
     face.restore (true, Window::momentary);
     auto meter = meterFixture();
     KirinWatchDisplay watch {};
@@ -204,6 +222,56 @@ void verifyIntegratedAvailability (observatory::Role role, observatory::SizePres
     KIRIN_LU_FACE_REQUIRE (std::isnan (unpaired.reading.pre));
     face.restore (true, Window::shortTerm);
     check (-10.5, false);
+}
+
+void verifySelectedMetricReferenceBadge()
+{
+    using metric_needle::Face;
+    using metric_needle::Status;
+    const auto read = [] (observatory::View& view)
+    {
+        for (int index = 0; index < view.getNumChildComponents(); ++index)
+            if (auto* label = dynamic_cast<juce::Label*> (view.getChildComponent (index));
+                label != nullptr && label->getComponentID() == "observatory-reference-status" && label->isVisible())
+                return label->getText();
+        return juce::String();
+    };
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        observatory::View view (observatory::Role::post);
+        view.setSize (300, 200);
+        view.setManualHybridVuVisible (true);
+        view.lu().setFacts (readyFacts (-4.0));
+        for (const auto face : { Face::psr, Face::crest, Face::sharp })
+        {
+            view.setMetricFace (face);
+            metric_needle::Frame frame;
+            frame.face = face;
+            frame.status = Status::measuring;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+            auto noSong = readyFacts (-4.0);
+            noSong.zero = Zero::noSong; noSong.song.clear(); noSong.zeroLufs = lu_needle::nan;
+            view.lu().setFacts (noSong);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF no song"));
+            frame.status = Status::ready; frame.median = 1.0;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF no song")); // old ready frame after clearing the selection
+            view.lu().setFacts (readyFacts (-4.0));
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
+            frame.face = face == Face::psr ? Face::crest : Face::psr;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+            frame.face = face; frame.status = Status::unavailable;
+            view.setMetricFrame (frame);
+            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
+        }
+        view.setMetricFace (Face::lu);
+        KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
+        view.lu().setFacts (Facts {});
+        KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF not linked"));
+    }
 }
 
 void verifyFace (observatory::Role role, observatory::SizePreset preset)
@@ -363,6 +431,7 @@ void verifyFace (observatory::Role role, observatory::SizePreset preset)
 
 void verifyLuNeedleFace()
 {
+    verifySelectedMetricReferenceBadge();
     for (const auto role : { observatory::Role::pre, observatory::Role::post })
         for (const auto preset : observatory::sizePresets)
         {
