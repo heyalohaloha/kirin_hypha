@@ -11,9 +11,6 @@ const Entry entries[] = {
     // Why SOURCE 1 / 2 cannot be chosen now (2026-11-11).
     { "Preparing the sources", u8"音源を準備中です" },
     { "Switching the source", u8"音源を切り替え中です" },
-    { "MATCH SPAN", u8"MATCH SPAN" },
-    { "LAST 4 s", u8"LAST 4 s" },
-    { "ALL PLAYED", u8"ALL PLAYED" },
     { "LISTEN MATCH span: last 4 seconds or all played", u8"LISTENのMATCHの範囲：直近4秒／再生した全部" },
     { "MATCH waits for more signal", u8"MATCHに必要な信号を待っています" },
     { "Waiting for the first loop pass (POST)", u8"最初のループが一周するのを待っています（POST出力）" },
@@ -364,7 +361,6 @@ const Entry entries[] = {
     { "The answer was fixed at REVEAL", u8"答えはREVEALで決まりました" },
     { u8"— right", u8"— 当たり" },
     { u8"— not this time", u8"— はずれ" },
-    { "ALIGN OFF", u8"自動合わせOFF" },
     { "SAVE IMAGE", u8"画像を保存" },
     { "Selected", u8"選択中" },
     { "Save the result as an image", u8"結果を画像で保存します" },
