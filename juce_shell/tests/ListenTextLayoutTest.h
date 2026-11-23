@@ -2,6 +2,7 @@
 #include <iostream>
 #include "ListenTextCases.h"
 #include "ListenTextPaintChecks.h"
+#include "ShownLabelHeight.h"
 #include "ListenLayoutShard.h"
 #include "../src/AtomicFile.h"
 namespace hypha::tests
@@ -152,12 +153,7 @@ void verifyAllListenText (Require require, ListenLayoutShard shard = {})
                     if (auto* label = dynamic_cast<juce::Label*> (child))
                     {
                         const auto room = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                        juce::AttributedString text;
-                        text.append (text_style::shownText (label->getText()), label->getFont(), juce::Colours::white);
-                        juce::TextLayout layout; layout.createLayout (text, static_cast<float> (room.getWidth()));
-                        const auto height = std::max (layout.getHeight(), text_style::shownWrappedHeight (
-                            label->getText(), label->getFont(), room.getWidth()));
-                        if (height > room.getHeight() + 0.5f || !listen_text::labelPaintsCompletely (*label))
+                        if (shownLabelHeight (*label) > room.getHeight() + 0.5f || !listen_text::labelPaintsCompletely (*label))
                         {
                             ++clipped;
                             failures.addIfNotAlreadyThere ("BLIND " + juce::String (static_cast<int> (language)) + "/"

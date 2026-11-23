@@ -6,6 +6,7 @@
 #include "../src/HyphaSurfaceMaterial.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "EditorReachabilityCheck.h"
+#include "ShownLabelHeight.h"
 #include <cmath>
 #include <iostream>
 
@@ -191,14 +192,11 @@ inline void verifyLiveBlindUiContract()
                     }
                     if (auto* label = dynamic_cast<juce::Label*> (child))
                     {
-                        juce::AttributedString text;
-                        text.append (text_style::shownText (label->getText()), label->getFont(), COL_NORMAL);
-                        juce::TextLayout layout;
                         const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                        layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                        if (layout.getHeight() > bounds.getHeight()) std::cerr << preset.width << " phase " << phase
+                        const auto needed = shownLabelHeight (*label);
+                        if (needed > bounds.getHeight()) std::cerr << preset.width << " phase " << phase
                             << ' ' << text_style::shownText (label->getText()) << '\n';
-                        require (layout.getHeight() <= bounds.getHeight(), "instruction fits without truncation");
+                        require (needed <= bounds.getHeight(), "instruction fits without truncation");
                     }
                 }
                 if (preview.isNotEmpty())

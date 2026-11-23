@@ -7,6 +7,7 @@
 #include "../src/HyphaLiveBlindComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
 #include "EditorReachabilityCheck.h"
+#include "ShownLabelHeight.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -142,12 +143,8 @@ inline void verifyVersionBlindScreen()
                     }
                     if (auto* label = dynamic_cast<juce::Label*> (child))
                     {
-                        juce::AttributedString text;
-                        text.append (text_style::shownText (label->getText()), label->getFont(), COL_NORMAL);
-                        juce::TextLayout layout;
                         const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                        layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                        require (layout.getHeight() <= bounds.getHeight(), "instruction fits without truncation: " + label->getText());
+                        require (shownLabelHeight (*label) <= bounds.getHeight(), "instruction fits without truncation: " + label->getText());
                     }
                 }
                 if (which == bothHeard || which == lowered)
