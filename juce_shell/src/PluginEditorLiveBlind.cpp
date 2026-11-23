@@ -12,6 +12,7 @@ using hypha::live_compare::StartResult;
 void KirinHyphaEditor::configureLiveBlind()
 {
     liveBlindView.setPreferenceRounds (hypha::blind_image::preferenceRounds (liveBlindView.preferenceFile()));
+    liveBlindView.setTrialMemory (processorRef.liveBlindTrialMemory()); // after the rounds of the next trial
     liveBlindView.onPreferenceRoundsChanged = [this] (int rounds)
     {
         if (!hypha::blind_image::preferRounds (liveBlindView.preferenceFile(), rounds))

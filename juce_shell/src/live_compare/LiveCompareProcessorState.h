@@ -32,6 +32,7 @@
 #include <atomic>
 #include <cstdint>
 
+namespace hypha::live_blind_ui { struct TrialMemory; }
 namespace hypha::live_compare
 {
 enum class BlindStage { idle, preparing, approval, settling, active, invalidated, finishing, failed };
@@ -107,6 +108,7 @@ struct ProcessorState
     Authority authority;
     CandidateProcessorState candidate;
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
+    std::shared_ptr<live_blind_ui::TrialMemory> blindTrialMemory; // message thread only, never saved
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
     // INV-LC14: the last POST callback's wall time, and each return the message thread finished in a quiet.

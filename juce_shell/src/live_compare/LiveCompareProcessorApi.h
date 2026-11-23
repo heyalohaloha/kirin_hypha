@@ -76,6 +76,9 @@ bool nextLiveBlindPreferenceRound (std::uint64_t generation, std::uint32_t epoch
 bool revealLiveBlindPreference (std::uint64_t generation, std::uint32_t epoch);
 std::optional<hypha::live_compare::GainSnapshot> liveBlindApprovedPreferenceGain (std::uint64_t generation, std::uint32_t epoch) const;
 void closeLiveBlind();
+// Message thread only: the trial's answers for the window, kept while it is closed and never saved.
+std::shared_ptr<hypha::live_blind_ui::TrialMemory> liveBlindTrialMemory();
+void forgetBlindTrial(); // END, a restore or a changed pair, also without a window
 
 // Explicit, unsaved A/B selection; the normal PRE pair is never changed.
 hypha::live_compare::StartResult startCandidateCompare (const juce::String& pre2, bool placementConfirmed,

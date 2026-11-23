@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include "BlindLongNameResultTest.h"
+#include "BlindTrialMemoryTest.h"
 namespace hypha::tests::blind_preference_component_test
 {
 inline void printResultGeometry(juce::Component& view,const juce::String& phase)
@@ -155,6 +156,7 @@ void verifyBlindPreferenceComponent (Require require, Fits fits, const juce::Fil
     using namespace blind_preference_component_test;
     const auto file = root.getChildFile("preference-memory-only");
     const auto filesBefore = root.findChildFiles(juce::File::findFilesAndDirectories,true).size();
+    blind_trial_memory::verify(require,root);
     for (int rounds : {5,10}) for (bool candidate : {false,true}) {
         Harness h(rounds,candidate,file);
         for (int i=0; i<rounds; ++i) {

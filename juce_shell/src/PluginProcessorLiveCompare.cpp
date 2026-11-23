@@ -425,6 +425,7 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
     if (restored)
     {
         ++liveCompare.blindPreparation;
+        forgetBlindTrial();
         stopLiveCompare (restore == liveCompare.pairRevocationGeneration.load (std::memory_order_acquire)
             ? hypha::live_compare::RecoveryReason::pairChanged
             : hypha::live_compare::RecoveryReason::restored); // holds POST and explicit END
@@ -449,6 +450,7 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
         liveCompare.blindStage = hypha::live_compare::BlindStage::idle;
         liveCompare.selection.select (false);
         liveCompare.blind.reset();
+        forgetBlindTrial();
         liveCompare.blindPreparationReason = hypha::live_compare::RecoveryReason::none;
     }
     const bool inactive = ! liveCompare.sessionActive.load (std::memory_order_acquire);
