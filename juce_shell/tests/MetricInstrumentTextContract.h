@@ -169,7 +169,27 @@ inline void verifyScene (const Scene& scene, int width, const std::shared_ptr<co
     {
         context = scene.name + " " + juce::String (width) + " \"" + word.text + "\" " + word.box.toString();
         check (view.getLocalBounds().toFloat().contains (word.box), "a word stays inside the window");
-        if (! word.detail) continue;
+        if (! word.detail)
+        {
+            // The figures at the two ends of the scale: their digits keep off every tick.
+            if (! word.text.startsWithChar ('+') && ! word.text.startsWithChar ('-')) continue;
+            const auto digits = word.box.withSizeKeepingCentre (word.box.getWidth(), word.box.getHeight() * 0.72f);
+            for (int slot = 0; slot < mf::dialCount (scene.role); ++slot)
+            {
+                const auto dial = mf::candidateDial (chassis, *bank, scene.role, slot);
+                const int groups = scene.face == Face::sharp ? 6 : 8, sub = width <= 300 ? 2 : 3;
+                for (int step = 0; step <= groups * sub; ++step)
+                {
+                    const auto p = mf::candidatePoint (dial, static_cast<float> (step) / static_cast<float> (groups * sub));
+                    const bool end = step == 0 || step == groups * sub;
+                    const auto reach = end ? mf::endTickReach (dial, scene.face, step != 0, presentation::forEditor (width, height))
+                                           : step % sub == 0 ? 1.13f : 1.06f;
+                    check (! end || reach > 1.035f, "an end tick is still seen");
+                    check (! crosses (digits, { p, dial.pivot + (p - dial.pivot) * reach }, 0.5f), "an end figure stays off the ticks");
+                }
+            }
+            continue;
+        }
         // The gold rim: its inner edge at the word's lowest row, and the lip under the flat part.
         check (assetY (word.box.getBottom()) <= 686.0f, "a word stays above the gold rim");
         const auto edge = inset (assetY (word.box.getBottom()));

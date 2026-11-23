@@ -63,6 +63,7 @@ LuFace::LuFace (juce::Component& ownerIn)
     owner.addChildComponent (*windowButton);
     referenceStatusLabel.setComponentID ("observatory-reference-status");
     referenceStatusLabel.setJustificationType (juce::Justification::centred);
+    referenceStatusLabel.setBorderSize ({ 0, 4, 0, 4 }); // the 8 px its width adds to the shown text
     referenceStatusLabel.setColour (juce::Label::textColourId, COL_NORMAL);
     referenceStatusLabel.setInterceptsMouseClicks (false, false);
     owner.addChildComponent (referenceStatusLabel);

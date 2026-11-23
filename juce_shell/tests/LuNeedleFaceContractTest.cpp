@@ -236,14 +236,20 @@ void verifySelectedMetricReferenceBadge()
         for (int index = 0; index < view.getNumChildComponents(); ++index)
             if (auto* label = dynamic_cast<juce::Label*> (view.getChildComponent (index));
                 label != nullptr && label->getComponentID() == "observatory-reference-status" && label->isVisible())
+            {
+                // The whole status is shown on one line: no break and no ellipsis.
+                const auto room = label->getBorderSize().subtractedFrom (label->getLocalBounds());
+                KIRIN_LU_FACE_REQUIRE (text_style::shownWidth (label->getFont(), label->getText()) <= static_cast<float> (room.getWidth()));
                 return label->getText();
+            }
         return juce::String();
     };
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const int width : { 300, 450, 600, 900 })
     {
         const i18n::ScopedLanguage scoped (language);
         observatory::View view (observatory::Role::post);
-        view.setSize (300, 200);
+        view.setSize (width, width * 2 / 3);
         view.setManualHybridVuVisible (true);
         view.lu().setFacts (readyFacts (-4.0));
         for (const auto face : { Face::psr, Face::crest, Face::sharp })
