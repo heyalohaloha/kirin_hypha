@@ -27,10 +27,10 @@ test('previous public installers pin the released 1.1.52 VST3 and AAX installer'
   }]);
 });
 
-test('release qualification requires a passed 1.1.57 upgrade bound to the current fixture', () => {
+test('release qualification requires a passed 1.1.58 upgrade bound to the current fixture', () => {
   const bytes = fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url));
   const fixture = JSON.parse(bytes);
-  const latestId = 'all-users-1.1.57';
+  const latestId = 'all-users-1.1.58';
   assert.ok(fixture.required_for_release.includes(latestId));
   const fixtureHash = createHash('sha256').update(bytes).digest('hex');
   const scenarios = fixture.required_for_release.map(id => ({ id, status: 'passed' }));
@@ -39,11 +39,12 @@ test('release qualification requires a passed 1.1.57 upgrade bound to the curren
   });
   assert.doesNotThrow(() => qualify(scenarios));
   // Passing the older upgrades cannot replace the immediately preceding public release.
-  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.57/);
+  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.58/);
   assert.throws(() => qualify(scenarios.map(row => row.id === latestId ? { ...row, status: 'failed' } : row)),
     /previous-release upgrade verification is incomplete/);
   // Even a claimed full row set does not qualify with a previous fixture digest.
-  for (const oldHash of ['c3e1be517f6d6ea00c69c7fc9834908a0176cf637495476b3c57e8b838bd3c2a',
+  for (const oldHash of ['07d5d965fa6aaa55d189303f5044319e377bca98afce91770ff83a3922eb1991',
+    'c3e1be517f6d6ea00c69c7fc9834908a0176cf637495476b3c57e8b838bd3c2a',
     '3468b10ac60fc41a87f876c418d7b4240b58cf0d0cb7e39402ad00461a5e2651']) {
     assert.throws(() => qualify(scenarios, oldHash), /previous-release upgrade verification is incomplete/);
   }
@@ -393,16 +394,16 @@ test('previous public installers pin the released 1.1.56 VST3 and AAX installer 
   }]);
 });
 
-test('the latest previous installer pins released 1.1.57 and its required upgrade', () => {
+test('previous public installers pin the released 1.1.57 VST3 and AAX installer and upgrade', () => {
   const fixture = JSON.parse(fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url)));
-  assert.deepEqual(fixture.installers.at(-1), {
+  assert.deepEqual(fixture.installers.filter(entry => entry.version === '1.1.57'), [{
     version: '1.1.57',
     file_name: 'Kirin-Hypha-1.1.57-Windows-x64-Setup.exe',
     bytes: 28694088,
     sha256: '67137b6d1e769c155352f384c19b6ade16c40195c9c7d33e42438d4a1affca95',
     default_scope: 'all-users',
     formats: ['VST3', 'AAX'],
-  });
+  }]);
   assert.deepEqual(fixture.scenarios.filter(scenario => scenario.id === 'all-users-1.1.57'), [{
     id: 'all-users-1.1.57',
     previous: [{ version: '1.1.57', scope: 'default' }],
@@ -410,4 +411,23 @@ test('the latest previous installer pins released 1.1.57 and its required upgrad
     expect: 'replaced',
   }]);
   assert.ok(fixture.required_for_release.includes('all-users-1.1.57'));
+});
+
+test('the latest previous installer pins released 1.1.58 and its required upgrade', () => {
+  const fixture = JSON.parse(fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url)));
+  assert.deepEqual(fixture.installers.at(-1), {
+    version: '1.1.58',
+    file_name: 'Kirin-Hypha-1.1.58-Windows-x64-Setup.exe',
+    bytes: 28512992,
+    sha256: '54a31ee7ee1e84d69056a73b97271861f538ea60ff36fa1d1d1f3681b1495468',
+    default_scope: 'all-users',
+    formats: ['VST3', 'AAX'],
+  });
+  assert.deepEqual(fixture.scenarios.filter(scenario => scenario.id === 'all-users-1.1.58'), [{
+    id: 'all-users-1.1.58',
+    previous: [{ version: '1.1.58', scope: 'default' }],
+    new_scope: 'all-users',
+    expect: 'replaced',
+  }]);
+  assert.ok(fixture.required_for_release.includes('all-users-1.1.58'));
 });
