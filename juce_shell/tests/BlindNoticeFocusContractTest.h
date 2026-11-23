@@ -56,7 +56,9 @@ void verify (ShortcutKeyRig& rig, const blind_ui::ScreenComponent& activeScreen,
     auto screen = activeScreen.screen();
     blind_ui::ScreenComponent blind ("live-blind");
     juce::DocumentWindow window ("Notices", juce::Colours::black, 0);
-    screen.trialNotice = juce::String (live_compare_ui::unappliedNotice()) + "\nRepeated audio: checked per block";
+    // Four notices overflow 300x200 with any platform font, so the badge path runs everywhere.
+    screen.trialNotice = juce::String (live_compare_ui::unappliedNotice()) + "\nRepeated audio: checked per block\n"
+        + live_compare_ui::notRemeasuredNotice() + "\n" + live_compare_ui::unmeasuredNotice();
     blind.setSize (300, 200);
     blind.setScreen (screen);
     window.setContentNonOwned (&blind, true);

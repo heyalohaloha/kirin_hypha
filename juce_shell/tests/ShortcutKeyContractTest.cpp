@@ -264,7 +264,8 @@ void verifyBlindKeys (ShortcutKeyRig& rig)
             require (accessibility && accessibility->getDescription().contains (translated),
                      "a real overflowing Japanese badge exposes the complete refused shortcut reason to accessibility");
         else
-            require (inlineNotice() && inlineNotice()->isVisible() && inlineNotice()->getText().contains (translated),
+            // The inline label keeps the source text and translates it when painted.
+            require (inlineNotice() && inlineNotice()->isVisible() && inlineNotice()->getText().contains (refusal),
                      "when the Japanese notices fit, the Q refusal is shown directly");
     }
     require (rig.pressShift ('E') && reveals == 2, "REVEAL is still reachable after a refused action");

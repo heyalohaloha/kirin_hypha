@@ -88,9 +88,16 @@ void verifyBlindProbabilityResultRows (Require require)
                 const auto prior = result->getText().lastIndexOf ("100 times.");
                 require (last >= 0 && prior >= 0, "exact 6-of-10 probability words remain");
                 if (last >= 0 && prior >= 0)
-                    require (result->getCaretRectangleForCharIndex (last + 1).getY()
-                             == result->getCaretRectangleForCharIndex (prior + 1).getY(),
-                             "times. does not hang alone on a last line");
+                {
+                    const auto lastY = result->getCaretRectangleForCharIndex (last + 1).getY();
+                    const auto priorY = result->getCaretRectangleForCharIndex (prior + 1).getY();
+                    if (lastY != priorY)
+                        std::cerr << "HANG_ALONE width=" << width << " note=" << withLoweringNote
+                                  << " bounds=" << result->getBounds().toString() << " font=" << result->getFont().getHeight()
+                                  << " textHeight=" << result->getTextHeight() << " priorY=" << priorY << " lastY=" << lastY
+                                  << " text=" << result->getText().replace ("\n", "|") << std::endl;
+                    require (lastY == priorY, "times. does not hang alone on a last line");
+                }
             }
         }
         require (notes && (! withLoweringNote || (notes->getText().contains (note)

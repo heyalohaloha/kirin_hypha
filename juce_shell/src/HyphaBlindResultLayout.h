@@ -48,8 +48,9 @@ inline std::pair<int, bool> measureRows (const std::array<juce::TextEditor*, 3>&
     return std::pair { total, fitsWidth };
 }
 // Some platform fonts wrap a short final word alone ("times." under "... in 100"). Narrow the
-// centred result by the width of the word before it, measured with the final font and width,
-// so the two end together. Keep the original width when that adds a line or does not help.
+// centred result in small steps, measured with the final font and width, until the word before
+// it moves down too. The line's spare room is less than the hanging word, so that bounds the
+// search. Keep the original width when no step helps without adding a line.
 inline void keepLastWordCompany (juce::TextEditor& body)
 {
     const auto text = body.getText().trimEnd();
@@ -61,9 +62,13 @@ inline void keepLastWordCompany (juce::TextEditor& body)
     if (lineOf (prior) == lineOf (last + 1)) return;
     const auto original = body.getBounds();
     const auto height = body.getTextHeight();
-    const auto shift = juce::roundToInt (std::ceil (body.getFont().getStringWidthFloat (text.substring (prior, last + 1))));
-    body.setBounds (original.reduced ((shift + 1) / 2, 0));
-    if (body.getTextHeight() > height || lineOf (prior) != lineOf (last + 1))
-        body.setBounds (original);
+    const auto limit = juce::roundToInt (std::ceil (body.getFont().getStringWidthFloat (text.substring (last)))) + 2;
+    for (int each = 1; 2 * each <= limit; ++each)
+    {
+        body.setBounds (original.reduced (each, 0));
+        if (body.getTextHeight() > height) break;
+        if (lineOf (prior) == lineOf (last + 1)) return;
+    }
+    body.setBounds (original);
 }
 }
