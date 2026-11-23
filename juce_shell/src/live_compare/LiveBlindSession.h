@@ -22,7 +22,7 @@ struct BlindView
 {
     bool active = false, revealed = false, invalidated = false, firstPre = false;
     int audible = 0, played = 0, selected = 0;
-    bool usedPostFallback = false;
+    bool usedPostFallback = false; // while listening; an accepted answer, then REVEAL, fixes it (told)
     bool fallbackForTiming = false, fallbackForCeiling = false; // why, after REVEAL
     std::uint32_t epoch = 0;
     RecoveryReason reason = RecoveryReason::none;
@@ -139,7 +139,7 @@ public:
         const auto state = view();
         if (! valid (cmd) || state.played != 3) return false;
         auto expected = static_cast<std::uint64_t> (cmd.epoch()) << 32;
-        return terminal.compare_exchange_strong (expected, expected | revealedBit,
+        return terminal.compare_exchange_strong (expected, expected | revealedBit | told (cmd.epoch()),
                                                  std::memory_order_acq_rel);
     }
 
@@ -152,6 +152,9 @@ public:
             || state.revealed || state.played != 3 || answeredEpoch == expectedEpoch
             || preferenceAnswers >= 10) return std::nullopt;
         answeredEpoch = expectedEpoch; ++preferenceAnswers;
+        // What stands in after the answer changed nothing the listener answered on.
+        answeredTold.store ((static_cast<std::uint64_t> (cmd.epoch()) << 32) | disclosure (cmd.epoch()),
+                            std::memory_order_release);
         return (source == 1) == cmd.firstPre();
     }
     enum class NextPreference { started, notReady, randomUnavailable };
@@ -181,7 +184,8 @@ public:
         const auto cmd = command();
         if (!valid (cmd) || cmd.epoch() != expectedEpoch || preferenceAnswers == 0) return false;
         auto expected = static_cast<std::uint64_t> (cmd.epoch()) << 32;
-        return terminal.compare_exchange_strong (expected, expected | revealedBit, std::memory_order_acq_rel);
+        return terminal.compare_exchange_strong (expected, expected | revealedBit | told (cmd.epoch()),
+                                                 std::memory_order_acq_rel);
     }
 
     void end() noexcept
@@ -202,9 +206,12 @@ public:
         BlindView result;
         result.epoch = cmd.epoch();
         result.selected = valid (cmd) ? cmd.stimulus() : 0;
-        result.usedPostFallback = fallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
-        result.fallbackForTiming = timingFallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
-        result.fallbackForCeiling = ceilingFallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
+        // REVEAL put the trial's own facts into its word: a later stop, seek or choice adds nothing to RESULT.
+        const bool fixedAtReveal = (state >> 32) == cmd.epoch() && (state & revealedBit) != 0;
+        const auto facts = fixedAtReveal ? state : told (cmd.epoch());
+        result.usedPostFallback = (facts & usedBit) != 0;
+        result.fallbackForTiming = (facts & timingBit) != 0;
+        result.fallbackForCeiling = (facts & ceilingBit) != 0;
         result.reason = (state >> 32) == cmd.epoch()
             ? static_cast<RecoveryReason> ((state >> 8) & 0xffu) : RecoveryReason::none;
         result.active = cmd.active();
@@ -220,6 +227,22 @@ private:
     static constexpr std::uint64_t revealedBit = 1u;
     static constexpr std::uint64_t invalidBit = 8u;
     static constexpr std::uint64_t endedBit = 16u;
+    // Above the reason's byte: which POST stood in, and why, as of REVEAL (or of the accepted answer).
+    static constexpr std::uint64_t usedBit = 1u << 16, timingBit = 1u << 17, ceilingBit = 1u << 18;
+    static constexpr std::uint64_t toldBits = usedBit | timingBit | ceilingBit;
+    // The audio thread stores the causes before the fact, so a read fact always has its causes.
+    std::uint64_t disclosure (std::uint32_t epoch) const noexcept
+    {
+        if (fallbackEpoch.load (std::memory_order_acquire) != epoch) return 0;
+        return usedBit | (timingFallbackEpoch.load (std::memory_order_acquire) == epoch ? timingBit : 0)
+            | (ceilingFallbackEpoch.load (std::memory_order_acquire) == epoch ? ceilingBit : 0);
+    }
+    // An answered round keeps what had stood in by its answer; any other round, what has until now.
+    std::uint64_t told (std::uint32_t epoch) const noexcept
+    {
+        const auto answered = answeredTold.load (std::memory_order_acquire);
+        return answered != 0 && (answered >> 32) == epoch ? answered & toldBits : disclosure (epoch);
+    }
     std::atomic<std::uint32_t> fallbackEpoch { 0 }, timingFallbackEpoch { 0 }, ceilingFallbackEpoch { 0 };
     std::int64_t fallbackRun = 0; // audio thread only: contiguous POST frames while PRE was requested
     std::uint32_t fallbackRunEpoch = 0; // audio thread only
@@ -228,6 +251,7 @@ private:
     std::uint32_t answeredEpoch = 0; // one accepted answer per round
     std::uint32_t serial = 0; // message thread only
     std::atomic<std::uint64_t> request { 0 }, terminal { 0 }, played { 0 }, audible { 0 };
+    std::atomic<std::uint64_t> answeredTold { 0 }; // written by the message thread only
 };
 static_assert (std::atomic<std::uint64_t>::is_always_lock_free, "Blind receipts must be lock-free");
 }

@@ -4,6 +4,7 @@
 #include "EditorProductChecks.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveCompareNoticeProductChecks.h"
+#include "BlindResultProductChecks.h"
 #include "ShortcutListenCheck.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
@@ -404,11 +405,13 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
 
 // One CTest item per part keeps each item's real-time budget to one group of scenarios:
 // presentation (geometry, hold after END, LOOP), notices (pair/restore/LISTEN/BLIND/END), host
-// (a host without a clock). No argument runs every part for a local check.
+// (a host without a clock), choice (the MATCH choice, then what a BLIND trial keeps; blind runs only the
+// latter). No argument runs every part for a local check.
 int main (int argc, char** argv)
 {
     const std::string part = argc > 1 ? argv[1] : "all";
-    if (part != "all" && part != "presentation" && part != "notices" && part != "host" && part != "choice" && part != "trace")
+    if (part != "all" && part != "presentation" && part != "notices" && part != "host" && part != "choice" && part != "trace"
+        && part != "blind")
     {
         std::cerr << "unknown recovery product part: " << part << '\n';
         return 2;
@@ -435,6 +438,8 @@ int main (int argc, char** argv)
     }
     if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
     if (runs ("choice")) hypha::tests::editor_product::verifyMatchChoiceControls();
+    if (runs ("choice") || part == "blind")
+        hypha::tests::editor_product::verifyBlindResultFixedAtReveal (sandbox.directory());
     if (runs ("trace")) hypha::tests::editor_product::verifySelectionTrace (sandbox.directory());
     std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

@@ -50,9 +50,13 @@ bool KirinHyphaProcessorBase::nextLiveBlindPreferenceRound (std::uint64_t genera
 
 bool KirinHyphaProcessorBase::revealLiveBlindPreference (std::uint64_t generation, std::uint32_t epoch)
 {
-    return role == Role::Post && generation == liveCompare.blindPreparation
-        && liveCompare.authority.permitted() && liveCompare.blindStage == BlindStage::active
-        && currentBlindReceipt (liveCompare) && liveCompare.blind.revealPreference (epoch);
+    if (role != Role::Post || generation != liveCompare.blindPreparation
+        || ! liveCompare.authority.permitted() || liveCompare.blindStage != BlindStage::active
+        || ! currentBlindReceipt (liveCompare)) return false;
+    const auto notice = liveBlindStatus().contentNoticeMs;
+    if (! liveCompare.blind.revealPreference (epoch)) return false;
+    liveCompare.blindContentNoticeMs = notice; // RESULT keeps the estimate it was revealed with
+    return true;
 }
 
 // One coherent approved tuple, not separately sampled display gain/POST targets.
