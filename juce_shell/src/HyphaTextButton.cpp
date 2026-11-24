@@ -39,7 +39,7 @@ void HyphaTextButton::paintButton (juce::Graphics& g,
         if (text_style::shownWidth (font, getButtonText(), labelPolicy) <= static_cast<float> (getWidth() - 24)
             && font.getHeight() <= static_cast<float> (getHeight() - 12))
         {
-            g.setFont (font);
+            g.setFont (labelFont (presentationContext, *largeRole, typography::Composition::information));
             text_style::drawText (g, getButtonText(), getLocalBounds().toFloat(), juce::Justification::centred, false, labelPolicy);
             return;
         }

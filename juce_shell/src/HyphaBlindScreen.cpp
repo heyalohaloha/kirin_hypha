@@ -336,15 +336,18 @@ void ScreenComponent::resized()
         if (denseResult)
         {
             // Keep all four actions available without spending two rows on them.
-            const int cell = actions.getWidth() / 4;
+            const int cell = actions.getWidth() / (shown.alignOffShown ? 5 : 4);
             one.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
             two.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            if (shown.alignOffShown) alignOff.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
             saveImage.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
             end.setBounds (actions.reduced (2, 0));
         }
         else
         {
-            saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
+            const int plates = shown.alignOffShown ? 3 : 2, plate = actions.getWidth() / plates;
+            if (shown.alignOffShown) alignOff.setBounds (actions.removeFromLeft (plate).reduced (3, 0));
+            saveImage.setBounds (actions.removeFromLeft (plate).reduced (3, 0));
             end.setBounds (actions.reduced (3, 0));
             panel.removeFromBottom (rowGap);
             auto sources = panel.removeFromBottom (40);
