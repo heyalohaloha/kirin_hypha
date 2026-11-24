@@ -122,8 +122,10 @@ if it still does not work, use the on-screen buttons to do the same thing instea
      file or count skipped audio. It does not fall back to short-event matching.
 
    Both spans require at least three seconds of usable playback and limit the match to ±24 dB.
-   If the selected span is too short, the notice is **No MATCH: play at least 3 seconds**
-   (**3秒以上再生してからMATCHしてください。** in Japanese). Keep playing before trying MATCH again.
+   A press before that waits, and matches by itself once three seconds have played. If no match can be
+   made within 10 seconds the notice says why and LISTEN keeps its level; for a span that stayed too short
+   it is **No MATCH: play at least 3 seconds** (**3秒以上再生してからMATCHしてください。** in Japanese).
+   Keep playing, then press MATCH again.
    If ALL PLAYED loses some audio, the notice is **ALL PLAYED lost audio. END and restart.**
    Use END and start a new LISTEN rather than continuing to wait in the same session.
    The project remembers the span but does not start LISTEN when opened.

@@ -340,13 +340,21 @@ fn approved_gain_has_one_bounded_writer_and_one_current_audio_receipt() {
     let service = function_body(BLIND, "void KirinHyphaProcessorBase::serviceLiveBlind");
     assert!(service.find("currentGainReceipt").unwrap() < service.find("blind.startWith").unwrap());
     assert!(service.matches("currentGainReceipt").count() >= 2);
-    for method in [
-        "LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus",
-        "bool KirinHyphaProcessorBase::selectLiveBlind",
-        "bool KirinHyphaProcessorBase::revealLiveBlind",
-    ] {
-        assert!(function_body(BLIND, method).contains("currentBlindReceipt (liveCompare)"));
+    for method in ["selectLiveBlind", "revealLiveBlind"] {
+        let body = function_body(BLIND, &format!("bool KirinHyphaProcessorBase::{method}"));
+        assert!(body.contains("currentBlindReceipt (liveCompare)"));
     }
+    // The status reads the receipt once; only a lost one ends the trial, never one on its way.
+    let status = function_body(BLIND, "KirinHyphaProcessorBase::liveBlindStatus");
+    assert_eq!(status.matches("blindReceipt (liveCompare)").count(), 1);
+    assert!(status.contains("receipt == BlindReceipt::lost"));
+    let reading = function_body(GAIN, "BlindReceipt blindReceipt");
+    assert_eq!(reading.matches("state.gainReceipt.load").count(), 1);
+    let received = reading.find("state.gainReceipt.load").unwrap();
+    let fence = reading.find("std::atomic_thread_fence").unwrap();
+    assert!(received < fence && fence < reading.rfind("state.gainRevision.load").unwrap());
+    let current = function_body(GAIN, "bool currentBlindReceipt");
+    assert!(current.contains("blindReceipt (state) == BlindReceipt::current"));
 }
 
 #[test]

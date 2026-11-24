@@ -41,8 +41,9 @@ bool KirinHyphaProcessorBase::nextLiveBlindPreferenceRound (std::uint64_t genera
         return false;
     }
     if (result != BlindSession::NextPreference::started) return false;
-    // No gain, approval, ceiling, attenuation or named selection changes here.
-    if (!liveCompare.authority.permitted() || !currentBlindReceipt (liveCompare))
+    // No gain, approval, ceiling, attenuation or named selection changes here. A tuple the audio thread commits
+    // meanwhile keeps the trial (its receipt follows); only a real loss ends the assignment just made.
+    if (!liveCompare.authority.permitted() || blindReceipt (liveCompare) == BlindReceipt::lost)
     { liveCompare.blind.end(); return false; }
     requestServiceTimer();
     return true;
@@ -50,9 +51,13 @@ bool KirinHyphaProcessorBase::nextLiveBlindPreferenceRound (std::uint64_t genera
 
 bool KirinHyphaProcessorBase::revealLiveBlindPreference (std::uint64_t generation, std::uint32_t epoch)
 {
-    return role == Role::Post && generation == liveCompare.blindPreparation
-        && liveCompare.authority.permitted() && liveCompare.blindStage == BlindStage::active
-        && currentBlindReceipt (liveCompare) && liveCompare.blind.revealPreference (epoch);
+    if (role != Role::Post || generation != liveCompare.blindPreparation
+        || ! liveCompare.authority.permitted() || liveCompare.blindStage != BlindStage::active
+        || ! currentBlindReceipt (liveCompare)) return false;
+    const auto notice = liveBlindStatus().contentNoticeMs;
+    if (! liveCompare.blind.revealPreference (epoch)) return false;
+    liveCompare.blindContentNoticeMs = notice; // RESULT keeps the estimate it was revealed with
+    return true;
 }
 
 // One coherent approved tuple, not separately sampled display gain/POST targets.

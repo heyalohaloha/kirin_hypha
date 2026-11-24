@@ -44,6 +44,7 @@ void KirinHyphaEditor::configureLiveBlind()
     liveBlindOpen = stage != BlindStage::idle && stage != BlindStage::finishing;
     liveBlindView.onPreferenceAnswer = [this] (int source, std::uint64_t generation, std::uint32_t epoch)
     { return processorRef.acceptLiveBlindPreference (source, generation, epoch); };
+    liveBlindView.onPreferenceStatus = [this] { return processorRef.liveBlindStatus(); };
     liveBlindView.onPreferenceNext = [this] (std::uint64_t generation, std::uint32_t epoch)
     {
         const bool next = processorRef.nextLiveBlindPreferenceRound (generation, epoch);

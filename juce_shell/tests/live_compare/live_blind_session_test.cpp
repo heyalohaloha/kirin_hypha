@@ -164,5 +164,66 @@ int main()
         across.fallback (across.command(), 512, 48000.0);
         require (! across.view().usedPostFallback, "a new trial starts its own run");
     }
-    std::cout << "Live Blind session: PASS (both mappings, late receipts, faults, END, restart, brief fallback)\n";
+    // REVEAL fixes what RESULT tells: a stop, a seek or another choice afterwards adds nothing (INV-LC19).
+    const auto hear = [&] (BlindSession& trial)
+    {
+        for (int source : { 1, 2 })
+        {
+            require (trial.select (source), "select a source to hear");
+            trial.observe (trial.command(), true);
+        }
+    };
+    for (bool firstPre : { false, true })
+    {
+        const int preSource = firstPre ? 1 : 2;
+        const auto standIn = [&] (BlindSession& trial, bool ceiling = false)
+        {
+            require (trial.select (preSource), "the source that is PRE");
+            for (int block = 0; block < 60; ++block) trial.fallback (trial.command(), 512, 48000.0, ceiling); // a stopped DAW
+        };
+        BlindSession clean; clean.start (firstPre); hear (clean);
+        require (clean.reveal() && ! clean.view().usedPostFallback, "nothing stood in while listening");
+        standIn (clean); standIn (clean, true);
+        require (clean.view().revealed && ! clean.view().usedPostFallback && ! clean.view().fallbackForTiming
+                 && ! clean.view().fallbackForCeiling, "POST after REVEAL never joins RESULT");
+        clean.invalidate (clean.command(), RecoveryReason::pairChanged);
+        require (clean.view().invalidated && clean.view().reason == RecoveryReason::pairChanged && ! clean.view().usedPostFallback,
+                 "the fixed facts leave the terminal reason intact");
+        // Negative control: what really stood in before REVEAL stays told, with its own cause only.
+        BlindSession real; real.start (firstPre); hear (real); standIn (real); hear (real);
+        require (real.view().usedPostFallback && real.reveal() && real.view().usedPostFallback
+                 && real.view().fallbackForTiming && ! real.view().fallbackForCeiling, "a real substitute stays in RESULT");
+        standIn (real, true);
+        require (real.view().fallbackForTiming && ! real.view().fallbackForCeiling, "a later ceiling never rewrites its cause");
+        // A short run left open at REVEAL does not become a disclosure afterwards.
+        BlindSession open; open.start (firstPre); hear (open);
+        require (open.select (preSource), "PRE for the open run");
+        open.fallback (open.command(), 1000, 48000.0);
+        require (open.reveal(), "REVEAL in an open run");
+        open.fallback (open.command(), 1000, 48000.0);
+        require (! open.view().usedPostFallback, "a run that passes 25 ms after REVEAL is not told");
+        // A preference round: up to its answer it counts, after the answer and after REVEAL it does not.
+        BlindSession answered; answered.start (firstPre); hear (answered);
+        const auto epoch = answered.command().epoch();
+        require (answered.acceptPreference (1, epoch).has_value(), "the round is answered");
+        standIn (answered);
+        require (! answered.view().usedPostFallback && answered.revealPreference (epoch)
+                 && ! answered.view().usedPostFallback, "a stop between the last answer and REVEAL is not told");
+        standIn (answered);
+        require (! answered.view().usedPostFallback, "nor is one after REVEAL");
+        BlindSession during; during.start (firstPre); hear (during); standIn (during); hear (during);
+        const auto round = during.command().epoch();
+        require (during.acceptPreference (1, round).has_value() && during.view().usedPostFallback
+                 && during.revealPreference (round) && during.view().usedPostFallback, "POST during the answered round stays told");
+        BlindSession next; next.start (firstPre); hear (next);
+        const auto before = next.command().epoch();
+        require (next.acceptPreference (1, before).has_value()
+                 && next.nextPreferenceWith (before, [firstPre] { return firstPre; }) == BlindSession::NextPreference::started,
+                 "the next round starts");
+        standIn (next);
+        require (next.view().usedPostFallback && next.view().epoch == before + 1, "an answered round never hides the next one's facts");
+        next.start (firstPre); hear (next);
+        require (! next.view().usedPostFallback && next.reveal() && ! next.view().usedPostFallback, "a new trial starts clean");
+    }
+    std::cout << "Live Blind session: PASS (both mappings, late receipts, faults, END, restart, brief fallback, RESULT fixed at REVEAL)\n";
 }

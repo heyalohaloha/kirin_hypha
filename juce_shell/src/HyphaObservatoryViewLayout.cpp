@@ -92,16 +92,25 @@ void View::resized()
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
         // POST must prompt for a song before reporting that a selected song's metric is unmeasured.
         const bool noPostSong = role == Role::post && luFace.facts().zero == lu_needle::Zero::noSong;
-        luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady());
-        // Keep the existing calibration centred; its clickable text and the footer notice
-        // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendFont = labelFont (context, typography::TextRole::legend,
                                           typography::Composition::instrument);
-        const auto legendWidth = juce::jmin (calibration.getWidth(),
-            juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12);
-        vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (legendWidth, buttonHeight));
+        const auto legendWhole = juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12;
+        const bool vuFace = ! luFace.active() && ! metricFaceActive();
+        // A notice keeps the room its shortest form needs; on the VU the calibration legend keeps its own.
+        const auto notice = footer_notice_font::leastWidth (context, feedbackText);
+        luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady(),
+                                      juce::jmin (notice, calibration.getWidth() * 2 / 3) + (vuFace ? legendWhole + 8 : 0),
+                                      metricSelection.referenceSong());
+        // Keep the existing calibration centred beside the notice; its clickable text and the footer notice
+        // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
+        const auto legendWidth = juce::jmin (calibration.getWidth(), legendWhole);
+        auto legendArea = calibration;
+        // Beside the song's plate the legend stands between the notice and the plate; without one it never moves.
+        if (vuFace && luFace.referenceControl().isVisible() && notice > (calibration.getWidth() - legendWidth) / 2)
+            legendArea = calibration.withTrimmedLeft (juce::jmin (notice, calibration.getWidth() - legendWidth));
+        vuCalibrationControl.setBounds (legendArea.withSizeKeepingCentre (legendWidth, buttonHeight));
         // The LU face names its own 0 on the dial: the 0 VU legend gives its place to the notice line.
-        vuCalibrationControl.setVisible (! luFace.active() && ! metricFaceActive());
+        vuCalibrationControl.setVisible (vuFace);
         sessionArea = (luFace.active() || metricFaceActive()) ? calibration : calibration.withRight (vuCalibrationControl.getX() - 6);
         statusStrip = sessionArea;
         statusButton.setBounds (sessionArea.withSizeKeepingCentre (sessionArea.getWidth(), buttonHeight));

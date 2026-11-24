@@ -11,6 +11,9 @@
 #include "HyphaReferenceSongChoice.h"
 #include "HyphaReferenceRematchWait.h"
 #include "HyphaReferenceVersionRows.h"
+#include "HyphaKirinPopupMenu.h"
+#include "HyphaLanguage.h"
+#include "HyphaLuReferenceFacts.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。REFERENCE SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
@@ -18,6 +21,7 @@ using namespace hypha::reference_ui::runtime_view;
 void KirinHyphaEditor::wireReferenceRoles()
 {
     referenceView.onOpenLarge = [this] (int slot) { openReferenceLarge (slot); };
+    observatoryView.lu().onReferenceMenu = [this] { showMeterReferenceMenu(); };
     // A size the user chooses ends the wait for the page-opened notice (it is not the host's).
     observatoryView.onSizeChange = [this, choose = std::move (observatoryView.onSizeChange)] (hypha::observatory::SizePreset preset)
     {
@@ -72,6 +76,100 @@ void KirinHyphaEditor::wireReferenceRoles()
                 break;
         }
     };
+}
+
+// The meters tell the song at their 0; its plate opens the same choices as B and C, without leaving the meter.
+// Only the choice moves while A sounds. While B or C sounds, or waits to, the choice goes on as that press would.
+void KirinHyphaEditor::showMeterReferenceMenu()
+{
+    using hypha::i18n::tr;
+    if (refusedByBlind()) return;
+    const auto runtime = processorRef.referenceAuditionSnapshot();
+    if (runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive) return;
+    const auto* zero = hypha::lu_needle::zeroRole (runtime);
+    const bool zeroIsC = zero != nullptr && zero == runtime.checkSelection.get();
+    const auto sounding = [] (const hypha::reference_audition::Snapshot& now)
+    {
+        const int slot = now.audibleComparisonSlot >= 2 ? now.audibleComparisonSlot
+                       : now.switchingSlot >= 2 ? now.switchingSlot
+                       : now.pendingAudition.waiting() ? now.pendingAudition.slot : 0;
+        return slot == 2 || slot == 3 ? slot : 0;
+    };
+    const bool heard = sounding (runtime) != 0;
+    using Choice = std::function<void (KirinHyphaEditor&)>;
+    const auto choices = std::make_shared<std::vector<Choice>>();
+    const auto add = [choices] (juce::PopupMenu& to, const juce::String& text, bool ticked, Choice choice)
+    {
+        choices->push_back (std::move (choice));
+        to.addItem (static_cast<int> (choices->size()), text, true, ticked);
+    };
+    const auto again = [] (KirinHyphaEditor& editor)
+    {
+        KirinObservatoryFrame frame {};
+        const bool available = editor.processorRef.pollObservatoryFrame (frame);
+        editor.refreshReferenceAudition (frame, available);
+    };
+    // The answer is for the song that was listed: one that is gone by then changes nothing and says so.
+    const auto songOfB = [again, sounding] (const juce::String& setId, const juce::String& songId) -> Choice
+    {
+        return [again, sounding, setId, songId] (KirinHyphaEditor& editor)
+        {
+            const auto now = editor.processorRef.referenceAuditionSnapshot();
+            const bool listed = std::any_of (now.songSets.begin(), now.songSets.end(), [&] (const auto& set)
+            {
+                return set.id == setId && std::any_of (set.songs.begin(), set.songs.end(), [&] (const auto& song) { return song.id == songId; });
+            });
+            if (! listed) { editor.showToast ("Song selection was not changed"); return; }
+            const int slot = sounding (now);
+            if (now.selectedSongSetId != setId) editor.referenceView.onSelectSongSet (setId);
+            editor.referenceView.onSelectSong (songId);
+            const auto chosen = editor.processorRef.referenceAuditionSnapshot();
+            if (chosen.selectedSongSetId != setId || chosen.selectedSongId != songId) return; // it was refused and said so
+            if (slot == 2) editor.referenceView.onSelectRef(); // C sounds: the choice is B, as pressing B
+            else editor.processorRef.selectReferenceVisualSlot (3);
+            again (editor);
+        };
+    };
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&hypha::kirin_popup::appearance());
+    menu.addSectionHeader (tr (heard ? "Song at 0 (what you hear follows)" : "Song at 0 (what you hear stays)"));
+    for (const bool chosen : { true, false })
+        for (const auto& set : runtime.songSets)
+        {
+            if ((set.id == runtime.selectedSongSetId) != chosen) continue;
+            juce::PopupMenu songs;
+            songs.setLookAndFeel (&hypha::kirin_popup::appearance());
+            if (chosen) menu.addSectionHeader ("B  " + set.name);
+            for (const auto& song : set.songs)
+                add (chosen ? menu : songs, song.label, chosen && ! zeroIsC && song.id == runtime.selectedSongId, songOfB (set.id, song.id));
+            if (chosen && set.songs.empty()) menu.addItem (-1, tr ("No song in this set"), false);
+            if (! chosen) menu.addSubMenu ("B  " + set.name, songs, ! set.songs.empty());
+        }
+    if (const auto* check = runtime.checkSelection.get(); check != nullptr && check->candidateId.isNotEmpty())
+    {
+        menu.addSeparator();
+        add (menu, "C  " + check->candidateName, zeroIsC, [again, sounding, id = check->candidateId] (KirinHyphaEditor& editor)
+        {
+            const auto now = editor.processorRef.referenceAuditionSnapshot();
+            if (now.checkSelection == nullptr || now.checkSelection->candidateId != id) { editor.showToast ("Song selection was not changed"); return; }
+            if (sounding (now) == 3) editor.referenceView.onSelectC(); // B sounds: the choice is C, as pressing C
+            else { editor.dropReferenceAfterTail(); editor.processorRef.selectReferenceVisualSlot (2); }
+            again (editor);
+        });
+    }
+    menu.addSeparator();
+    add (menu, tr ("Open REFERENCE"), false, [] (KirinHyphaEditor& editor)
+    {
+        if (editor.observatoryView.hybridVuVisible()) editor.observatoryView.requestHybridVuToggle(); // the meter would cover the page
+        editor.requestObservatoryDomain (hypha::observatory::Domain::reference);
+    });
+    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    menu.showMenuAsync (hypha::kirin_popup::options (observatoryView.lu().referenceControl(), *this, getWidth()),
+                        [safe, choices] (int result)
+    {
+        if (safe == nullptr || result < 1 || result > static_cast<int> (choices->size()) || safe->refusedByBlind()) return;
+        (*choices)[static_cast<size_t> (result - 1)] (*safe);
+    });
 }
 
 bool KirinHyphaEditor::ensureReferenceRoom()

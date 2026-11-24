@@ -9,6 +9,7 @@ namespace
 {
 const Entry entries[] = {
     { "Measurements saved; waiting for Kirin OS audio (auto link)", u8"計測保存済み。Kirin OSの音源待ち（自動確定）" },
+    { "Saved; waiting for audio", u8"保存済み・音源待ち" },
     { "Cannot write to folder. Check access.", u8"保存先に書き込めません。権限を確認してください" },
     // Why a control or key did nothing, or why the view changed by itself (2026-11-11).
     { "Copied", u8"コピーしました" },

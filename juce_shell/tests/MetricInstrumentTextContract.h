@@ -182,7 +182,7 @@ inline void verifyScene (const Scene& scene, int width, const std::shared_ptr<co
                 {
                     const auto p = mf::candidatePoint (dial, static_cast<float> (step) / static_cast<float> (groups * sub));
                     const bool end = step == 0 || step == groups * sub;
-                    const auto reach = end ? mf::endTickReach (dial, scene.face, step != 0, presentation::forEditor (width, height))
+                    const auto reach = end ? mf::endTickReach (dial, scene.face, presentation::forEditor (width, height))
                                            : step % sub == 0 ? 1.13f : 1.06f;
                     check (! end || reach > 1.035f, "an end tick is still seen");
                     check (! crosses (digits, { p, dial.pivot + (p - dial.pivot) * reach }, 0.5f), "an end figure stays off the ticks");

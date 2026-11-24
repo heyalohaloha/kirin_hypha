@@ -27,14 +27,41 @@ public:
         if (context != next) { context = next; repaint(); }
     }
     float fontHeight() const { return labelFont (context, typography::TextRole::action).getHeight(); }
+    juce::Font fontFor (const juce::String& text) const
+    {
+        const auto font = labelFont (context, typography::TextRole::action);
+        return requiresNativeTextFont (text) ? nativeTextFontLike (font) : font;
+    }
+    // The plate of the song at 0: the song reads as bright as a value, and a chevron says it opens a menu.
+    void setReading (bool brightIn, bool opensIn, bool nativeIn, bool pressableIn)
+    {
+        if (bright == brightIn && opens == opensIn && native == nativeIn && pressable == pressableIn) return;
+        bright = brightIn; opens = opensIn; native = nativeIn; pressable = pressableIn;
+        setMouseCursor (pressable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+    float textRoom (bool withChevron) const { return 16.0f + (withChevron ? fontHeight() : 0.0f); }
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         const key_light::Scope light (*this);
+        highlighted = highlighted && pressable; // a plate that only tells shows no press (it still has its tooltip)
+        down = down && pressable;
         const auto area = getLocalBounds().toFloat().reduced (1.0f);
         surface_material::paintControl (g, area, highlighted, down, getToggleState());
-        g.setColour (getToggleState() ? COL_FLORA_BR : highlighted ? COL_NORMAL : COL_TEXT_SECONDARY);
-        g.setFont (labelFont (context, typography::TextRole::action));
-        text_style::drawText (g, getButtonText(), getLocalBounds().toFloat(), juce::Justification::centred,
+        const auto colour = getToggleState() ? COL_FLORA_BR : highlighted || bright ? COL_NORMAL : COL_TEXT_SECONDARY;
+        auto text = getLocalBounds().toFloat();
+        if (opens)
+        {
+            const auto line = fontHeight();
+            const auto chevron = text.removeFromRight (line + 4.0f).withTrimmedRight (4.0f);
+            g.setColour (highlighted ? COL_NORMAL : COL_TEXT_SECONDARY);
+            surface_material::strokeMenuArrow (g, { chevron.getCentreX(), chevron.getCentreY() + line * 0.15f },
+                                               line * 0.25f, line * 0.3f, 1.1f);
+        }
+        g.setColour (colour);
+        if (native) g.setFont (nativeTextFontLike (labelFont (context, typography::TextRole::action)));
+        else g.setFont (labelFont (context, typography::TextRole::action));
+        text_style::drawText (g, getButtonText(), text, juce::Justification::centred,
                               false, text_style::LabelPolicy::fixed);
         if (hasKeyboardFocus (true))
         {
@@ -45,11 +72,13 @@ public:
 
 private:
     presentation::Context context = presentation::defaultContext();
+    bool bright = false, opens = false, pressable = true, native = false; // native: the whole text's font, also for what is cut from it
 };
 
 LuFace::LuFace (juce::Component& ownerIn)
     : owner (ownerIn), faceButton (std::make_unique<Control> ("LU")),
-      windowButton (std::make_unique<Control> ("M"))
+      windowButton (std::make_unique<Control> ("M")),
+      referenceButton (std::make_unique<Control> (juce::String()))
 {
     faceButton->setComponentID ("observatory-lu-face");
     faceButton->setTitle ("LU face");
@@ -61,18 +90,16 @@ LuFace::LuFace (juce::Component& ownerIn)
     windowButton->onClick = [this] { choose (luSelected, lu_needle::nextWindow (chosenWindow)); };
     owner.addChildComponent (*faceButton);
     owner.addChildComponent (*windowButton);
-    referenceStatusLabel.setComponentID ("observatory-reference-status");
-    referenceStatusLabel.setJustificationType (juce::Justification::centred);
-    referenceStatusLabel.setBorderSize ({ 0, 4, 0, 4 }); // the 8 px its width adds to the shown text
-    referenceStatusLabel.setColour (juce::Label::textColourId, COL_NORMAL);
-    referenceStatusLabel.setInterceptsMouseClicks (false, false);
-    owner.addChildComponent (referenceStatusLabel);
+    referenceButton->setComponentID ("observatory-reference-status");
+    referenceButton->onClick = [this] { if (onReferenceMenu && current.readable) onReferenceMenu(); };
+    owner.addChildComponent (*referenceButton);
 }
 
 LuFace::~LuFace() { stopTimer(); }
 
 juce::Button& LuFace::faceControl() noexcept { return *faceButton; }
 juce::Button& LuFace::windowControl() noexcept { return *windowButton; }
+juce::Button& LuFace::referenceControl() noexcept { return *referenceButton; }
 float LuFace::controlFontHeightForTest() const { return juce::jmin (faceButton->fontHeight(), windowButton->fontHeight()); }
 
 void LuFace::restore (bool luFace, lu_needle::Window window)
@@ -108,7 +135,8 @@ void LuFace::choose (bool luFace, lu_needle::Window window)
 void LuFace::setFacts (const lu_needle::Facts& next)
 {
     if (current == next) return;
-    const bool layoutChanged = current.readable != next.readable || current.zero != next.zero;
+    const bool layoutChanged = current.readable != next.readable || current.zero != next.zero
+        || current.song != next.song || current.role != next.role;  // the plate tells the song
     // A different song or a different 0 is a new reading, not a move of the old one.
     if (current.zero != next.zero || current.song != next.song || current.playedZero() != next.playedZero())
         snapNext = true;
@@ -121,7 +149,7 @@ void LuFace::hideControls()
 {
     faceButton->setVisible (false);
     windowButton->setVisible (false);
-    referenceStatusLabel.setVisible (false);
+    referenceButton->setVisible (false);
     stopTimer();
     snapNext = true;
 }
@@ -155,18 +183,67 @@ juce::String LuFace::referenceStatus (std::optional<bool> metricReady) const
     return i18n::tr ("REF ready");
 }
 
-void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady)
+// A metric face's needles may still be read against the song before: the plate tells the one they use.
+juce::String LuFace::referenceSong (const juce::String& metricSong) const
 {
-    referenceStatusLabel.setVisible (commonFace);
+    if (! current.readable || current.zero == lu_needle::Zero::noSong) return {};
+    const auto& song = metricSong.isEmpty() ? current.song : metricSong;
+    if (song.isEmpty()) return {};
+    return "REF " + (current.role.isEmpty() || song != current.song ? juce::String() : current.role + " ") + displayableText (song);
+}
+
+juce::String LuFace::referenceText (std::optional<bool> metricReady, const juce::String& metricSong) const
+{
+    const auto status = referenceStatus (metricReady), song = referenceSong (metricSong);
+    return status == i18n::tr ("REF ready") && song.isNotEmpty() ? song : status;
+}
+
+void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady,
+                                    int keptLeft, const juce::String& metricSong)
+{
+    referenceButton->setVisible (commonFace);
     if (! commonFace) return;
-    const auto text = referenceStatus (metricReady);
-    referenceStatusLabel.setFont (nativeTextFont (presentation::forEditor (owner.getWidth(), owner.getHeight()),
-                                                  typography::TextRole::legend, typography::Composition::instrument));
-    const auto font = referenceStatusLabel.getFont();
-    referenceStatusLabel.setText (text, juce::dontSendNotification);
-    referenceStatusLabel.setTitle (text);
-    const auto width = juce::jmin (row.getWidth(), juce::roundToInt (std::ceil (font.getStringWidthFloat (text))) + 8);
-    referenceStatusLabel.setBounds (row.removeFromRight (width).withSizeKeepingCentre (width, height));
+    referenceButton->setPresentationContext (presentation::forEditor (owner.getWidth(), owner.getHeight()));
+    const bool choosable = onReferenceMenu != nullptr && current.readable;
+    referenceButton->setWantsKeyboardFocus (choosable);
+    const auto status = referenceStatus (metricReady), text = referenceText (metricReady, metricSong), song = referenceSong (metricSong);
+    const auto font = referenceButton->fontFor (text); // one font for the whole text and for what is cut from it
+    const auto widthOf = [&font] (const juce::String& shown, float pad)
+    { return juce::roundToInt (std::ceil (font.getStringWidthFloat (shown) + pad)); };
+    // A song takes up to two thirds of the row, beside what it keeps. Where it does not fit it stands without "REF"
+    // and tells what fits ("B Sky…"); without room for its first letters, its role ("REF B"), then "REF". A status is
+    // told whole; on the VU, which reads nothing against it, it gives way to the row's legend and notice as "REF".
+    const bool isSong = text != status;
+    bool chevron = choosable;
+    auto shown = text;
+    auto width = widthOf (shown, referenceButton->textRoom (chevron));
+    const auto beside = juce::jmax (0, row.getWidth() - keptLeft);
+    const auto room = isSong ? juce::jmin (juce::jmax (84, row.getWidth() * 2 / 3), beside) : beside;
+    const auto tight = [&] (const juce::String& last) { chevron = false; shown = last; width = widthOf (shown, 8.0f); };
+    const auto hasRole = current.role.isNotEmpty() && text.startsWith ("REF " + current.role + " ");
+    if (isSong && width > room)
+    {
+        const auto pad = referenceButton->textRoom (chevron);
+        const auto named = text.fromFirstOccurrenceOf ("REF ", false, false); // "B song"; without a role REF stays
+        shown = text_style::ellipsizedKeepingVersion (hasRole ? named : text, font, juce::jmax (0.0f, static_cast<float> (room) - pad));
+        width = widthOf (shown, pad);
+        const auto head = hasRole ? "REF " + current.role : juce::String ("REF");
+        if (shown.length() < (hasRole ? 5 : 7) || width > room) { shown = head; width = widthOf (shown, pad); }
+        if (width > room) tight (head);
+        if (width > room) tight ("REF");
+    }
+    else if (! isSong && width > room)
+    {
+        tight (text);
+        if (width > room && ! active() && ! metricReady.has_value()) tight ("REF");
+    }
+    width = juce::jmin (row.getWidth(), width);
+    referenceButton->setReading (isSong, chevron, requiresNativeTextFont (text), choosable);
+    referenceButton->setButtonText (shown);
+    referenceButton->setTitle (i18n::tr ("Reference song for the meters") + " " + text);
+    const auto told = song.isEmpty() || song == text ? text : song + "\n" + text;
+    referenceButton->setTooltip (choosable ? told + "\n" + i18n::tr ("Choose the song at 0") : told);
+    referenceButton->setBounds (row.removeFromRight (width).withSizeKeepingCentre (width, height));
 }
 
 lu_face::Frame LuFace::frame (const State& state, const KirinDelta& delta, bool deltaAvailable) const

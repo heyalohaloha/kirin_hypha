@@ -15,6 +15,16 @@ inline void beforeLiveMatchCommitLock()
     if (beforeLiveMatchCommitLockForTest) beforeLiveMatchCommitLockForTest();
    #endif
 }
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+// The trial's tuple and its receipt were read and not judged yet (message thread).
+inline void (*afterBlindReceiptReadForTest)() = nullptr;
+#endif
+inline void afterBlindReceiptRead()
+{
+   #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+    if (afterBlindReceiptReadForTest) afterBlindReceiptReadForTest();
+   #endif
+}
 struct GainIdentity
 {
     std::uint64_t pair = 0, ownerA = 0, ownerB = 0, authority = 0;
@@ -117,32 +127,29 @@ bool currentGainReceipt (const State& state, const GainSnapshot& gains) noexcept
         && state.sessionActive.load (std::memory_order_acquire)
         && permission == state.authority.ticket() && state.authority.permitted();
 }
+// The trial's approved tuple, read once. `pending`: the tuple the audio thread committed at the ceiling while its
+// ramps settle, not yet a receipt for SOURCE or REVEAL, and not an invalidation either. `changing`: a writer is in
+// or landed during this reading; nothing is decided. `lost`: END, a restore, or another tuple ended the approval.
+// One read of the receipt decides between pending and current, so one that arrives meanwhile is never neither.
+enum class BlindReceipt { current, pending, changing, lost };
+template <typename State>
+BlindReceipt blindReceipt (const State& state) noexcept
+{
+    const auto ticket = state.authority.ticket();
+    const auto gains = readGainSnapshot (state);
+    const auto trial = state.blindGainRevision.load (std::memory_order_acquire);
+    const auto received = state.gainReceipt.load (std::memory_order_acquire);
+    afterBlindReceiptRead();
+    const bool held = gains.retained && ! gains.limited && gains.identity.authority == ticket
+        && trial == gains.revision && state.sessionActive.load (std::memory_order_acquire)
+        && ticket == state.authority.ticket() && state.authority.permitted();
+    std::atomic_thread_fence (std::memory_order_acquire);
+    if (! gains.coherent || gains.revision != state.gainRevision.load (std::memory_order_acquire))
+        return BlindReceipt::changing;
+    if (! held) return BlindReceipt::lost;
+    return received == gains.revision ? BlindReceipt::current : BlindReceipt::pending;
+}
 template <typename State>
 bool currentBlindReceipt (const State& state) noexcept
-{
-    const auto gains = readGainSnapshot (state);
-    const auto ticket = state.authority.ticket();
-    return state.authority.permitted() && state.sessionActive.load (std::memory_order_acquire)
-        && gains.coherent && gains.retained && !gains.limited
-        && gains.identity.authority == ticket
-        && state.blindGainRevision.load (std::memory_order_acquire) == gains.revision
-        && state.gainReceipt.load (std::memory_order_acquire) == gains.revision
-        && ticket == state.authority.ticket() && state.authority.permitted()
-        && gains.revision == state.gainRevision.load (std::memory_order_acquire)
-        && state.sessionActive.load (std::memory_order_acquire);
-}
-// The trial's own tuple, committed by the audio thread at the ceiling, while its ramps settle: not
-// yet a receipt for SOURCE or REVEAL, and not an invalidation either.
-template <typename State>
-bool pendingBlindReceipt (const State& state) noexcept
-{
-    const auto gains = readGainSnapshot (state);
-    const auto ticket = state.authority.ticket();
-    return state.authority.permitted() && state.sessionActive.load (std::memory_order_acquire)
-        && gains.coherent && gains.retained && !gains.limited
-        && gains.identity.authority == ticket
-        && state.blindGainRevision.load (std::memory_order_acquire) == gains.revision
-        && state.gainReceipt.load (std::memory_order_acquire) != gains.revision
-        && gains.revision == state.gainRevision.load (std::memory_order_acquire);
-}
+{ return blindReceipt (state) == BlindReceipt::current; }
 }

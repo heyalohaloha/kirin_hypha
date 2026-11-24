@@ -167,6 +167,6 @@ void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const metric_needle:
         + (unavailable && !frame.reason.empty() ? juce::String {} : "  " + juce::String::fromUTF8 (frame.song.c_str()));
     text (g, status, {area.getX() + 8, bottom - (tiny ? 15.0f : compact ? 22.0f : 55.0f), area.getWidth() - 16, tiny ? 15.0f : 20.0f}, context, COL_NORMAL, trace, text_style::LabelPolicy::fixed);
     if (!compact) text (g, juce::String::fromUTF8 (frame.song.c_str()), {area.getX() + 8, bottom - 30, area.getWidth() - 16, 22},
-          context, COL_TEXT_SECONDARY, trace);
+          context, COL_NORMAL, trace);
 }
 }

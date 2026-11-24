@@ -42,7 +42,8 @@ occur when choosing at random, using a two-sided binomial calculation. This is a
 choices, not an assessment of the listener, an ABX identification test, or proof of better sound.
 
 Preference answers and hidden assignments remain in memory for the current trial, also while the
-window is closed: opening it again shows the same round, or the same RESULT and SAVE IMAGE. END,
+window is closed: opening it again shows the same round, or the same RESULT, from which SAVE IMAGE can be
+opened again. END,
 restoring saved plug-in state, or changing the pair, format or owner clears them; restoring state does
 not resume a trial. Answers are not automatically written to disk, learned from, or used to change audio.
 The round-count setting is remembered separately. A previous GUESS-on setting is read as five rounds

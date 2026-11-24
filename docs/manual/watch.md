@@ -104,6 +104,15 @@ There is no numeric target: the 0 comes from Reference, in three ways.
   drawn and the face says **REF: NO VALUE HERE**. It is not drawn in LOOP, during a Blind, or for
   the I window, whose 0 is already the song's Integrated loudness.
 
+**The plate at the right of the bottom row names the song at 0** on every face (VU, LU, PSR, CREST,
+SHARP): **REF B North Road** is the song chosen in B, **REF C …** the one in C; in PRE it is the song
+its POST chose. Where the row is narrow it shortens to **B North…** or **REF B**, and pointing at it
+shows the whole name. Without a song it says why (**REF no song**, **REF unmeasured**, **REF not
+linked**). In POST, press it to choose: the songs of the chosen Reference set, the other sets, the
+song in C, and **Open REFERENCE**. Choosing changes the 0 of the meters and B's selected song. While
+A sounds, A goes on sounding; while B or C sounds, what you hear follows the choice, as it does on
+the Reference page. It is closed during a Blind.
+
 The control beside LU chooses the left window: **M** (Momentary, 0.4 s) or **S** (Short-term, 3 s).
 The right window stays **I**: POST shows its own Integrated loudness, and PRE shows its own.
 There is no PRE comparison needle on POST's right dial. Older projects that selected I for the left
@@ -139,7 +148,9 @@ without MATCH gain. The native reader is separate from audition playback.
 The own needle shows the current value minus that zero. POST can add a PRE needle only when the
 same-time paired observation is valid. On PSR and CREST, both needles then show the newest 100 ms
 boundary that PRE and POST both published, so they always belong to the same moment and stay through
-ordinary publication delay; PRE goes away when no such boundary is within one second. Its REF needle
+ordinary publication delay. PRE goes away when a new read cannot confirm a pair, when the playback or
+the pair changes, or when the newest boundary is older than one second. After a start or a seek, PSR needs three
+seconds of new playback on both sides before its PRE needle returns. Its REF needle
 requires FOLLOW A and a measured value at that position; missing data is not drawn as zero. The set
 band is the p10–p90 range of the songs' Cue medians, with each song counted once. It stays absent
 until every member has completed the same-definition measurement. A failed, missing, or
@@ -147,8 +158,8 @@ still-preparing song is not silently dropped from the set.
 
 **PREPARING** means the Reference baseline is being prepared. **UNAVAILABLE** means that no
 usable baseline is available; when the REFERENCE page says the source cannot be used, the face says
-**UNAVAILABLE** with the reason, in POST and in the PRE of its chain, and returns to **PREPARING**
-once the source can be used. Changing a face never changes audio, Record, Keep, or MATCH.
+**UNAVAILABLE** with the reason, in POST and in the PRE of its chain. Once the source can be used, the face
+says **PREPARING** while its baseline is measured, or shows the reading if that is ready. Changing a face never changes audio, Record, Keep, or MATCH.
 PRE measures its own PSR and CREST and uses the Reference selected by POST in the same chain.
 Opening a PRE metric face can request that measurement without opening POST's window or
 selecting the same face in POST. If no POST or Reference selection is available, PRE explains

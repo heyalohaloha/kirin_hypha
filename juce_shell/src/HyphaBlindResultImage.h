@@ -314,9 +314,8 @@ inline Layout layoutFor (const Facts& facts)
 
 // The image: the observatory's Jungle ground, a quiet recessed panel and two raised source plates
 // under the shared key light, as the BLIND screen draws them.
-inline void paint (juce::Graphics& g, const Facts& facts)
+inline void paintGround (juce::Graphics& g, const Layout& layout)
 {
-    const auto layout = layoutFor (facts);
     g.fillAll (BG);
     {
         // The understory keeps its figure in the upper right and its low ground at the foot.
@@ -329,6 +328,21 @@ inline void paint (juce::Graphics& g, const Facts& facts)
     }
     g.setColour (BG);
     g.fillRoundedRectangle (layout.badge, 6.0f);
+}
+
+inline void paintItem (juce::Graphics& g, const Item& item)
+{
+    g.setColour (item.colour);
+    g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture),
+                          item.role, item.nameSize).withExtraKerningFactor (item.kerning));
+    text_style::drawText (g, item.text, item.area, item.justification, false,
+                          item.nativeBold ? text_style::LabelPolicy::fixedNativeBold : text_style::LabelPolicy::fixed);
+}
+
+inline void paint (juce::Graphics& g, const Facts& facts)
+{
+    const auto layout = layoutFor (facts);
+    paintGround (g, layout);
     surface_material::uncached::paintPanel (g, layout.panel, 0.93f, 10.0f, false);
     const auto light = key_light::overEditor (logicalSize, logicalSize);
     for (const auto& card : { layout.cardOne, layout.cardTwo, layout.chip })
@@ -337,14 +351,7 @@ inline void paint (juce::Graphics& g, const Facts& facts)
                                                     key_light::landingOn (card, light).fraction);
     g.setColour (surface_material::graphiteEdge().withAlpha (0.55f));
     g.fillRect (layout.panel.getX() + 26.0f, layout.rule, layout.panel.getWidth() - 52.0f, 1.0f);
-    for (const auto& item : layout.items)
-    {
-        g.setColour (item.colour);
-        g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture),
-                              item.role, item.nameSize).withExtraKerningFactor (item.kerning));
-        text_style::drawText (g, item.text, item.area, item.justification, false,
-                              item.nativeBold ? text_style::LabelPolicy::fixedNativeBold : text_style::LabelPolicy::fixed);
-    }
+    for (const auto& item : layout.items) paintItem (g, item);
 }
 
 inline juce::Image render (const Facts& facts, int pixels = pixelSize)

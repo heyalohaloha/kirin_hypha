@@ -1,7 +1,10 @@
 #pragma once
 #include "../src/HyphaLiveBlindComponent.h"
+#include "../src/HyphaBlindImageSheet.h"
 #include "../src/HyphaBlindResultImage.h"
 #include "../src/HyphaCapturePngFile.h"
+#include "../src/HyphaLanguage.h"
+#include "TestPathBudget.h"
 #include <memory>
 
 // The window closes and opens again while the plugin lives: the RESULT, its chance line, the matched levels and
@@ -45,6 +48,315 @@ inline bool same (const juce::Image& a, const juce::Image& b)
         for (int x = 0; x < a.getWidth(); x += 3)
             if (a.getPixelAt (x, y) != b.getPixelAt (x, y)) return false;
     return true;
+}
+
+// The trial really ends while SAVE IMAGE is open: the sheet, its answers and the save window's late answer go
+// together. A closed and reopened window, and a sheet opened again on the same RESULT, still save.
+template <typename Require>
+void verifyRevoked (Require require, const juce::File& root)
+{
+    using Status = live_compare::LiveBlindStatus;
+    const auto folder = root.getChildFile ("revoked"); // the remembered names keep a lock file beside them
+    const auto names = folder.getChildFile ("names"), target = folder.getChildFile ("result.png");
+    const auto revealed = [&] (Window& window, Status& status, int rounds) {
+        for (int i = 0; i < (rounds == 1 ? 1 : 2); ++i)
+        {
+            status.trial.played = 3; window.show (status);
+            if (rounds > 1) window.view.onGuess (1);
+        }
+        status.trial.revealed = true; window.show (status);
+        window.view.openImageSheet();
+        require (window.view.imageSheetOpen() && window.view.trialSummary().total() == (rounds == 1 ? 0u : 2u), "SAVE IMAGE is open on the RESULT");
+    };
+    const auto lost = [&] (const char* what, auto&& change) {
+        for (const int rounds : { 1, 5 })
+        {
+            const auto where = juce::String (what) + ", " + juce::String (rounds) + " rounds: ";
+            const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+            auto status = trial (false);
+            Window window (kept, status, names, rounds);
+            revealed (window, status, rounds);
+            const auto late = window.view.imageSave();
+            change (status); window.show (status);
+            require (! window.view.imageSheetOpen(), where + "its sheet closes");
+            require (window.view.trialSummary().total() == 0 && window.view.screen().preferenceResultText.isEmpty()
+                     && ! window.view.screen().saveImageShown, where + "the old RESULT is gone");
+            require (! late (target) && ! window.view.saveImageTo (target) && ! target.exists(), where + "a late save writes nothing");
+            require (window.view.actionNoticeShown() == "Image not saved", where + "and says so");
+            window.view.openImageSheet();
+            require (! window.view.imageSheetOpen() && ! late (target) && ! target.exists(), where + "nothing opens it again");
+            status = trial (false); status.generation += 9; status.trial.epoch = 70;
+            window.show (status); revealed (window, status, rounds);
+            require (! late (target) && ! target.exists(), where + "a new RESULT never answers the old save");
+        }
+    };
+    lost ("a lost pair or owner", [] (Status& status) { status.stage = live_compare::BlindStage::invalidated; status.trial.active = false; });
+    lost ("a revoked trial", [] (Status& status) { status.stage = live_compare::BlindStage::invalidated; status.trial = {}; });
+    lost ("a trial the audio ended", [] (Status& status) { status.trial.invalidated = true; });
+    lost ("END", [] (Status& status) { status.stage = live_compare::BlindStage::finishing; ++status.generation; status.trial = {}; });
+    for (const int rounds : { 1, 5 })
+    {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        auto window = std::make_unique<Window> (kept, status, names, rounds);
+        revealed (*window, status, rounds);
+        // The plugin forgets first; the window's next refresh has not come yet.
+        const auto before = *kept;
+        const auto late = window->view.imageSave();
+        *kept = {};
+        require (! late (target) && ! target.exists(), "a forgotten trial is never saved, also before the window refreshes");
+        *kept = before;
+        window->view.closeImageSheet();
+        window->view.openImageSheet();
+        require (! late (target) && ! target.exists(), "an earlier opening's answer never saves a later one");
+        window.reset();
+        window = std::make_unique<Window> (kept, status, names, rounds);
+        window->view.openImageSheet();
+        const auto again = window->view.imageSave();
+        window->show (status); // the same RESULT, refreshed
+        require (window->view.imageSheetOpen() && again (target) && target.existsAsFile() && target.deleteFile()
+                 && ! window->view.imageSheetOpen(), "a reopened window still saves its RESULT");
+    }
+    require (! target.exists() && removeFixtureDirectory (folder), "the revoked fixture leaves no file");
+}
+
+// The gain receipt is still on its way when an answer is accepted: the answer stays, the next round starts once when
+// the receipt stands, and nothing is answered or assigned twice. REVEAL, END and a lost trial ask for none.
+template <typename Require>
+void verifyNextAssignmentWaits (Require require, const juce::File& root)
+{
+    using Phase = blind_preference::Phase;
+    const auto file = root.getChildFile ("blind-next-fixture");
+    for (const bool candidate : { false, true }) for (const int rounds : { 5, 10 })
+    {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (candidate);
+        unsigned asked = 0, granted = 0, refuse = 0;
+        bool random = true;
+        std::unique_ptr<Window> window;
+        const auto open = [&] {
+            window = std::make_unique<Window> (kept, status, file, rounds);
+            window->view.onPreferenceNext = [&] (std::uint64_t generation, std::uint32_t epoch) {
+                ++asked;
+                require (generation == status.generation && epoch == status.trial.epoch && ! status.trial.revealed, "only the answered round asks");
+                if (refuse > 0) { --refuse; window->show (status); return false; } // a refusal refreshes the window too
+                if (! random) { status.stage = live_compare::BlindStage::invalidated; status.reason = live_compare::RecoveryReason::randomUnavailable;
+                                window->show (status); return false; }
+                ++granted; ++status.trial.epoch; status.trial.played = 0; window->show (status); return true;
+            };
+        };
+        const auto answer = [&] (unsigned refusals) {
+            status.trial.played = 3; window->show (status);
+            refuse = refusals; window->view.onGuess (1);
+        };
+        open();
+        answer (3);
+        const auto epoch = status.trial.epoch;
+        require (window->view.trialSummary().total() == 1 && asked == 1 && granted == 0
+                 && window->view.preferenceTrial().phase() == Phase::awaitingAssignment && ! window->view.screen().guessOpen,
+                 "the accepted answer stays while its receipt is on its way");
+        window->view.onGuess (2); window->view.onGuess (1);
+        require (window->view.trialSummary().total() == 1 && asked == 1, "the waiting round takes no second answer");
+        window->show (status); window->show (status);
+        require (asked == 3 && granted == 0 && window->view.trialSummary().total() == 1, "each refresh asks once");
+        window->show (status);
+        require (asked == 4 && granted == 1 && status.trial.epoch == epoch + 1 && window->view.trialSummary().total() == 1
+                 && window->view.preferenceTrial().phase() == Phase::listening && window->view.preferenceTrial().roundNumber() == 2,
+                 "the standing receipt starts the next round once");
+        for (int again = 0; again < 4; ++again) window->show (status);
+        require (asked == 4 && granted == 1, "nothing is assigned twice");
+        answer (0);
+        require (asked == 5 && granted == 2 && window->view.trialSummary().total() == 2, "an ordinary answer moves at once");
+        // The window closes while the round waits: the reopened one goes on with it.
+        answer (1);
+        require (granted == 2 && window->view.trialSummary().total() == 3, "the third answer waits");
+        const auto waiting = status.trial.epoch;
+        open();
+        window->show (status);
+        require (status.trial.epoch == waiting + 1 && window->view.trialSummary().total() == 3
+                 && window->view.preferenceTrial().phase() == Phase::listening, "a reopened window starts the waiting round once");
+        // REVEAL while waiting: the answers so far, and no further assignment.
+        answer (100);
+        const auto before = asked;
+        status.trial.revealed = true; window->show (status); window->show (status);
+        require (asked == before && window->view.preferenceTrial().phase() == Phase::revealed && window->view.trialSummary().total() == 4,
+                 "REVEAL takes the answers so far and asks for nothing");
+        // A real loss while waiting clears the answers, and nothing is assigned afterwards.
+        status = trial (candidate); status.generation += 5; status.trial.epoch = 90; window->show (status);
+        answer (100);
+        const auto lost = asked;
+        status.stage = live_compare::BlindStage::invalidated; window->show (status); window->show (status);
+        require (asked == lost && window->view.trialSummary().total() == 0, "a lost trial clears the answers and asks for nothing");
+        // Randomness fails at the waiting request: it says so and ends.
+        status = trial (candidate); status.generation += 6; status.trial.epoch = 120; window->show (status);
+        answer (1); random = false;
+        const auto failing = asked;
+        window->show (status); window->show (status);
+        require (asked == failing + 1 && window->view.trialSummary().total() == 0
+                 && window->view.actionNoticeShown() == "Random assignment was unavailable", "failed randomness ends the waiting round once");
+    }
+    require (! file.exists(), "waiting writes no file");
+}
+
+// RESULT and its picture take the estimate of the answers: one first measured after the last answer is not theirs.
+template <typename Require>
+void verifyEstimateFixedAtAnswer (Require require, const juce::File& root)
+{
+    const auto file = root.getChildFile ("blind-estimate-fixture");
+    const auto told = [&] (double atAnswer, double afterAnswer, int answers, const juce::String& expected, const char* why) {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        auto window = std::make_unique<Window> (kept, status, file, answers == 0 ? 1 : 5);
+        for (int i = 0; i < answers; ++i)
+        {
+            status.trial.played = 3;
+            if (i == answers - 1) status.contentNoticeMs = atAnswer;
+            window->show (status); window->view.onGuess (1);
+        }
+        status.contentNoticeMs = afterAnswer; status.trial.played = 3; window->show (status);
+        status.trial.revealed = true; window->show (status);
+        for (int again = 0; again < 2; ++again)
+        {
+            require (window->view.resultFacts().note == expected && window->view.screen().instruction.contains ("Audio estimate") == expected.isNotEmpty()
+                     && (expected.isEmpty() || window->view.screen().instruction == expected), juce::String (why) + ": " + window->view.resultFacts().note);
+            window = std::make_unique<Window> (kept, status, file, 5); // closed and opened again
+        }
+    };
+    const auto estimate = [] (const char* ms) { return "Audio estimate: PRE may have been " + juce::String (ms) + " ms off"; };
+    // The trial moves on just before the last answer, before the window refreshes: the answer takes it as it is.
+    for (const double shown : { 0.0, 0.8 })
+    {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        Window window (kept, status, file, 5);
+        window.view.onPreferenceStatus = [&status] { return status; };
+        for (int i = 0; i < 5; ++i)
+        {
+            status.trial.played = 3; status.contentNoticeMs = shown; window.show (status);
+            if (i == 4) { status.contentNoticeMs = 1.25; status.trial.usedPostFallback = status.trial.fallbackForTiming = true; }
+            window.view.onGuess (1);
+        }
+        status.contentNoticeMs = 3.5; window.show (status);
+        status.trial.revealed = true; window.show (status);
+        require (window.view.resultFacts().note == "POST was used briefly when timing was unavailable / " + estimate ("1.25"),
+                 "the last answer takes what the trial holds now: " + window.view.resultFacts().note);
+    }
+    told (0.0, 1.25, 5, {}, "an estimate after the last answer stays out of RESULT");
+    told (0.8, 3.5, 5, estimate ("0.80"), "the estimate at the last answer is kept");
+    told (0.8, 0.8, 5, estimate ("0.80"), "an unchanged estimate is told once");
+    told (0.0, 1.25, 2, estimate ("1.25"), "an unanswered round tells its own estimate at REVEAL");
+    told (0.0, 1.25, 0, estimate ("1.25"), "one listen tells its estimate at REVEAL");
+    require (! file.exists(), "an estimate writes no file");
+}
+
+// The DAW stays stopped on the RESULT: why and how to go on stand beside the RESULT's own note, small and large.
+template <typename Require>
+void verifyStoppedResultKeepsNote (Require require, const juce::File& root)
+{
+    const auto file = root.getChildFile ("blind-stopped-fixture");
+    const juce::String note = "POST was used briefly when timing was unavailable";
+    struct Case { bool stoodIn; int rounds; bool gained; }; // the last one has no count and no matched level
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const auto [stoodIn, rounds, gained] : { Case { true, 1, true }, Case { false, 1, true }, Case { true, 5, true },
+                                                  Case { false, 5, true }, Case { true, 1, false } })
+    {
+        const i18n::ScopedLanguage shown (language);
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        live_compare::GainSnapshot gain;
+        gain.coherent = true; gain.retained = true; gain.revision = 2; gain.pre = 1.2f; gain.post = 0.8f; gain.ceiling = 0.9f;
+        gain.identity = { 1, 2, 3, 4, 48000 };
+        Window window (kept, status, file, rounds);
+        if (gained) window.view.setPreferenceApprovedGains (status.generation, gain);
+        status.trial.played = 3;
+        status.trial.usedPostFallback = status.trial.fallbackForTiming = stoodIn;
+        window.show (status);
+        if (rounds > 1) window.view.onGuess (1);
+        status.trial.revealed = true; window.show (status);
+        if (gained) window.view.setPreferenceApprovedGains (status.generation, gain);
+        const auto playing = window.view.screen();
+        require (playing.matchedGainText.isNotEmpty() == gained, "the case has its matched level");
+        const auto facts = window.view.resultFacts().note;
+        require (facts == (stoodIn ? note : juce::String()), "the RESULT's own note");
+        for (const int width : { 300, 450, 900 })
+        {
+            window.view.setSize (width, width * 2 / 3);
+            const auto where = juce::String (width) + (stoodIn ? " with" : " without") + " a substitute, " + juce::String (rounds) + " rounds: ";
+            const auto told = [&, stood = stoodIn] (bool stopped) {
+                auto* body = dynamic_cast<juce::TextEditor*> (window.view.findChildWithID ("live-blind-preference-note"));
+                require (body != nullptr && body->isVisible() && ! body->getBounds().isEmpty() && window.view.getLocalBounds().contains (body->getBounds()),
+                         where + "the notes have their own place");
+                if (body == nullptr) return;
+                for (auto* sibling : window.view.getChildren())
+                    require (sibling == body || ! sibling->isVisible() || ! sibling->getBounds().intersects (body->getBounds()),
+                             where + "no overlap with " + sibling->getComponentID());
+                require (body->getText().contains (i18n::tr (note)) == stood, where + "the note is on the screen");
+                const auto& guided = window.view.screen();
+                require (! stopped || (guided.guidanceShown && body->getText().contains (i18n::tr (guided.recovery))),
+                         where + "the stopped guidance is beside it");
+            };
+            told (false);
+            auto stopped = status; stopped.prolongedWait = true; stopped.reason = stopped.observation = live_compare::RecoveryReason::stopped;
+            window.show (stopped); told (true);
+            require (window.view.resultFacts().note == facts, where + "SAVE IMAGE keeps the same note");
+            window.show (status); told (false);
+            require (window.view.screen() == playing, where + "playing again restores the RESULT");
+        }
+    }
+    require (! file.exists(), "a stopped RESULT writes no file");
+}
+
+// A long wait on the RESULT offers ALIGN OFF: every plate keeps its whole name, with SAVE IMAGE beside it where the
+// row has room and back in its place when the wait ends.
+template <typename Require>
+void verifyResultAlignOff (Require require, const juce::File& root)
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese }) for (const int rounds : { 1, 5 })
+    {
+        const i18n::ScopedLanguage shown (language);
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        Window window (kept, status, root.getChildFile ("blind-align-fixture"), rounds);
+        status.trial.played = 3; status.trial.usedPostFallback = status.trial.fallbackForTiming = true; window.show (status);
+        if (rounds > 1) window.view.onGuess (1);
+        status.trial.revealed = true; window.show (status);
+        bool dense = false, wide = false;
+        for (const int width : { 300, 375, 450, 600, 900 })
+        {
+            window.view.setSize (width, width * 2 / 3);
+            const auto where = "RESULT at " + juce::String (width) + ", " + juce::String (rounds) + " rounds: ";
+            const auto button = [&] (const char* id) { return dynamic_cast<HyphaTextButton*> (window.view.findChildWithID ("live-blind-" + juce::String (id))); };
+            const auto plates = [&] (bool waiting) {
+                int count = 0;
+                for (const auto* id : { "source-1", "source-2", "align-off", "save-image", "end" })
+                {
+                    auto* plate = button (id);
+                    require (plate != nullptr, where + id);
+                    if (plate == nullptr || ! plate->isVisible()) continue;
+                    ++count;
+                    require (window.view.getLocalBounds().contains (plate->getBounds())
+                             && text_style::shownWidth (labelFont (presentation::forEditor (width, width * 2 / 3), typography::TextRole::action),
+                                                        plate->displayedText(), text_style::LabelPolicy::fixed) <= plate->getWidth() - 12,
+                             where + id + " keeps its whole name");
+                    for (const auto* other : { "source-1", "source-2", "align-off", "save-image", "end" })
+                        if (auto* next = button (other); next != plate && next != nullptr && next->isVisible())
+                            require (! next->getBounds().intersects (plate->getBounds()), where + id + " / " + other);
+                }
+                const bool off = button ("align-off")->isVisible(), save = button ("save-image")->isVisible();
+                require (off == waiting && (save || (waiting && count == 4)), where + "ALIGN OFF only while it waits, SAVE IMAGE otherwise");
+                return save;
+            };
+            require (plates (false), where + "SAVE IMAGE stands");
+            auto waiting = status; waiting.prolongedWait = true;
+            waiting.reason = waiting.observation = live_compare::RecoveryReason::contentAmbiguous;
+            window.show (waiting);
+            const bool beside = plates (true);
+            dense = dense || ! beside; wide = wide || beside;
+            window.show (status);
+            require (plates (false), where + "SAVE IMAGE returns");
+        }
+        require (dense && wide, "both rows were seen");
+    }
 }
 
 template <typename Require>
@@ -137,5 +449,10 @@ void verify (Require require, const juce::File& root)
         require (a.view.trialSummary().total() == 1 && b.view.trialSummary().total() == 0, "instances never share answers");
     }
     require (! file.exists(), "the kept trial writes no file");
+    verifyRevoked (require, root);
+    verifyNextAssignmentWaits (require, root);
+    verifyEstimateFixedAtAnswer (require, root);
+    verifyStoppedResultKeepsNote (require, root);
+    verifyResultAlignOff (require, root);
 }
 }

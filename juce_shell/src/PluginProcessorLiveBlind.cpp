@@ -164,6 +164,9 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind (std::optional<std::uint64_t
 void KirinHyphaProcessorBase::serviceLiveBlind()
 {
     serviceLiveCompare();
+    // A trial that ended by itself (its pair, PRE owner, format, authority or gain lost) never comes back:
+    // its answers and RESULT go now, also without a window. A closed window alone ends nothing.
+    if (role == Role::Post && liveCompare.blindStage == BlindStage::invalidated) forgetBlindTrial();
     const auto preparingLoss = liveCompare.blindTiming.failure();
     if (preparingLoss != RecoveryReason::none
         && (liveCompare.blindStage == BlindStage::preparing || liveCompare.blindStage == BlindStage::settling
@@ -317,8 +320,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.candidateHostInactive = candidateHostInactive();
     if (status.candidate) status.matchSecondsRemaining = liveCompare.renderer.matchSecondsRemaining();
     const auto state = liveCompareStatus();
-    const auto gains = readGainSnapshot (liveCompare);
-    const bool receipt = currentBlindReceipt (liveCompare);
+    const auto receipt = blindReceipt (liveCompare);
     status.reason = state.reason;
     status.signalWait = status.stage == BlindStage::preparing
         && (status.waiting == MatchFailure::tooShort || status.waiting == MatchFailure::notEnoughSignal)
@@ -331,8 +333,10 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.contentUnapplied = state.contentUnapplied;
     status.contentLagFrames = state.contentJumpLagFrames;
     status.contentNoticeMs = liveCompare.blindContentNoticeMs;
-    // A notice standing since before this trial still has its amount for RESULT.
-    if (status.contentNoticeMs == 0.0 && status.contentHeld && liveCompare.contentJumpFacts.sampleRate > 0.0)
+    // A notice standing since before this trial still has its amount for RESULT; one that begins after
+    // REVEAL is told by the guidance while it stands and never joins RESULT.
+    if (status.contentNoticeMs == 0.0 && ! status.trial.revealed && status.contentHeld
+        && liveCompare.contentJumpFacts.sampleRate > 0.0)
         status.contentNoticeMs = static_cast<double> (status.contentLagFrames) * 1000.0 / liveCompare.contentJumpFacts.sampleRate;
     status.compensationOff = state.compensationOff;
     status.loopBlock = state.loopBlock;
@@ -361,9 +365,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
         status.stage = BlindStage::invalidated;
         status.reason = status.trial.reason;
     }
-    else if (status.stage == BlindStage::active
-        && gains.coherent && !receipt && ! pendingBlindReceipt (liveCompare)
-        && gains.revision == liveCompare.gainRevision.load (std::memory_order_acquire))
+    else if (status.stage == BlindStage::active && receipt == BlindReceipt::lost) // never a receipt still on its way
     {
         status.trial = {};
         status.stage = BlindStage::invalidated;
@@ -382,9 +384,12 @@ bool KirinHyphaProcessorBase::selectLiveBlind (int stimulus)
 
 bool KirinHyphaProcessorBase::revealLiveBlind()
 {
-    return liveCompare.authority.permitted() && liveCompare.blindStage == BlindStage::active
-        && currentBlindReceipt (liveCompare)
-        && liveCompare.blind.reveal();
+    if (! liveCompare.authority.permitted() || liveCompare.blindStage != BlindStage::active
+        || ! currentBlindReceipt (liveCompare)) return false;
+    const auto notice = liveBlindStatus().contentNoticeMs;
+    if (! liveCompare.blind.reveal()) return false;
+    liveCompare.blindContentNoticeMs = notice; // RESULT keeps the estimate it was revealed with
+    return true;
 }
 
 void KirinHyphaProcessorBase::closeLiveBlind()

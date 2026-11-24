@@ -374,6 +374,7 @@ const Entry entries[] = {
     { "Replace", u8"置き換える" },
     { "Cancel", u8"キャンセル" },
     { "Image saved", u8"画像を保存しました" },
+    { "Image not saved", u8"画像を保存していません" },
     { "Names could not be remembered", u8"名前を記憶できませんでした" },
     { "Image saved; names could not be remembered", u8"画像を保存しました。名前は記憶できませんでした" },
     { "The image could not be made; try again", u8"画像を作れませんでした。もう一度試してください" },

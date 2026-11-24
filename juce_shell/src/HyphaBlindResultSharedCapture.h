@@ -12,6 +12,7 @@ inline blind_ui::Screen captureScreen (const Facts& facts)
     blind_ui::Screen screen;
     screen.title = "BLIND RESULT";
     screen.sourcesShown = screen.sourceOneEnabled = screen.sourceTwoEnabled = true;
+    screen.endEnabled = false;  // a picture has nothing to press
     screen.audible = facts.selected;
     const auto nameA = cleanName (facts.nameA, defaultName (facts.candidate, false));
     const auto nameB = cleanName (facts.nameB, defaultName (facts.candidate, true));
@@ -49,8 +50,8 @@ inline blind_ui::Screen captureScreen (const Facts& facts)
 
 inline juce::Image renderShared (const Facts& facts, int pixels = pixelSize)
 {
-    // Square file format continues; its inner panel shares the RESULT component rather than
-    // an alternative visual layout. The two export-only caption lines stay outside the panel.
+    // The square file keeps the product's name, the mode and the observatory ground around the panel. The panel
+    // itself is the RESULT component of the screen, so the two never tell the result differently.
     blind_ui::ScreenComponent surface ("result-png", blind_ui::ScreenComponent::NoteLanguage::prelocalized);
     surface.setBounds (0, 0, 600, 400);
     surface.setScreen (captureScreen (facts));
@@ -59,18 +60,26 @@ inline juce::Image renderShared (const Facts& facts, int pixels = pixelSize)
     juce::Image result (juce::Image::RGB, pixels, pixels, true);
     juce::Graphics g (result);
     g.addTransform (juce::AffineTransform::scale (static_cast<float> (pixels) / logicalSize));
-    g.fillAll (BG);
-    g.drawImage (content, juce::Rectangle<float> (12.0f, 62.0f, 516.0f, 344.0f));
-    g.setColour (COL_NORMAL);
-    g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture), typography::BlindImageText::closing, 34));
-    const auto caption = facts.preference.total() >= 2
-        ? i18n::tr ("%1 blind rounds at matched level.").replace ("%1", juce::String (facts.preference.total()))
-        : i18n::tr (closingSentence);
-    text_style::drawText (g, caption, juce::Rectangle<int> (18, 423, 504, 32), juce::Justification::centred);
-    g.setColour (COL_SPECTRUM_DELTA_BR);
-    g.setFont (labelFont (presentation::forOutput (540, 540, presentation::OutputTarget::capture), typography::BlindImageText::address, 34));
-    text_style::drawText (g, address, juce::Rectangle<float> (18.0f, 459.0f, 504.0f, 27.0f),
-                          juce::Justification::centred, true, text_style::LabelPolicy::fixed);
+    const auto words = layoutFor (facts);
+    paintGround (g, words);
+    paintItem (g, words.items[0]);  // KIRIN HYPHA
+    paintItem (g, words.items[1]);  // A/B BLIND or PRE/POST BLIND
+    {
+        // The component's own frame starts 10 px inside it; only that panel is placed on the ground.
+        constexpr float shown = 472.0f / 580.0f;
+        const juce::Rectangle<float> panel (34.0f, 72.0f, 472.0f, 380.0f * shown);
+        const juce::Graphics::ScopedSaveState saved (g);
+        juce::Path edge;
+        edge.addRoundedRectangle (panel, 7.0f * shown);
+        g.reduceClipRegion (edge);
+        g.drawImage (content, { panel.getX() - 10.0f * shown, panel.getY() - 10.0f * shown, 600.0f * shown, 400.0f * shown });
+    }
+    for (const auto offset : { size_t { 2 }, size_t { 1 } })
+    {
+        auto item = words.items[words.items.size() - offset];  // the closing sentence, then the address
+        item.area = item.area.withY (offset == 2 ? 412.0f : 442.0f);
+        paintItem (g, item);
+    }
     return result;
 }
 }

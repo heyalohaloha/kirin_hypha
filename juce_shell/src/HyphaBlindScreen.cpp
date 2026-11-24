@@ -109,6 +109,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage not
     preferenceNoteBody.setMultiLine (true); preferenceNoteBody.setReadOnly (true);
     preferenceNoteBody.setScrollbarsShown (false);
     preferenceNoteBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
+    preferenceNoteBody.setJustification (juce::Justification::centredTop);
     addChildComponent (preferenceNoteBody);
     for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
     {
@@ -123,6 +124,16 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage not
 }
 
 ScreenComponent::~ScreenComponent() { setLookAndFeel (nullptr); }
+
+namespace
+{
+// RESULT's own rows: a count, the matched level, or the live RESULT's note alone (the export has its own lines).
+bool resultRows (const Screen& screen)
+{
+    return screen.preferenceResultText.isNotEmpty() || screen.matchedGainText.isNotEmpty()
+        || (screen.preferenceResultNote.isNotEmpty() && screen.endExplanation.isNotEmpty() && ! screen.guessShown);
+}
+}
 
 void ScreenComponent::setActionNotice (const juce::String& text)
 {
@@ -225,12 +236,13 @@ void ScreenComponent::apply()
         button->setDescription (button->getTitle());
         button->setTooltip (button->getTitle());
     }
-    const bool preferenceResult = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    const bool preferenceResult = resultRows (shown);
     preferenceResultBody.setVisible (shown.preferenceResultText.isNotEmpty());
     const auto resultText = shown.preferenceResultText;
     auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText (shown.instruction, look.policyFor (status)) + "\n" + text_style::shownText (shown.detail, look.policyFor (detail));
     if (preferenceResult && shown.endExplanation.isNotEmpty())
-        noteText = result_layout::liveNotes (shown.instruction, shown.endExplanation, shown.trialNotice);
+        noteText = result_layout::liveNotes (shown.guidanceShown ? shown.preferenceResultNote : shown.instruction,
+                                             shown.endExplanation, shown.trialNotice);
     if (preferenceResult && shown.guidanceShown)
     {
         // A guidance label can still be valid after REVEAL. Give its text a measured row
@@ -274,9 +286,8 @@ void ScreenComponent::setCovered (bool next)
 void ScreenComponent::resized()
 {
     look.wrappedContext = context = presentation::forEditor (getWidth(), getHeight());
-    const bool result = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    const bool result = resultRows (shown);
     const bool choosingRounds = !covered && !result && shown.roundsShown && shown.roundsEnabled;
-    const bool fixedProgress = shown.roundsShown && !shown.roundsEnabled && shown.guessShown;
     roundsLabel.setVisible (choosingRounds);
     roundsLabel.setText ("ROUNDS", juce::dontSendNotification);
     outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty());
@@ -309,10 +320,15 @@ void ScreenComponent::resized()
         button->setPresentationContext (context);
     if (result)
     {
+        // Lines and rows breathe wherever the window has the height for it.
+        const bool roomy = getHeight() >= 360;
+        for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
+            body->setLineSpacing (roomy ? 1.15f : 1.0f);
+        const int rowGap = roomy ? 10 : 0;
         // Try the normal two-row actions first, using the actual wrapped text
         // at its final width. A narrow width alone does not select dense mode.
         auto normal = getLocalBounds().reduced (24);
-        normal.removeFromTop (40); normal.removeFromBottom (80);
+        normal.removeFromTop (40); normal.removeFromBottom (80 + rowGap);
         const std::array<juce::TextEditor*, 3> bodies { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody };
         std::array<int, 3> heights {};
         auto measure = [&] (juce::Rectangle<int> bounds, float scale, int padding)
@@ -321,27 +337,40 @@ void ScreenComponent::resized()
         };
         const auto [neededHeight, normalWidthFits] = measure (normal, 1.0f, 8);
         const bool denseResult = neededHeight > normal.getHeight() || ! normalWidthFits;
-        auto panel = getLocalBounds().reduced (denseResult ? 4 : 24);
-        if (denseResult) panel.removeFromTop (20); // same 24px top inset as normal
+        // Inside the frame line wherever the window has the room; the smallest ones need every pixel for text.
+        const int denseInset = getHeight() >= 240 ? 12 : 4;
+        auto panel = getLocalBounds().reduced (denseResult ? denseInset : 24);
+        if (denseResult) panel.removeFromTop (24 - denseInset); // same 24px top inset as normal
         title.setBounds (panel.removeFromTop (denseResult ? 18 : 40));
+        saveImage.setVisible (! covered && shown.saveImageShown && ! (denseResult && shown.alignOffShown));
         auto actions = panel.removeFromBottom (denseResult ? 24 : 40);
         if (denseResult)
         {
-            // Keep all four actions available without spending two rows on them.
+            // Keep all four actions available without spending two rows on them. While ALIGN OFF is offered it
+            // takes SAVE IMAGE's place: five names do not fit one row here. SAVE IMAGE returns when the wait ends.
             const int cell = actions.getWidth() / 4;
             one.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
             two.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
-            saveImage.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            const auto third = actions.removeFromLeft (cell).reduced (2, 0);
+            alignOff.setBounds (third);
+            saveImage.setBounds (third);
             end.setBounds (actions.reduced (2, 0));
         }
         else
         {
-            saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
+            const int plates = shown.alignOffShown ? 3 : 2, plate = actions.getWidth() / plates;
+            if (shown.alignOffShown) alignOff.setBounds (actions.removeFromLeft (plate).reduced (3, 0));
+            saveImage.setBounds (actions.removeFromLeft (plate).reduced (3, 0));
             end.setBounds (actions.reduced (3, 0));
+            panel.removeFromBottom (rowGap);
             auto sources = panel.removeFromBottom (40);
             one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
             two.setBounds (sources.reduced (3, 0));
         }
+        const bool answersOnly = shown.preferenceResultText.isEmpty() && ! denseResult;
+        for (auto* answerPlate : { &one, &two })
+            answerPlate->setLargeRole (answersOnly ? std::optional (typography::TextRole::primaryValue) : std::nullopt);
+        const auto sourceBand = denseResult ? juce::Rectangle<int>() : one.getBounds().getUnion (two.getBounds());
         // An actual line count at the final width reserves separate strips for the result,
         // compensation and notes. Never centre a block taller than its remaining space.
         auto measured = measure (panel, 1.0f, denseResult ? 4 : 8);
@@ -367,6 +396,20 @@ void ScreenComponent::resized()
             }
             return;
         }
+        if (answersOnly)
+        {
+            // One listen has no count to report: the two answers are the result, with the matched level under them.
+            panel = panel.withBottom (sourceBand.getBottom());
+            preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
+            const int gap = heights[1] > 0 ? 12 : 0, most = juce::jmax (0, panel.getHeight() - heights[1] - gap);
+            const auto height = juce::jlimit (juce::jmin (sourceBand.getHeight(), most), 110, most - gap);
+            auto group = panel.withSizeKeepingCentre (panel.getWidth(), height + gap + heights[1]);
+            auto sources = group.removeFromTop (height);
+            one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
+            two.setBounds (sources.reduced (3, 0));
+            matchedGainBody.setBounds (group.withTrimmedTop (gap));
+            return;
+        }
         preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
         const auto groupHeight = heights[0] + heights[1];
         auto centred = panel.withSizeKeepingCentre (panel.getWidth(), groupHeight);
@@ -376,7 +419,7 @@ void ScreenComponent::resized()
         return;
     }
     if (!covered && getWidth() > 0 && getHeight() > 0)
-        layoutTrial (choosingRounds, fixedProgress);
+        layoutTrial (choosingRounds);
 }
 
 void ScreenComponent::paint (juce::Graphics& g)

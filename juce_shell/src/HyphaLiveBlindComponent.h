@@ -59,6 +59,8 @@ public:
     void setPreferenceApprovedGains (std::uint64_t generation, std::optional<live_compare::GainSnapshot> gain);
     std::function<std::optional<bool> (int, std::uint64_t, std::uint32_t)> onPreferenceAnswer;
     std::function<bool (std::uint64_t, std::uint32_t)> onPreferenceNext;
+    // The trial as it is now, read when an answer is accepted: RESULT's notes follow it, not the last refresh.
+    std::function<live_compare::LiveBlindStatus()> onPreferenceStatus;
     // Where GUESS and the names are remembered (ui-preferences.txt; tests use their own file).
     void setPreferenceFile (const juce::File& file) { preferences = file; }
     const juce::File& preferenceFile() const noexcept { return preferences; }
@@ -68,8 +70,10 @@ public:
     void openImageSheet();
     bool imageSheetOpen() const noexcept;
     blind_image::Sheet& imageSheet() noexcept { return *sheet; }
-    // Writes the sheet's image to `file`; a failure stays on the sheet with its reason.
+    // Writes the sheet's image to `file`; a failure stays on the sheet with its reason. Nothing once the RESULT ended.
     bool saveImageTo (const juce::File& file);
+    // The save one opening of the sheet asked for: answered after that sheet closed or its RESULT ended, it writes nothing.
+    std::function<bool (const juce::File&)> imageSave();
     juce::File imageSaveInitialDirectory() const;
     void closeImageSheet();
     void resized() override;
@@ -78,17 +82,23 @@ private:
     void show();
     void refreshPreference();
     void choosePreference (int);
+    void startNextAssignment();
     void resetPreference();
     void decoratePreference (blind_ui::Screen&) const;
     void retainPreferenceNotes();
+    bool currentRoundAnswered() const noexcept;
+    double shownContentNoticeMs() const noexcept; // RESULT's estimate: as of its round's answer, else of REVEAL
     bool rememberNames();
     void chooseImageFile();
+    bool imageOpeningStands (std::uint32_t opening) const noexcept;
 
     std::shared_ptr<TrialMemory> memory = std::make_shared<TrialMemory>();
     int rounds = 1; // configured next trial; the memory holds the active one
     bool preferenceBusy = false, memoryAdopted = false;
     live_compare::LiveBlindStatus current;
     bool playing = false, repeating = false, guessOn = false, namesRemembered = true;
+    bool imageHeld = false;         // the sheet was opened on a trial the memory held
+    std::uint32_t imageOpening = 0; // one number for each opening of the sheet
     float actualPost = 1.0f;
     juce::File preferences;
     juce::File lastImageFolder;

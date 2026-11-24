@@ -25,6 +25,9 @@ public:
     void restore (bool luFace, lu_needle::Window);
     void setCommonFace (bool isLu, const juce::String& label, bool sharpOffered = true);
     std::function<void()> onFaceMenu;
+    // POST: the plate that tells the song at 0 opens the choice of songs. Without it the plate only tells (PRE).
+    std::function<void()> onReferenceMenu;
+    juce::Button& referenceControl() noexcept;
     void setFacts (const lu_needle::Facts&);
     const lu_needle::Facts& facts() const noexcept { return current; }
     bool selected() const noexcept { return luSelected; }
@@ -35,8 +38,11 @@ public:
     void hideControls();
     // Takes the controls' places from the left of the VU row.
     void layout (juce::Rectangle<int>& row, int buttonHeight, const presentation::Context&);
-    void layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady = std::nullopt);
+    void layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady = std::nullopt,
+                                int keptLeft = 0, const juce::String& metricSong = {});
     juce::String referenceStatus (std::optional<bool> metricReady = std::nullopt) const;
+    juce::String referenceText (std::optional<bool> metricReady = std::nullopt, const juce::String& metricSong = {}) const; // the song at 0, else the status
+    juce::String referenceSong (const juce::String& metricSong = {}) const; // "REF B song", told even while it is not measured (tooltip)
     void paint (juce::Graphics&, juce::Rectangle<int> bounds, const State&, const KirinDelta&,
                 bool deltaAvailable, float pixelScale);
 
@@ -55,8 +61,7 @@ private:
     void choose (bool luFace, lu_needle::Window);
 
     juce::Component& owner;
-    std::unique_ptr<Control> faceButton, windowButton;
-    juce::Label referenceStatusLabel;
+    std::unique_ptr<Control> faceButton, windowButton, referenceButton;
     lu_needle::Facts current;
     bool luSelected = false, snapNext = true, commonFace = false;
     lu_needle::Window chosenWindow = lu_needle::Window::momentary;
