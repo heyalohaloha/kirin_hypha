@@ -3,6 +3,7 @@
 #include "../src/HyphaBlindImageSheet.h"
 #include "../src/HyphaBlindResultImage.h"
 #include "../src/HyphaCapturePngFile.h"
+#include "TestPathBudget.h"
 #include <memory>
 
 // The window closes and opens again while the plugin lives: the RESULT, its chance line, the matched levels and
@@ -54,7 +55,8 @@ template <typename Require>
 void verifyRevoked (Require require, const juce::File& root)
 {
     using Status = live_compare::LiveBlindStatus;
-    const auto names = root.getChildFile ("blind-revoked-names"), target = root.getChildFile ("blind-revoked.png");
+    const auto folder = root.getChildFile ("revoked"); // the remembered names keep a lock file beside them
+    const auto names = folder.getChildFile ("names"), target = folder.getChildFile ("result.png");
     const auto revealed = [&] (Window& window, Status& status, int rounds) {
         for (int i = 0; i < (rounds == 1 ? 1 : 2); ++i)
         {
@@ -114,7 +116,7 @@ void verifyRevoked (Require require, const juce::File& root)
         require (window->view.imageSheetOpen() && again (target) && target.existsAsFile() && target.deleteFile()
                  && ! window->view.imageSheetOpen(), "a reopened window still saves its RESULT");
     }
-    require (names.deleteFile() && ! target.exists(), "the revoked fixture leaves no file");
+    require (! target.exists() && removeFixtureDirectory (folder), "the revoked fixture leaves no file");
 }
 
 // The gain receipt is still on its way when an answer is accepted: the answer stays, the next round starts once when
