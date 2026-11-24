@@ -1,4 +1,3 @@
-#include "../src/HyphaLanguage.h"
 #include "../src/HyphaFooterNoticeFont.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
@@ -261,13 +260,14 @@ void verifySelectedMetricReferenceBadge()
     const auto read = [] (observatory::View& view)
     {
         for (int index = 0; index < view.getNumChildComponents(); ++index)
-            if (auto* label = dynamic_cast<juce::Label*> (view.getChildComponent (index));
-                label != nullptr && label->getComponentID() == "observatory-reference-status" && label->isVisible())
+            if (auto* plate = dynamic_cast<juce::Button*> (view.getChildComponent (index));
+                plate != nullptr && plate->getComponentID() == "observatory-reference-status" && plate->isVisible())
             {
-                // The whole status is shown on one line: no break and no ellipsis.
-                const auto room = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                KIRIN_LU_FACE_REQUIRE (text_style::shownWidth (label->getFont(), label->getText()) <= static_cast<float> (room.getWidth()));
-                return label->getText();
+                // The status or the song stands on one line inside its plate; help has it whole.
+                KIRIN_LU_FACE_REQUIRE (text_style::shownWidth (labelFont (presentation::forEditor (view.getWidth(), view.getHeight()),
+                    typography::TextRole::action), plate->getButtonText(), text_style::LabelPolicy::fixed) <= static_cast<float> (plate->getWidth() - 8));
+                KIRIN_LU_FACE_REQUIRE (view.getLocalBounds().contains (plate->getBounds()) && plate->getTooltip().isNotEmpty());
+                return plate->getButtonText();
             }
         return juce::String();
     };
@@ -295,7 +295,7 @@ void verifySelectedMetricReferenceBadge()
             view.setMetricFrame (frame);
             KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF no song")); // old ready frame after clearing the selection
             view.lu().setFacts (readyFacts (-4.0));
-            KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
+            KIRIN_LU_FACE_REQUIRE (read (view).startsWith ("REF N")); // the song itself, not only that there is one
             frame.face = face == Face::psr ? Face::crest : Face::psr;
             view.setMetricFrame (frame);
             KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
@@ -304,7 +304,27 @@ void verifySelectedMetricReferenceBadge()
             KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF unmeasured"));
         }
         view.setMetricFace (Face::lu);
-        KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF ready"));
+        KIRIN_LU_FACE_REQUIRE (read (view) == (width >= 450 ? juce::String ("REF North Road") : read (view)) && read (view).startsWith ("REF N"));
+        // POST: which role's song it is, a song that changes is told at once, and the plate opens the choice.
+        auto song = readyFacts (-4.0);
+        song.role = "B";
+        view.lu().setFacts (song);
+        KIRIN_LU_FACE_REQUIRE (read (view).contains ("B N"));
+        song.role = "C"; song.song = "South Road";
+        view.lu().setFacts (song);
+        KIRIN_LU_FACE_REQUIRE (read (view).contains ("C S"));
+        auto& plate = view.lu().referenceControl();
+        KIRIN_LU_FACE_REQUIRE (! plate.getWantsKeyboardFocus()); // nothing to choose from here: it only tells
+        int opened = 0;
+        view.lu().onReferenceMenu = [&opened] { ++opened; };
+        song.song = "West Road";
+        view.lu().setFacts (song);
+        KIRIN_LU_FACE_REQUIRE (plate.getWantsKeyboardFocus() && read (view).contains ("C W"));
+        plate.onClick();
+        KIRIN_LU_FACE_REQUIRE (opened == 1);
+        song.song = juce::String::repeatedString ("Long Name ", 12);
+        view.lu().setFacts (song);
+        KIRIN_LU_FACE_REQUIRE (read (view).contains ("C L") && plate.getTooltip().contains (song.song.trim()));
         view.lu().setFacts (Facts {});
         KIRIN_LU_FACE_REQUIRE (read (view) == i18n::tr ("REF not linked"));
     }

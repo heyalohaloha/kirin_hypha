@@ -57,6 +57,7 @@ inline Facts referenceFacts (const reference_audition::Snapshot& runtime, bool r
     const auto* role = zeroRole (runtime);
     if (role == nullptr) return facts;
     facts.song = role->candidateName;
+    facts.role = role == runtime.checkSelection.get() ? "C" : "B";
     facts.playedOffsetLu = role->sourceLoudnessOffsetLu;
     // The Cue's Integrated loudness; the whole song's when the Cue has no value.
     if (role->cueLevelAvailable && std::isfinite (role->cueIntegratedLoudness))

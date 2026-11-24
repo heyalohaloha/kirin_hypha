@@ -202,8 +202,8 @@ inline void paintCandidateWords (juce::Graphics& g, const CandidateWords& words,
     draw (words.reference, COL_SPECTRUM_DELTA);
     draw (words.post, COL_FLORA_BR);
     draw (words.zero, COL_NORMAL);
-    // The song stands on the engraved glass now: between the zero's tone and the quiet one, so it stays legible.
-    const auto song = COL_TEXT_SECONDARY.interpolatedWith (COL_NORMAL, 0.5f);
+    // The song at 0 is what the needles are read against: as bright as the zero itself.
+    const auto song = COL_NORMAL;
     draw (words.song, song);
     draw (words.notice, words.noticeIsSong ? song : COL_NORMAL);
     draw (words.noticeEnd, COL_NORMAL);

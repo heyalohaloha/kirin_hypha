@@ -92,16 +92,19 @@ void View::resized()
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
         // POST must prompt for a song before reporting that a selected song's metric is unmeasured.
         const bool noPostSong = role == Role::post && luFace.facts().zero == lu_needle::Zero::noSong;
-        luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady());
-        // Keep the existing calibration centred; its clickable text and the footer notice
-        // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendFont = labelFont (context, typography::TextRole::legend,
                                           typography::Composition::instrument);
-        const auto legendWidth = juce::jmin (calibration.getWidth(),
-            juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12);
+        const auto legendWhole = juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12;
+        const bool vuFace = ! luFace.active() && ! metricFaceActive();
+        luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady(),
+                                      feedbackText.isEmpty() ? (vuFace ? legendWhole + 8 : 0) // a notice keeps its room
+                                          : vuFace ? calibration.getWidth() : calibration.getWidth() * 2 / 3);
+        // Keep the existing calibration centred; its clickable text and the footer notice
+        // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
+        const auto legendWidth = juce::jmin (calibration.getWidth(), legendWhole);
         vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (legendWidth, buttonHeight));
         // The LU face names its own 0 on the dial: the 0 VU legend gives its place to the notice line.
-        vuCalibrationControl.setVisible (! luFace.active() && ! metricFaceActive());
+        vuCalibrationControl.setVisible (vuFace);
         sessionArea = (luFace.active() || metricFaceActive()) ? calibration : calibration.withRight (vuCalibrationControl.getX() - 6);
         statusStrip = sessionArea;
         statusButton.setBounds (sessionArea.withSizeKeepingCentre (sessionArea.getWidth(), buttonHeight));

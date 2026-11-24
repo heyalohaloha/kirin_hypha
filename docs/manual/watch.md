@@ -104,6 +104,15 @@ There is no numeric target: the 0 comes from Reference, in three ways.
   drawn and the face says **REF: NO VALUE HERE**. It is not drawn in LOOP, during a Blind, or for
   the I window, whose 0 is already the song's Integrated loudness.
 
+**The plate at the right of the bottom row names the song at 0** on every face (VU, LU, PSR, CREST,
+SHARP): **REF B North Road** is the song chosen in B, **REF C …** the one in C; in PRE it is the song
+its POST chose. Where the row is narrow it shortens to **B North…** or **REF B**, and pointing at it
+shows the whole name. Without a song it says why (**REF no song**, **REF unmeasured**, **REF not
+linked**). In POST, press it to choose: the songs of the chosen Reference set, the other sets, the
+song in C, and **Open REFERENCE**. Choosing changes the 0 of the meters and B's selected song. While
+A sounds, A goes on sounding; while B or C sounds, what you hear follows the choice, as it does on
+the Reference page. It is closed during a Blind.
+
 The control beside LU chooses the left window: **M** (Momentary, 0.4 s) or **S** (Short-term, 3 s).
 The right window stays **I**: POST shows its own Integrated loudness, and PRE shows its own.
 There is no PRE comparison needle on POST's right dial. Older projects that selected I for the left

@@ -190,7 +190,7 @@ private:
     bool referenceRematchQuiet = false;  // 押した MATCH ではなく、窓がたまった時の合わせ直し
     std::shared_ptr<const hypha::reference_audition::VisualTimeline> referenceSwitchTimeline;
     double referenceSwitchHoldUntilMs = 0.0;
-    void openReferenceLarge (int slot);
+    void openReferenceLarge (int slot); void showMeterReferenceMenu();
     // A host may put the widened window back (REAPER's FX chain). The page-opened notice waits for a
     // tick 0.2 s later, only for the press it answers (its role, selection and page, no later notice).
     int referenceOpenedSlot = 0;

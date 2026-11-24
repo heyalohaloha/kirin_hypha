@@ -105,6 +105,7 @@ struct Facts
     bool readable = false;        // the Kirin OS Reference library can be read
     Zero zero = Zero::noSong;
     juce::String song;
+    juce::String role;            // "B" or "C", the role whose song it is; empty in a PRE, which reads a shared 0
     double zeroLufs = nan;        // Kirin OS's value for the song, as its lists show it
     double playedOffsetLu = 0.0;  // what the played song measures above that value (mono on stereo)
     Band band;                    // the chosen set's songs, as played
@@ -115,7 +116,7 @@ struct Facts
     bool operator== (const Facts& other) const noexcept
     {
         const auto same = [] (double a, double b) { return a == b || (std::isnan (a) && std::isnan (b)); };
-        return readable == other.readable && zero == other.zero && song == other.song
+        return readable == other.readable && zero == other.zero && song == other.song && role == other.role
             && same (zeroLufs, other.zeroLufs) && playedOffsetLu == other.playedOffsetLu && band == other.band
             && samePlace == other.samePlace && same (samePlaceLufs, other.samePlaceLufs);
     }
