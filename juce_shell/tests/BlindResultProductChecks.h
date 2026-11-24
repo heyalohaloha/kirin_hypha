@@ -83,7 +83,8 @@ inline void verifyBlindResultFixedAtReveal (const juce::File& sandbox)
         {
             require (r.blind().resultFacts().note == expected, (juce::String (where) + ": RESULT " + when).toRawUTF8());
             require (r.imageNote() == expected, (juce::String (where) + ": SAVE IMAGE " + when).toRawUTF8());
-            require (r.blind().screen().unguidedInstruction.contains ("POST was used briefly") == expected.isNotEmpty(),
+            const auto& line = r.blind().screen().unguidedInstruction;
+            require (expected.isNotEmpty() ? line.contains (expected) : ! line.contains ("POST was") && ! line.contains ("Audio estimate"),
                      (juce::String (where) + ": screen " + when).toRawUTF8());
         };
         tells ("at REVEAL");
@@ -105,12 +106,17 @@ inline void verifyBlindResultFixedAtReveal (const juce::File& sandbox)
     {
         pre = r.hearBoth();
         require (! r.status().trial.usedPostFallback, "nothing stood in during the round");
-        r.listen (pre); r.answer (1 + round % 2);
+        r.listen (pre);
+        // A strong estimate lands between the window's last refresh and the last answer, and another after it.
+        if (round == 4) LiveTimingFixtureAccess::noticeContent (*r.post, 96);
+        r.answer (1 + round % 2);
     }
+    LiveTimingFixtureAccess::noticeContent (*r.post, 480);
+    LiveTimingFixtureAccess::clearContent (*r.post);
     r.clock.playing = false; r.advance (0.4);
     r.reveal();
     r.clock.playing = true; r.advance (0.4);
-    afterReveal (pre, {}, "five answers");
+    afterReveal (pre, "Audio estimate: PRE may have been 2.00 ms off", "five answers");
     r.end();
     // Negative control: POST really stood in for PRE during the trial, so RESULT says so, the same before and after.
     r.start (1);

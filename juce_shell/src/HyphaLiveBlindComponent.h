@@ -59,6 +59,8 @@ public:
     void setPreferenceApprovedGains (std::uint64_t generation, std::optional<live_compare::GainSnapshot> gain);
     std::function<std::optional<bool> (int, std::uint64_t, std::uint32_t)> onPreferenceAnswer;
     std::function<bool (std::uint64_t, std::uint32_t)> onPreferenceNext;
+    // The trial as it is now, read when an answer is accepted: RESULT's notes follow it, not the last refresh.
+    std::function<live_compare::LiveBlindStatus()> onPreferenceStatus;
     // Where GUESS and the names are remembered (ui-preferences.txt; tests use their own file).
     void setPreferenceFile (const juce::File& file) { preferences = file; }
     const juce::File& preferenceFile() const noexcept { return preferences; }

@@ -87,6 +87,13 @@ void Component::choosePreference (int source)
         || !memory->preference.answer (source, *accepted)) {
         preferenceBusy = false; refreshPreference(); show(); return;
     }
+    if (onPreferenceStatus)
+        if (const auto now = onPreferenceStatus(); now.generation == generation && now.trial.epoch == epoch) {
+            current.contentNoticeMs = now.contentNoticeMs;
+            current.trial.usedPostFallback = now.trial.usedPostFallback;
+            current.trial.fallbackForTiming = now.trial.fallbackForTiming;
+            current.trial.fallbackForCeiling = now.trial.fallbackForCeiling;
+        }
     retainPreferenceNotes();
     preferenceBusy = false;
     startNextAssignment();

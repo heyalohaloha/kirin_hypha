@@ -223,6 +223,24 @@ void verifyEstimateFixedAtAnswer (Require require, const juce::File& root)
         }
     };
     const auto estimate = [] (const char* ms) { return "Audio estimate: PRE may have been " + juce::String (ms) + " ms off"; };
+    // The trial moves on just before the last answer, before the window refreshes: the answer takes it as it is.
+    for (const double shown : { 0.0, 0.8 })
+    {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        Window window (kept, status, file, 5);
+        window.view.onPreferenceStatus = [&status] { return status; };
+        for (int i = 0; i < 5; ++i)
+        {
+            status.trial.played = 3; status.contentNoticeMs = shown; window.show (status);
+            if (i == 4) { status.contentNoticeMs = 1.25; status.trial.usedPostFallback = status.trial.fallbackForTiming = true; }
+            window.view.onGuess (1);
+        }
+        status.contentNoticeMs = 3.5; window.show (status);
+        status.trial.revealed = true; window.show (status);
+        require (window.view.resultFacts().note == "POST was used briefly when timing was unavailable / " + estimate ("1.25"),
+                 "the last answer takes what the trial holds now: " + window.view.resultFacts().note);
+    }
     told (0.0, 1.25, 5, {}, "an estimate after the last answer stays out of RESULT");
     told (0.8, 3.5, 5, estimate ("0.80"), "the estimate at the last answer is kept");
     told (0.8, 0.8, 5, estimate ("0.80"), "an unchanged estimate is told once");
