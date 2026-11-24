@@ -105,7 +105,8 @@ void View::resized()
         // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendWidth = juce::jmin (calibration.getWidth(), legendWhole);
         auto legendArea = calibration;
-        if (vuFace && notice > (calibration.getWidth() - legendWidth) / 2)
+        // Beside the song's plate the legend stands between the notice and the plate; without one it never moves.
+        if (vuFace && luFace.referenceControl().isVisible() && notice > (calibration.getWidth() - legendWidth) / 2)
             legendArea = calibration.withTrimmedLeft (juce::jmin (notice, calibration.getWidth() - legendWidth));
         vuCalibrationControl.setBounds (legendArea.withSizeKeepingCentre (legendWidth, buttonHeight));
         // The LU face names its own 0 on the dial: the 0 VU legend gives its place to the notice line.

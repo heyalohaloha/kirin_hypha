@@ -401,12 +401,13 @@ void ScreenComponent::resized()
             // One listen has no count to report: the two answers are the result, with the matched level under them.
             panel = panel.withBottom (sourceBand.getBottom());
             preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
-            const auto height = juce::jlimit (sourceBand.getHeight(), 110, panel.getHeight() - heights[1] - 24);
-            auto group = panel.withSizeKeepingCentre (panel.getWidth(), height + 12 + heights[1]);
+            const int gap = heights[1] > 0 ? 12 : 0, most = juce::jmax (0, panel.getHeight() - heights[1] - gap);
+            const auto height = juce::jlimit (juce::jmin (sourceBand.getHeight(), most), 110, most - gap);
+            auto group = panel.withSizeKeepingCentre (panel.getWidth(), height + gap + heights[1]);
             auto sources = group.removeFromTop (height);
             one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
             two.setBounds (sources.reduced (3, 0));
-            matchedGainBody.setBounds (group.withTrimmedTop (12));
+            matchedGainBody.setBounds (group.withTrimmedTop (gap));
             return;
         }
         preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
