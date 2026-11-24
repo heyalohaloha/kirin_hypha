@@ -197,6 +197,39 @@ void verifyNextAssignmentWaits (Require require, const juce::File& root)
     require (! file.exists(), "waiting writes no file");
 }
 
+// RESULT and its picture take the estimate of the answers: one first measured after the last answer is not theirs.
+template <typename Require>
+void verifyEstimateFixedAtAnswer (Require require, const juce::File& root)
+{
+    const auto file = root.getChildFile ("blind-estimate-fixture");
+    const auto told = [&] (double atAnswer, double afterAnswer, int answers, const juce::String& expected, const char* why) {
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        auto window = std::make_unique<Window> (kept, status, file, answers == 0 ? 1 : 5);
+        for (int i = 0; i < answers; ++i)
+        {
+            status.trial.played = 3;
+            if (i == answers - 1) status.contentNoticeMs = atAnswer;
+            window->show (status); window->view.onGuess (1);
+        }
+        status.contentNoticeMs = afterAnswer; status.trial.played = 3; window->show (status);
+        status.trial.revealed = true; window->show (status);
+        for (int again = 0; again < 2; ++again)
+        {
+            require (window->view.resultFacts().note == expected && window->view.screen().instruction.contains ("Audio estimate") == expected.isNotEmpty()
+                     && (expected.isEmpty() || window->view.screen().instruction == expected), juce::String (why) + ": " + window->view.resultFacts().note);
+            window = std::make_unique<Window> (kept, status, file, 5); // closed and opened again
+        }
+    };
+    const auto estimate = [] (const char* ms) { return "Audio estimate: PRE may have been " + juce::String (ms) + " ms off"; };
+    told (0.0, 1.25, 5, {}, "an estimate after the last answer stays out of RESULT");
+    told (0.8, 3.5, 5, estimate ("0.80"), "the estimate at the last answer is kept");
+    told (0.8, 0.8, 5, estimate ("0.80"), "an unchanged estimate is told once");
+    told (0.0, 1.25, 2, estimate ("1.25"), "an unanswered round tells its own estimate at REVEAL");
+    told (0.0, 1.25, 0, estimate ("1.25"), "one listen tells its estimate at REVEAL");
+    require (! file.exists(), "an estimate writes no file");
+}
+
 template <typename Require>
 void verify (Require require, const juce::File& root)
 {
@@ -289,5 +322,6 @@ void verify (Require require, const juce::File& root)
     require (! file.exists(), "the kept trial writes no file");
     verifyRevoked (require, root);
     verifyNextAssignmentWaits (require, root);
+    verifyEstimateFixedAtAnswer (require, root);
 }
 }

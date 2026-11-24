@@ -84,6 +84,8 @@ private:
     void resetPreference();
     void decoratePreference (blind_ui::Screen&) const;
     void retainPreferenceNotes();
+    bool currentRoundAnswered() const noexcept;
+    double shownContentNoticeMs() const noexcept; // RESULT's estimate: as of its round's answer, else of REVEAL
     bool rememberNames();
     void chooseImageFile();
     bool imageOpeningStands (std::uint32_t opening) const noexcept;

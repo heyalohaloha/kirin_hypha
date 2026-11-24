@@ -61,7 +61,19 @@ void Component::retainPreferenceNotes()
     memory->preferenceFallback |= current.trial.usedPostFallback;
     memory->preferenceTimingFallback |= current.trial.fallbackForTiming;
     memory->preferenceCeilingFallback |= current.trial.fallbackForCeiling;
-    if (current.contentNoticeMs != 0) memory->preferenceContentNoticeMs = current.contentNoticeMs;
+    // An estimate first measured after the round's own answer belongs to no answer (INV-LC19).
+    if (current.contentNoticeMs != 0 && ! (current.trial.revealed && currentRoundAnswered()))
+        memory->preferenceContentNoticeMs = current.contentNoticeMs;
+}
+bool Component::currentRoundAnswered() const noexcept
+{
+    const auto answered = memory->preference.answered();
+    const auto* last = answered > 0 ? memory->preference.answerAt (answered - 1) : nullptr;
+    return last != nullptr && last->epoch == current.trial.epoch && memory->preference.generation() == current.generation;
+}
+double Component::shownContentNoticeMs() const noexcept
+{
+    return current.contentNoticeMs == 0 || currentRoundAnswered() ? memory->preferenceContentNoticeMs : current.contentNoticeMs;
 }
 void Component::choosePreference (int source)
 {

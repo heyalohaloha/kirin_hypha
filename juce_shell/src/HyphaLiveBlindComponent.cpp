@@ -225,7 +225,7 @@ void Component::show()
         displayed.trial.usedPostFallback |= memory->preferenceFallback;
         displayed.trial.fallbackForTiming |= memory->preferenceTimingFallback;
         displayed.trial.fallbackForCeiling |= memory->preferenceCeilingFallback;
-        if (displayed.contentNoticeMs == 0) displayed.contentNoticeMs = memory->preferenceContentNoticeMs;
+        displayed.contentNoticeMs = shownContentNoticeMs();
     }
     auto next = screenFor (displayed, playing, actualPost, repeating, { memory->activeRounds <= 1 && guessOn, memory->answer });
     if (memory->activeRounds != 0) decoratePreference (next);
@@ -246,7 +246,7 @@ blind_image::Facts Component::resultFacts() const
         noted.trial.usedPostFallback |= memory->preferenceFallback;
         noted.trial.fallbackForTiming |= memory->preferenceTimingFallback;
         noted.trial.fallbackForCeiling |= memory->preferenceCeilingFallback;
-        if (noted.contentNoticeMs == 0) noted.contentNoticeMs = memory->preferenceContentNoticeMs;
+        noted.contentNoticeMs = shownContentNoticeMs();
     }
     facts.note = resultNote (noted);
     facts.nameA = blind_image::rememberedName (preferences, current.candidate, false);
