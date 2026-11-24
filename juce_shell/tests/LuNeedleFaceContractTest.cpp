@@ -246,7 +246,8 @@ void verifyWaitingNoticeIsNeverCut()
         KIRIN_LU_FACE_REQUIRE (shown (juce::roundToInt (std::ceil (whole.second))).first == record_ui::wavWaiting);
         const auto cut = shown (juce::roundToInt (whole.second * 0.45f));
         KIRIN_LU_FACE_REQUIRE (cut.first == record_ui::wavWaitingShort);
-        const auto least = juce::roundToInt (std::ceil (shown (1).second));
+        // The row the layout keeps for it, without the space around it (leastWidth).
+        const auto least = footer_notice_font::leastWidth (context, record_ui::wavWaiting) - 10;
         KIRIN_LU_FACE_REQUIRE (shown (least).first == record_ui::wavWaitingShort && shown (least).second <= static_cast<float> (least));
         KIRIN_LU_FACE_REQUIRE (i18n::tr (record_ui::wavWaitingShort) != record_ui::wavWaitingShort || language == i18n::Language::english);
         KIRIN_LU_FACE_REQUIRE (footer_notice_font::textFor (context, "Copied", { 0, 0, 4, 20 }) == "Copied"); // only this sentence has one
