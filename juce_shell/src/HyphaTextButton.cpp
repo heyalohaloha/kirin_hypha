@@ -33,6 +33,17 @@ void HyphaTextButton::paintButton (juce::Graphics& g,
             getToggleState(), COL_FLORA_BR);
 
     g.setColour (isEnabled() ? textColour : COL_MUTED);
+    if (largeRole.has_value())
+    {
+        const auto font = labelFont (presentationContext, *largeRole, typography::Composition::information);
+        if (text_style::shownWidth (font, getButtonText(), labelPolicy) <= static_cast<float> (getWidth() - 24)
+            && font.getHeight() <= static_cast<float> (getHeight() - 12))
+        {
+            g.setFont (font);
+            text_style::drawText (g, getButtonText(), getLocalBounds().toFloat(), juce::Justification::centred, false, labelPolicy);
+            return;
+        }
+    }
     g.setFont (monoFont (presentationContext, typography::TextRole::action));
     text_style::draw (g, getButtonText(), getLocalBounds().reduced (6, 2),
                       presentationContext, typography::TextRole::action,

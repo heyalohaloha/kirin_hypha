@@ -5,6 +5,7 @@
 #include "LiveCompareFooterContractTest.h"
 #include "LiveBlindUiContractTest.h"
 #include "BlindTrialLayoutContractTest.h"
+#include "BlindTrialKeepsPlaceTest.h"
 #include "VersionBlindScreenContractTest.h"
 #include "BlindGuessImageTest.h"
 #include "ListenAccessibleNamesTest.h"
@@ -58,6 +59,7 @@ try
     if (all || mode == "--blind-ui-only") verifyLiveBlindUiContract();
     if (all || mode == "--blind-trial-layout-only") verifyBlindTrialLayout (require, shard);
     if (all || mode == "--blind-ui-only") verifyVersionBlindScreen();
+    if (all || mode == "--blind-ui-only") verifyBlindTrialKeepsItsPlaces (require);
     if (all || mode == "--blind-image-only") verifyBlindGuessAndImage (require);
     if (all || mode == "--footer-restoration-only") verifyFooterSurfaceRestoration (require);
     if (all || mode == "--paint-only") verifyAllListenText (require, shard);

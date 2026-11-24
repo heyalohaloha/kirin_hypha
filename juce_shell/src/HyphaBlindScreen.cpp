@@ -109,6 +109,7 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage not
     preferenceNoteBody.setMultiLine (true); preferenceNoteBody.setReadOnly (true);
     preferenceNoteBody.setScrollbarsShown (false);
     preferenceNoteBody.setColour (juce::TextEditor::textColourId, COL_NORMAL);
+    preferenceNoteBody.setJustification (juce::Justification::centredTop);
     addChildComponent (preferenceNoteBody);
     for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
     {
@@ -276,7 +277,6 @@ void ScreenComponent::resized()
     look.wrappedContext = context = presentation::forEditor (getWidth(), getHeight());
     const bool result = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
     const bool choosingRounds = !covered && !result && shown.roundsShown && shown.roundsEnabled;
-    const bool fixedProgress = shown.roundsShown && !shown.roundsEnabled && shown.guessShown;
     roundsLabel.setVisible (choosingRounds);
     roundsLabel.setText ("ROUNDS", juce::dontSendNotification);
     outcome.setVisible (!covered && shown.guessShown && shown.guessOutcome.isNotEmpty());
@@ -309,10 +309,15 @@ void ScreenComponent::resized()
         button->setPresentationContext (context);
     if (result)
     {
+        // Lines and rows breathe wherever the window has the height for it.
+        const bool roomy = getHeight() >= 360;
+        for (auto* body : { &matchedGainBody, &preferenceResultBody, &preferenceNoteBody })
+            body->setLineSpacing (roomy ? 1.15f : 1.0f);
+        const int rowGap = roomy ? 10 : 0;
         // Try the normal two-row actions first, using the actual wrapped text
         // at its final width. A narrow width alone does not select dense mode.
         auto normal = getLocalBounds().reduced (24);
-        normal.removeFromTop (40); normal.removeFromBottom (80);
+        normal.removeFromTop (40); normal.removeFromBottom (80 + rowGap);
         const std::array<juce::TextEditor*, 3> bodies { &preferenceResultBody, &matchedGainBody, &preferenceNoteBody };
         std::array<int, 3> heights {};
         auto measure = [&] (juce::Rectangle<int> bounds, float scale, int padding)
@@ -321,8 +326,10 @@ void ScreenComponent::resized()
         };
         const auto [neededHeight, normalWidthFits] = measure (normal, 1.0f, 8);
         const bool denseResult = neededHeight > normal.getHeight() || ! normalWidthFits;
-        auto panel = getLocalBounds().reduced (denseResult ? 4 : 24);
-        if (denseResult) panel.removeFromTop (20); // same 24px top inset as normal
+        // Inside the frame line wherever the window has the room; the smallest ones need every pixel for text.
+        const int denseInset = getHeight() >= 240 ? 12 : 4;
+        auto panel = getLocalBounds().reduced (denseResult ? denseInset : 24);
+        if (denseResult) panel.removeFromTop (24 - denseInset); // same 24px top inset as normal
         title.setBounds (panel.removeFromTop (denseResult ? 18 : 40));
         auto actions = panel.removeFromBottom (denseResult ? 24 : 40);
         if (denseResult)
@@ -338,10 +345,15 @@ void ScreenComponent::resized()
         {
             saveImage.setBounds (actions.removeFromLeft (actions.getWidth()/2).reduced (3, 0));
             end.setBounds (actions.reduced (3, 0));
+            panel.removeFromBottom (rowGap);
             auto sources = panel.removeFromBottom (40);
             one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
             two.setBounds (sources.reduced (3, 0));
         }
+        const bool answersOnly = shown.preferenceResultText.isEmpty() && ! denseResult;
+        for (auto* answerPlate : { &one, &two })
+            answerPlate->setLargeRole (answersOnly ? std::optional (typography::TextRole::primaryValue) : std::nullopt);
+        const auto sourceBand = denseResult ? juce::Rectangle<int>() : one.getBounds().getUnion (two.getBounds());
         // An actual line count at the final width reserves separate strips for the result,
         // compensation and notes. Never centre a block taller than its remaining space.
         auto measured = measure (panel, 1.0f, denseResult ? 4 : 8);
@@ -367,6 +379,19 @@ void ScreenComponent::resized()
             }
             return;
         }
+        if (answersOnly)
+        {
+            // One listen has no count to report: the two answers are the result, with the matched level under them.
+            panel = panel.withBottom (sourceBand.getBottom());
+            preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
+            const auto height = juce::jlimit (sourceBand.getHeight(), 110, panel.getHeight() - heights[1] - 24);
+            auto group = panel.withSizeKeepingCentre (panel.getWidth(), height + 12 + heights[1]);
+            auto sources = group.removeFromTop (height);
+            one.setBounds (sources.removeFromLeft (sources.getWidth() / 2).reduced (3, 0));
+            two.setBounds (sources.reduced (3, 0));
+            matchedGainBody.setBounds (group.withTrimmedTop (12));
+            return;
+        }
         preferenceNoteBody.setBounds (panel.removeFromBottom (heights[2]));
         const auto groupHeight = heights[0] + heights[1];
         auto centred = panel.withSizeKeepingCentre (panel.getWidth(), groupHeight);
@@ -376,7 +401,7 @@ void ScreenComponent::resized()
         return;
     }
     if (!covered && getWidth() > 0 && getHeight() > 0)
-        layoutTrial (choosingRounds, fixedProgress);
+        layoutTrial (choosingRounds);
 }
 
 void ScreenComponent::paint (juce::Graphics& g)

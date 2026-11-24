@@ -88,7 +88,7 @@ public:
 private:
     void timerCallback() override;
     void apply();
-    void layoutTrial (bool choosingRounds, bool fixedProgress);
+    void layoutTrial (bool choosingRounds);
     juce::String extraTrialNotice() const { return shown.votingComplete ? actionNotice : juce::String(); }
     bool isRoutineTrialHint() const
     {
@@ -103,6 +103,7 @@ private:
         presentation::Context wrappedContext = presentation::defaultContext();
         const juce::Label* fixedQuestion = nullptr;
         const juce::Label *wrappedDetail = nullptr, *wrappedNotice = nullptr, *fixedStatus = nullptr;
+        typography::TextRole detailRole = typography::TextRole::compactExplanation;
         text_style::LabelPolicy policyFor (const juce::Label& label) const noexcept
         {
             return fixedStatus != nullptr && (&label == fixedStatus || &label == wrappedDetail)
@@ -115,7 +116,8 @@ private:
             else if (&label == wrappedDetail || &label == wrappedNotice)
             {
                 g.setColour (label.findColour (juce::Label::textColourId));
-                g.setFont (labelFont (wrappedContext, typography::TextRole::compactExplanation, typography::Composition::information));
+                g.setFont (labelFont (wrappedContext, &label == wrappedDetail ? detailRole : typography::TextRole::compactExplanation,
+                                      typography::Composition::information));
                 text_style::drawLines (g, label.getText(),
                     label.getBorderSize().subtractedFrom (label.getLocalBounds()), label.getJustificationType(), 2, policyFor (label));
             }

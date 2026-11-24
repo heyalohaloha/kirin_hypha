@@ -122,7 +122,7 @@ void verifyBlindTrialLayout (Require check, ListenLayoutShard shard = {})
             whole (remedy, "complete PRE pause remedy");
         }
         // Measure the input notices, not the potentially folded product label's text or height.
-        const auto usableWidth = width - 2 * juce::jlimit (6, 24, width / 40);
+        const auto usableWidth = width - 2 * sideInset (width);
         const auto measured = [&] (const juce::Label* style, const juce::String& text)
         {
             if (!style || text.isEmpty()) return 0;
