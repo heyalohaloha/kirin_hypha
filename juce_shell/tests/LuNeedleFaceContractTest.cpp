@@ -1,4 +1,5 @@
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaFooterNoticeFont.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -227,6 +228,32 @@ void verifyIntegratedAvailability (observatory::Role role, observatory::SizePres
     check (-10.5, false);
 }
 
+// The one-line notice beside the instruments is the whole sentence or its short form, never a cut sentence.
+void verifyWaitingNoticeIsNeverCut()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const int width : { 300, 450, 600, 900 })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const auto context = presentation::forEditor (width, width * 2 / 3);
+        const auto shown = [&] (int room)
+        {
+            const auto text = footer_notice_font::textFor (context, record_ui::wavWaiting, { 0, 0, room, 20 });
+            const auto font = footer_notice_font::fontForText (context, text, room);
+            return std::pair { text, text_style::shownWidth (font, text) };
+        };
+        const auto whole = shown (2000);
+        KIRIN_LU_FACE_REQUIRE (whole.first == record_ui::wavWaiting);
+        KIRIN_LU_FACE_REQUIRE (shown (juce::roundToInt (std::ceil (whole.second))).first == record_ui::wavWaiting);
+        const auto cut = shown (juce::roundToInt (whole.second * 0.45f));
+        KIRIN_LU_FACE_REQUIRE (cut.first == record_ui::wavWaitingShort);
+        const auto least = juce::roundToInt (std::ceil (shown (1).second));
+        KIRIN_LU_FACE_REQUIRE (shown (least).first == record_ui::wavWaitingShort && shown (least).second <= static_cast<float> (least));
+        KIRIN_LU_FACE_REQUIRE (i18n::tr (record_ui::wavWaitingShort) != record_ui::wavWaitingShort || language == i18n::Language::english);
+        KIRIN_LU_FACE_REQUIRE (footer_notice_font::textFor (context, "Copied", { 0, 0, 4, 20 }) == "Copied"); // only this sentence has one
+    }
+}
+
 void verifySelectedMetricReferenceBadge()
 {
     using metric_needle::Face;
@@ -440,6 +467,7 @@ void verifyFace (observatory::Role role, observatory::SizePreset preset)
 
 void verifyLuNeedleFace()
 {
+    verifyWaitingNoticeIsNeverCut();
     verifySelectedMetricReferenceBadge();
     for (const auto role : { observatory::Role::pre, observatory::Role::post })
         for (const auto preset : observatory::sizePresets)

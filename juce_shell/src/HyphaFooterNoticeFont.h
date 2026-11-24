@@ -16,7 +16,8 @@ inline typography::TextRole roleForText (const presentation::Context& context,
     const auto action = monoFont (context, typography::TextRole::action);
     const bool compact = text_style::shownWidth (action, text) > static_cast<float> (availableWidth);
     const bool readable = text == "Cannot write to folder. Check access." || text == "2MIX has no DRUM; showing TIME / HISTORY"
-        || text == live_compare_ui::keepTailEndedNotice || text == record_ui::wavWaiting || text == live_compare_ui::preProcessingNotice
+        || text == live_compare_ui::keepTailEndedNotice || text == record_ui::wavWaiting
+        || text == record_ui::wavWaitingShort || text == live_compare_ui::preProcessingNotice
         || text.startsWith ("Waiting up to 10 s, then ")
         || text == comparison_ui::beforeRealtimeBounce || text == comparison_ui::endThenRetry;
     if (readable) return compact ? typography::TextRole::noticeCompact : typography::TextRole::noticeBody;
@@ -36,9 +37,19 @@ inline int wrappedHeight (const presentation::Context& context, const juce::Stri
     return juce::roundToInt (std::ceil (text_style::shownWrappedHeight (text, font, juce::jmax (1, width))));
 }
 
-inline void draw (juce::Graphics& g, const presentation::Context& context,
-                  const juce::String& text, juce::Rectangle<int> room)
+// A sentence with a short form is never cut: the short form is drawn where the whole one has no room.
+inline juce::String textFor (const presentation::Context& context, const juce::String& notice, juce::Rectangle<int> room)
 {
+    const bool whole = notice != record_ui::wavWaiting
+        || text_style::shownWidth (fontForText (context, notice, room.getWidth()), notice) <= room.getWidth()
+        || wrappedHeight (context, notice, room.getWidth()) <= room.getHeight();
+    return whole ? notice : juce::String (record_ui::wavWaitingShort);
+}
+
+inline void draw (juce::Graphics& g, const presentation::Context& context,
+                  const juce::String& notice, juce::Rectangle<int> room)
+{
+    const auto text = textFor (context, notice, room);
     g.setFont (monoFont (context, roleForText (context, text, room.getWidth())));
     if (text_style::shownWidth (g.getCurrentFont(), text) > room.getWidth()
         && wrappedHeight (context, text, room.getWidth()) <= room.getHeight())

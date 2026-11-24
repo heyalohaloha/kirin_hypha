@@ -95,9 +95,9 @@ inline juce::String endFigure (metric_needle::Face face, bool upper)
 inline juce::Point<int> figureCentre (const hybrid_vu::needle_painter::DialGeometry& dial, juce::Point<float> p)
 { return (dial.pivot + (p - dial.pivot) * 1.22f).toInt(); }
 
-// How far the tick at an end of the scale reaches: short of its own figure, which a small instrument has no
+// How far a tick at one end of the scale may reach: short of its own figure, which a small instrument has no
 // room to put further out.
-inline float endTickReach (const hybrid_vu::needle_painter::DialGeometry& dial, metric_needle::Face face,
+inline float endTickLimit (const hybrid_vu::needle_painter::DialGeometry& dial, metric_needle::Face face,
                            bool upper, const presentation::Context& context)
 {
     const auto p = candidatePoint (dial, upper ? 1.0f : 0.0f);
@@ -108,6 +108,11 @@ inline float endTickReach (const hybrid_vu::needle_painter::DialGeometry& dial, 
     while (reach > 1.03f && digits.contains (dial.pivot + (p - dial.pivot) * reach)) reach -= 0.01f;
     return reach;
 }
+
+// The ticks at both ends reach equally far, so the wider "+24" does not leave one of them shorter.
+inline float endTickReach (const hybrid_vu::needle_painter::DialGeometry& dial, metric_needle::Face face,
+                           const presentation::Context& context)
+{ return juce::jmin (endTickLimit (dial, face, false, context), endTickLimit (dial, face, true, context)); }
 
 inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     const hybrid_vu::needle_painter::DialGeometry& dial, const metric_needle::Frame& frame,
@@ -137,6 +142,7 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
     g.setColour (ivory.withAlpha (0.12f)); g.strokePath (arc, juce::PathStrokeType (size (4.5f, 0.8f)));
     g.setColour (ivory); g.strokePath (arc, juce::PathStrokeType (size (2.35f, 0.75f)));
     const auto ready = frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
+    const auto endReach = endTickReach (dial, frame.face, context);
     const int groups = frame.face == metric_needle::Face::sharp ? 6 : 8;
     const int sub = chassis.getWidth() <= 300 ? 2 : 3;
     for (int step = 0; step <= groups*sub; ++step)
@@ -144,7 +150,7 @@ inline void paintCandidateDial (juce::Graphics& g, juce::Rectangle<int> chassis,
         const auto t = static_cast<float> (step) / static_cast<float> (groups*sub);
         const auto zero = step*2 == groups*sub, major = step%sub == 0, end = step == 0 || step == groups*sub;
         const auto p = point (t);
-        const auto reach = zero ? 1.16f : end ? endTickReach (dial, frame.face, step != 0, context) : major ? 1.13f : 1.06f;
+        const auto reach = zero ? 1.16f : end ? endReach : major ? 1.13f : 1.06f;
         g.setColour (zero && ready ? COL_FLORA_BR : ivory.withAlpha (major ? 0.96f : 0.40f));
         g.drawLine ({ p, dial.pivot + (p-dial.pivot)*reach }, size (zero ? 3.6f : major ? 2.6f : 1.2f, major ? 0.9f : 0.5f));
         if (zero || end)
