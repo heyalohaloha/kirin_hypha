@@ -82,7 +82,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     if (const auto note = revealed ? resultNote (current) : juce::String(); note.isNotEmpty())
     {
         instruction = note;
-        if (screen.guidanceShown) screen.preferenceResultNote = note; // the RESULT stays beside the stopped guidance
+        screen.preferenceResultNote = note; // the RESULT stays beside the stopped guidance, also without a count or a gain
     }
     if (current.candidate && current.stage == Stage::preparing && current.matchSecondsRemaining > 0)
     {

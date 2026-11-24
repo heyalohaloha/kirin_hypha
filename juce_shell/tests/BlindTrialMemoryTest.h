@@ -255,8 +255,10 @@ void verifyStoppedResultKeepsNote (Require require, const juce::File& root)
 {
     const auto file = root.getChildFile ("blind-stopped-fixture");
     const juce::String note = "POST was used briefly when timing was unavailable";
+    struct Case { bool stoodIn; int rounds; bool gained; }; // the last one has no count and no matched level
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
-    for (const bool stoodIn : { true, false }) for (const int rounds : { 1, 5 })
+    for (const auto [stoodIn, rounds, gained] : { Case { true, 1, true }, Case { false, 1, true }, Case { true, 5, true },
+                                                  Case { false, 5, true }, Case { true, 1, false } })
     {
         const i18n::ScopedLanguage shown (language);
         const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
@@ -265,21 +267,22 @@ void verifyStoppedResultKeepsNote (Require require, const juce::File& root)
         gain.coherent = true; gain.retained = true; gain.revision = 2; gain.pre = 1.2f; gain.post = 0.8f; gain.ceiling = 0.9f;
         gain.identity = { 1, 2, 3, 4, 48000 };
         Window window (kept, status, file, rounds);
-        window.view.setPreferenceApprovedGains (status.generation, gain);
+        if (gained) window.view.setPreferenceApprovedGains (status.generation, gain);
         status.trial.played = 3;
         status.trial.usedPostFallback = status.trial.fallbackForTiming = stoodIn;
         window.show (status);
         if (rounds > 1) window.view.onGuess (1);
         status.trial.revealed = true; window.show (status);
-        window.view.setPreferenceApprovedGains (status.generation, gain);
+        if (gained) window.view.setPreferenceApprovedGains (status.generation, gain);
         const auto playing = window.view.screen();
+        require (playing.matchedGainText.isNotEmpty() == gained, "the case has its matched level");
         const auto facts = window.view.resultFacts().note;
         require (facts == (stoodIn ? note : juce::String()), "the RESULT's own note");
         for (const int width : { 300, 450, 900 })
         {
             window.view.setSize (width, width * 2 / 3);
             const auto where = juce::String (width) + (stoodIn ? " with" : " without") + " a substitute, " + juce::String (rounds) + " rounds: ";
-            const auto told = [&] (bool stopped) {
+            const auto told = [&, stood = stoodIn] (bool stopped) {
                 auto* body = dynamic_cast<juce::TextEditor*> (window.view.findChildWithID ("live-blind-preference-note"));
                 require (body != nullptr && body->isVisible() && ! body->getBounds().isEmpty() && window.view.getLocalBounds().contains (body->getBounds()),
                          where + "the notes have their own place");
@@ -287,7 +290,7 @@ void verifyStoppedResultKeepsNote (Require require, const juce::File& root)
                 for (auto* sibling : window.view.getChildren())
                     require (sibling == body || ! sibling->isVisible() || ! sibling->getBounds().intersects (body->getBounds()),
                              where + "no overlap with " + sibling->getComponentID());
-                require (body->getText().contains (i18n::tr (note)) == stoodIn, where + "the note is on the screen");
+                require (body->getText().contains (i18n::tr (note)) == stood, where + "the note is on the screen");
                 const auto& guided = window.view.screen();
                 require (! stopped || (guided.guidanceShown && body->getText().contains (i18n::tr (guided.recovery))),
                          where + "the stopped guidance is beside it");

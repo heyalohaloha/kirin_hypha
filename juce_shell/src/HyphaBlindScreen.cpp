@@ -125,6 +125,16 @@ ScreenComponent::ScreenComponent (const juce::String& idPrefix, NoteLanguage not
 
 ScreenComponent::~ScreenComponent() { setLookAndFeel (nullptr); }
 
+namespace
+{
+// RESULT's own rows: a count, the matched level, or the live RESULT's note alone (the export has its own lines).
+bool resultRows (const Screen& screen)
+{
+    return screen.preferenceResultText.isNotEmpty() || screen.matchedGainText.isNotEmpty()
+        || (screen.preferenceResultNote.isNotEmpty() && screen.endExplanation.isNotEmpty() && ! screen.guessShown);
+}
+}
+
 void ScreenComponent::setActionNotice (const juce::String& text)
 {
     actionNotice = text;
@@ -226,7 +236,7 @@ void ScreenComponent::apply()
         button->setDescription (button->getTitle());
         button->setTooltip (button->getTitle());
     }
-    const bool preferenceResult = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    const bool preferenceResult = resultRows (shown);
     preferenceResultBody.setVisible (shown.preferenceResultText.isNotEmpty());
     const auto resultText = shown.preferenceResultText;
     auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText (shown.instruction, look.policyFor (status)) + "\n" + text_style::shownText (shown.detail, look.policyFor (detail));
@@ -276,7 +286,7 @@ void ScreenComponent::setCovered (bool next)
 void ScreenComponent::resized()
 {
     look.wrappedContext = context = presentation::forEditor (getWidth(), getHeight());
-    const bool result = shown.preferenceResultText.isNotEmpty() || shown.matchedGainText.isNotEmpty();
+    const bool result = resultRows (shown);
     const bool choosingRounds = !covered && !result && shown.roundsShown && shown.roundsEnabled;
     roundsLabel.setVisible (choosingRounds);
     roundsLabel.setText ("ROUNDS", juce::dontSendNotification);
