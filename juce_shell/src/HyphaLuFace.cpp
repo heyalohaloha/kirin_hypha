@@ -33,16 +33,19 @@ public:
         return requiresNativeTextFont (text) ? nativeTextFontLike (font) : font;
     }
     // The plate of the song at 0: the song reads as bright as a value, and a chevron says it opens a menu.
-    void setReading (bool brightIn, bool opensIn, bool nativeIn)
+    void setReading (bool brightIn, bool opensIn, bool nativeIn, bool pressableIn)
     {
-        if (bright == brightIn && opens == opensIn && native == nativeIn) return;
-        bright = brightIn; opens = opensIn; native = nativeIn;
+        if (bright == brightIn && opens == opensIn && native == nativeIn && pressable == pressableIn) return;
+        bright = brightIn; opens = opensIn; native = nativeIn; pressable = pressableIn;
+        setMouseCursor (pressable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
         repaint();
     }
     float textRoom (bool withChevron) const { return 16.0f + (withChevron ? fontHeight() : 0.0f); }
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         const key_light::Scope light (*this);
+        highlighted = highlighted && pressable; // a plate that only tells shows no press (it still has its tooltip)
+        down = down && pressable;
         const auto area = getLocalBounds().toFloat().reduced (1.0f);
         surface_material::paintControl (g, area, highlighted, down, getToggleState());
         const auto colour = getToggleState() ? COL_FLORA_BR : highlighted || bright ? COL_NORMAL : COL_TEXT_SECONDARY;
@@ -69,7 +72,7 @@ public:
 
 private:
     presentation::Context context = presentation::defaultContext();
-    bool bright = false, opens = false, native = false; // native: the whole text's font, also for what is cut from it
+    bool bright = false, opens = false, pressable = true, native = false; // native: the whole text's font, also for what is cut from it
 };
 
 LuFace::LuFace (juce::Component& ownerIn)
@@ -88,7 +91,7 @@ LuFace::LuFace (juce::Component& ownerIn)
     owner.addChildComponent (*faceButton);
     owner.addChildComponent (*windowButton);
     referenceButton->setComponentID ("observatory-reference-status");
-    referenceButton->onClick = [this] { if (onReferenceMenu) onReferenceMenu(); };
+    referenceButton->onClick = [this] { if (onReferenceMenu && current.readable) onReferenceMenu(); };
     owner.addChildComponent (*referenceButton);
 }
 
@@ -180,52 +183,62 @@ juce::String LuFace::referenceStatus (std::optional<bool> metricReady) const
     return i18n::tr ("REF ready");
 }
 
-juce::String LuFace::referenceSong() const
+// A metric face's needles may still be read against the song before: the plate tells the one they use.
+juce::String LuFace::referenceSong (const juce::String& metricSong) const
 {
-    if (! current.readable || current.zero == lu_needle::Zero::noSong || current.song.isEmpty()) return {};
-    return "REF " + (current.role.isEmpty() ? juce::String() : current.role + " ") + displayableText (current.song);
+    if (! current.readable || current.zero == lu_needle::Zero::noSong) return {};
+    const auto& song = metricSong.isEmpty() ? current.song : metricSong;
+    if (song.isEmpty()) return {};
+    return "REF " + (current.role.isEmpty() || song != current.song ? juce::String() : current.role + " ") + displayableText (song);
 }
 
-juce::String LuFace::referenceText (std::optional<bool> metricReady) const
+juce::String LuFace::referenceText (std::optional<bool> metricReady, const juce::String& metricSong) const
 {
-    const auto status = referenceStatus (metricReady), song = referenceSong();
+    const auto status = referenceStatus (metricReady), song = referenceSong (metricSong);
     return status == i18n::tr ("REF ready") && song.isNotEmpty() ? song : status;
 }
 
-void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady, int keptLeft)
+void LuFace::layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady,
+                                    int keptLeft, const juce::String& metricSong)
 {
     referenceButton->setVisible (commonFace);
     if (! commonFace) return;
     referenceButton->setPresentationContext (presentation::forEditor (owner.getWidth(), owner.getHeight()));
     const bool choosable = onReferenceMenu != nullptr && current.readable;
-    referenceButton->setInterceptsMouseClicks (choosable, false);
     referenceButton->setWantsKeyboardFocus (choosable);
-    const auto status = referenceStatus (metricReady), text = referenceText (metricReady), song = referenceSong();
+    const auto status = referenceStatus (metricReady), text = referenceText (metricReady, metricSong), song = referenceSong (metricSong);
     const auto font = referenceButton->fontFor (text); // one font for the whole text and for what is cut from it
     const auto widthOf = [&font] (const juce::String& shown, float pad)
     { return juce::roundToInt (std::ceil (font.getStringWidthFloat (shown) + pad)); };
-    // A status is told whole. A song takes up to two thirds of the row, beside what it keeps. Where it does not fit it
-    // stands without "REF" and tells what fits ("B Sky…"); without room for its first letters, its role ("REF B"), then "REF".
+    // A song takes up to two thirds of the row, beside what it keeps. Where it does not fit it stands without "REF"
+    // and tells what fits ("B Sky…"); without room for its first letters, its role ("REF B"), then "REF". A status is
+    // told whole; on the VU, which reads nothing against it, it gives way to the row's legend and notice as "REF".
     const bool isSong = text != status;
     bool chevron = choosable;
     auto shown = text;
     auto width = widthOf (shown, referenceButton->textRoom (chevron));
-    const auto room = juce::jmin (juce::jmax (84, row.getWidth() * 2 / 3), juce::jmax (0, row.getWidth() - keptLeft));
-    if (! isSong) width = juce::jmin (row.getWidth(), width <= row.getWidth() - keptLeft ? width : widthOf (shown, 8.0f));
+    const auto beside = juce::jmax (0, row.getWidth() - keptLeft);
+    const auto room = isSong ? juce::jmin (juce::jmax (84, row.getWidth() * 2 / 3), beside) : beside;
+    const auto tight = [&] (const juce::String& last) { chevron = false; shown = last; width = widthOf (shown, 8.0f); };
+    const auto hasRole = current.role.isNotEmpty() && text.startsWith ("REF " + current.role + " ");
     if (isSong && width > room)
     {
         const auto pad = referenceButton->textRoom (chevron);
         const auto named = text.fromFirstOccurrenceOf ("REF ", false, false); // "B song"; without a role REF stays
-        shown = text_style::ellipsizedKeepingVersion (current.role.isEmpty() ? text : named, font, juce::jmax (0.0f, static_cast<float> (room) - pad));
+        shown = text_style::ellipsizedKeepingVersion (hasRole ? named : text, font, juce::jmax (0.0f, static_cast<float> (room) - pad));
         width = widthOf (shown, pad);
-        const auto head = current.role.isEmpty() ? juce::String ("REF") : "REF " + current.role;
-        if (shown.length() < (current.role.isEmpty() ? 7 : 5) || width > room) { shown = head; width = widthOf (shown, pad); }
-        if (width > room) { chevron = false; width = widthOf (shown, 8.0f); }
-        if (width > room) { shown = "REF"; width = widthOf (shown, 8.0f); }
-        width = juce::jmin (row.getWidth(), width);
+        const auto head = hasRole ? "REF " + current.role : juce::String ("REF");
+        if (shown.length() < (hasRole ? 5 : 7) || width > room) { shown = head; width = widthOf (shown, pad); }
+        if (width > room) tight (head);
+        if (width > room) tight ("REF");
     }
-    if (! isSong && width < widthOf (shown, referenceButton->textRoom (true))) chevron = false;
-    referenceButton->setReading (isSong, chevron, requiresNativeTextFont (text));
+    else if (! isSong && width > room)
+    {
+        tight (text);
+        if (width > room && ! active() && ! metricReady.has_value()) tight ("REF");
+    }
+    width = juce::jmin (row.getWidth(), width);
+    referenceButton->setReading (isSong, chevron, requiresNativeTextFont (text), choosable);
     referenceButton->setButtonText (shown);
     referenceButton->setTitle (i18n::tr ("Reference song for the meters") + " " + text);
     const auto told = song.isEmpty() || song == text ? text : song + "\n" + text;

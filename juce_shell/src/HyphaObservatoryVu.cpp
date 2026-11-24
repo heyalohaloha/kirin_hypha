@@ -60,8 +60,9 @@ void View::setPreSharpAvailable (bool available)
 bool View::setMetricFrame (const metric_needle::Frame& frame)
 {
     const auto wasReady = metricSelection.referenceReady();
+    const auto wasSong = metricSelection.referenceSong();
     if (!metricSelection.frames.replace (frame)) return false;
-    if (hybridVuVisible() && wasReady != metricSelection.referenceReady()) resized();
+    if (hybridVuVisible() && (wasReady != metricSelection.referenceReady() || wasSong != metricSelection.referenceSong())) resized();
     repaint();
     return true;
 }

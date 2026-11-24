@@ -21,5 +21,11 @@ struct Selection
         const auto& frame = frames.current();
         return frame.face == face && frame.status == metric_needle::Status::ready && std::isfinite (frame.median);
     }
+
+    // The song the needles of a metric face are read against (a ready frame's own), else none.
+    juce::String referenceSong() const
+    {
+        return referenceReady().value_or (false) ? juce::String::fromUTF8 (frames.current().song.c_str()) : juce::String();
+    }
 };
 }

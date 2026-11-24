@@ -96,9 +96,11 @@ void View::resized()
                                           typography::Composition::instrument);
         const auto legendWhole = juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12;
         const bool vuFace = ! luFace.active() && ! metricFaceActive();
+        // A notice keeps its room; on the VU the calibration legend keeps its own.
+        const int kept = feedbackText.isEmpty() ? (vuFace ? legendWhole + 8 : 0)
+                                                : vuFace ? calibration.getWidth() : calibration.getWidth() * 2 / 3;
         luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady(),
-                                      feedbackText.isEmpty() ? (vuFace ? legendWhole + 8 : 0) // a notice keeps its room
-                                          : vuFace ? calibration.getWidth() : calibration.getWidth() * 2 / 3);
+                                      kept, metricSelection.referenceSong());
         // Keep the existing calibration centred; its clickable text and the footer notice
         // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendWidth = juce::jmin (calibration.getWidth(), legendWhole);

@@ -38,10 +38,11 @@ public:
     void hideControls();
     // Takes the controls' places from the left of the VU row.
     void layout (juce::Rectangle<int>& row, int buttonHeight, const presentation::Context&);
-    void layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady = std::nullopt, int keptLeft = 0);
+    void layoutReferenceStatus (juce::Rectangle<int>& row, int height, std::optional<bool> metricReady = std::nullopt,
+                                int keptLeft = 0, const juce::String& metricSong = {});
     juce::String referenceStatus (std::optional<bool> metricReady = std::nullopt) const;
-    juce::String referenceText (std::optional<bool> metricReady = std::nullopt) const; // the song at 0, else the status
-    juce::String referenceSong() const; // "REF B song", told even while the song is not measured (tooltip)
+    juce::String referenceText (std::optional<bool> metricReady = std::nullopt, const juce::String& metricSong = {}) const; // the song at 0, else the status
+    juce::String referenceSong (const juce::String& metricSong = {}) const; // "REF B song", told even while it is not measured (tooltip)
     void paint (juce::Graphics&, juce::Rectangle<int> bounds, const State&, const KirinDelta&,
                 bool deltaAvailable, float pixelScale);
 
