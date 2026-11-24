@@ -96,15 +96,18 @@ void View::resized()
                                           typography::Composition::instrument);
         const auto legendWhole = juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12;
         const bool vuFace = ! luFace.active() && ! metricFaceActive();
-        // A notice keeps its room; on the VU the calibration legend keeps its own.
-        const int kept = feedbackText.isEmpty() ? (vuFace ? legendWhole + 8 : 0)
-                                                : vuFace ? calibration.getWidth() : calibration.getWidth() * 2 / 3;
+        // A notice keeps the room its shortest form needs; on the VU the calibration legend keeps its own.
+        const auto notice = footer_notice_font::leastWidth (context, feedbackText);
         luFace.layoutReferenceStatus (calibration, buttonHeight, noPostSong ? std::nullopt : metricSelection.referenceReady(),
-                                      kept, metricSelection.referenceSong());
-        // Keep the existing calibration centred; its clickable text and the footer notice
+                                      juce::jmin (notice, calibration.getWidth() * 2 / 3) + (vuFace ? legendWhole + 8 : 0),
+                                      metricSelection.referenceSong());
+        // Keep the existing calibration centred beside the notice; its clickable text and the footer notice
         // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
         const auto legendWidth = juce::jmin (calibration.getWidth(), legendWhole);
-        vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (legendWidth, buttonHeight));
+        auto legendArea = calibration;
+        if (vuFace && notice > (calibration.getWidth() - legendWidth) / 2)
+            legendArea = calibration.withTrimmedLeft (juce::jmin (notice, calibration.getWidth() - legendWidth));
+        vuCalibrationControl.setBounds (legendArea.withSizeKeepingCentre (legendWidth, buttonHeight));
         // The LU face names its own 0 on the dial: the 0 VU legend gives its place to the notice line.
         vuCalibrationControl.setVisible (vuFace);
         sessionArea = (luFace.active() || metricFaceActive()) ? calibration : calibration.withRight (vuCalibrationControl.getX() - 6);

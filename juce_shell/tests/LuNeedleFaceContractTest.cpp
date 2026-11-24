@@ -306,8 +306,7 @@ void verifySelectedMetricReferenceBadge()
         view.setMetricFace (Face::lu);
         KIRIN_LU_FACE_REQUIRE (read (view) == (width >= 450 ? juce::String ("REF North Road") : read (view)) && read (view).startsWith ("REF N"));
         // POST: which role's song it is, a song that changes is told at once, and the plate opens the choice.
-        auto song = readyFacts (-4.0);
-        song.role = "B";
+        auto song = readyFacts (-4.0); song.role = "B";
         view.lu().setFacts (song);
         KIRIN_LU_FACE_REQUIRE (read (view).contains ("B N"));
         song.role = "C"; song.song = "South Road";
@@ -321,7 +320,8 @@ void verifySelectedMetricReferenceBadge()
         view.lu().setFacts (song);
         KIRIN_LU_FACE_REQUIRE (plate.getWantsKeyboardFocus() && read (view).contains ("C W"));
         plate.onClick();
-        KIRIN_LU_FACE_REQUIRE (opened == 1);
+        KIRIN_LU_FACE_REQUIRE (opened == 1); view.setFeedback (record_ui::wavWaiting); // the usual notice leaves the song its room
+        KIRIN_LU_FACE_REQUIRE (width < 450 || read (view).contains ("C W")); view.setFeedback ({});
         song.song = juce::String::repeatedString ("Long Name ", 12);
         view.lu().setFacts (song);
         KIRIN_LU_FACE_REQUIRE (read (view).contains ("C L") && plate.getTooltip().contains (song.song.trim()));

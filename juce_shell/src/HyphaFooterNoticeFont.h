@@ -13,13 +13,14 @@ namespace hypha::footer_notice_font
 inline typography::TextRole roleForText (const presentation::Context& context,
                                         const juce::String& text, int availableWidth)
 {
-    const auto action = monoFont (context, typography::TextRole::action);
-    const bool compact = text_style::shownWidth (action, text) > static_cast<float> (availableWidth);
     const bool readable = text == "Cannot write to folder. Check access." || text == "2MIX has no DRUM; showing TIME / HISTORY"
         || text == live_compare_ui::keepTailEndedNotice || text == record_ui::wavWaiting
         || text == record_ui::wavWaitingShort || text == live_compare_ui::preProcessingNotice
         || text.startsWith ("Waiting up to 10 s, then ")
         || text == comparison_ui::beforeRealtimeBounce || text == comparison_ui::endThenRetry;
+    // Compared in the size it would be drawn in: a notice that only just fits is not drawn past its room.
+    const auto larger = monoFont (context, readable ? typography::TextRole::noticeBody : typography::TextRole::action);
+    const bool compact = text_style::shownWidth (larger, text) > static_cast<float> (availableWidth);
     if (readable) return compact ? typography::TextRole::noticeCompact : typography::TextRole::noticeBody;
     return compact ? typography::TextRole::legend : typography::TextRole::action;
 }
@@ -44,6 +45,14 @@ inline juce::String textFor (const presentation::Context& context, const juce::S
         || text_style::shownWidth (fontForText (context, notice, room.getWidth()), notice) <= room.getWidth()
         || wrappedHeight (context, notice, room.getWidth()) <= room.getHeight();
     return whole ? notice : juce::String (record_ui::wavWaitingShort);
+}
+
+// The row a notice needs to be read on one line: its short form where it has one (0 without a notice).
+inline int leastWidth (const presentation::Context& context, const juce::String& notice)
+{
+    if (notice.isEmpty()) return 0;
+    const juce::String least = notice == record_ui::wavWaiting ? juce::String (record_ui::wavWaitingShort) : notice;
+    return juce::roundToInt (std::ceil (text_style::shownWidth (fontForText (context, least, 1), least))) + 10;
 }
 
 inline void draw (juce::Graphics& g, const presentation::Context& context,
