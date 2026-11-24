@@ -231,7 +231,8 @@ void ScreenComponent::apply()
     const auto resultText = shown.preferenceResultText;
     auto noteText = shown.preferenceResultText.isNotEmpty() ? shown.preferenceResultNote : text_style::shownText (shown.instruction, look.policyFor (status)) + "\n" + text_style::shownText (shown.detail, look.policyFor (detail));
     if (preferenceResult && shown.endExplanation.isNotEmpty())
-        noteText = result_layout::liveNotes (shown.instruction, shown.endExplanation, shown.trialNotice);
+        noteText = result_layout::liveNotes (shown.guidanceShown ? shown.preferenceResultNote : shown.instruction,
+                                             shown.endExplanation, shown.trialNotice);
     if (preferenceResult && shown.guidanceShown)
     {
         // A guidance label can still be valid after REVEAL. Give its text a measured row

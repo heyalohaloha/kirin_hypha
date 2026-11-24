@@ -119,6 +119,13 @@ inline void verifyBlindResultFixedAtReveal (const juce::File& sandbox)
     r.hearBoth(); r.listen (pre); r.reveal();
     require (r.status().trial.usedPostFallback && r.status().trial.fallbackForTiming, "the substitute of the trial is told");
     afterReveal (pre, timing, "a real substitute");
+    // Stopped past three seconds the guidance stands beside that line, which stays on the screen.
+    r.clock.playing = false; r.advance (3.5);
+    auto* notes = dynamic_cast<juce::TextEditor*> (r.blind().findChildWithID ("live-blind-preference-note"));
+    require (r.blind().screen().guidanceShown && notes != nullptr && notes->isVisible() && notes->getText().contains (timing)
+             && notes->getText().contains (r.blind().screen().recovery) && r.imageNote() == timing,
+             "a stopped RESULT keeps its line with the guidance");
+    r.clock.playing = true; r.advance (0.4);
     r.end();
 }
 

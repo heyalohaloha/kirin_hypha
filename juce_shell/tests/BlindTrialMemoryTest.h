@@ -3,6 +3,7 @@
 #include "../src/HyphaBlindImageSheet.h"
 #include "../src/HyphaBlindResultImage.h"
 #include "../src/HyphaCapturePngFile.h"
+#include "../src/HyphaLanguage.h"
 #include "TestPathBudget.h"
 #include <memory>
 
@@ -230,6 +231,60 @@ void verifyEstimateFixedAtAnswer (Require require, const juce::File& root)
     require (! file.exists(), "an estimate writes no file");
 }
 
+// The DAW stays stopped on the RESULT: why and how to go on stand beside the RESULT's own note, small and large.
+template <typename Require>
+void verifyStoppedResultKeepsNote (Require require, const juce::File& root)
+{
+    const auto file = root.getChildFile ("blind-stopped-fixture");
+    const juce::String note = "POST was used briefly when timing was unavailable";
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const bool stoodIn : { true, false }) for (const int rounds : { 1, 5 })
+    {
+        const i18n::ScopedLanguage shown (language);
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        live_compare::GainSnapshot gain;
+        gain.coherent = true; gain.retained = true; gain.revision = 2; gain.pre = 1.2f; gain.post = 0.8f; gain.ceiling = 0.9f;
+        gain.identity = { 1, 2, 3, 4, 48000 };
+        Window window (kept, status, file, rounds);
+        window.view.setPreferenceApprovedGains (status.generation, gain);
+        status.trial.played = 3;
+        status.trial.usedPostFallback = status.trial.fallbackForTiming = stoodIn;
+        window.show (status);
+        if (rounds > 1) window.view.onGuess (1);
+        status.trial.revealed = true; window.show (status);
+        window.view.setPreferenceApprovedGains (status.generation, gain);
+        const auto playing = window.view.screen();
+        const auto facts = window.view.resultFacts().note;
+        require (facts == (stoodIn ? note : juce::String()), "the RESULT's own note");
+        for (const int width : { 300, 450, 900 })
+        {
+            window.view.setSize (width, width * 2 / 3);
+            const auto where = juce::String (width) + (stoodIn ? " with" : " without") + " a substitute, " + juce::String (rounds) + " rounds: ";
+            const auto told = [&] (bool stopped) {
+                auto* body = dynamic_cast<juce::TextEditor*> (window.view.findChildWithID ("live-blind-preference-note"));
+                require (body != nullptr && body->isVisible() && ! body->getBounds().isEmpty() && window.view.getLocalBounds().contains (body->getBounds()),
+                         where + "the notes have their own place");
+                if (body == nullptr) return;
+                for (auto* sibling : window.view.getChildren())
+                    require (sibling == body || ! sibling->isVisible() || ! sibling->getBounds().intersects (body->getBounds()),
+                             where + "no overlap with " + sibling->getComponentID());
+                require (body->getText().contains (i18n::tr (note)) == stoodIn, where + "the note is on the screen");
+                const auto& guided = window.view.screen();
+                require (! stopped || (guided.guidanceShown && body->getText().contains (i18n::tr (guided.recovery))),
+                         where + "the stopped guidance is beside it");
+            };
+            told (false);
+            auto stopped = status; stopped.prolongedWait = true; stopped.reason = stopped.observation = live_compare::RecoveryReason::stopped;
+            window.show (stopped); told (true);
+            require (window.view.resultFacts().note == facts, where + "SAVE IMAGE keeps the same note");
+            window.show (status); told (false);
+            require (window.view.screen() == playing, where + "playing again restores the RESULT");
+        }
+    }
+    require (! file.exists(), "a stopped RESULT writes no file");
+}
+
 template <typename Require>
 void verify (Require require, const juce::File& root)
 {
@@ -323,5 +378,6 @@ void verify (Require require, const juce::File& root)
     verifyRevoked (require, root);
     verifyNextAssignmentWaits (require, root);
     verifyEstimateFixedAtAnswer (require, root);
+    verifyStoppedResultKeepsNote (require, root);
 }
 }
