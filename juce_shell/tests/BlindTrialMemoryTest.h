@@ -306,6 +306,59 @@ void verifyStoppedResultKeepsNote (Require require, const juce::File& root)
     require (! file.exists(), "a stopped RESULT writes no file");
 }
 
+// A long wait on the RESULT offers ALIGN OFF: every plate keeps its whole name, with SAVE IMAGE beside it where the
+// row has room and back in its place when the wait ends.
+template <typename Require>
+void verifyResultAlignOff (Require require, const juce::File& root)
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese }) for (const int rounds : { 1, 5 })
+    {
+        const i18n::ScopedLanguage shown (language);
+        const auto kept = std::make_shared<live_blind_ui::TrialMemory>();
+        auto status = trial (false);
+        Window window (kept, status, root.getChildFile ("blind-align-fixture"), rounds);
+        status.trial.played = 3; status.trial.usedPostFallback = status.trial.fallbackForTiming = true; window.show (status);
+        if (rounds > 1) window.view.onGuess (1);
+        status.trial.revealed = true; window.show (status);
+        bool dense = false, wide = false;
+        for (const int width : { 300, 375, 450, 600, 900 })
+        {
+            window.view.setSize (width, width * 2 / 3);
+            const auto where = "RESULT at " + juce::String (width) + ", " + juce::String (rounds) + " rounds: ";
+            const auto button = [&] (const char* id) { return dynamic_cast<HyphaTextButton*> (window.view.findChildWithID ("live-blind-" + juce::String (id))); };
+            const auto plates = [&] (bool waiting) {
+                int count = 0;
+                for (const auto* id : { "source-1", "source-2", "align-off", "save-image", "end" })
+                {
+                    auto* plate = button (id);
+                    require (plate != nullptr, where + id);
+                    if (plate == nullptr || ! plate->isVisible()) continue;
+                    ++count;
+                    require (window.view.getLocalBounds().contains (plate->getBounds())
+                             && text_style::shownWidth (labelFont (presentation::forEditor (width, width * 2 / 3), typography::TextRole::action),
+                                                        plate->displayedText(), text_style::LabelPolicy::fixed) <= plate->getWidth() - 12,
+                             where + id + " keeps its whole name");
+                    for (const auto* other : { "source-1", "source-2", "align-off", "save-image", "end" })
+                        if (auto* next = button (other); next != plate && next != nullptr && next->isVisible())
+                            require (! next->getBounds().intersects (plate->getBounds()), where + id + " / " + other);
+                }
+                const bool off = button ("align-off")->isVisible(), save = button ("save-image")->isVisible();
+                require (off == waiting && (save || (waiting && count == 4)), where + "ALIGN OFF only while it waits, SAVE IMAGE otherwise");
+                return save;
+            };
+            require (plates (false), where + "SAVE IMAGE stands");
+            auto waiting = status; waiting.prolongedWait = true;
+            waiting.reason = waiting.observation = live_compare::RecoveryReason::contentAmbiguous;
+            window.show (waiting);
+            const bool beside = plates (true);
+            dense = dense || ! beside; wide = wide || beside;
+            window.show (status);
+            require (plates (false), where + "SAVE IMAGE returns");
+        }
+        require (dense && wide, "both rows were seen");
+    }
+}
+
 template <typename Require>
 void verify (Require require, const juce::File& root)
 {
@@ -400,5 +453,6 @@ void verify (Require require, const juce::File& root)
     verifyNextAssignmentWaits (require, root);
     verifyEstimateFixedAtAnswer (require, root);
     verifyStoppedResultKeepsNote (require, root);
+    verifyResultAlignOff (require, root);
 }
 }

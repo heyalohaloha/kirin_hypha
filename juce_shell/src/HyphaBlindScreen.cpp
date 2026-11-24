@@ -342,15 +342,18 @@ void ScreenComponent::resized()
         auto panel = getLocalBounds().reduced (denseResult ? denseInset : 24);
         if (denseResult) panel.removeFromTop (24 - denseInset); // same 24px top inset as normal
         title.setBounds (panel.removeFromTop (denseResult ? 18 : 40));
+        saveImage.setVisible (! covered && shown.saveImageShown && ! (denseResult && shown.alignOffShown));
         auto actions = panel.removeFromBottom (denseResult ? 24 : 40);
         if (denseResult)
         {
-            // Keep all four actions available without spending two rows on them.
-            const int cell = actions.getWidth() / (shown.alignOffShown ? 5 : 4);
+            // Keep all four actions available without spending two rows on them. While ALIGN OFF is offered it
+            // takes SAVE IMAGE's place: five names do not fit one row here. SAVE IMAGE returns when the wait ends.
+            const int cell = actions.getWidth() / 4;
             one.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
             two.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
-            if (shown.alignOffShown) alignOff.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
-            saveImage.setBounds (actions.removeFromLeft (cell).reduced (2, 0));
+            const auto third = actions.removeFromLeft (cell).reduced (2, 0);
+            alignOff.setBounds (third);
+            saveImage.setBounds (third);
             end.setBounds (actions.reduced (2, 0));
         }
         else
