@@ -91,6 +91,7 @@ void KirinHyphaEditor::showMeterReferenceMenu()
     const auto sounding = [] (const hypha::reference_audition::Snapshot& now)
     {
         const int slot = now.audibleComparisonSlot >= 2 ? now.audibleComparisonSlot
+                       : now.switchingSlot >= 2 ? now.switchingSlot
                        : now.pendingAudition.waiting() ? now.pendingAudition.slot : 0;
         return slot == 2 || slot == 3 ? slot : 0;
     };
@@ -122,6 +123,8 @@ void KirinHyphaEditor::showMeterReferenceMenu()
             const int slot = sounding (now);
             if (now.selectedSongSetId != setId) editor.referenceView.onSelectSongSet (setId);
             editor.referenceView.onSelectSong (songId);
+            const auto chosen = editor.processorRef.referenceAuditionSnapshot();
+            if (chosen.selectedSongSetId != setId || chosen.selectedSongId != songId) return; // it was refused and said so
             if (slot == 2) editor.referenceView.onSelectRef(); // C sounds: the choice is B, as pressing B
             else editor.processorRef.selectReferenceVisualSlot (3);
             again (editor);
@@ -150,7 +153,7 @@ void KirinHyphaEditor::showMeterReferenceMenu()
             const auto now = editor.processorRef.referenceAuditionSnapshot();
             if (now.checkSelection == nullptr || now.checkSelection->candidateId != id) { editor.showToast ("Song selection was not changed"); return; }
             if (sounding (now) == 3) editor.referenceView.onSelectC(); // B sounds: the choice is C, as pressing C
-            else editor.processorRef.selectReferenceVisualSlot (2);
+            else { editor.dropReferenceAfterTail(); editor.processorRef.selectReferenceVisualSlot (2); }
             again (editor);
         });
     }
